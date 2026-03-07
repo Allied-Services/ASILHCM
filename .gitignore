@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.vite/
+
+# Environment variables — NEVER commit secrets
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Temp / cache
+.cache/
+.parcel-cache/
+*.tsbuildinfo
+
+# Uploaded files (handled by cloud storage in prod)
+uploads/
+
+# Desktop preview copy — not source of truth
+# (source is this folder; preview is on Desktop)

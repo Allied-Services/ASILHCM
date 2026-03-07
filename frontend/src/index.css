@@ -1,0 +1,449 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg-color: #0c0f14;
+  --surface-color: rgba(26, 31, 44, 0.7);
+  --surface-border: rgba(255, 255, 255, 0.08);
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --danger: #ef4444;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 280px;
+  background: var(--surface-color);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid var(--surface-border);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  z-index: 10;
+}
+
+.logo {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 40px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  color: var(--primary);
+}
+
+.nav-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font-size: 1rem;
+  text-align: left;
+  gap: 12px;
+}
+
+.nav-item:hover,
+.nav-item.active {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary);
+}
+
+.nav-item.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 48px;
+  position: relative;
+}
+
+.main-content::before {
+  content: '';
+  position: absolute;
+  top: -20vh;
+  left: -20vw;
+  width: 60vw;
+  height: 60vh;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(12, 15, 20, 0) 70%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.page-header {
+  margin-bottom: 32px;
+}
+
+.page-title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.page-subtitle {
+  color: var(--text-muted);
+  font-size: 1rem;
+}
+
+/* Glass Card — NOTE: no transform on hover to avoid stacking context trapping fixed modals */
+.glass-card {
+  background: var(--surface-color);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  transition: box-shadow 0.2s ease;
+}
+
+.glass-card:hover {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Dashboard layout helper ────────────────────────────────────────────── */
+.dashboard {
+  padding: 0;
+}
+
+.header {
+  margin-bottom: 1.75rem;
+}
+
+.header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.header p {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+/* ── GLOBAL MODAL SYSTEM — fixes background bleed in ALL popups ─────────── */
+/* Every modal must use these two classes.                                    */
+/* position:fixed + z-index:9999 ensures no parent stacking context traps it  */
+.modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 9999 !important;
+  background: rgba(0, 0, 0, 0.82) !important;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2rem;
+  overflow-y: auto;
+  /* Prevents body scroll bleed when modal is open */
+  overscroll-behavior: contain;
+}
+
+.modal-box {
+  background: var(--bg-card, #1e2535);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 16px;
+  width: 100%;
+  max-width: 720px;
+  margin-bottom: 2rem;
+  position: relative;
+  z-index: 10000;
+}
+
+/* Prevent .main-content from creating its own stacking context */
+/* The ::before pseudo-element with z-index:-1 is safe */
+.main-content {
+  isolation: auto !important;
+}
+
+/* Dropdown menus (Export, etc.) — must escape overflow:auto containers */
+.dropdown-menu {
+  position: fixed !important;
+  z-index: 9998 !important;
+  background: var(--bg-card, #1e2535);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  min-width: 300px;
+  overflow: hidden;
+}
+
+/* ── CSS variables used by newer components ─────────────────────────────── */
+:root {
+  --bg-dark: #0c0f14;
+  --bg-card: #1a1f2c;
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #f8fafc;
+  --primary: #38bdf8;
+}
+
+/* ── ESS Employee Portal — Light theme ──────────────────────────────────── */
+.ess-root {
+  --ess-bg: #f0f4f8;
+  --ess-card: #ffffff;
+  --ess-border: #e2e8f0;
+  --ess-text: #1e293b;
+  --ess-muted: #64748b;
+  --ess-primary: #1e3a5f;
+  --ess-accent: #38bdf8;
+  --ess-success: #16a34a;
+  --ess-danger: #dc2626;
+  min-height: 100vh;
+  background: var(--ess-bg);
+  color: var(--ess-text);
+  font-family: 'Inter', sans-serif;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.stat-value {
+  font-size: 2.25rem;
+  font-weight: 700;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.stat-icon {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary);
+  padding: 12px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+}
+
+.stat-icon.warning {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--warning);
+}
+
+.stat-icon.success {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--success);
+}
+
+/* Table */
+.data-table-container {
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--surface-border);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.data-table th {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 16px 20px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.data-table td {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--surface-border);
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.badge {
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+
+.badge-approved {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success);
+}
+
+.badge-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
+/* Form Controls */
+.controls-bar {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.input-glass {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  color: var(--text-main);
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.input-glass:focus {
+  border-color: var(--primary);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease forwards;
+}
+
+/* Mock OCR UI */
+.ocr-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+
+.receipt-image {
+  background: #f8fafc;
+  border-radius: var(--radius-md);
+  height: 400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+  font-family: monospace;
+  position: relative;
+  overflow: hidden;
+}
+
+.scan-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--primary);
+  box-shadow: 0 0 10px var(--primary);
+  animation: scan 2s linear infinite;
+  display: none;
+}
+
+.receipt-image.scanning .scan-line {
+  display: block;
+}
+
+@keyframes scan {
+  0% {
+    top: 0;
+  }
+
+  100% {
+    top: 100%;
+  }
+}
+
+.audit-alert {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 16px;
+  border-radius: var(--radius-md);
+  margin-top: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: #ffb3b3;
+}
