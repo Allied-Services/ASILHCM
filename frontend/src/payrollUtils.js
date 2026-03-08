@@ -6,14 +6,9 @@ export const COMPANY = {
     address: 'Office 301, 3rd Floor, Business Avenue, Shahrah-e-Faisal, Karachi',
 };
 
-// Shared employee master with banking, EOBI & contact details
-export const PAYROLL_EMPLOYEES = [
-    { id: 'ASIL/SPL-91/21', name: 'Muhammad Anees', designation: 'Terminal Ops Admin', client: 'Wafi Energy', contract: 'CTR-2026-A1', location: 'Bhakkar', basic: 65000, hra: 4745, conveyance: 1500, medical_allowance: 1000, other_allowances: 0, gross: 72245, pf_enrolled: false, cnic: '32202-1939035-5', eobiNo: '5300G494094', bankName: 'HBL', bankAccount: '1037900000000', accountTitle: 'Muhammad Anees', contact: '0301-5794882', email: 'Muhammad.Anees@wafi-energy.com', city: 'Layyah', address: 'Ward 07, Karor Lal E Son, Layyah, Punjab', bankCode: 'HBL001' },
-    { id: 'ASIL/SPL-205/21', name: 'Muhammad Usman', designation: 'General Worker', client: 'PSO', contract: 'CTR-2025-X9', location: 'Bhakkar', basic: 34000, hra: 2000, conveyance: 1000, medical_allowance: 0, other_allowances: 0, gross: 37000, pf_enrolled: false, cnic: '38101-7217238-7', eobiNo: '2000I088555', bankName: 'MCB', bankAccount: 'PK81MUCB0729601211002407', accountTitle: 'Muhammad Usman', contact: '0344-4052413', email: 'usmancheena76047@gmail.com', city: 'Bhakkar', address: 'Near Rehmani Masque, Mandi Town, Bhakkar', bankCode: 'MCB001' },
-    { id: 'EMP-2026-201', name: 'Muhammad Asif Khan', designation: 'Security Guard', client: 'Bank Al Habib', contract: 'CTR-2026-A1', location: 'KHI-Clifton', basic: 35000, hra: 2000, conveyance: 1000, medical_allowance: 0, other_allowances: 0, gross: 38000, pf_enrolled: true, cnic: '42101-1234567-1', eobiNo: 'EOBI-12345', bankName: 'HBL', bankAccount: '1037900000001', accountTitle: 'Muhammad Asif Khan', contact: '0300-1111111', email: 'asif.khan@asil.com.pk', city: 'Karachi', address: 'Flat 5, Block A, Clifton, Karachi', bankCode: 'HBL001' },
-    { id: 'EMP-2026-202', name: 'Farhan Ahmed', designation: 'Security Supervisor', client: 'Bank Al Habib', contract: 'CTR-2026-A1', location: 'KHI-IIG', basic: 46000, hra: 3500, conveyance: 1500, medical_allowance: 1000, other_allowances: 0, gross: 52000, pf_enrolled: true, cnic: '42201-9876543-2', eobiNo: 'EOBI-23456', bankName: 'HBL', bankAccount: '1037900000002', accountTitle: 'Farhan Ahmed', contact: '0333-2222222', email: 'farhan.ahmed@asil.com.pk', city: 'Karachi', address: 'House 12, Block B, IIG Campus, Karachi', bankCode: 'HBL001' },
-    { id: 'EMP-2026-205', name: 'Shahzad Iqbal', designation: 'Shift Incharge', client: 'Bank Al Habib', contract: 'CTR-2026-A1', location: 'ISB-F-7', basic: 58000, hra: 4500, conveyance: 1500, medical_allowance: 1000, other_allowances: 0, gross: 65000, pf_enrolled: true, cnic: '61101-3456789-3', eobiNo: 'EOBI-56789', bankName: 'HBL', bankAccount: '1037900000003', accountTitle: 'Shahzad Iqbal', contact: '0321-3333333', email: 'shahzad.iqbal@asil.com.pk', city: 'Islamabad', address: 'House 45, F-7/2, Islamabad', bankCode: 'HBL001' },
-];
+// Employees are loaded from the Neon DB via the backend API
+export const PAYROLL_EMPLOYEES = [];
+
 
 export const PAYROLL_CONTRACT_CFG = {
     'CTR-2026-A1': { service_charges_pct: 15, sales_tax_pct: 17, life_insurance: 500, medical_ee: 800, medical_sp: 600, medical_ch: 300, sessi: 2220, edu_cess: 0, client_approval: true },
