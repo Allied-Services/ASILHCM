@@ -72,6 +72,7 @@ app.get('/auth/google/callback',
 app.get('/auth/me', requireAuth, (req, res) => res.json({ user: req.user }));
 app.post('/auth/logout', (req, res) => res.json({ ok: true }));
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+app.get('/', (req, res) => res.json({ name: 'ASIL HCM API', status: 'running', app: 'https://asil-hcm-frontend.onrender.com' }));
 
 // ─── Employee Mappers ─────────────────────────────────────────────────────────
 const nullDate = (d) => (d && d !== '' && d !== 'undefined') ? d : null;
