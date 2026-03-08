@@ -1,10 +1,11 @@
 // One-time database setup script — run with: node setup-db.js
 const { Client } = require('pg');
-
-const DATABASE_URL = 'postgresql://neondb_owner:npg_sqTk6A2evohU@ep-dry-shadow-ad443mnl-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_sqTk6A2evohU@ep-dry-shadow-ad443mnl-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
 
 const schema = `
-CREATE TABLE IF NOT EXISTS employees (
+DROP TABLE IF EXISTS payroll_transactions, bills, contracts, employees, users, clients CASCADE;
+
+CREATE TABLE employees (
   id TEXT PRIMARY KEY,
   bu TEXT, active TEXT DEFAULT 'Yes',
   client TEXT, client_bu TEXT,
@@ -29,27 +30,28 @@ CREATE TABLE IF NOT EXISTS employees (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS clients (
-  id SERIAL PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  industry TEXT, contact_person TEXT,
-  contact_phone TEXT, contact_email TEXT,
-  address TEXT, ntn TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS contracts (
+CREATE TABLE clients (
   id TEXT PRIMARY KEY,
-  client_id INT REFERENCES clients(id),
-  title TEXT, service_type TEXT,
-  start_date DATE, end_date DATE,
-  value NUMERIC, status TEXT DEFAULT 'Active',
-  site TEXT, province TEXT,
-  service_charge_pct NUMERIC DEFAULT 8,
+  name TEXT NOT NULL UNIQUE,
+  hq TEXT, ntn TEXT, strn TEXT, industry TEXT,
+  contacts JSONB DEFAULT '[]',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS payroll_transactions (
+CREATE TABLE contracts (
+  id TEXT PRIMARY KEY,
+  client_id TEXT REFERENCES clients(id) ON DELETE CASCADE,
+  contract_name TEXT,
+  location TEXT, service_type TEXT,
+  headcount INT DEFAULT 0,
+  status TEXT DEFAULT 'Active',
+  start_date DATE, end_date DATE,
+  costs JSONB DEFAULT '{}',
+  financials JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE payroll_transactions (
   id SERIAL PRIMARY KEY,
   employee_id TEXT REFERENCES employees(id),
   month INT NOT NULL, year INT NOT NULL,
@@ -66,56 +68,37 @@ CREATE TABLE IF NOT EXISTS payroll_transactions (
   UNIQUE(employee_id, month, year)
 );
 
-CREATE TABLE IF NOT EXISTS bills (
-  id TEXT PRIMARY KEY,
-  type TEXT, vendor TEXT, date DATE,
+CREATE TABLE bills (
+  id TEXT PRIMARY KEY, type TEXT, vendor TEXT, date DATE,
   client TEXT, contract_id TEXT, site TEXT,
   purpose TEXT, bill_type TEXT,
-  amount NUMERIC DEFAULT 0, gst NUMERIC DEFAULT 0,
-  total NUMERIC DEFAULT 0,
-  status TEXT DEFAULT 'Draft',
-  note TEXT, items JSONB, image_url TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  amount NUMERIC DEFAULT 0, gst NUMERIC DEFAULT 0, total NUMERIC DEFAULT 0,
+  status TEXT DEFAULT 'Draft', note TEXT, items JSONB, image_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
   id SERIAL PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   name TEXT, role TEXT DEFAULT 'staff',
-  google_id TEXT UNIQUE, avatar TEXT,
-  last_login TIMESTAMPTZ,
+  google_id TEXT UNIQUE, avatar TEXT, last_login TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_emp_client ON employees(client);
-CREATE INDEX IF NOT EXISTS idx_emp_cnic ON employees(cnic);
-CREATE INDEX IF NOT EXISTS idx_payroll_emp ON payroll_transactions(employee_id);
-CREATE INDEX IF NOT EXISTS idx_bills_status ON bills(status);
 `;
 
 async function setup() {
-    const client = new Client({ connectionString: DATABASE_URL });
-    try {
-        console.log('Connecting to Neon database...');
-        await client.connect();
-        console.log('Connected! Creating tables...');
-        await client.query(schema);
-        console.log('');
-        console.log('All tables created successfully:');
-        console.log('  employees');
-        console.log('  clients');
-        console.log('  contracts');
-        console.log('  payroll_transactions');
-        console.log('  bills');
-        console.log('  users');
-        console.log('');
-        console.log('Database setup complete!');
-    } catch (err) {
-        console.error('Error:', err.message);
-    } finally {
-        await client.end();
-    }
+  const client = new Client({ connectionString: DATABASE_URL });
+  try {
+    console.log('Connecting to Neon database...');
+    await client.connect();
+    console.log('Connected! Recreating schema...');
+    await client.query(schema);
+    console.log('\n✅ All tables recreated successfully:');
+    console.log('   employees, clients, contracts, payroll_transactions, bills, users');
+  } catch (err) {
+    console.error('Error:', err.message);
+  } finally {
+    await client.end();
+  }
 }
-
 setup();

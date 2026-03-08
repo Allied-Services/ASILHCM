@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Users, Search, Plus, Filter, Upload, Download, CheckCircle, X, ChevronDown } from 'lucide-react';
+import { api } from './api';
 import EmployeeProfile from './EmployeeProfile';
 
 // ── Exact columns from Master Data.csv ───────────────────────────────────────
@@ -23,60 +24,7 @@ const STATUS_CLR = { Active: '#22c55e', Inactive: '#eab308', Terminated: '#ef444
 // ── Helper: parse raw salary string like "72,245.00" ────────────────────────
 const parseSalary = (s) => parseFloat(String(s || '0').replace(/,/g, '')) || 0;
 
-// ── Sample roster (2 employees from the CSV + extras) ────────────────────────
-const SAMPLE = [
-    {
-        id: 'ASIL/SPL-91/21', bu: 'WafiBPO', active: 'Yes',
-        client: 'Wafi Energy Pakistan Limited', clientBU: 'Trading & Supply',
-        dept: 'Terminal Operations Support Services', designation: 'Terminal Operations Administrator',
-        location: 'Bhakkar', province: 'Punjab', name: 'Muhammad Anees',
-        fatherName: 'Munawar Zaman Baig', motherName: 'Shahida Parveen',
-        cnic: '32202-1939035-5', cnicIssue: '2020-06-01', cnicExpiry: '2030-06-01',
-        placeOfBirth: 'Layyah', eobiNo: '5300G494094', religion: 'Islam',
-        salary: 72245, maritalStatus: 'Married',
-        primaryContact: '0301-5794882', emergencyContact: '', email: 'Muhammad.Anees@wafi-energy.com',
-        presentAddress: 'Ward # 07 Mohallah Ahmed Ali Aoulakh Karor Lal E Son Dist.Layyah Punjab',
-        permanentAddress: 'Ward # 07 Mohallah Ahmed Ali Aoulakh Karor Lal E Son Dist.Layyah Punjab',
-        dob: '1989-12-10', doj: '2021-08-01',
-        lastSalary: 72245,
-        spouseName: '', spouseAge: '', spouseCnic: '',
-        child1Name: '', child1Age: '', child1Id: '',
-        child2Name: '', child2Age: '', child2Id: '',
-        medicalType: '', medicalMaternity: '', totalMedicalCoverage: '',
-        bankName: 'HBL', bankAccount: '1037900000000', accountTitle: 'Muhammad Anees',
-        nokName: 'Aqsa Shafique', nokRelation: '', nokContact: '',
-        salaryHistory: [
-            { date: '2021-08-01', basic: 65000, hra: 4200, conveyance: 1500, medical: 1000, other: 0, gross: 71700, note: 'On Joining' },
-            { date: '2023-01-01', basic: 65000, hra: 4745, conveyance: 1500, medical: 1000, other: 0, gross: 72245, note: 'Annual Increment' },
-        ],
-        leaves: { cl: { total: 10, used: 3 }, ml: { total: 8, used: 1 }, el: { total: 14, used: 5 } },
-    },
-    {
-        id: 'ASIL/SPL-205/21', bu: 'WafiBPO', active: 'No',
-        client: 'Pakistan State Oil Company', clientBU: 'Trading & Supply',
-        dept: 'Terminal Operations Support Services', designation: 'General Worker',
-        location: 'Bhakkar', province: 'Punjab', name: 'Muhammad Usman',
-        fatherName: 'Khawaja Abdul Subhan', motherName: 'Shaheen Subhan',
-        cnic: '38101-7217238-7', cnicIssue: '2020-12-30', cnicExpiry: '2030-12-30',
-        placeOfBirth: 'Bhakkar', eobiNo: '2000I088555', religion: 'Islam',
-        salary: 37000, maritalStatus: 'Married',
-        primaryContact: '0344-4052413', emergencyContact: '', email: 'usmancheena76047@gmail.com',
-        presentAddress: 'Near Rehmani Masque Kachi Basti Moh Mandi Town Bhakkar',
-        permanentAddress: 'Near Rehmani Masque Kachi Basti Moh Mandi Town Bhakkar',
-        dob: '1993-03-17', doj: '2021-08-01',
-        lastSalary: 37000,
-        spouseName: '', spouseAge: '', spouseCnic: '',
-        child1Name: '', child1Age: '', child1Id: '',
-        child2Name: '', child2Age: '', child2Id: '',
-        medicalType: '', medicalMaternity: '', totalMedicalCoverage: '',
-        bankName: 'MCB Bank Limited', bankAccount: 'PK81MUCB0729601211002407', accountTitle: 'Zahra Ahmed',
-        nokName: '', nokRelation: '', nokContact: '',
-        salaryHistory: [
-            { date: '2021-08-01', basic: 34000, hra: 2000, conveyance: 1000, medical: 0, other: 0, gross: 37000, note: 'On Joining' },
-        ],
-        leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
-    },
-];
+// No sample data — loaded from Neon DB
 
 const EMPTY_FORM = {
     id: '', bu: '', active: 'Yes', client: '', clientBU: '', dept: '', designation: '',
@@ -104,7 +52,9 @@ const Overlay = ({ children, wide }) => (
 );
 
 export default function EmployeeInformation() {
-    const [emps, setEmps] = useState(SAMPLE);
+    const [emps, setEmps] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
     const [search, setSearch] = useState('');
     const [filterActive, setFilterActive] = useState('All');
     const [filterClient, setFilterClient] = useState('All');
@@ -118,6 +68,13 @@ export default function EmployeeInformation() {
     const [csvRows, setCsvRows] = useState([]);
     const [csvErr, setCsvErr] = useState('');
     const fileRef = useRef();
+
+    // ── Load employees from DB on mount ─────────────────────────────────────
+    useEffect(() => {
+        api.getEmployees()
+            .then(data => { setEmps(data.employees); setLoading(false); })
+            .catch(() => setLoading(false));
+    }, []);
 
     const secIdx = SECTIONS.indexOf(sec);
 
@@ -219,27 +176,36 @@ export default function EmployeeInformation() {
         reader.readAsText(f);
     };
 
-    const importBulk = () => {
-        setEmps(p => [...p, ...csvRows]); setCsvRows([]); setShowAdd(false);
-        if (fileRef.current) fileRef.current.value = '';
+    const importBulk = async () => {
+        setSaving(true);
+        try {
+            const data = await api.bulkImportEmployees(csvRows);
+            setEmps(p => [...p, ...data.employees]);
+            if (data.errors?.length) alert(`Imported ${data.saved} employees. ${data.errors.length} skipped (duplicate IDs).`);
+            setCsvRows([]); setShowAdd(false);
+            if (fileRef.current) fileRef.current.value = '';
+        } catch (err) { alert('Import error: ' + err.message); }
+        setSaving(false);
     };
 
-    const addSingle = () => {
+    const addSingle = async () => {
         if (!form.name || !form.cnic) return alert('Employee Name and CNIC are required.');
+        setSaving(true);
         const gross = parseSalary(form.salary);
-        const newEmp = {
-            ...form,
-            salary: gross,
-            lastSalary: parseSalary(form.lastSalary) || gross,
-            salaryHistory: gross ? [{ date: form.doj || new Date().toISOString().split('T')[0], basic: gross, hra: 0, conveyance: 0, medical: 0, other: 0, gross, note: 'On Joining' }] : [],
-            leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
-        };
-        setEmps(p => [...p, newEmp]); setForm(EMPTY_FORM); setSec(SECTIONS[0]); setShowAdd(false);
+        try {
+            const data = await api.createEmployee({ ...form, salary: gross, lastSalary: parseSalary(form.lastSalary) || gross });
+            setEmps(p => [...p, data.employee]);
+            setForm(EMPTY_FORM); setSec(SECTIONS[0]); setShowAdd(false);
+        } catch (err) { alert('Save failed: ' + err.message); }
+        setSaving(false);
     };
 
     const closeAdd = () => { setShowAdd(false); setCsvRows([]); setCsvErr(''); setForm(EMPTY_FORM); setSec(SECTIONS[0]); if (fileRef.current) fileRef.current.value = ''; };
 
-    const updateEmployee = (updated) => { setEmps(p => p.map(e => e.id === updated.id ? updated : e)); setProfile(updated); };
+    const updateEmployee = async (updated) => {
+        setEmps(p => p.map(e => e.id === updated.id ? updated : e)); setProfile(updated); // optimistic
+        try { await api.updateEmployee(updated.id, updated); } catch (err) { console.error('Sync error:', err.message); }
+    };
 
     // ── Field Input helper ───────────────────────────────────────────────────
     const F = ({ label, field, type = 'text', opts }) => (

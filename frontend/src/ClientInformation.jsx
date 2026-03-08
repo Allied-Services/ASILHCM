@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Building, Search, Plus, MapPin, Users, X, Phone, Mail, FileText, ChevronLeft, Edit2, Trash2, CheckCircle, AlertCircle, Save } from 'lucide-react';
+import { api } from './api';
 
 // ── Sample Data ──────────────────────────────────────────────────────────────
 const SERVICE_TYPES = [
@@ -22,43 +23,7 @@ const EMPTY_CONTRACT = {
     financials: { wht_pct: 7, sales_tax_pct: 17, service_charges_pct: 15 }
 };
 
-const SAMPLE_CLIENTS = [
-    {
-        id: 'CLT-001', name: 'Bank Al Habib', hq: 'Karachi', ntn: '7483920-1', strn: 'STRN-BAH-001', industry: 'Banking & Finance',
-        contacts: [
-            { id: 'c1', name: 'Mr. Tariq Mehmood', title: 'Head of Administration', phone: '0300-1234567', email: 'tariq@bahl.com.pk' },
-            { id: 'c2', name: 'Ms. Nadia Rizvi', title: 'Procurement Officer', phone: '0321-9876543', email: 'nadia@bahl.com.pk' },
-        ],
-        contracts: [
-            {
-                id: 'CTR-2026-A1', contractName: 'Security Services — Clifton Branch SO-2025-047', location: 'KHI-Clifton Branch', serviceType: 'Manpower Services', headcount: 18, status: 'Active', startDate: '2025-01-01', endDate: '2026-12-31',
-                costs: { eobi: 1560, sessi: 2220, life_insurance: 500, medical_premium: 1200, uniform_cost: 3600, shoes_cost: 1800, ppe_cost: 2400, opd: 6000, dedicated_staff: 50000, courier: 5000, other1_name: 'Transport Allowance', other1_amount: 3000, other2_name: 'Night Shift Allowance', other2_amount: 2000 },
-                financials: { wht_pct: 7, sales_tax_pct: 17, service_charges_pct: 15 }
-            },
-            {
-                id: 'CTR-2026-B3', contractName: 'Janitorial Services — IIG Branch SO-2025-061', location: 'KHI-IIG Branch', serviceType: 'Janitorial / Soft Services', headcount: 12, status: 'Active', startDate: '2025-03-01', endDate: '2026-02-28',
-                costs: { eobi: 1560, sessi: 2220, life_insurance: 300, medical_premium: 800, uniform_cost: 4800, shoes_cost: 2400, ppe_cost: 4200, opd: 3600, dedicated_staff: 0, courier: 2000, other1_name: '', other1_amount: 0, other2_name: '', other2_amount: 0 },
-                financials: { wht_pct: 7, sales_tax_pct: 17, service_charges_pct: 12 }
-            },
-        ]
-    },
-    {
-        id: 'CLT-002', name: 'Gul Ahmed Textile', hq: 'Karachi', ntn: '7483921-2', strn: 'STRN-GAT-002', industry: 'Textile & Manufacturing',
-        contacts: [{ id: 'c3', name: 'Mr. Irfan Shah', title: 'GM Operations', phone: '0333-5566778', email: 'irfan@gulahmadtextile.com' }],
-        contracts: [
-            {
-                id: 'CTR-2025-X9', contractName: 'Driver Outsourcing — Gulberg Factory SO-2025-012', location: 'LHE-Gulberg Factory', serviceType: 'Manpower Services', headcount: 8, status: 'Expiring', startDate: '2025-01-01', endDate: '2026-03-31',
-                costs: { eobi: 1560, sessi: 2220, life_insurance: 300, medical_premium: 600, uniform_cost: 3000, shoes_cost: 2400, ppe_cost: 1200, opd: 3600, dedicated_staff: 0, courier: 1500, other1_name: 'Fuel Allowance', other1_amount: 8000, other2_name: '', other2_amount: 0 },
-                financials: { wht_pct: 5, sales_tax_pct: 17, service_charges_pct: 10 }
-            },
-        ]
-    },
-    {
-        id: 'CLT-003', name: 'Fauji Fertilizer', hq: 'Rawalpindi', ntn: '7483922-3', strn: 'STRN-FFC-003', industry: 'Chemicals & Fertilizers',
-        contacts: [{ id: 'c4', name: 'Col. (R) Amjad Ali', title: 'Admin Manager', phone: '051-9001234', email: 'amjad@ffc.com.pk' }],
-        contracts: []
-    },
-];
+// No sample data — loaded from Neon DB
 
 const EMPTY_CLIENT = { name: '', hq: '', ntn: '', strn: '', industry: '' };
 const EMPTY_CONTACT = { name: '', title: '', phone: '', email: '' };
@@ -427,22 +392,33 @@ function ClientProfile({ client, onChange, onBack }) {
 
 // ── Main ClientInformation ───────────────────────────────────────────────────
 export default function ClientInformation() {
-    const [clients, setClients] = useState(SAMPLE_CLIENTS);
+    const [clients, setClients] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [selected, setSelected] = useState(null);
     const [showAdd, setShowAdd] = useState(false);
     const [form, setForm] = useState(EMPTY_CLIENT);
 
-    const updateClient = (updated) => {
+    // ── Load clients from DB on mount ─────────────────────────────────────
+    useEffect(() => {
+        api.getClients()
+            .then(data => { setClients(data.clients); setLoading(false); })
+            .catch(() => setLoading(false));
+    }, []);
+
+    const updateClient = async (updated) => {
         setClients(p => p.map(c => c.id === updated.id ? updated : c));
         setSelected(updated);
+        try { await api.updateClient(updated.id, updated); } catch (err) { console.error('Sync error:', err.message); }
     };
 
-    const addClient = () => {
+    const addClient = async () => {
         if (!form.name) return alert('Client name is required.');
-        const nc = { ...form, id: `CLT-${Date.now()}`, contacts: [], contracts: [] };
-        setClients(p => [...p, nc]);
-        setForm(EMPTY_CLIENT); setShowAdd(false);
+        try {
+            const data = await api.createClient({ ...form, id: `CLT-${Date.now()}`, contacts: [], contracts: [] });
+            setClients(p => [...p, data.client]);
+            setForm(EMPTY_CLIENT); setShowAdd(false);
+        } catch (err) { alert('Save failed: ' + err.message); }
     };
 
     if (selected) return <ClientProfile client={selected} onChange={updateClient} onBack={() => setSelected(null)} />;
