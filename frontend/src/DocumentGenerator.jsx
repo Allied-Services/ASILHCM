@@ -5,11 +5,14 @@ import { api } from './api';
 // ─── Company Details ──────────────────────────────────────────────────────────
 const CO = {
   name: 'Allied Services International (Pvt.) Ltd.',
-  address: '301, 3rd Floor, Business Avenue, Shahrah-e-Faisal, Karachi - 75350',
-  ntn: '7483900-1',
-  phone: '(021) 3456-7890',
-  email: 'hr@asil.com.pk',
-  website: 'www.asil.com.pk',
+  hqAddress: 'Head Office: Hilltop Arcade, 4D/2, Gizri Blvd, Phase IV, D.H.A, Karachi',
+  rwoAddress: 'Rawalpindi Office: C73, Opposite Bilal Hospital, Satellite Town',
+  lheAddress: 'Lahore Office: 30, Block D, Sabzazar Main Boulevard, Lahore',
+  phone: '+92-300-0341312',
+  email: 'manpower@asil.com.pk',
+  website: 'asil.com.pk',
+  license: 'License No. 0089-KAR',
+  iso: 'ISO 9001:2008 Certified',
 };
 
 // Absolute URL for logo — works in both print window and preview
@@ -34,9 +37,11 @@ function renderEmploymentContract(emp) {
     <img src="${LOGO_URL}" alt="ASIL Logo" style="height:80px; object-fit:contain;" />
     <div style="text-align:right; font-size:9.5pt; color:#444; line-height:1.7;">
       <div style="font-size:10.5pt; font-weight:bold; color:#000;">${CO.name}</div>
-      <div>${CO.address}</div>
+      <div>${CO.hqAddress}</div>
+      <div>${CO.rwoAddress}</div>
+      <div>${CO.lheAddress}</div>
       <div>Tel: ${CO.phone} | Email: ${CO.email}</div>
-      <div>NTN: ${CO.ntn} | ${CO.website}</div>
+      <div>${CO.license} | ${CO.iso} | ${CO.website}</div>
     </div>
   </div>
 
@@ -136,8 +141,11 @@ function renderJoiningReport(emp) {
     <img src="${LOGO_URL}" alt="ASIL Logo" style="height:75px; object-fit:contain;" />
     <div style="text-align:right; font-size:9pt; color:#444; line-height:1.7;">
       <div style="font-weight:bold; font-size:10pt; color:#000;">${CO.name}</div>
-      <div>${CO.address}</div>
-      <div>NTN: ${CO.ntn} | ${CO.email} | ${CO.website}</div>
+      <div>${CO.hqAddress}</div>
+      <div>${CO.rwoAddress}</div>
+      <div>${CO.lheAddress}</div>
+      <div>Tel: ${CO.phone} | ${CO.email} | ${CO.website}</div>
+      <div>${CO.license} | ${CO.iso}</div>
     </div>
   </div>
 
@@ -277,8 +285,11 @@ function renderUniformForm(emp) {
     <img src="${LOGO_URL}" alt="ASIL Logo" style="height:75px; object-fit:contain;" />
     <div style="text-align:right; font-size:9pt; color:#444; line-height:1.7;">
       <div style="font-weight:bold; font-size:10pt; color:#000;">${CO.name}</div>
-      <div>${CO.address}</div>
-      <div>NTN: ${CO.ntn} | ${CO.email}</div>
+      <div>${CO.hqAddress}</div>
+      <div>${CO.rwoAddress}</div>
+      <div>${CO.lheAddress}</div>
+      <div>Tel: ${CO.phone} | ${CO.email}</div>
+      <div>${CO.license} | ${CO.iso}</div>
     </div>
   </div>
 
