@@ -1,434 +1,271 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { FileText, Download, CheckSquare, Square, Printer, X, Eye, ChevronDown, Loader } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { CheckSquare, Square, Printer, X, Eye } from 'lucide-react';
 import { api } from './api';
 
-// ─── Company Details ──────────────────────────────────────────────────────────
+// ─── Company Details (exact from official ASIL letterhead) ───────────────────
 const CO = {
-  name: 'Allied Services International (Pvt.) Ltd.',
-  hqAddress: 'Head Office: Hilltop Arcade, 4D/2, Gizri Blvd, Phase IV, D.H.A, Karachi',
-  rwoAddress: 'Rawalpindi Office: C73, Opposite Bilal Hospital, Satellite Town',
-  lheAddress: 'Lahore Office: 30, Block D, Sabzazar Main Boulevard, Lahore',
-  phone: '+92-300-0341312',
-  email: 'manpower@asil.com.pk',
-  website: 'asil.com.pk',
-  license: 'License No. 0089-KAR',
-  iso: 'ISO 9001:2008 Certified',
+  nameShort: 'ALLIED SERVICES INTERNATIONAL (PVT) LTD',
+  nameFull: 'Allied Services International (Pvt.) Ltd.',
+  regAddress: 'Hilltop Arcade, 4D/2, Gizri Blvd, Karachi, Pakistan',
+  footer1: 'Head Office: Hilltop Arcade, 4D/2, Gizri Blvd, Phase IV, D.H.A, Karachi.    T: +92-337-8034941-45',
+  footer2: 'Rawalpindi Office: C73, Opposite Bilal Hospital, Satellite Town.                 T: +92-337-8034944-47',
+  footer3: 'Lahore Office: 681, Shadman Town, Opposite Fatima Memorial                T: +92-337-8034948-49',
+  footerLine2: 'Email: info@asil.com.pk      Url: www.asil.com.pk      License: 0089-KAR      ISO 9001:2008',
 };
 
-// Absolute URL for logo — works in both print window and preview
 const LOGO_URL = `${window.location.origin}/asil-logo.png`;
 
-const today = () => {
-  const d = new Date();
-  return d.toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' });
-};
+const today = () => new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' });
+
+const FOOTER_HTML = `
+  <div style="margin-top:32px; padding-top:8px; border-top:1.5px solid #c0392b; font-size:8pt; color:#333; line-height:1.9; text-align:center;">
+    <div>${CO.footer1}</div>
+    <div>${CO.footer2}</div>
+    <div>${CO.footer3}</div>
+    <div>${CO.footerLine2}</div>
+  </div>`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DOCUMENT 1 — EMPLOYMENT CONTRACT
+// DOCUMENT 1 — EMPLOYMENT CONTRACT  (ASIL Ver 26A)
 // ═══════════════════════════════════════════════════════════════════════════════
 function renderEmploymentContract(emp) {
-  const salary = (emp.salary || 0).toLocaleString('en-PK');
-  const doj = emp.doj ? new Date(emp.doj).toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' }) : '_________________';
+  const gross = emp.salary || 0;
+  const basic = Math.round(gross * 0.50);
+  const hra = Math.round(gross * 0.40);
+  const utility = Math.round(gross * 0.10);
+  const fmt = (n) => n.toLocaleString('en-PK');
+  const doj = emp.doj ? new Date(emp.doj) : null;
+  const dayStr = doj ? doj.getDate() : '______';
+  const monStr = doj ? doj.toLocaleString('en-PK', { month: 'long' }) : '______';
+  const yrStr = doj ? doj.getFullYear() : '2026';
+
   return `
-<div style="font-family:'Times New Roman',serif; font-size:12pt; line-height:1.8; color:#000; max-width:750px; margin:0 auto; padding:40px;">
+<div style="font-family:'Times New Roman',serif; font-size:11.5pt; line-height:1.85; color:#000; max-width:760px; margin:0 auto; padding:36px;">
 
   <!-- LETTERHEAD -->
-  <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #c0392b; padding-bottom:14px; margin-bottom:18px;">
-    <img src="${LOGO_URL}" alt="ASIL Logo" style="height:80px; object-fit:contain;" />
-    <div style="text-align:right; font-size:9.5pt; color:#444; line-height:1.7;">
-      <div style="font-size:10.5pt; font-weight:bold; color:#000;">${CO.name}</div>
-      <div>${CO.hqAddress}</div>
-      <div>${CO.rwoAddress}</div>
-      <div>${CO.lheAddress}</div>
-      <div>Tel: ${CO.phone} | Email: ${CO.email}</div>
-      <div>${CO.license} | ${CO.iso} | ${CO.website}</div>
+  <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #c0392b; padding-bottom:12px; margin-bottom:16px;">
+    <img src="${LOGO_URL}" alt="ASIL" style="height:80px; object-fit:contain;" />
+    <div style="text-align:right; font-size:9pt; color:#333; line-height:1.7;">
+      <div style="font-size:11pt; font-weight:bold; color:#000;">Ver 26A &nbsp;|&nbsp; Rev Date: 27 Feb 2026</div>
+      <div>Employer Copy</div>
     </div>
   </div>
 
-  <div style="margin:16px 0; border-top:2px solid #000; border-bottom:2px solid #000; padding:6px 0; font-size:13pt; font-weight:bold; letter-spacing:2px; text-align:center;">
-    EMPLOYMENT CONTRACT
-  </div>
+  <div style="text-align:center; font-size:14pt; font-weight:bold; letter-spacing:2px; margin:14px 0;">EMPLOYMENT CONTRACT</div>
 
-  <p>This Employment Contract ("Agreement") is entered into on <strong>${today()}</strong>, between:</p>
+  <p>THIS AGREEMENT is made on this <strong>${dayStr}</strong> day of <strong>${monStr}</strong>, <strong>${yrStr}</strong> BETWEEN:</p>
+  <p><strong>${CO.nameShort}</strong>, a company incorporated under the laws of Pakistan, having its registered office at ${CO.regAddress} (hereinafter referred to as the &ldquo;Company&rdquo;).</p>
+  <p>AND: <strong>MR./MS. ${emp.name || '_____________________________'}</strong>, son/daughter/wife of <strong>${emp.fatherName || '_____________________'}</strong>, holder of CNIC No. <strong>${emp.cnic || '_____________________'}</strong>, resident of <strong>${emp.presentAddress || '_____________________'}</strong> (hereinafter referred to as the &ldquo;Employee&rdquo;).</p>
 
-  <p><strong>Employer:</strong> ${CO.name}, having its principal office at ${CO.address} (hereinafter referred to as the "Company").</p>
-  <p><strong>Employee:</strong> Mr./Ms. <strong>${emp.name || '_____________________'}</strong>, holding CNIC No. <strong>${emp.cnic || '_____________________'}</strong>, Son/Daughter of <strong>${emp.fatherName || '_____________________'}</strong>, residing at ${emp.presentAddress || '_____________________'} (hereinafter referred to as the "Employee").</p>
+  <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">1. APPOINTMENT AND SCOPE OF WORK</h3>
+  <p>1.1. The Employee is appointed as <strong>${emp.designation || '[Job Title]'}</strong>.</p>
+  <p>1.2. The Employee may be assigned to any of the Company&rsquo;s offices or deployed at any of the Company&rsquo;s Clients&rsquo; sites as per operational requirements. The Contract assigned to you exists only for the duration of the Company contract with the Client organization.</p>
+  <p>1.3. This employment is subject to the satisfactory completion of a three (3) month probation period.</p>
 
-  <div style="margin:20px 0; padding:14px; border:1px solid #000;">
-    <table style="width:100%; border-collapse:collapse; font-size:11pt;">
-      <tr><td style="padding:5px 8px; width:40%; font-weight:bold; border:1px solid #ccc;">ASIL Employee Code</td><td style="padding:5px 8px; border:1px solid #ccc;">${emp.id || ''}</td></tr>
-      <tr><td style="padding:5px 8px; font-weight:bold; border:1px solid #ccc;">Designation</td><td style="padding:5px 8px; border:1px solid #ccc;">${emp.designation || ''}</td></tr>
-      <tr><td style="padding:5px 8px; font-weight:bold; border:1px solid #ccc;">Department</td><td style="padding:5px 8px; border:1px solid #ccc;">${emp.dept || ''}</td></tr>
-      <tr><td style="padding:5px 8px; font-weight:bold; border:1px solid #ccc;">Client / Site</td><td style="padding:5px 8px; border:1px solid #ccc;">${emp.client || ''} — ${emp.location || ''}</td></tr>
-      <tr><td style="padding:5px 8px; font-weight:bold; border:1px solid #ccc;">Date of Joining</td><td style="padding:5px 8px; border:1px solid #ccc;">${doj}</td></tr>
-      <tr><td style="padding:5px 8px; font-weight:bold; border:1px solid #ccc;">Gross Monthly Salary</td><td style="padding:5px 8px; border:1px solid #ccc;">PKR ${salary}/- (${numberToWords(emp.salary || 0)} Rupees Only)</td></tr>
-      <tr><td style="padding:5px 8px; font-weight:bold; border:1px solid #ccc;">Province</td><td style="padding:5px 8px; border:1px solid #ccc;">${emp.province || ''}</td></tr>
-    </table>
-  </div>
+  <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">2. MANDATORY ONBOARDING DOCUMENTATION</h3>
+  <p>Employment is strictly contingent upon the submission and verification of the following documents. Failure to provide these or the discovery of any forged document will lead to immediate termination:</p>
+  <ul style="margin:4px 0 8px 24px; line-height:2.1;">
+    <li>Employee Information (Signed by Employee as Completed &amp; Verified).</li>
+    <li>Signed Employment Contract and Copy of CNIC.</li>
+    <li>Copy of Educational Certificates / Technical Trade Certificates.</li>
+    <li>Police Clearance Certificate (from the relevant district).</li>
+    <li>Medical Fitness Certificate from a Company-authorized medical center.</li>
+    <li>Valid LTV/HTV/Specialized License (if applicable to the role).</li>
+    <li>Two (2) recent passport-sized photographs.</li>
+  </ul>
 
-  <h3 style="margin-top:20px; font-size:12pt; text-decoration:underline;">1. APPOINTMENT & PROBATION</h3>
-  <p>The Employee is hereby appointed as <strong>${emp.designation || '_____'}</strong> with effect from <strong>${doj}</strong>. The Employee shall be on probation for a period of Three (3) months from the date of joining. During the probationary period, the contract may be terminated by either party without notice.</p>
+  <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">3. REMUNERATION AND STATUTORY BENEFITS</h3>
+  <p>3.1. The Company follows a unified compensation structure. The Employee&rsquo;s total monthly package is as follows:</p>
+  <table style="width:100%; border-collapse:collapse; margin:8px 0 12px; font-size:11pt;">
+    <tr><td style="padding:6px 10px; border:1px solid #bbb; background:#f5f5f5; font-weight:bold; width:60%;">Basic Salary</td><td style="padding:6px 10px; border:1px solid #bbb; width:10%; text-align:center;">PKR</td><td style="padding:6px 10px; border:1px solid #bbb; text-align:right;">${fmt(basic)}</td></tr>
+    <tr><td style="padding:6px 10px; border:1px solid #bbb; background:#f5f5f5; font-weight:bold;">House Rent (40% of Gross Salary)</td><td style="padding:6px 10px; border:1px solid #bbb; text-align:center;">PKR</td><td style="padding:6px 10px; border:1px solid #bbb; text-align:right;">${fmt(hra)}</td></tr>
+    <tr><td style="padding:6px 10px; border:1px solid #bbb; background:#f5f5f5; font-weight:bold;">Utility Allowance (10% of Gross Salary)</td><td style="padding:6px 10px; border:1px solid #bbb; text-align:center;">PKR</td><td style="padding:6px 10px; border:1px solid #bbb; text-align:right;">${fmt(utility)}</td></tr>
+    <tr><td style="padding:7px 10px; border:1px solid #bbb; background:#1e3a5f; color:white; font-weight:bold;">Gross Monthly Salary</td><td style="padding:7px 10px; border:1px solid #bbb; background:#1e3a5f; color:white; font-weight:bold; text-align:center;">PKR</td><td style="padding:7px 10px; border:1px solid #bbb; background:#1e3a5f; color:white; font-weight:bold; text-align:right;">${fmt(gross)}</td></tr>
+  </table>
+  <p>3.2. <strong>Statutory Contributions:</strong> As per Company SOPs and Provincial Laws, the Company shall register the Employee and make monthly contributions toward EOBI, SESSI / PESSI (Social Security), Group Life Insurance, and Provident Fund (where applicable as per Company Policy).</p>
+  <p>3.3. All payments are subject to the deduction of applicable Income Tax and statutory employee-share contributions.</p>
 
-  <h3 style="font-size:12pt; text-decoration:underline;">2. DUTIES AND RESPONSIBILITIES</h3>
-  <p>The Employee shall perform all duties assigned by the Company or its clients with diligence, honesty, and professionalism. The Employee agrees to follow the code of conduct, HSEQ policies, and client-specific rules at all times.</p>
+  <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">4. WORKPLACE DISCIPLINE AND CODE OF CONDUCT</h3>
+  <p>4.1. <strong>Uniform &amp; Appearance:</strong> The Employee must wear the prescribed, neat, and clean Company uniform along with the displayed ID Card at all times during duty hours.</p>
+  <p>4.2. <strong>Prohibited Substances:</strong> Use of Pan, Gutka, Naswar, or Smoking is strictly prohibited during work hours and within the premises of the Company or its Clients.</p>
+  <p>4.3. <strong>Punctuality:</strong> Strict adherence to shift timings is required. Breaks must be kept to the minimum time allowed. Unauthorized absence or chronic lateness will be treated as misconduct.</p>
+  <p>4.4. <strong>Professionalism:</strong> The Employee shall maintain a respectful and professional attitude toward colleagues, supervisors, and the Client&rsquo;s staff. Insubordination, use of foul language, or harassment will result in dismissal.</p>
+  <p>4.5. <strong>Performance Review:</strong> Satisfactory performance reviews, discipline, and adherence to SOPs may lead to annual increments, bonuses, or career growth opportunities.</p>
+  <p>4.6. <strong>Compliance with Instructions:</strong> The Employee shall not act in any manner contrary to the literature, manuals, or verbal instructions provided by the Company or its Clients.</p>
+  <p>4.7. <strong>Professional Notification:</strong> The Employee must immediately notify the Company of any matter coming to their knowledge that could affect the business or reputation of the Company or the Client organization.</p>
+  <p>4.8. <strong>Training &amp; Qualifications:</strong> The Employee is responsible for attaining and maintaining the requisite qualifications/training required for their role.</p>
+  <p>4.9. <strong>Technical Roles (Drivers/Operators):</strong> Drivers and Forklift Operators must maintain a valid LTV/HTV/Heavy Duty license with a minimum of 3 years of experience. Any suspension or expiry of the license must be reported to the Company immediately; failure to do so will result in immediate termination.</p>
+  <p>4.10. <strong>Change of Status:</strong> The Employee must notify the Company immediately of any change in residential address, contact details, or civil status.</p>
 
-  <h3 style="font-size:12pt; text-decoration:underline;">3. SALARY AND BENEFITS</h3>
-  <p>a) Gross monthly salary shall be PKR <strong>${salary}/-</strong> payable on the last working day of each month via bank transfer.<br/>
-  b) The Employee shall be entitled to all statutory benefits as per the applicable provincial labor laws including EOBI, SESSI (where applicable), and annual leave encashment.<br/>
-  c) Overtime, if any, shall be paid at double the hourly rate for weekdays and at triple rate for Sundays and public holidays.</p>
+  <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">5. HEALTH, SAFETY, AND ENVIRONMENT (HSE)</h3>
+  <p>5.1. <strong>Safety First:</strong> The Employee must strictly follow all HSE guidelines provided by the Company and the Client at the work site.</p>
+  <p>5.2. <strong>PPE Compliance:</strong> Wearing Personal Protective Equipment (PPE)&mdash;including helmets, safety shoes, and vests&mdash;is mandatory where required. Failure to comply is a serious safety violation and may result in the Employee being marked &ldquo;Absent&rdquo; for the day or terminated.</p>
 
-  <h3 style="font-size:12pt; text-decoration:underline;">4. WORKING HOURS</h3>
-  <p>Standard working hours are 8 hours per day, 6 days per week (or as per client site requirements). The Company reserves the right to modify working hours based on operational needs.</p>
+  <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">6. JURISDICTION, LEGAL STATUS &amp; NON-REPRESENTATION</h3>
+  <p><strong>Non-Agency:</strong> At no time during the currency of this contract shall the Employee represent themselves as an employee, agent, or representative of any Client of the Company.</p>
+  <p><strong>Limited Authority:</strong> The Employee has no authority to bind any Client of the Company or incur any liability on their behalf. All dealings with third parties must stay within the instructions provided by the Company.</p>
+  <p><strong>Jurisdiction:</strong> This contract is governed by the laws of Pakistan.</p>
+  <p><strong>Arbitration:</strong> Any dispute or disagreement arising out of this appointment shall first be settled amicably. Failing an amicable settlement, the dispute shall be settled by arbitration under the Pakistan Arbitration Act 1940.</p>
+  <p><strong>Courts:</strong> All legal proceedings shall be subject to the exclusive jurisdiction of the Courts in Karachi.</p>
 
-  <h3 style="font-size:12pt; text-decoration:underline;">5. LEAVE ENTITLEMENT</h3>
-  <p>The Employee shall be entitled to annual leave as per applicable labor laws: Casual Leave (10 days), Medical Leave (8 days), and Earned Leave (14 days per year after completion of one year of service).</p>
+  <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">7. DEDUCTIONS AND RECOVERY</h3>
+  <p>7.1. <strong>HSE &amp; Performance Penalties:</strong> Failure to wear mandatory PPE or follow site safety protocols will result in the Employee being marked ABSENT for that shift, and the day&rsquo;s salary will be deducted accordingly.</p>
+  <p>7.2. <strong>Recovery of Client Fines:</strong> Any financial penalties or fines imposed by a CLIENT on Allied Services due to the Employee&rsquo;s individual negligence shall be directly recoverable from the Employee&rsquo;s monthly salary or any other dues.</p>
+  <p>7.3. <strong>Property Damage &amp; Loss:</strong> The Employee is responsible for the safe custody of any property, machinery, tools, or equipment entrusted to them. Any loss, damage, or misappropriation caused by the Employee&rsquo;s negligence will be deducted from the Employee&rsquo;s salary or final settlement.</p>
+  <p>7.4. <strong>Statutory Deductions:</strong> The Company shall deduct Income Tax, EOBI/SESSI employee contributions, and any other government-mandated levies from the gross salary as per the law.</p>
 
-  <h3 style="font-size:12pt; text-decoration:underline;">6. CODE OF CONDUCT</h3>
-  <p>The Employee shall maintain confidentiality of client information, refrain from disclosing trade secrets, and comply with all applicable laws. Violation of the code of conduct may result in immediate termination.</p>
+  <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">8. TERMINATION</h3>
+  <p>8.1. <strong>By Notice:</strong> During probation, either party may terminate this contract with a minimum of 2 days&rsquo; notice. After confirmation, one (1) month&rsquo;s notice or one month&rsquo;s salary in lieu of notice is required.</p>
+  <p>8.2. <strong>Summary Dismissal:</strong> The Company may terminate employment immediately without notice or pay in lieu of notice for &ldquo;Misconduct,&rdquo; which includes theft, fraud, safety violations, use of prohibited substances, or any unlawful act.</p>
+  <p>8.3. <strong>End of Site Contract:</strong> Since the Employee is deployed based on Client requirements, if the contract between the Company and the Client for a specific site is terminated or expires, this employment may be rendered redundant without any notice or notice pay.</p>
 
-  <h3 style="font-size:12pt; text-decoration:underline;">7. TERMINATION</h3>
-  <p>After probation, either party may terminate this contract with <strong>one (1) month's notice</strong> in writing, or by payment of one month's salary in lieu thereof. The Company may terminate immediately in case of gross misconduct, dishonesty, or serious breach of contract terms.</p>
+  <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">9. CONFIDENTIALITY &amp; PROPERTY</h3>
+  <p><strong>Non-Divulgence:</strong> The Employee shall not directly or indirectly divulge any information concerning the affairs, property, or undertakings of the Company&rsquo;s Clients or their associates.</p>
+  <p><strong>Data Security:</strong> No data, documents, calculations, or items (in paper or electronic form) may be removed from the Company&rsquo;s or Client&rsquo;s premises without express written consent.</p>
+  <p><strong>Return of Property:</strong> Upon termination or request, the Employee must return all property in good condition. The Company reserves the right to deduct the value of any unreturned or damaged items from the Employee&rsquo;s final dues.</p>
 
-  <h3 style="font-size:12pt; text-decoration:underline;">8. GRATUITY</h3>
-  <p>The Employee shall be entitled to gratuity upon completion of one (1) year of continuous service, as per applicable labor laws, calculated at the rate of one month's last drawn gross salary for each completed year of service.</p>
-
-  <h3 style="font-size:12pt; text-decoration:underline;">9. GOVERNING LAW</h3>
-  <p>This Agreement shall be governed by the laws of Pakistan. Any dispute arising herein shall be subject to the jurisdiction of courts in Karachi, Pakistan.</p>
-
-  <div style="margin-top:48px; display:grid; grid-template-columns:1fr 1fr; gap:40px;">
+  <div style="margin-top:48px; display:grid; grid-template-columns:1fr 1fr; gap:60px;">
     <div>
-      <div style="border-top:1px solid #000; padding-top:8px; margin-top:60px;">
-        <strong>Authorized Signatory</strong><br/>
-        ${CO.name}<br/>
+      <div style="border-top:1px solid #000; padding-top:8px; margin-top:60px; font-size:10.5pt;">
+        <strong>For Allied Services International (Pvt) Ltd.</strong><br/>
         Name: ________________________<br/>
         Designation: _________________<br/>
         Date: ${today()}
       </div>
     </div>
     <div>
-      <div style="border-top:1px solid #000; padding-top:8px; margin-top:60px;">
-        <strong>Employee Signature</strong><br/>
-        Name: ${emp.name || ''}<br/>
-        CNIC: ${emp.cnic || ''}<br/>
-        Date: ________________________<br/>
-        Thumb Impression: ____________
+      <div style="border-top:1px solid #000; padding-top:8px; margin-top:60px; font-size:10.5pt;">
+        Employee Name: <strong>${emp.name || ''}</strong><br/>
+        Signature &amp; Thumb Impression: ___________<br/>
+        CNIC#: ${emp.cnic || ''}<br/>
+        Date: ________________________
       </div>
     </div>
   </div>
 
-  <p style="margin-top:24px; font-size:9pt; color:#555; border-top:1px solid #ccc; padding-top:8px;">
-    This document is computer-generated. ASIL Employee Code: ${emp.id} | Generated: ${today()}
-  </p>
+  ${FOOTER_HTML}
 </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DOCUMENT 2 — EMPLOYEE JOINING REPORT
+// DOCUMENT 2 — EMPLOYEE JOINING REPORT  (ASIL Ver 26A)
 // ═══════════════════════════════════════════════════════════════════════════════
 function renderJoiningReport(emp) {
-  const doj = emp.doj ? new Date(emp.doj).toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' }) : '_________________';
-  const dob = emp.dob ? new Date(emp.dob).toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' }) : '_________________';
-  const Row = (label, value) => `
-      <tr>
-        <td style="padding:6px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5; width:38%; font-size:11pt;">${label}</td>
-        <td style="padding:6px 10px; border:1px solid #bbb; font-size:11pt;">${value || '&nbsp;'}</td>
-      </tr>`;
+  const doj = emp.doj ? new Date(emp.doj).toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' }) : '______________________';
   return `
-<div style="font-family:Arial,sans-serif; font-size:11pt; line-height:1.7; color:#000; max-width:750px; margin:0 auto; padding:36px;">
+<div style="font-family:Arial,sans-serif; font-size:11.5pt; line-height:1.85; color:#000; max-width:760px; margin:0 auto; padding:36px;">
 
   <!-- LETTERHEAD -->
-  <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #c0392b; padding-bottom:14px; margin-bottom:18px;">
-    <img src="${LOGO_URL}" alt="ASIL Logo" style="height:75px; object-fit:contain;" />
-    <div style="text-align:right; font-size:9pt; color:#444; line-height:1.7;">
-      <div style="font-weight:bold; font-size:10pt; color:#000;">${CO.name}</div>
-      <div>${CO.hqAddress}</div>
-      <div>${CO.rwoAddress}</div>
-      <div>${CO.lheAddress}</div>
-      <div>Tel: ${CO.phone} | ${CO.email} | ${CO.website}</div>
-      <div>${CO.license} | ${CO.iso}</div>
+  <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #c0392b; padding-bottom:12px; margin-bottom:16px;">
+    <img src="${LOGO_URL}" alt="ASIL" style="height:80px; object-fit:contain;" />
+    <div style="text-align:right; font-size:9pt; color:#333; line-height:1.7;">
+      <div style="font-size:11pt; font-weight:bold; color:#000;">Ver 26A &nbsp;|&nbsp; Rev Date: 27 Feb 2026</div>
+      <div>Employer Copy</div>
     </div>
   </div>
 
-  <div style="background:#1e3a5f; color:white; text-align:center; padding:10px; font-size:14pt; font-weight:bold; letter-spacing:2px; margin-bottom:20px;">
-    EMPLOYEE JOINING REPORT
+  <div style="text-align:center; font-size:14pt; font-weight:bold; letter-spacing:2px; margin:14px 0;">EMPLOYEE JOINING REPORT</div>
+
+  <table style="width:100%; border-collapse:collapse; margin-bottom:20px; font-size:11pt;">
+    <tr>
+      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5; width:22%;">Employee Name</td>
+      <td style="padding:7px 10px; border:1px solid #bbb; width:28%;">${emp.name || ''}</td>
+      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5; width:22%;">Employee ID</td>
+      <td style="padding:7px 10px; border:1px solid #bbb;">${emp.id || ''}</td>
+    </tr>
+    <tr>
+      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5;">Designation</td>
+      <td style="padding:7px 10px; border:1px solid #bbb;">${emp.designation || ''}</td>
+      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5;">Site</td>
+      <td style="padding:7px 10px; border:1px solid #bbb;">${emp.location || ''}</td>
+    </tr>
+  </table>
+
+  <p>Reference to my Employment Offer Confirmation, I wish to inform you that I have joined duty from <strong>${doj}</strong>.<br/>
+  I confirm that I have completed the site safety induction and received my assigned duties.</p>
+
+  <div style="margin-top:40px; font-size:10.5pt;">
+    <p style="margin-bottom:48px;">Employee Signature: ____________________________________________</p>
+    <p style="margin-bottom:16px;">CNIC: __________________________________________</p>
+    <p>Date: ___________________________________________</p>
   </div>
 
-  <div style="display:flex; gap:16px; margin-bottom:6px; font-size:10pt;">
-    <span><strong>Form No.:</strong> JR-${String(Date.now()).slice(-6)}</span>
-    <span><strong>Date:</strong> ${today()}</span>
+  <hr style="border:none; border-top:1.5px solid #555; margin:36px 0;"/>
+
+  <h3 style="font-size:12pt; margin-bottom:10px;">LINE MANAGER VERIFICATION</h3>
+  <p>I, the undersigned Line Manager/Site Supervisor, verify that the employee named above has reported for duty on the date specified at the assigned location. This verification confirms the commencement of their employment.</p>
+
+  <div style="margin-top:30px; font-size:10.5pt;">
+    <p style="margin-bottom:20px;">Line Manager / Site Supervisor&rsquo;s Signature: ________________________________________</p>
+    <p style="margin-bottom:20px;">Name: ________________________________________</p>
+    <p>Date: _________________________________________</p>
   </div>
 
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 4px; border-left:4px solid #1e3a5f;">A. EMPLOYMENT INFORMATION</h3>
-  <table style="width:100%; border-collapse:collapse;">
-    ${Row('ASIL Employee Code', emp.id)}
-    ${Row('ASIL Business Unit (BU)', emp.bu)}
-    ${Row('Client Name', emp.client)}
-    ${Row('Client Business Unit', emp.clientBU)}
-    ${Row('Department', emp.dept)}
-    ${Row('Designation', emp.designation)}
-    ${Row('Site / Location', emp.location)}
-    ${Row('Province', emp.province)}
-    ${Row('Date of Joining', doj)}
-    ${Row('Employment Status', emp.active === 'Yes' ? 'Active' : 'Inactive')}
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 4px; border-left:4px solid #1e3a5f;">B. PERSONAL INFORMATION</h3>
-  <table style="width:100%; border-collapse:collapse;">
-    ${Row('Full Name', emp.name)}
-    ${Row("Father's Name", emp.fatherName)}
-    ${Row("Mother's Name", emp.motherName)}
-    ${Row('Date of Birth', dob)}
-    ${Row('Age', emp.age || '')}
-    ${Row('Place of Birth', emp.placeOfBirth)}
-    ${Row('Religion', emp.religion)}
-    ${Row('Marital Status', emp.maritalStatus)}
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 4px; border-left:4px solid #1e3a5f;">C. CNIC & COMPLIANCE</h3>
-  <table style="width:100%; border-collapse:collapse;">
-    ${Row('CNIC Number', emp.cnic)}
-    ${Row('CNIC Issue Date', emp.cnicIssue)}
-    ${Row('CNIC Expiry Date', emp.cnicExpiry)}
-    ${Row('EOBI Number', emp.eobiNo)}
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 4px; border-left:4px solid #1e3a5f;">D. CONTACT & ADDRESS</h3>
-  <table style="width:100%; border-collapse:collapse;">
-    ${Row('Primary Contact', emp.primaryContact)}
-    ${Row('Emergency Contact', emp.emergencyContact)}
-    ${Row('Email Address', emp.email)}
-    ${Row('Present Address', emp.presentAddress)}
-    ${Row('Permanent Address', emp.permanentAddress)}
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 4px; border-left:4px solid #1e3a5f;">E. SALARY DETAILS</h3>
-  <table style="width:100%; border-collapse:collapse;">
-    ${Row('Gross Monthly Salary', emp.salary ? 'PKR ' + emp.salary.toLocaleString('en-PK') + '/-' : '')}
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 4px; border-left:4px solid #1e3a5f;">F. FAMILY DETAILS</h3>
-  <table style="width:100%; border-collapse:collapse;">
-    ${Row('Spouse Name', emp.spouseName)}
-    ${Row('Spouse Age', emp.spouseAge)}
-    ${Row('Spouse CNIC', emp.spouseCnic)}
-    ${Row('Child 1 Name / Age / ID', [emp.child1Name, emp.child1Age, emp.child1Id].filter(Boolean).join(' | '))}
-    ${Row('Child 2 Name / Age / ID', [emp.child2Name, emp.child2Age, emp.child2Id].filter(Boolean).join(' | '))}
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 4px; border-left:4px solid #1e3a5f;">G. BANKING DETAILS</h3>
-  <table style="width:100%; border-collapse:collapse;">
-    ${Row('Bank Name', emp.bankName)}
-    ${Row('Account Number / IBAN', emp.bankAccount)}
-    ${Row('Account Title', emp.accountTitle)}
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 4px; border-left:4px solid #1e3a5f;">H. NEXT OF KIN</h3>
-  <table style="width:100%; border-collapse:collapse;">
-    ${Row('Name', emp.nokName)}
-    ${Row('Relation', emp.nokRelation)}
-    ${Row('Contact', emp.nokContact)}
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 4px; border-left:4px solid #1e3a5f;">I. MEDICAL COVERAGE</h3>
-  <table style="width:100%; border-collapse:collapse;">
-    ${Row('Medical Coverage Type', emp.medicalType)}
-    ${Row('Maternity Benefit', emp.medicalMaternity)}
-    ${Row('Total Medical Coverage', emp.totalMedicalCoverage ? 'PKR ' + Number(emp.totalMedicalCoverage).toLocaleString('en-PK') : '')}
-  </table>
-
-  <div style="margin-top:40px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px; font-size:10pt;">
-    <div style="text-align:center;">
-      <div style="border-top:1px solid #000; padding-top:6px; margin-top:48px;">Employee Signature<br/><strong>${emp.name || ''}</strong></div>
-    </div>
-    <div style="text-align:center;">
-      <div style="border-top:1px solid #000; padding-top:6px; margin-top:48px;">Site Manager / Supervisor<br/>Name: ____________</div>
-    </div>
-    <div style="text-align:center;">
-      <div style="border-top:1px solid #000; padding-top:6px; margin-top:48px;">HR Officer<br/>Name: ____________</div>
-    </div>
-  </div>
-  <p style="margin-top:20px; font-size:9pt; color:#888; border-top:1px solid #ddd; padding-top:6px;">
-    ASIL Employee Code: ${emp.id} | Generated: ${today()}
-  </p>
+  ${FOOTER_HTML}
 </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DOCUMENT 3 — UNIFORM MEASUREMENT FORM
+// DOCUMENT 3 — UNIFORM MEASUREMENT FORM  (ASIL Ver 26A)
 // ═══════════════════════════════════════════════════════════════════════════════
 function renderUniformForm(emp) {
-  const doj = emp.doj ? new Date(emp.doj).toLocaleDateString('en-PK') : '';
-  const MRow = (label) => `
-      <tr>
-        <td style="padding:8px 10px; border:1px solid #bbb; font-weight:600; width:40%; background:#f9f9f9;">${label}</td>
-        <td style="padding:8px 10px; border:1px solid #bbb; text-align:center; width:20%;">XS</td>
-        <td style="padding:8px 10px; border:1px solid #bbb; text-align:center; width:20%;">S</td>
-        <td style="padding:8px 10px; border:1px solid #bbb; text-align:center; width:10%;">M</td>
-        <td style="padding:8px 10px; border:1px solid #bbb; text-align:center; width:10%;">L</td>
-        <td style="padding:8px 10px; border:1px solid #bbb; text-align:center;">&nbsp;&nbsp;XL&nbsp;&nbsp;</td>
-        <td style="padding:8px 10px; border:1px solid #bbb; text-align:center;">2XL</td>
-        <td style="padding:8px 10px; border:1px solid #bbb; text-align:center;">3XL</td>
-        <td style="padding:8px 10px; border:1px solid #bbb; width:15%;">Custom Size</td>
-      </tr>`;
-  const MeasRow = (label) => `
-      <tr>
-        <td style="padding:8px 10px; border:1px solid #bbb; font-weight:600; background:#f9f9f9;">${label}</td>
-        <td style="padding:8px 10px; border:1px solid #bbb;">&nbsp;</td>
-      </tr>`;
-  const ShoeRow = (size) => `
-      <td style="padding:7px 10px; border:1px solid #bbb; text-align:center;">${size}</td>`;
+  const trRows = [['30"', 104, 76, 91, 81, 58, 43], ['32"', 105, 81, 96, 81, 61, 43], ['34"', 107, 86, 101.5, 82.5, 63.5, 46], ['36"', 108, 91, 106, 82.5, 66, 46], ['38"', 108, 96.5, 111, 80, 70, 48], ['40"', 111, 101, 117, 79, 72, 51], ['42"', 111, 106, 122, 75, 73.5, 51]];
+  const shRows = [['XS-34', 65.5, 86, 81, 21.5, 55, 33, 35, 21.5], ['S-36', 70, 91, 86, 22, 57, 35, 36, 22], ['M-38', 70, 96, 91, 24, 60, 36, 38, 22], ['L-40', 72, 101, 96, 25, 60, 40, 39, 24], ['XL-42', 75, 106, 101, 26, 62, 43, 40, 25], ['XXL-44', 76, 111, 109, 26, 63, 44, 41, 26], ['XXXL-46', 78, 116, 111, 28, 66, 45, 43, 28]];
+  const td = (v) => `<td style="padding:6px 8px; border:1px solid #bbb; text-align:center;">${v}</td>`;
+  const th = (v) => `<th style="padding:6px 8px; border:1px solid #bbb; background:#f0f0f0;">${v}</th>`;
   return `
-<div style="font-family:Arial,sans-serif; font-size:11pt; line-height:1.6; color:#000; max-width:750px; margin:0 auto; padding:36px;">
+<div style="font-family:Arial,sans-serif; font-size:11pt; line-height:1.7; color:#000; max-width:760px; margin:0 auto; padding:36px;">
 
   <!-- LETTERHEAD -->
-  <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #c0392b; padding-bottom:14px; margin-bottom:18px;">
-    <img src="${LOGO_URL}" alt="ASIL Logo" style="height:75px; object-fit:contain;" />
-    <div style="text-align:right; font-size:9pt; color:#444; line-height:1.7;">
-      <div style="font-weight:bold; font-size:10pt; color:#000;">${CO.name}</div>
-      <div>${CO.hqAddress}</div>
-      <div>${CO.rwoAddress}</div>
-      <div>${CO.lheAddress}</div>
-      <div>Tel: ${CO.phone} | ${CO.email}</div>
-      <div>${CO.license} | ${CO.iso}</div>
+  <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #c0392b; padding-bottom:12px; margin-bottom:16px;">
+    <img src="${LOGO_URL}" alt="ASIL" style="height:80px; object-fit:contain;" />
+    <div style="text-align:right; font-size:9pt; color:#333; line-height:1.7;">
+      <div style="font-size:11pt; font-weight:bold; color:#000;">Ver 26A &nbsp;|&nbsp; Rev Date: 27 Feb 2026</div>
     </div>
   </div>
 
-  <div style="background:#1e3a5f; color:white; text-align:center; padding:10px; font-size:14pt; font-weight:bold; letter-spacing:2px; margin-bottom:18px;">
-    EMPLOYEE UNIFORM MEASUREMENT FORM
-  </div>
+  <div style="text-align:center; font-size:14pt; font-weight:bold; letter-spacing:2px; margin:14px 0;">UNIFORM MEASUREMENT FORM</div>
 
-  <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+  <table style="width:100%; border-collapse:collapse; margin-bottom:16px; font-size:11pt;">
     <tr>
-      <td style="padding:6px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5; width:25%;">Employee Code</td>
-      <td style="padding:6px 10px; border:1px solid #bbb; width:25%;">${emp.id || ''}</td>
-      <td style="padding:6px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5; width:25%;">Date of Joining</td>
-      <td style="padding:6px 10px; border:1px solid #bbb;">${doj}</td>
+      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5; width:22%;">Employee Name</td>
+      <td style="padding:7px 10px; border:1px solid #bbb; width:28%;">${emp.name || ''}</td>
+      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5; width:22%;">Employee ID</td>
+      <td style="padding:7px 10px; border:1px solid #bbb;">${emp.id || ''}</td>
     </tr>
     <tr>
-      <td style="padding:6px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5;">Employee Name</td>
-      <td style="padding:6px 10px; border:1px solid #bbb;" colspan="3"><strong>${emp.name || ''}</strong></td>
-    </tr>
-    <tr>
-      <td style="padding:6px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5;">Designation</td>
-      <td style="padding:6px 10px; border:1px solid #bbb;">${emp.designation || ''}</td>
-      <td style="padding:6px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5;">Department</td>
-      <td style="padding:6px 10px; border:1px solid #bbb;">${emp.dept || ''}</td>
-    </tr>
-    <tr>
-      <td style="padding:6px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5;">Client / Site</td>
-      <td style="padding:6px 10px; border:1px solid #bbb;" colspan="3">${emp.client || ''} — ${emp.location || ''}</td>
+      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5;">Designation</td>
+      <td style="padding:7px 10px; border:1px solid #bbb;">${emp.designation || ''}</td>
+      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5;">Site</td>
+      <td style="padding:7px 10px; border:1px solid #bbb;">${emp.location || ''}</td>
     </tr>
   </table>
 
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 6px; border-left:4px solid #1e3a5f;">A. UNIFORM SIZES</h3>
-  <table style="width:100%; border-collapse:collapse; font-size:10pt;">
-    <thead>
-      <tr style="background:#1e3a5f; color:white;">
-        <th style="padding:8px 10px; border:1px solid #bbb; text-align:left;">Item</th>
-        <th style="padding:8px; border:1px solid #bbb;">XS</th>
-        <th style="padding:8px; border:1px solid #bbb;">S</th>
-        <th style="padding:8px; border:1px solid #bbb;">M</th>
-        <th style="padding:8px; border:1px solid #bbb;">L</th>
-        <th style="padding:8px; border:1px solid #bbb;">XL</th>
-        <th style="padding:8px; border:1px solid #bbb;">2XL</th>
-        <th style="padding:8px; border:1px solid #bbb;">3XL</th>
-        <th style="padding:8px 10px; border:1px solid #bbb;">Custom</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${MRow('Shirt / Kameez')}
-      ${MRow('Trouser / Shalwar')}
-      ${MRow('Safety Jacket / Vest')}
-      ${MRow('Coverall / Overall')}
-      ${MRow('Winter Jacket')}
-      ${MRow('Polo / T-Shirt')}
-      ${MRow('Cap / Helmet Size')}
-    </tbody>
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 6px; border-left:4px solid #1e3a5f;">B. SHOE SIZE</h3>
-  <table style="width:100%; border-collapse:collapse; font-size:10pt;">
-    <tr>
-      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5; width:30%;">Safety Shoes Size (UK)</td>
-      ${[5, 6, 7, 8, 9, 10, 11, 12].map(ShoeRow).join('')}
-    </tr>
-    <tr>
-      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5;">Dress / Formal Shoes (UK)</td>
-      ${[5, 6, 7, 8, 9, 10, 11, 12].map(ShoeRow).join('')}
-    </tr>
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 6px; border-left:4px solid #1e3a5f;">C. BODY MEASUREMENTS (inches)</h3>
-  <table style="width:100%; border-collapse:collapse; font-size:10pt;">
-    <colgroup><col style="width:50%"/><col style="width:50%"/></colgroup>
-    <tbody>
-      <tr>
-        <table style="width:100%; border-collapse:collapse;">
-          ${MeasRow('Height (ft & inches)')}
-          ${MeasRow('Chest (inches)')}
-          ${MeasRow('Waist (inches)')}
-          ${MeasRow('Neck (inches)')}
-          ${MeasRow('Shoulder Width (inches)')}
-          ${MeasRow('Sleeve Length (inches)')}
-          ${MeasRow('Trouser Length / Inseam')}
-        </table>
-      </tr>
-    </tbody>
-  </table>
-
-  <h3 style="background:#f0f0f0; padding:7px 12px; font-size:11pt; margin:16px 0 6px; border-left:4px solid #1e3a5f;">D. PPE REQUIREMENTS</h3>
-  <table style="width:100%; border-collapse:collapse; font-size:10pt;">
-    <tr>
-      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5; width:35%;">Safety Helmet</td>
-      <td style="padding:7px 10px; border:1px solid #bbb;">☐ Yes &nbsp;&nbsp;&nbsp; ☐ No</td>
-      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5;">Safety Gloves</td>
-      <td style="padding:7px 10px; border:1px solid #bbb;">☐ Yes &nbsp;&nbsp;&nbsp; ☐ No</td>
-    </tr>
-    <tr>
-      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5;">Safety Goggles / Glasses</td>
-      <td style="padding:7px 10px; border:1px solid #bbb;">☐ Yes &nbsp;&nbsp;&nbsp; ☐ No</td>
-      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5;">Ear Protection</td>
-      <td style="padding:7px 10px; border:1px solid #bbb;">☐ Yes &nbsp;&nbsp;&nbsp; ☐ No</td>
-    </tr>
-    <tr>
-      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5;">High-Vis Vest</td>
-      <td style="padding:7px 10px; border:1px solid #bbb;">☐ Yes &nbsp;&nbsp;&nbsp; ☐ No</td>
-      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:600; background:#f5f5f5;">Face Mask / Respirator</td>
-      <td style="padding:7px 10px; border:1px solid #bbb;">☐ Yes &nbsp;&nbsp;&nbsp; ☐ No</td>
-    </tr>
-  </table>
-
-  <div style="margin-top:40px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px; font-size:10pt;">
-    <div style="text-align:center;">
-      <div style="border-top:1px solid #000; padding-top:6px; margin-top:48px;">Employee Signature<br/><strong>${emp.name || ''}</strong></div>
-    </div>
-    <div style="text-align:center;">
-      <div style="border-top:1px solid #000; padding-top:6px; margin-top:48px;">Admin / Store In-charge<br/>Name: ____________</div>
-    </div>
-    <div style="text-align:center;">
-      <div style="border-top:1px solid #000; padding-top:6px; margin-top:48px;">HR Officer<br/>Name: ____________</div>
-    </div>
-  </div>
-  <p style="margin-top:20px; font-size:9pt; color:#888; border-top:1px solid #ddd; padding-top:6px;">
-    ASIL Employee Code: ${emp.id} | Issued: ${today()}
+  <p style="background:#fff3cd; border:1px solid #ffc107; padding:8px 14px; border-radius:4px; font-size:10pt; margin-bottom:20px;">
+    <strong>NOTE:</strong> Please get exact Measurements through a tailor. We will not be responsible for any changes in size.
   </p>
-</div>`;
-}
 
-// ─── Number to words (simplified for PKR) ────────────────────────────────────
-function numberToWords(n) {
-  if (!n) return 'Zero';
-  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-  const convert = (num) => {
-    if (num < 20) return ones[num];
-    if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? ' ' + ones[num % 10] : '');
-    if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 ? ' ' + convert(num % 100) : '');
-    if (num < 100000) return convert(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 ? ' ' + convert(num % 1000) : '');
-    if (num < 10000000) return convert(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 ? ' ' + convert(num % 100000) : '');
-    return convert(Math.floor(num / 10000000)) + ' Crore' + (num % 10000000 ? ' ' + convert(num % 10000000) : '');
-  };
-  return convert(Math.round(n));
+  <h3 style="background:#1e3a5f; color:white; padding:7px 12px; font-size:11pt; margin:16px 0 0; letter-spacing:1px;">SIZE GUIDE FOR TROUSERS &nbsp;(CIRCLE ONE)</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:10pt; margin-bottom:20px;">
+    <thead><tr>${[th('Size'), th('Length'), th('Waist'), th('Hip'), th('In Length'), th('Loose'), th('Bottom')].join('')}</tr></thead>
+    <tbody>${trRows.map(r => `<tr>${r.map(td).join('')}</tr>`).join('')}</tbody>
+  </table>
+
+  <h3 style="background:#1e3a5f; color:white; padding:7px 12px; font-size:11pt; margin:16px 0 0; letter-spacing:1px;">SIZE GUIDE FOR SHIRTS &nbsp;(CIRCLE ONE)</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:10pt; margin-bottom:20px;">
+    <thead><tr>${[th('Size'), th('Length'), th('Chest'), th('Shoulder'), th('Short Sleeve'), th('Long Sleeve'), th('Sleeve Loose'), th('Collar'), th('Cuff')].join('')}</tr></thead>
+    <tbody>${shRows.map(r => `<tr>${r.map(td).join('')}</tr>`).join('')}</tbody>
+  </table>
+
+  <p style="font-size:11pt; margin-top:8px;"><strong>SHOE SIZE:</strong> _________________________.</p>
+
+  <div style="margin-top:48px; display:grid; grid-template-columns:1fr 1fr; gap:60px; font-size:10.5pt;">
+    <div><div style="border-top:1px solid #000; padding-top:8px; margin-top:48px;">Employee Signature<br/><strong>${emp.name || ''}</strong></div></div>
+    <div><div style="border-top:1px solid #000; padding-top:8px; margin-top:48px;">Admin / Store In-charge<br/>Name: ____________</div></div>
+  </div>
+
+  ${FOOTER_HTML}
+</div>`;
 }
 
 // ─── Document definitions ─────────────────────────────────────────────────────
@@ -438,23 +275,23 @@ const DOCS = [
   { key: 'uniform', label: 'Uniform Measurement Form', render: renderUniformForm },
 ];
 
-// ─── Print / PDF helper ───────────────────────────────────────────────────────
+// ─── Print helper ─────────────────────────────────────────────────────────────
 function printDocument(htmlContent, filename) {
   const win = window.open('', '_blank', 'width=900,height=700');
   if (!win) { alert('Please allow popups to print/export documents.'); return; }
   win.document.write(`<!DOCTYPE html><html><head>
-        <title>${filename}</title>
-        <style>
-            @media print { @page { margin: 15mm; } body { margin: 0; } }
-            body { font-family: 'Times New Roman', serif; }
-        </style>
-    </head><body>${htmlContent}
-    <script>
-        window.onload = function() {
-            document.title = '${filename}';
-            setTimeout(function(){ window.print(); }, 500);
-        };
-    </script></body></html>`);
+    <title>${filename}</title>
+    <style>
+      @media print { @page { margin: 12mm; } body { margin: 0; } }
+      body { font-family: 'Times New Roman', serif; }
+    </style>
+  </head><body>${htmlContent}
+  <script>
+    window.onload = function() {
+      document.title = '${filename}';
+      setTimeout(function(){ window.print(); }, 500);
+    };
+  <\/script></body></html>`);
   win.document.close();
 }
 
@@ -467,19 +304,15 @@ export default function DocumentGenerator({ employee: propEmp }) {
   const [loadErr, setLoadErr] = useState(null);
 
   useEffect(() => {
-    if (propEmp) return; // already have data from parent
+    if (propEmp) return;
     api.getEmployees()
-      .then(data => {
-        const active = (data.employees || []).filter(e => e.active !== 'No');
-        setEmployees(active);
-        setLoading(false);
-      })
+      .then(data => { setEmployees((data.employees || []).filter(e => e.active !== 'No')); setLoading(false); })
       .catch(err => { setLoadErr(err.message); setLoading(false); });
   }, []);
 
   const [selectedEmps, setSelectedEmps] = useState(propEmp ? [propEmp.id] : []);
   const [selectedDocs, setSelectedDocs] = useState(['contract', 'joining', 'uniform']);
-  const [previewDoc, setPreviewDoc] = useState(null); // {html, title}
+  const [previewDoc, setPreviewDoc] = useState(null);
 
   const toggleEmp = (id) => setSelectedEmps(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   const toggleDoc = (k) => setSelectedDocs(p => p.includes(k) ? p.filter(x => x !== k) : [...p, k]);
@@ -487,9 +320,7 @@ export default function DocumentGenerator({ employee: propEmp }) {
   const handlePrintSingle = (emp, docKey) => {
     const def = DOCS.find(d => d.key === docKey);
     if (!def) return;
-    const html = def.render(emp);
-    const filename = `${emp.id} - ${emp.name} - ${def.label}`;
-    printDocument(html, filename);
+    printDocument(def.render(emp), `${emp.id} - ${emp.name} - ${def.label}`);
   };
 
   const handleBulkPrint = () => {
@@ -497,15 +328,7 @@ export default function DocumentGenerator({ employee: propEmp }) {
     const docs = DOCS.filter(d => selectedDocs.includes(d.key));
     if (!emps.length) return alert('Select at least one employee.');
     if (!docs.length) return alert('Select at least one document type.');
-
-    emps.forEach(emp => {
-      docs.forEach(doc => {
-        const html = doc.render(emp);
-        const filename = `${emp.id} - ${emp.name} - ${doc.label}`;
-        // Small delay to avoid browser popup blocking
-        setTimeout(() => printDocument(html, filename), 300);
-      });
-    });
+    emps.forEach(emp => docs.forEach((doc, i) => setTimeout(() => printDocument(doc.render(emp), `${emp.id} - ${emp.name} - ${doc.label}`), i * 350)));
   };
 
   const handlePreview = (emp, docKey) => {
@@ -525,7 +348,7 @@ export default function DocumentGenerator({ employee: propEmp }) {
     <div className="dashboard">
       <header className="header">
         <h1>Document Generator</h1>
-        <p>Generate, preview, and print employee documents. Each exports as a separate PDF named by Employee ID + Full Name.</p>
+        <p>Generate, preview, and print official ASIL documents. Each exports as a separate PDF named by Employee ID + Full Name.</p>
       </header>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
@@ -544,18 +367,11 @@ export default function DocumentGenerator({ employee: propEmp }) {
               Loading employees...
             </div>
           )}
-          {loadErr && (
-            <div style={{ color: '#ef4444', fontSize: '0.85rem', padding: '0.75rem', background: 'rgba(239,68,68,0.08)', borderRadius: '8px', marginBottom: '0.5rem' }}>
-              ⚠ Failed to load employees: {loadErr}
-            </div>
-          )}
+          {loadErr && <div style={{ color: '#ef4444', fontSize: '0.85rem', padding: '0.75rem', background: 'rgba(239,68,68,0.08)', borderRadius: '8px' }}>⚠ {loadErr}</div>}
           {!loading && !loadErr && employees.length === 0 && (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem', textAlign: 'center', padding: '1.5rem 0' }}>
-              No active employees found in the database.
-            </div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem', textAlign: 'center', padding: '1.5rem 0' }}>No active employees found.</div>
           )}
           {employees.map(emp => (
-
             <div key={emp.id} style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '0.5rem', background: selectedEmps.includes(emp.id) ? 'rgba(56,189,248,0.07)' : 'transparent' }}>
               <Cb checked={selectedEmps.includes(emp.id)} onChange={() => toggleEmp(emp.id)}
                 label={<span><strong>{emp.name}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>({emp.id})</span></span>} />
@@ -572,14 +388,10 @@ export default function DocumentGenerator({ employee: propEmp }) {
               <Cb checked={selectedDocs.includes(doc.key)} onChange={() => toggleDoc(doc.key)} label={doc.label} />
             </div>
           ))}
-
           <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '8px', fontSize: '0.85rem' }}>
             <div style={{ fontWeight: 600, color: '#22c55e', marginBottom: '4px' }}>Bulk Export Preview</div>
             <div style={{ color: 'var(--text-muted)' }}>
-              {selectedEmps.length} employee{selectedEmps.length !== 1 ? 's' : ''} × {selectedDocs.length} document{selectedDocs.length !== 1 ? 's' : ''} = <strong style={{ color: 'var(--text)' }}>{selectedEmps.length * selectedDocs.length} PDF file{selectedEmps.length * selectedDocs.length !== 1 ? 's' : ''}</strong>
-            </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Files named: <em>ASIL/SPL-91/21 - Muhammad Anees - Employment Contract.pdf</em>
+              {selectedEmps.length} employee{selectedEmps.length !== 1 ? 's' : ''} × {selectedDocs.length} document{selectedDocs.length !== 1 ? 's' : ''} = <strong style={{ color: 'var(--text)' }}>{selectedEmps.length * selectedDocs.length} PDF{selectedEmps.length * selectedDocs.length !== 1 ? 's' : ''}</strong>
             </div>
           </div>
         </div>
@@ -610,7 +422,7 @@ export default function DocumentGenerator({ employee: propEmp }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 0 }}>
               {DOCS.map((doc, i) => (
                 <div key={doc.key} style={{ padding: '1rem 1.5rem', borderRight: i < DOCS.length - 1 ? '1px solid var(--border)' : undefined }}>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: '0.75rem' }}>{doc.label}</div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{doc.label}</div>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button onClick={() => handlePreview(emp, doc.key)}
                       style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>
