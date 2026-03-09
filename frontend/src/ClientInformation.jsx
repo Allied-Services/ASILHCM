@@ -63,8 +63,8 @@ const FSelect = ({ value, onChange, opts = [] }) => (
 );
 
 // ── Contract Editor ─────────────────────────────────────────────────────────
-function ContractEditor({ contract, onSave, onCancel }) {
-    const [c, setC] = useState({ ...EMPTY_CONTRACT, ...contract, costs: { ...EMPTY_CONTRACT.costs, ...(contract?.costs || {}) }, financials: { ...EMPTY_CONTRACT.financials, ...(contract?.financials || {}) } });
+function ContractEditor({ contract, onSave, onCancel, allClients = [], currentClientId }) {
+    const [c, setC] = useState({ ...EMPTY_CONTRACT, ...contract, costs: { ...EMPTY_CONTRACT.costs, ...(contract?.costs || {}) }, financials: { ...EMPTY_CONTRACT.financials, ...(contract?.financials || {}) }, assignedClientId: currentClientId });
 
     const set = (path, val) => {
         if (path.includes('.')) {
@@ -100,6 +100,15 @@ function ContractEditor({ contract, onSave, onCancel }) {
                                 <FInput value={c.contractName || ''} onChange={e => set('contractName', e.target.value)} ph="e.g. Security Services — Clifton Branch SO-2025-047" />
                             </FRow>
                         </div>
+                        {allClients.length > 0 && (
+                            <div style={{ gridColumn: '1/-1' }}>
+                                <FRow label="Assigned Client (Reassign if needed)">
+                                    <select value={c.assignedClientId || ''} onChange={e => setC(p => ({ ...p, assignedClientId: e.target.value }))} style={{ background: 'var(--bg-dark)', border: '1px solid #f59e0b', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%' }}>
+                                        {allClients.map(cl => <option key={cl.id} value={cl.id}>{cl.name}</option>)}
+                                    </select>
+                                </FRow>
+                            </div>
+                        )}
                         <FRow label="Service Location / Site"><FInput value={c.location} onChange={e => set('location', e.target.value)} ph="e.g. KHI-Clifton Branch" /></FRow>
                         <FRow label="Service Type"><FSelect value={c.serviceType} onChange={e => set('serviceType', e.target.value)} opts={SERVICE_TYPES} /></FRow>
                         <FRow label="Headcount"><FInput type="number" value={c.headcount} onChange={e => set('headcount', e.target.value)} ph="No. of employees" /></FRow>
@@ -181,14 +190,26 @@ function ContractEditor({ contract, onSave, onCancel }) {
 }
 
 // ── Client Profile View ──────────────────────────────────────────────────────
-function ClientProfile({ client, onChange, onBack }) {
+function ClientProfile({ client, onChange, onBack, allClients = [], onContractReassigned }) {
     const [tab, setTab] = useState('overview');
-    const [editContract, setEditContract] = useState(null); // null | EMPTY_CONTRACT | existing
+    const [editContract, setEditContract] = useState(null);
     const [viewContract, setViewContract] = useState(null);
     const [showAddContact, setShowAddContact] = useState(false);
     const [newContact, setNewContact] = useState(EMPTY_CONTACT);
 
-    const saveContract = (ct) => {
+    const saveContract = async (ct) => {
+        // Handle client reassignment
+        if (ct.assignedClientId && ct.assignedClientId !== client.id && ct.id) {
+            if (!window.confirm(`Move this contract to "${allClients.find(c => c.id === ct.assignedClientId)?.name}"?`)) return;
+            try {
+                await api.reassignContract(ct.id, ct.assignedClientId);
+                // Remove from current client
+                onChange({ ...client, contracts: client.contracts.filter(c => c.id !== ct.id) });
+                if (onContractReassigned) onContractReassigned();
+                setEditContract(null);
+                return;
+            } catch (err) { alert('Reassign failed: ' + err.message); return; }
+        }
         let updated;
         if (!ct.id) {
             ct.id = `CTR-${Date.now()}`;
@@ -200,9 +221,12 @@ function ClientProfile({ client, onChange, onBack }) {
         setEditContract(null);
     };
 
-    const deleteContract = (id) => {
-        if (!window.confirm('Delete this contract?')) return;
-        onChange({ ...client, contracts: client.contracts.filter(c => c.id !== id) });
+    const deleteContract = async (id) => {
+        if (!window.confirm('Permanently delete this contract?')) return;
+        try {
+            await api.deleteContract(id);
+            onChange({ ...client, contracts: client.contracts.filter(c => c.id !== id) });
+        } catch (err) { alert('Delete failed: ' + err.message); }
     };
 
     const addContact = () => {
@@ -385,7 +409,7 @@ function ClientProfile({ client, onChange, onBack }) {
             )}
 
             {/* Contract Editor Modal */}
-            {editContract && <ContractEditor contract={editContract} onSave={saveContract} onCancel={() => setEditContract(null)} />}
+            {editContract && <ContractEditor contract={editContract} onSave={saveContract} onCancel={() => setEditContract(null)} allClients={allClients} currentClientId={client.id} />}
         </div>
     );
 }
@@ -398,18 +422,49 @@ export default function ClientInformation() {
     const [selected, setSelected] = useState(null);
     const [showAdd, setShowAdd] = useState(false);
     const [form, setForm] = useState(EMPTY_CLIENT);
+    const [editingClient, setEditingClient] = useState(null); // client being edited
+    const [editForm, setEditForm] = useState(EMPTY_CLIENT);
 
-    // ── Load clients from DB on mount ─────────────────────────────────────
-    useEffect(() => {
+    const loadClients = () => {
+        setLoading(true);
         api.getClients()
             .then(data => { setClients(data.clients); setLoading(false); })
             .catch(() => setLoading(false));
-    }, []);
+    };
+
+    // ── Load clients from DB on mount ─────────────────────────────────────
+    useEffect(() => { loadClients(); }, []);
 
     const updateClient = async (updated) => {
         setClients(p => p.map(c => c.id === updated.id ? updated : c));
         setSelected(updated);
         try { await api.updateClient(updated.id, updated); } catch (err) { console.error('Sync error:', err.message); }
+    };
+
+    const deleteClient = async (cl) => {
+        if (!window.confirm(`Delete client "${cl.name}" and ALL their contracts? This cannot be undone.`)) return;
+        try {
+            await api.deleteClient(cl.id);
+            setClients(p => p.filter(c => c.id !== cl.id));
+            if (selected?.id === cl.id) setSelected(null);
+        } catch (err) { alert('Delete failed: ' + err.message); }
+    };
+
+    const openEditClient = (cl, e) => {
+        e.stopPropagation();
+        setEditingClient(cl);
+        setEditForm({ name: cl.name, hq: cl.hq || '', ntn: cl.ntn || '', strn: cl.strn || '', industry: cl.industry || '' });
+    };
+
+    const saveEditClient = async () => {
+        if (!editForm.name) return alert('Client name is required.');
+        try {
+            const updated = { ...editingClient, ...editForm };
+            await api.updateClient(editingClient.id, updated);
+            setClients(p => p.map(c => c.id === editingClient.id ? updated : c));
+            if (selected?.id === editingClient.id) setSelected(updated);
+            setEditingClient(null);
+        } catch (err) { alert('Save failed: ' + err.message); }
     };
 
     const addClient = async () => {
@@ -421,7 +476,7 @@ export default function ClientInformation() {
         } catch (err) { alert('Save failed: ' + err.message); }
     };
 
-    if (selected) return <ClientProfile client={selected} onChange={updateClient} onBack={() => setSelected(null)} />;
+    if (selected) return <ClientProfile client={selected} onChange={updateClient} onBack={() => setSelected(null)} allClients={clients} onContractReassigned={loadClients} />;
 
     const filtered = clients.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.ntn.includes(search));
 
@@ -455,9 +510,18 @@ export default function ClientInformation() {
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}><FileText size={13} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Contracts</span><span style={{ fontWeight: 700 }}>{cl.contracts.length}</span></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}><Users size={13} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Total Employees</span><span style={{ fontWeight: 700, color: 'var(--primary)' }}>{EMP_COUNTS[cl.id] || cl.contracts.reduce((s, c) => s + (c.headcount || 0), 0)}</span></div>
                         </div>
-                        <button onClick={() => setSelected(cl)} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '0.6rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                            Open Profile →
-                        </button>
+                        {/* Action row */}
+                        <div style={{ display: 'flex', gap: '0.6rem' }}>
+                            <button onClick={(e) => openEditClient(cl, e)} title="Edit Client" style={{ flex: '0 0 auto', background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '0.55rem 0.9rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.85rem', fontWeight: 600 }}>
+                                <Edit2 size={14} /> Edit
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); deleteClient(cl); }} title="Delete Client" style={{ flex: '0 0 auto', background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '0.55rem 0.9rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.85rem' }}>
+                                <Trash2 size={14} />
+                            </button>
+                            <button onClick={() => setSelected(cl)} style={{ flex: 1, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '0.55rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                Open Profile →
+                            </button>
+                        </div>
                     </div>
                 ))}
             </div>
@@ -476,6 +540,26 @@ export default function ClientInformation() {
                     <div style={{ padding: '0 2rem 2rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
                         <button onClick={() => { setShowAdd(false); setForm(EMPTY_CLIENT); }} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.75rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
                         <button onClick={addClient} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '0.75rem 2rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>Add Client</button>
+                    </div>
+                </Overlay>
+            )}
+
+            {/* Edit Client Modal */}
+            {editingClient && (
+                <Overlay>
+                    <ModalHeader title={`Edit Client: ${editingClient.name}`} sub="Update the client's master information" onClose={() => setEditingClient(null)} />
+                    <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                        <FRow label="Client Name *"><FInput value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} ph="e.g. Bank Al Habib" /></FRow>
+                        <FRow label="Industry"><FInput value={editForm.industry} onChange={e => setEditForm(p => ({ ...p, industry: e.target.value }))} ph="e.g. Banking &amp; Finance" /></FRow>
+                        <FRow label="Headquarters City"><FInput value={editForm.hq} onChange={e => setEditForm(p => ({ ...p, hq: e.target.value }))} ph="e.g. Karachi" /></FRow>
+                        <FRow label="NTN Number"><FInput value={editForm.ntn} onChange={e => setEditForm(p => ({ ...p, ntn: e.target.value }))} ph="XXXXXXX-X" /></FRow>
+                        <FRow label="STRN Number"><FInput value={editForm.strn} onChange={e => setEditForm(p => ({ ...p, strn: e.target.value }))} ph="STRN-XXXXX" /></FRow>
+                    </div>
+                    <div style={{ padding: '0 2rem 2rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                        <button onClick={() => setEditingClient(null)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.75rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                        <button onClick={saveEditClient} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '0.75rem 2rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Save size={16} /> Save Changes
+                        </button>
                     </div>
                 </Overlay>
             )}

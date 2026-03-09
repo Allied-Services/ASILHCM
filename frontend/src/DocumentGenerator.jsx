@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
-import { FileText, Download, CheckSquare, Square, Printer, X, Eye, ChevronDown } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { FileText, Download, CheckSquare, Square, Printer, X, Eye, ChevronDown, Loader } from 'lucide-react';
+import { api } from './api';
 
 // ─── Company Details ──────────────────────────────────────────────────────────
 const CO = {
@@ -446,14 +447,24 @@ function printDocument(htmlContent, filename) {
   win.document.close();
 }
 
-// ─── No sample employees (loaded from DB in production) ───────────────────────
-const SAMPLE_EMP = [];
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function DocumentGenerator({ employee: propEmp }) {
-  const employees = propEmp ? [propEmp] : SAMPLE_EMP;
+  const [employees, setEmployees] = useState(propEmp ? [propEmp] : []);
+  const [loading, setLoading] = useState(!propEmp);
+  const [loadErr, setLoadErr] = useState(null);
+
+  useEffect(() => {
+    if (propEmp) return; // already have data from parent
+    api.getEmployees()
+      .then(data => {
+        const active = (data.employees || []).filter(e => e.active !== 'No');
+        setEmployees(active);
+        setLoading(false);
+      })
+      .catch(err => { setLoadErr(err.message); setLoading(false); });
+  }, []);
 
   const [selectedEmps, setSelectedEmps] = useState(propEmp ? [propEmp.id] : []);
   const [selectedDocs, setSelectedDocs] = useState(['contract', 'joining', 'uniform']);
@@ -516,7 +527,24 @@ export default function DocumentGenerator({ employee: propEmp }) {
               {selectedEmps.length === employees.length ? 'Deselect All' : 'Select All'}
             </button>
           </div>
+          {loading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-muted)', padding: '1.5rem 0', justifyContent: 'center' }}>
+              <div style={{ width: '18px', height: '18px', border: '2px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              Loading employees...
+            </div>
+          )}
+          {loadErr && (
+            <div style={{ color: '#ef4444', fontSize: '0.85rem', padding: '0.75rem', background: 'rgba(239,68,68,0.08)', borderRadius: '8px', marginBottom: '0.5rem' }}>
+              ⚠ Failed to load employees: {loadErr}
+            </div>
+          )}
+          {!loading && !loadErr && employees.length === 0 && (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem', textAlign: 'center', padding: '1.5rem 0' }}>
+              No active employees found in the database.
+            </div>
+          )}
           {employees.map(emp => (
+
             <div key={emp.id} style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '0.5rem', background: selectedEmps.includes(emp.id) ? 'rgba(56,189,248,0.07)' : 'transparent' }}>
               <Cb checked={selectedEmps.includes(emp.id)} onChange={() => toggleEmp(emp.id)}
                 label={<span><strong>{emp.name}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>({emp.id})</span></span>} />

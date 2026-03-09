@@ -259,6 +259,33 @@ app.put('/api/clients/:id', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.delete('/api/clients/:id', requireAuth, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM clients WHERE id=$1', [req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/contracts/:id', requireAuth, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM contracts WHERE id=$1', [req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch('/api/contracts/:id/reassign', requireAuth, async (req, res) => {
+    try {
+        const { client_id } = req.body;
+        if (!client_id) return res.status(400).json({ error: 'client_id required' });
+        const { rows } = await pool.query(
+            'UPDATE contracts SET client_id=$1 WHERE id=$2 RETURNING *',
+            [client_id, req.params.id]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Contract not found' });
+        res.json({ ok: true, contract: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── Tax Calculation (public) ─────────────────────────────────────────────────
 app.post('/api/calculate', (req, res) => {
     const { grossSalary, joiningDate, calcDate } = req.body;

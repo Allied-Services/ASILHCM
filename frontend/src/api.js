@@ -30,4 +30,9 @@ export const api = {
     getClients: () => apiFetch('/api/clients'),
     createClient: (data) => apiFetch('/api/clients', { method: 'POST', body: JSON.stringify(data) }),
     updateClient: (id, data) => apiFetch(`/api/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteClient: (id) => apiFetch(`/api/clients/${id}`, { method: 'DELETE' }),
+
+    // ── Contracts ─────────────────────────────────────────────────────────────
+    deleteContract: (id) => apiFetch(`/api/contracts/${id}`, { method: 'DELETE' }),
+    reassignContract: (id, clientId) => apiFetch(`/api/contracts/${id}/reassign`, { method: 'PATCH', body: JSON.stringify({ client_id: clientId }) }),
 };

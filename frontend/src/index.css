@@ -390,6 +390,12 @@ body {
   animation: fadeIn 0.4s ease forwards;
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Mock OCR UI */
 .ocr-split {
   display: grid;
