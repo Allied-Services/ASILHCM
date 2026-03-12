@@ -14,11 +14,17 @@ const CO = {
 };
 
 const LOGO_URL = `${window.location.origin}/asil-logo.png`;
+const STAMP_URL = `${window.location.origin}/asil-stamp.jpg`;
+const SIGNATURE_URL = `${window.location.origin}/asil-signature.jpg`;
 
 const today = () => new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' });
 
-const FOOTER_HTML = `
-  <div style="margin-top:32px; padding-top:8px; border-top:1.5px solid #c0392b; font-size:8pt; color:#333; line-height:1.9; text-align:center;">
+// Footer used as a spacer at the bottom of the last page's content flow (keeps space for the fixed footer)
+const FOOTER_SPACER = `<div style="height:52px;"></div>`;
+
+// The actual footer HTML injected into the print window — rendered as a fixed element so it repeats on every page
+const FOOTER_PRINT_HTML = `
+  <div id="asil-footer" style="font-size:6.5pt; color:#444; line-height:1.6; text-align:center; padding:4px 10px 3px; border-top:1.2px solid #c0392b;">
     <div>${CO.footer1}</div>
     <div>${CO.footer2}</div>
     <div>${CO.footer3}</div>
@@ -126,11 +132,15 @@ function renderEmploymentContract(emp) {
 
   <div style="margin-top:48px; display:grid; grid-template-columns:1fr 1fr; gap:60px;">
     <div>
-      <div style="border-top:1px solid #000; padding-top:8px; margin-top:60px; font-size:10.5pt;">
-        <strong>For Allied Services International (Pvt) Ltd.</strong><br/>
-        Name: ________________________<br/>
-        Designation: _________________<br/>
-        Date: ${today()}
+      <div style="font-size:10.5pt;">
+        <img src="${SIGNATURE_URL}" alt="Authorized Signature" style="height:60px; object-fit:contain; display:block; margin-bottom:2px;" />
+        <img src="${STAMP_URL}" alt="Company Stamp" style="height:70px; object-fit:contain; display:block; margin-bottom:4px;" />
+        <div style="border-top:1px solid #000; padding-top:6px;">
+          <strong>For Allied Services International (Pvt) Ltd.</strong><br/>
+          Name: ________________________<br/>
+          Designation: _________________<br/>
+          Date: ${dayStr} ${monStr} ${yrStr}
+        </div>
       </div>
     </div>
     <div>
@@ -143,7 +153,7 @@ function renderEmploymentContract(emp) {
     </div>
   </div>
 
-  ${FOOTER_HTML}
+  ${FOOTER_SPACER}
 </div>`;
 }
 
@@ -201,7 +211,7 @@ function renderJoiningReport(emp) {
     <p>Date: _________________________________________</p>
   </div>
 
-  ${FOOTER_HTML}
+  ${FOOTER_SPACER}
 </div>`;
 }
 
@@ -264,7 +274,7 @@ function renderUniformForm(emp) {
     <div><div style="border-top:1px solid #000; padding-top:8px; margin-top:48px;">Admin / Store In-charge<br/>Name: ____________</div></div>
   </div>
 
-  ${FOOTER_HTML}
+  ${FOOTER_SPACER}
 </div>`;
 }
 
@@ -282,10 +292,15 @@ function printDocument(htmlContent, filename) {
   win.document.write(`<!DOCTYPE html><html><head>
     <title>${filename}</title>
     <style>
-      @media print { @page { margin: 12mm; } body { margin: 0; } }
+      @media print {
+        @page { margin: 12mm 12mm 22mm 12mm; }
+        body { margin: 0; }
+        #asil-footer { position: fixed; bottom: 0; left: 0; right: 0; }
+      }
       body { font-family: 'Times New Roman', serif; }
+      #asil-footer { font-size:6.5pt; color:#444; line-height:1.6; text-align:center; padding:4px 10px 3px; border-top:1.2px solid #c0392b; }
     </style>
-  </head><body>${htmlContent}
+  </head><body>${htmlContent}${FOOTER_PRINT_HTML}
   <script>
     window.onload = function() {
       document.title = '${filename}';
