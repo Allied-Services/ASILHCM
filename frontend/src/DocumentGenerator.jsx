@@ -34,16 +34,26 @@ const FOOTER_PRINT_HTML = `
 // ═══════════════════════════════════════════════════════════════════════════════
 // DOCUMENT 1 — EMPLOYMENT CONTRACT  (ASIL Ver 26A)
 // ═══════════════════════════════════════════════════════════════════════════════
-function renderEmploymentContract(emp) {
+// Safe local-date parser: avoids UTC midnight → timezone shift bug
+function parseLocalDate(str) {
+  if (!str) return null;
+  const parts = String(str).slice(0, 10).split('-').map(Number);
+  if (parts.length !== 3 || isNaN(parts[0])) return null;
+  return new Date(parts[0], parts[1] - 1, parts[2]); // local time
+}
+
+function renderEmploymentContract(emp, contractStartDate) {
   const gross = emp.salary || 0;
   const basic = Math.round(gross * 0.50);
   const hra = Math.round(gross * 0.40);
   const utility = Math.round(gross * 0.10);
   const fmt = (n) => n.toLocaleString('en-PK');
-  const doj = emp.doj ? new Date(emp.doj) : null;
-  const dayStr = doj ? doj.getDate() : '______';
-  const monStr = doj ? doj.toLocaleString('en-PK', { month: 'long' }) : '______';
-  const yrStr = doj ? doj.getFullYear() : '2026';
+  // Use contract start date if available, fall back to doj, then blank
+  const dateStr = contractStartDate || emp.doj || null;
+  const agreementDate = parseLocalDate(dateStr);
+  const dayStr = agreementDate ? agreementDate.getDate() : '______';
+  const monStr = agreementDate ? agreementDate.toLocaleString('en-PK', { month: 'long' }) : '______';
+  const yrStr = agreementDate ? agreementDate.getFullYear() : '2026';
 
   return `
 <div style="font-family:'Times New Roman',serif; font-size:11.5pt; line-height:1.85; color:#000; max-width:760px; margin:0 auto; padding:36px;">
@@ -317,13 +327,29 @@ export default function DocumentGenerator({ employee: propEmp }) {
   const [employees, setEmployees] = useState(propEmp ? [propEmp] : []);
   const [loading, setLoading] = useState(!propEmp);
   const [loadErr, setLoadErr] = useState(null);
+  // contractDateMap: clientName → most recent active contract's startDate
+  const [contractDateMap, setContractDateMap] = useState({});
 
   useEffect(() => {
     if (propEmp) return;
-    api.getEmployees()
-      .then(data => { setEmployees((data.employees || []).filter(e => e.active !== 'No')); setLoading(false); })
+    Promise.all([api.getEmployees(), api.getClients()])
+      .then(([empData, clientData]) => {
+        setEmployees((empData.employees || []).filter(e => e.active !== 'No'));
+        // Build a map from client name → startDate of the most recent Active contract
+        const map = {};
+        (clientData.clients || []).forEach(cl => {
+          const active = (cl.contracts || [])
+            .filter(ct => ct.status === 'Active' && ct.startDate)
+            .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+          if (active.length) map[cl.name] = active[0].startDate;
+        });
+        setContractDateMap(map);
+        setLoading(false);
+      })
       .catch(err => { setLoadErr(err.message); setLoading(false); });
   }, []);
+
+  const getContractStart = (emp) => contractDateMap[emp.client] || null;
 
   const [selectedEmps, setSelectedEmps] = useState(propEmp ? [propEmp.id] : []);
   const [selectedDocs, setSelectedDocs] = useState(['contract', 'joining', 'uniform']);
@@ -335,7 +361,8 @@ export default function DocumentGenerator({ employee: propEmp }) {
   const handlePrintSingle = (emp, docKey) => {
     const def = DOCS.find(d => d.key === docKey);
     if (!def) return;
-    printDocument(def.render(emp), `${emp.id} - ${emp.name} - ${def.label}`);
+    const html = docKey === 'contract' ? def.render(emp, getContractStart(emp)) : def.render(emp);
+    printDocument(html, `${emp.id} - ${emp.name} - ${def.label}`);
   };
 
   const handleBulkPrint = () => {
@@ -343,13 +370,17 @@ export default function DocumentGenerator({ employee: propEmp }) {
     const docs = DOCS.filter(d => selectedDocs.includes(d.key));
     if (!emps.length) return alert('Select at least one employee.');
     if (!docs.length) return alert('Select at least one document type.');
-    emps.forEach(emp => docs.forEach((doc, i) => setTimeout(() => printDocument(doc.render(emp), `${emp.id} - ${emp.name} - ${doc.label}`), i * 350)));
+    emps.forEach(emp => docs.forEach((doc, i) => setTimeout(() => {
+      const html = doc.key === 'contract' ? doc.render(emp, getContractStart(emp)) : doc.render(emp);
+      printDocument(html, `${emp.id} - ${emp.name} - ${doc.label}`);
+    }, i * 350)));
   };
 
   const handlePreview = (emp, docKey) => {
     const def = DOCS.find(d => d.key === docKey);
     if (!def) return;
-    setPreviewDoc({ html: def.render(emp), title: `${emp.id} - ${emp.name} - ${def.label}` });
+    const html = docKey === 'contract' ? def.render(emp, getContractStart(emp)) : def.render(emp);
+    setPreviewDoc({ html, title: `${emp.id} - ${emp.name} - ${def.label}` });
   };
 
   const Cb = ({ checked, onChange, label }) => (
