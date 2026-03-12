@@ -366,6 +366,7 @@ export default function EmployeeInformation() {
                                     <F label="Client Location" field="location" opts={{ ph: 'e.g. Karachi' }} />
                                     <F label="Province" field="province" opts={{ sel: ['Sindh', 'Punjab', 'KPK', 'Balochistan', 'Gilgit-Baltistan', 'Islamabad'] }} />
                                     <F label="Date of Joining" field="doj" type="date" />
+                                    <F label="Contract Start Date" field="contractDate" type="date" />
                                     <F label="Active" field="active" opts={{ sel: ['Yes', 'No'] }} />
                                 </>}
 

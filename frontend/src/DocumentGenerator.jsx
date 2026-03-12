@@ -57,7 +57,7 @@ function renderEmploymentContract(emp) {
   const yrStr = agreementDate ? agreementDate.getFullYear() : '______';
 
   return `
-<div style="font-family:'Times New Roman',serif; font-size:11.5pt; line-height:1.85; color:#000; max-width:760px; margin:0 auto; padding:36px;">
+<div style="font-family:'Times New Roman',serif; font-size:11.5pt; line-height:1.85; color:#000; max-width:760px; margin:0 auto; padding:0 36px 36px;">
 
   <!-- LETTERHEAD -->
   <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #c0392b; padding-bottom:12px; margin-bottom:16px;">
@@ -183,7 +183,7 @@ function renderJoiningReport(emp) {
     ? joinDate.toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' })
     : '______________________';
   return `
-<div style="font-family:Arial,sans-serif; font-size:11.5pt; line-height:1.85; color:#000; max-width:760px; margin:0 auto; padding:36px;">
+<div style="font-family:Arial,sans-serif; font-size:11.5pt; line-height:1.85; color:#000; max-width:760px; margin:0 auto; padding:0 36px 36px;">
 
   <!-- LETTERHEAD -->
   <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #c0392b; padding-bottom:12px; margin-bottom:16px;">
@@ -321,8 +321,8 @@ function printDocument(htmlContent, filename) {
     </style>
   </head><body>
   <table class="doc-wrap">
-    <tfoot class="doc-footer"><tr><td>${FOOTER_HTML_INNER}</td></tr></tfoot>
-    <tbody class="doc-body" ><tr><td>${htmlContent}</td></tr></tbody>
+    <tfoot class="doc-footer"><tr><td style="padding:0;">${FOOTER_HTML_INNER}</td></tr></tfoot>
+    <tbody class="doc-body" ><tr><td style="padding:0;">${htmlContent}</td></tr></tbody>
   </table>
   <script>
     window.onload = function() {

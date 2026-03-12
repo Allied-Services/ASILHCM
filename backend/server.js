@@ -102,6 +102,7 @@ const empToDb = (e) => ({
     total_medical_coverage: nullNum(e.totalMedicalCoverage),
     bank_name: e.bankName || null, bank_account: e.bankAccount || null, account_title: e.accountTitle || null,
     nok_name: e.nokName || null, nok_relation: e.nokRelation || null, nok_contact: e.nokContact || null,
+    contract_date: nullDate(e.contractDate),
 });
 
 const empFromDb = (r) => ({
@@ -127,7 +128,9 @@ const empFromDb = (r) => ({
     totalMedicalCoverage: r.total_medical_coverage || '',
     bankName: r.bank_name, bankAccount: r.bank_account, accountTitle: r.account_title,
     nokName: r.nok_name, nokRelation: r.nok_relation, nokContact: r.nok_contact,
-    contractStartDate: r.contract_start_date ? String(r.contract_start_date).slice(0, 10) : '',
+    contractStartDate: r.contract_date ? String(r.contract_date).slice(0, 10)
+      : (r.contract_start_date ? String(r.contract_start_date).slice(0, 10) : ''),
+    contractDate: r.contract_date ? String(r.contract_date).slice(0, 10) : '',
     salaryHistory: [],
     leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
 });
@@ -154,7 +157,7 @@ app.get('/api/employees', requireAuth, async (req, res) => {
 app.post('/api/employees', requireAuth, async (req, res) => {
     try {
         const d = empToDb(req.body);
-        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact'];
+        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date'];
         const vals = cols.map(c => d[c]);
         const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
         const updates = cols.slice(1).map((c, i) => `${c}=EXCLUDED.${c}`).join(',');
@@ -169,7 +172,7 @@ app.post('/api/employees', requireAuth, async (req, res) => {
 app.put('/api/employees/:id', requireAuth, async (req, res) => {
     try {
         const d = empToDb({ ...req.body, id: req.params.id });
-        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact'];
+        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date'];
         const setClauses = cols.map((c, i) => `${c}=$${i + 1}`).join(',');
         const vals = [...cols.map(c => d[c]), req.params.id];
         const { rows } = await pool.query(
@@ -312,7 +315,15 @@ app.post('/api/calculate', (req, res) => {
     res.json({ parameters: { gross, join, calc }, results: { eobi, sessi, incomeTax, gratuity, netSalary: gross - eobi.employeeShare - incomeTax, totalCostToCompany: gross + eobi.employerShare + sessi } });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`ASIL HCM Backend running on port ${PORT}`);
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
+    // ── One-time migrations (safe to run every restart, IF NOT EXISTS guards) ──
+    try {
+        await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_date DATE');
+        console.log('Migration OK: contract_date column ready');
+    } catch (e) {
+        console.warn('Migration warning (non-fatal):', e.message);
+    }
 });
+
