@@ -19,12 +19,12 @@ const SIGNATURE_URL = `${window.location.origin}/asil-signature.png`;
 
 const today = () => new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' });
 
-// Spacer keeps body content from sliding under the fixed footer when printing
-const FOOTER_SPACER = `<div style="height:60px;"></div>`;
+// Small breathing room before the table tbody ends
+const FOOTER_SPACER = `<div style="height:10px;"></div>`;
 
-// Footer: position:fixed only in @media print so it repeats every page without overlapping on screen
-const FOOTER_PRINT_HTML = `
-  <div id="asil-footer" style="border-top:1.2px solid #c0392b; font-size:10pt; color:#444; line-height:1.15; text-align:center; padding:4px 10px 3px;">
+// Footer inner HTML — rendered inside <tfoot> which auto-repeats every print page
+const FOOTER_HTML_INNER = `
+  <div style="border-top:1.2px solid #c0392b; font-size:9pt; color:#444; line-height:1.15; text-align:center; padding:4px 10px 3px;">
     <div>${CO.footer1}</div>
     <div>${CO.footer2}</div>
     <div>${CO.footer3}</div>
@@ -312,15 +312,18 @@ function printDocument(htmlContent, filename) {
   win.document.write(`<!DOCTYPE html><html><head>
     <title>${filename}</title>
     <style>
-      @media print {
-        @page { margin: 12mm 12mm 28mm 12mm; }
-        body { margin: 0; }
-        #asil-footer { position: fixed; bottom: 0; left: 0; right: 0; background: white; }
-      }
-      body { font-family: 'Times New Roman', serif; }
-      #asil-footer { font-size:10pt; color:#444; line-height:1.15; text-align:center; padding:4px 10px 3px; border-top:1.2px solid #c0392b; }
+      @media print { @page { margin: 12mm; } body { margin:0; } }
+      body { font-family:'Times New Roman',serif; margin:0; padding:0; }
+      /* Table-footer-group: the ONLY reliable way to repeat footer every page without overlap */
+      table.doc-wrap { width:100%; border-collapse:collapse; }
+      tfoot.doc-footer { display:table-footer-group; }
+      tbody.doc-body  { display:table-row-group; }
     </style>
-  </head><body>${htmlContent}${FOOTER_PRINT_HTML}
+  </head><body>
+  <table class="doc-wrap">
+    <tfoot class="doc-footer"><tr><td>${FOOTER_HTML_INNER}</td></tr></tfoot>
+    <tbody class="doc-body" ><tr><td>${htmlContent}</td></tr></tbody>
+  </table>
   <script>
     window.onload = function() {
       document.title = '${filename}';
