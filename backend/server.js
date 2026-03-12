@@ -140,13 +140,23 @@ app.get('/api/employees', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(`
             SELECT e.*,
-              (SELECT c.start_date::text
-               FROM contracts c
-               JOIN clients cl ON c.client_id = cl.id
-               WHERE LOWER(TRIM(cl.name)) = LOWER(TRIM(e.client))
-                 AND LOWER(TRIM(c.status)) = 'active'
-               ORDER BY c.start_date ASC
-               LIMIT 1) AS contract_start_date
+              COALESCE(
+                -- Priority 1: manually set contract_date on employee record
+                e.contract_date::text,
+                -- Priority 2: auto-match by client name (flexible LIKE in both directions)
+                (SELECT c.start_date::text
+                 FROM contracts c
+                 JOIN clients cl ON c.client_id = cl.id
+                 WHERE e.client IS NOT NULL AND e.client <> ''
+                   AND (
+                     LOWER(TRIM(cl.name)) = LOWER(TRIM(e.client))
+                     OR LOWER(TRIM(e.client)) LIKE '%' || LOWER(TRIM(cl.name)) || '%'
+                     OR LOWER(TRIM(cl.name)) LIKE '%' || LOWER(TRIM(e.client)) || '%'
+                   )
+                   AND LOWER(TRIM(c.status)) = 'active'
+                 ORDER BY c.start_date ASC
+                 LIMIT 1)
+              ) AS contract_start_date
             FROM employees e
             ORDER BY e.name ASC
         `);
@@ -322,6 +332,28 @@ app.listen(PORT, async () => {
     try {
         await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_date DATE');
         console.log('Migration OK: contract_date column ready');
+        // Bulk-fill contract_date for any employee whose contract_date is still null
+        // Uses LIKE match in both directions so partial names (e.g. "PSO Serai Naurang" vs "PSO") still match
+        const bulkResult = await pool.query(`
+            UPDATE employees e
+            SET contract_date = sub.start_date
+            FROM (
+                SELECT DISTINCT ON (e2.id) e2.id, c.start_date
+                FROM employees e2
+                JOIN clients cl ON (
+                    LOWER(TRIM(e2.client)) = LOWER(TRIM(cl.name))
+                    OR LOWER(TRIM(e2.client)) LIKE '%' || LOWER(TRIM(cl.name)) || '%'
+                    OR LOWER(TRIM(cl.name)) LIKE '%' || LOWER(TRIM(e2.client)) || '%'
+                )
+                JOIN contracts c ON c.client_id = cl.id
+                WHERE LOWER(TRIM(c.status)) = 'active'
+                  AND e2.client IS NOT NULL AND e2.client <> ''
+                  AND e2.contract_date IS NULL
+                ORDER BY e2.id, c.start_date ASC
+            ) sub
+            WHERE e.id = sub.id
+        `);
+        console.log('Bulk contract_date update: ' + bulkResult.rowCount + ' employees updated');
     } catch (e) {
         console.warn('Migration warning (non-fatal):', e.message);
     }
