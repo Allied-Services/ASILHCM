@@ -72,7 +72,7 @@ function renderEmploymentContract(emp) {
 
   <p>THIS AGREEMENT is made on this <strong>${dayStr}</strong> day of <strong>${monStr}</strong>, <strong>${yrStr}</strong> BETWEEN:</p>
   <p><strong>${CO.nameShort}</strong>, a company incorporated under the laws of Pakistan, having its registered office at ${CO.regAddress} (hereinafter referred to as the &ldquo;Company&rdquo;).</p>
-  <p>AND: <strong>MR. ${emp.name || '_____________________________'}</strong>${emp.fatherName ? `, son of <strong>${emp.fatherName}</strong>` : ''}, holder of CNIC No. <strong>${emp.cnic || '_____________________'}</strong>${emp.presentAddress ? `, resident of <strong>${emp.presentAddress}</strong>` : ''} (hereinafter referred to as the &ldquo;Employee&rdquo;).</p>
+  <p>AND: <strong>MR. ${emp.name || '_____________________________'}</strong>, son of <strong>${emp.fatherName || '___________________________'}</strong>, holder of CNIC No. <strong>${emp.cnic || '_____________________'}</strong>, resident of <strong>${emp.presentAddress || '___________________________'}</strong> (hereinafter referred to as the &ldquo;Employee&rdquo;).</p>
 
   <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">1. APPOINTMENT AND SCOPE OF WORK</h3>
   <p>1.1. The Employee is appointed as <strong>${emp.designation || '[Job Title]'}</strong>.</p>
