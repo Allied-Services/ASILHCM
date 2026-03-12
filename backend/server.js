@@ -127,6 +127,7 @@ const empFromDb = (r) => ({
     totalMedicalCoverage: r.total_medical_coverage || '',
     bankName: r.bank_name, bankAccount: r.bank_account, accountTitle: r.account_title,
     nokName: r.nok_name, nokRelation: r.nok_relation, nokContact: r.nok_contact,
+    contractStartDate: r.contract_start_date ? String(r.contract_start_date).slice(0, 10) : '',
     salaryHistory: [],
     leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
 });
@@ -134,7 +135,18 @@ const empFromDb = (r) => ({
 // ─── Employee Routes ──────────────────────────────────────────────────────────
 app.get('/api/employees', requireAuth, async (req, res) => {
     try {
-        const { rows } = await pool.query('SELECT * FROM employees ORDER BY name ASC');
+        const { rows } = await pool.query(`
+            SELECT e.*,
+              (SELECT c.start_date::text
+               FROM contracts c
+               JOIN clients cl ON c.client_id = cl.id
+               WHERE LOWER(TRIM(cl.name)) = LOWER(TRIM(e.client))
+                 AND LOWER(TRIM(c.status)) = 'active'
+               ORDER BY c.start_date ASC
+               LIMIT 1) AS contract_start_date
+            FROM employees e
+            ORDER BY e.name ASC
+        `);
         res.json({ employees: rows.map(empFromDb) });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });

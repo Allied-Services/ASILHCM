@@ -14,17 +14,18 @@ const CO = {
 };
 
 const LOGO_URL = `${window.location.origin}/asil-logo.png`;
-const STAMP_URL = `${window.location.origin}/asil-stamp.jpg`;
-const SIGNATURE_URL = `${window.location.origin}/asil-signature.jpg`;
+const STAMP_URL = `${window.location.origin}/asil-stamp.png`;
+const SIGNATURE_URL = `${window.location.origin}/asil-signature.png`;
 
 const today = () => new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' });
 
-// Footer used as a spacer at the bottom of the last page's content flow (keeps space for the fixed footer)
-const FOOTER_SPACER = `<div style="height:52px;"></div>`;
+// Spacer keeps body content from sliding under the fixed footer when printing
+const FOOTER_SPACER = `<div style="height:60px;"></div>`;
 
-// The actual footer HTML injected into the print window — rendered as a fixed element so it repeats on every page
+// Footer injected into the print window—position:fixed in @media print so it repeats every page
+// On screen it's just a normal block at the bottom (no overlap)
 const FOOTER_PRINT_HTML = `
-  <div id="asil-footer" style="font-size:6.5pt; color:#444; line-height:1.6; text-align:center; padding:4px 10px 3px; border-top:1.2px solid #c0392b;">
+  <div id="asil-footer" style="border-top:1.2px solid #c0392b; font-size:10pt; color:#444; line-height:1.7; text-align:center; padding:5px 10px 4px;">
     <div>${CO.footer1}</div>
     <div>${CO.footer2}</div>
     <div>${CO.footer3}</div>
@@ -42,18 +43,19 @@ function parseLocalDate(str) {
   return new Date(parts[0], parts[1] - 1, parts[2]); // local time
 }
 
-function renderEmploymentContract(emp, contractStartDate) {
+function renderEmploymentContract(emp) {
   const gross = emp.salary || 0;
   const basic = Math.round(gross * 0.50);
   const hra = Math.round(gross * 0.40);
   const utility = Math.round(gross * 0.10);
   const fmt = (n) => n.toLocaleString('en-PK');
-  // Use contract start date if available, fall back to doj, then blank
-  const dateStr = contractStartDate || emp.doj || null;
+  // Contract start date comes from the backend SQL subquery (most reliable)
+  // Falls back to doj if contractStartDate is not set
+  const dateStr = emp.contractStartDate || emp.doj || null;
   const agreementDate = parseLocalDate(dateStr);
   const dayStr = agreementDate ? agreementDate.getDate() : '______';
   const monStr = agreementDate ? agreementDate.toLocaleString('en-PK', { month: 'long' }) : '______';
-  const yrStr = agreementDate ? agreementDate.getFullYear() : '2026';
+  const yrStr = agreementDate ? agreementDate.getFullYear() : '______';
 
   return `
 <div style="font-family:'Times New Roman',serif; font-size:11.5pt; line-height:1.85; color:#000; max-width:760px; margin:0 auto; padding:36px;">
@@ -307,12 +309,12 @@ function printDocument(htmlContent, filename) {
     <title>${filename}</title>
     <style>
       @media print {
-        @page { margin: 12mm 12mm 22mm 12mm; }
+        @page { margin: 12mm 12mm 28mm 12mm; }
         body { margin: 0; }
-        #asil-footer { position: fixed; bottom: 0; left: 0; right: 0; }
+        #asil-footer { position: fixed; bottom: 0; left: 0; right: 0; background: white; }
       }
       body { font-family: 'Times New Roman', serif; }
-      #asil-footer { font-size:6.5pt; color:#444; line-height:1.6; text-align:center; padding:4px 10px 3px; border-top:1.2px solid #c0392b; }
+      #asil-footer { font-size:10pt; color:#444; line-height:1.7; text-align:center; padding:5px 10px 4px; border-top:1.2px solid #c0392b; }
     </style>
   </head><body>${htmlContent}${FOOTER_PRINT_HTML}
   <script>
@@ -331,44 +333,16 @@ export default function DocumentGenerator({ employee: propEmp }) {
   const [employees, setEmployees] = useState(propEmp ? [propEmp] : []);
   const [loading, setLoading] = useState(!propEmp);
   const [loadErr, setLoadErr] = useState(null);
-  // contractDateMap: clientName → most recent active contract's startDate
-  const [contractDateMap, setContractDateMap] = useState({});
 
   useEffect(() => {
     if (propEmp) return;
-    // Load employees first; clients are bonus — failure must not block rendering
     api.getEmployees()
       .then(empData => {
         setEmployees((empData.employees || []).filter(e => e.active !== 'No'));
         setLoading(false);
       })
       .catch(err => { setLoadErr(err.message); setLoading(false); });
-
-    api.getClients()
-      .then(clientData => {
-        const map = {};
-        const norm = (s) => (s || '').trim().toLowerCase();
-        (clientData.clients || []).forEach(cl => {
-          const active = (cl.contracts || [])
-            .filter(ct => norm(ct.status) === 'active' && ct.startDate)
-            .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
-          if (!active.length) return;
-          const earliest = active[active.length - 1]; // oldest active contract start
-          const latest   = active[0];                  // most recent active contract start
-          // Key by client name
-          map[norm(cl.name)] = earliest.startDate;
-          // Also key by each contract's own name (emp.client may store contract name)
-          active.forEach(ct => {
-            if (ct.contractName) map[norm(ct.contractName)] = ct.startDate;
-          });
-        });
-        setContractDateMap(map);
-      })
-      .catch(() => { /* clients failed — dates stay blank, not a critical error */ });
   }, []);
-
-  const getContractStart = (emp) =>
-    contractDateMap[(emp.client || '').trim().toLowerCase()] || null;
 
   const [selectedEmps, setSelectedEmps] = useState(propEmp ? [propEmp.id] : []);
   const [selectedDocs, setSelectedDocs] = useState(['contract', 'joining', 'uniform']);
@@ -380,8 +354,7 @@ export default function DocumentGenerator({ employee: propEmp }) {
   const handlePrintSingle = (emp, docKey) => {
     const def = DOCS.find(d => d.key === docKey);
     if (!def) return;
-    const html = docKey === 'contract' ? def.render(emp, getContractStart(emp)) : def.render(emp);
-    printDocument(html, `${emp.id} - ${emp.name} - ${def.label}`);
+    printDocument(def.render(emp), `${emp.id} - ${emp.name} - ${def.label}`);
   };
 
   const handleBulkPrint = () => {
@@ -389,17 +362,15 @@ export default function DocumentGenerator({ employee: propEmp }) {
     const docs = DOCS.filter(d => selectedDocs.includes(d.key));
     if (!emps.length) return alert('Select at least one employee.');
     if (!docs.length) return alert('Select at least one document type.');
-    emps.forEach(emp => docs.forEach((doc, i) => setTimeout(() => {
-      const html = doc.key === 'contract' ? doc.render(emp, getContractStart(emp)) : doc.render(emp);
-      printDocument(html, `${emp.id} - ${emp.name} - ${doc.label}`);
-    }, i * 350)));
+    emps.forEach(emp => docs.forEach((doc, i) => setTimeout(() =>
+      printDocument(doc.render(emp), `${emp.id} - ${emp.name} - ${doc.label}`)
+    , i * 350)));
   };
 
   const handlePreview = (emp, docKey) => {
     const def = DOCS.find(d => d.key === docKey);
     if (!def) return;
-    const html = docKey === 'contract' ? def.render(emp, getContractStart(emp)) : def.render(emp);
-    setPreviewDoc({ html, title: `${emp.id} - ${emp.name} - ${def.label}` });
+    setPreviewDoc({ html: def.render(emp), title: `${emp.id} - ${emp.name} - ${def.label}` });
   };
 
   const Cb = ({ checked, onChange, label }) => (
