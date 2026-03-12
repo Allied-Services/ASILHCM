@@ -140,21 +140,25 @@ function renderEmploymentContract(emp, contractStartDate) {
   <p><strong>Data Security:</strong> No data, documents, calculations, or items (in paper or electronic form) may be removed from the Company&rsquo;s or Client&rsquo;s premises without express written consent.</p>
   <p><strong>Return of Property:</strong> Upon termination or request, the Employee must return all property in good condition. The Company reserves the right to deduct the value of any unreturned or damaged items from the Employee&rsquo;s final dues.</p>
 
-  <div style="margin-top:48px; display:grid; grid-template-columns:1fr 1fr; gap:60px;">
-    <div>
-      <div style="font-size:10.5pt;">
-        <img src="${SIGNATURE_URL}" alt="Authorized Signature" style="height:60px; object-fit:contain; display:block; margin-bottom:2px;" />
-        <img src="${STAMP_URL}" alt="Company Stamp" style="height:70px; object-fit:contain; display:block; margin-bottom:4px;" />
-        <div style="border-top:1px solid #000; padding-top:6px;">
-          <strong>For Allied Services International (Pvt) Ltd.</strong><br/>
-          Name: ________________________<br/>
-          Designation: _________________<br/>
-          Date: ${dayStr} ${monStr} ${yrStr}
-        </div>
+  <div style="margin-top:48px; display:grid; grid-template-columns:1fr 1fr; gap:60px; align-items:end;">
+    <!-- Employer signature column -->
+    <div style="position:relative; padding-top:120px;">
+      <img src="${SIGNATURE_URL}" alt="Authorized Signature"
+        style="position:absolute; top:10px; left:0; width:180px; height:90px;
+               object-fit:contain; mix-blend-mode:multiply; opacity:0.9; pointer-events:none;" />
+      <img src="${STAMP_URL}" alt="Company Stamp"
+        style="position:absolute; top:0; left:120px; width:130px; height:130px;
+               object-fit:contain; mix-blend-mode:multiply; opacity:0.85; pointer-events:none;" />
+      <div style="border-top:1px solid #000; padding-top:6px; font-size:10.5pt;">
+        <strong>For Allied Services International (Pvt) Ltd.</strong><br/>
+        Name: ________________________<br/>
+        Designation: _________________<br/>
+        Date: ${dayStr} ${monStr} ${yrStr}
       </div>
     </div>
-    <div>
-      <div style="border-top:1px solid #000; padding-top:8px; margin-top:60px; font-size:10.5pt;">
+    <!-- Employee signature column -->
+    <div style="padding-top:120px; font-size:10.5pt;">
+      <div style="border-top:1px solid #000; padding-top:8px;">
         Employee Name: <strong>${emp.name || ''}</strong><br/>
         Signature &amp; Thumb Impression: ___________<br/>
         CNIC#: ${emp.cnic || ''}<br/>
@@ -332,24 +336,39 @@ export default function DocumentGenerator({ employee: propEmp }) {
 
   useEffect(() => {
     if (propEmp) return;
-    Promise.all([api.getEmployees(), api.getClients()])
-      .then(([empData, clientData]) => {
+    // Load employees first; clients are bonus — failure must not block rendering
+    api.getEmployees()
+      .then(empData => {
         setEmployees((empData.employees || []).filter(e => e.active !== 'No'));
-        // Build a map from client name → startDate of the most recent Active contract
-        const map = {};
-        (clientData.clients || []).forEach(cl => {
-          const active = (cl.contracts || [])
-            .filter(ct => ct.status === 'Active' && ct.startDate)
-            .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
-          if (active.length) map[cl.name] = active[0].startDate;
-        });
-        setContractDateMap(map);
         setLoading(false);
       })
       .catch(err => { setLoadErr(err.message); setLoading(false); });
+
+    api.getClients()
+      .then(clientData => {
+        const map = {};
+        const norm = (s) => (s || '').trim().toLowerCase();
+        (clientData.clients || []).forEach(cl => {
+          const active = (cl.contracts || [])
+            .filter(ct => norm(ct.status) === 'active' && ct.startDate)
+            .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+          if (!active.length) return;
+          const earliest = active[active.length - 1]; // oldest active contract start
+          const latest   = active[0];                  // most recent active contract start
+          // Key by client name
+          map[norm(cl.name)] = earliest.startDate;
+          // Also key by each contract's own name (emp.client may store contract name)
+          active.forEach(ct => {
+            if (ct.contractName) map[norm(ct.contractName)] = ct.startDate;
+          });
+        });
+        setContractDateMap(map);
+      })
+      .catch(() => { /* clients failed — dates stay blank, not a critical error */ });
   }, []);
 
-  const getContractStart = (emp) => contractDateMap[emp.client] || null;
+  const getContractStart = (emp) =>
+    contractDateMap[(emp.client || '').trim().toLowerCase()] || null;
 
   const [selectedEmps, setSelectedEmps] = useState(propEmp ? [propEmp.id] : []);
   const [selectedDocs, setSelectedDocs] = useState(['contract', 'joining', 'uniform']);
