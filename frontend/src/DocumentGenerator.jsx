@@ -22,10 +22,9 @@ const today = () => new Date().toLocaleDateString('en-PK', { day: '2-digit', mon
 // Spacer keeps body content from sliding under the fixed footer when printing
 const FOOTER_SPACER = `<div style="height:60px;"></div>`;
 
-// Footer injected into the print window—position:fixed in @media print so it repeats every page
-// On screen it's just a normal block at the bottom (no overlap)
+// Footer: position:fixed only in @media print so it repeats every page without overlapping on screen
 const FOOTER_PRINT_HTML = `
-  <div id="asil-footer" style="border-top:1.2px solid #c0392b; font-size:10pt; color:#444; line-height:1.7; text-align:center; padding:5px 10px 4px;">
+  <div id="asil-footer" style="border-top:1.2px solid #c0392b; font-size:10pt; color:#444; line-height:1.15; text-align:center; padding:4px 10px 3px;">
     <div>${CO.footer1}</div>
     <div>${CO.footer2}</div>
     <div>${CO.footer3}</div>
@@ -73,7 +72,7 @@ function renderEmploymentContract(emp) {
 
   <p>THIS AGREEMENT is made on this <strong>${dayStr}</strong> day of <strong>${monStr}</strong>, <strong>${yrStr}</strong> BETWEEN:</p>
   <p><strong>${CO.nameShort}</strong>, a company incorporated under the laws of Pakistan, having its registered office at ${CO.regAddress} (hereinafter referred to as the &ldquo;Company&rdquo;).</p>
-  <p>AND: <strong>MR./MS. ${emp.name || '_____________________________'}</strong>, son/daughter/wife of <strong>${emp.fatherName || '_____________________'}</strong>, holder of CNIC No. <strong>${emp.cnic || '_____________________'}</strong>, resident of <strong>${emp.presentAddress || '_____________________'}</strong> (hereinafter referred to as the &ldquo;Employee&rdquo;).</p>
+  <p>AND: <strong>MR. ${emp.name || '_____________________________'}</strong>${emp.fatherName ? `, son of <strong>${emp.fatherName}</strong>` : ''}, holder of CNIC No. <strong>${emp.cnic || '_____________________'}</strong>${emp.presentAddress ? `, resident of <strong>${emp.presentAddress}</strong>` : ''} (hereinafter referred to as the &ldquo;Employee&rdquo;).</p>
 
   <h3 style="font-size:11.5pt; margin:18px 0 4px; text-decoration:underline;">1. APPOINTMENT AND SCOPE OF WORK</h3>
   <p>1.1. The Employee is appointed as <strong>${emp.designation || '[Job Title]'}</strong>.</p>
@@ -153,8 +152,8 @@ function renderEmploymentContract(emp) {
                object-fit:contain; mix-blend-mode:multiply; opacity:0.85; pointer-events:none;" />
       <div style="border-top:1px solid #000; padding-top:6px; font-size:10.5pt;">
         <strong>For Allied Services International (Pvt) Ltd.</strong><br/>
-        Name: ________________________<br/>
-        Designation: _________________<br/>
+        Name: <strong>Rabia Bhutto</strong><br/>
+        Designation: Contracts Executive<br/>
         Date: ${dayStr} ${monStr} ${yrStr}
       </div>
     </div>
@@ -177,7 +176,12 @@ function renderEmploymentContract(emp) {
 // DOCUMENT 2 — EMPLOYEE JOINING REPORT  (ASIL Ver 26A)
 // ═══════════════════════════════════════════════════════════════════════════════
 function renderJoiningReport(emp) {
-  const doj = emp.doj ? new Date(emp.doj).toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' }) : '______________________';
+  // Use contract start date first (from backend SQL subquery), then doj, then blank
+  const dateStr = emp.contractStartDate || emp.doj || null;
+  const joinDate = parseLocalDate(dateStr);
+  const doj = joinDate
+    ? joinDate.toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' })
+    : '______________________';
   return `
 <div style="font-family:Arial,sans-serif; font-size:11.5pt; line-height:1.85; color:#000; max-width:760px; margin:0 auto; padding:36px;">
 
@@ -314,7 +318,7 @@ function printDocument(htmlContent, filename) {
         #asil-footer { position: fixed; bottom: 0; left: 0; right: 0; background: white; }
       }
       body { font-family: 'Times New Roman', serif; }
-      #asil-footer { font-size:10pt; color:#444; line-height:1.7; text-align:center; padding:5px 10px 4px; border-top:1.2px solid #c0392b; }
+      #asil-footer { font-size:10pt; color:#444; line-height:1.15; text-align:center; padding:4px 10px 3px; border-top:1.2px solid #c0392b; }
     </style>
   </head><body>${htmlContent}${FOOTER_PRINT_HTML}
   <script>
