@@ -204,15 +204,26 @@ app.delete('/api/employees/:id', requireAuth, async (req, res) => {
 app.post('/api/employees/bulk', requireAuth, async (req, res) => {
     const { employees = [] } = req.body;
     const saved = [], errors = [];
+    const COLS = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province',
+        'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth',
+        'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact',
+        'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic',
+        'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id',
+        'medical_type', 'medical_maternity', 'total_medical_coverage',
+        'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date'];
+    const placeholders = COLS.map((_, i) => `$${i + 1}`).join(',');
+    const updates = COLS.slice(1).map(c => `${c}=EXCLUDED.${c}`).join(',');
     for (const emp of employees) {
         try {
             const d = empToDb(emp);
+            const vals = COLS.map(c => d[c]);
             const { rows } = await pool.query(
-                `INSERT INTO employees (id,bu,active,client,client_bu,dept,designation,location,province,name,cnic,salary,doj,religion,marital_status,primary_contact,email,bank_name,bank_account)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-                 ON CONFLICT (id) DO NOTHING RETURNING *`,
-                [d.id, d.bu, d.active, d.client, d.client_bu, d.dept, d.designation, d.location, d.province, d.name, d.cnic, d.salary, d.doj, d.religion, d.marital_status, d.primary_contact, d.email, d.bank_name, d.bank_account]
+                `INSERT INTO employees (${COLS.join(',')}) VALUES (${placeholders})
+                 ON CONFLICT (id) DO UPDATE SET ${updates}, updated_at=NOW()
+                 RETURNING *`,
+                vals
             );
+
             if (rows.length) saved.push(empFromDb(rows[0]));
         } catch (err) { errors.push({ id: emp.id, name: emp.name, error: err.message }); }
     }
@@ -325,6 +336,149 @@ app.post('/api/calculate', (req, res) => {
     res.json({ parameters: { gross, join, calc }, results: { eobi, sessi, incomeTax, gratuity, netSalary: gross - eobi.employeeShare - incomeTax, totalCostToCompany: gross + eobi.employerShare + sessi } });
 });
 
+// ════════════════════════════════════════════════════════════════════════════════
+// INVENTORY MANAGEMENT
+// ════════════════════════════════════════════════════════════════════════════════
+
+// ── Inventory Items (catalog) ─────────────────────────────────────────────────
+app.get('/api/inventory/items', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT i.*,
+                COALESCE(SUM(s.quantity), 0) AS total_stocked,
+                COALESCE(SUM(CASE WHEN iss.status = 'Issued' THEN iss.quantity ELSE 0 END), 0) AS total_issued,
+                COALESCE(SUM(s.quantity), 0) - COALESCE(SUM(CASE WHEN iss.status = 'Issued' THEN iss.quantity ELSE 0 END), 0) AS available_stock,
+                COALESCE(AVG(s.unit_cost), 0) AS avg_unit_cost,
+                COALESCE(SUM(s.quantity * s.unit_cost), 0) AS total_procurement_value
+            FROM inventory_items i
+            LEFT JOIN inventory_stock s ON s.item_id = i.id
+            LEFT JOIN inventory_issuance iss ON iss.item_id = i.id
+            GROUP BY i.id
+            ORDER BY i.category, i.name`);
+        res.json({ items: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/inventory/items', requireAuth, async (req, res) => {
+    try {
+        const { name, category, description, unit = 'piece', has_expiry = false, expiry_months, min_stock = 0 } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO inventory_items (name, category, description, unit, has_expiry, expiry_months, min_stock)
+             VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+            [name, category, description, unit, has_expiry, expiry_months || null, min_stock]
+        );
+        res.json({ item: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/inventory/items/:id', requireAuth, async (req, res) => {
+    try {
+        const { name, category, description, unit, has_expiry, expiry_months, min_stock } = req.body;
+        const { rows } = await pool.query(
+            `UPDATE inventory_items SET name=$1, category=$2, description=$3, unit=$4, has_expiry=$5, expiry_months=$6, min_stock=$7, updated_at=NOW()
+             WHERE id=$8 RETURNING *`,
+            [name, category, description, unit, has_expiry, expiry_months || null, min_stock, req.params.id]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Not found' });
+        res.json({ item: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/inventory/items/:id', requireAuth, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM inventory_items WHERE id=$1', [req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Stock In (procurement) ────────────────────────────────────────────────────
+app.get('/api/inventory/stock', requireAuth, async (req, res) => {
+    try {
+        const { item_id } = req.query;
+        const where = item_id ? 'WHERE s.item_id = $1' : '';
+        const params = item_id ? [item_id] : [];
+        const { rows } = await pool.query(`
+            SELECT s.*, i.name AS item_name, i.unit, i.category
+            FROM inventory_stock s
+            JOIN inventory_items i ON i.id = s.item_id
+            ${where}
+            ORDER BY s.received_date DESC, s.created_at DESC`, params);
+        res.json({ stock: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/inventory/stock', requireAuth, async (req, res) => {
+    try {
+        const { item_id, quantity, unit_cost, supplier, receipt_no, po_number, received_date, notes } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO inventory_stock (item_id, quantity, unit_cost, supplier, receipt_no, po_number, received_date, notes)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+            [item_id, quantity, unit_cost || null, supplier, receipt_no, po_number, received_date || null, notes]
+        );
+        res.json({ stock: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/inventory/stock/:id', requireAuth, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM inventory_stock WHERE id=$1', [req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Issuances ─────────────────────────────────────────────────────────────────
+app.get('/api/inventory/issuances', requireAuth, async (req, res) => {
+    try {
+        const { employee_id, item_id, status } = req.query;
+        const conds = []; const params = [];
+        if (employee_id) { conds.push(`iss.employee_id = $${params.length + 1}`); params.push(employee_id); }
+        if (item_id)     { conds.push(`iss.item_id = $${params.length + 1}`); params.push(item_id); }
+        if (status)      { conds.push(`iss.status = $${params.length + 1}`); params.push(status); }
+        const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+        const { rows } = await pool.query(`
+            SELECT iss.*, i.name AS item_name, i.unit, i.has_expiry, i.category
+            FROM inventory_issuance iss
+            JOIN inventory_items i ON i.id = iss.item_id
+            ${where}
+            ORDER BY iss.issue_date DESC, iss.created_at DESC`, params);
+        res.json({ issuances: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/inventory/issuances', requireAuth, async (req, res) => {
+    try {
+        const { item_id, employee_id, employee_name, quantity, issue_date, expiry_date, notes, condition_out } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO inventory_issuance (item_id, employee_id, employee_name, quantity, issue_date, expiry_date, notes, condition_out, status)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Issued') RETURNING *`,
+            [item_id, employee_id, employee_name, quantity || 1, issue_date || null, expiry_date || null, notes, condition_out || 'New']
+        );
+        res.json({ issuance: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/inventory/issuances/:id', requireAuth, async (req, res) => {
+    try {
+        const { status, return_date, condition_in, notes } = req.body;
+        const { rows } = await pool.query(
+            `UPDATE inventory_issuance SET status=$1, return_date=$2, condition_in=$3, notes=$4, updated_at=NOW()
+             WHERE id=$5 RETURNING *`,
+            [status, return_date || null, condition_in, notes, req.params.id]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Not found' });
+        res.json({ issuance: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/inventory/issuances/:id', requireAuth, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM inventory_issuance WHERE id=$1', [req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
+
 app.listen(PORT, async () => {
     console.log(`ASIL HCM Backend running on port ${PORT}`);
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
@@ -332,6 +486,72 @@ app.listen(PORT, async () => {
     try {
         await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_date DATE');
         console.log('Migration OK: contract_date column ready');
+
+        // ── Inventory tables ──────────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS inventory_items (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                category TEXT,
+                description TEXT,
+                unit TEXT DEFAULT 'piece',
+                has_expiry BOOLEAN DEFAULT FALSE,
+                expiry_months INTEGER,
+                min_stock INTEGER DEFAULT 0,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS inventory_stock (
+                id SERIAL PRIMARY KEY,
+                item_id INTEGER REFERENCES inventory_items(id) ON DELETE CASCADE,
+                quantity INTEGER NOT NULL,
+                unit_cost NUMERIC(12,2),
+                supplier TEXT,
+                receipt_no TEXT,
+                po_number TEXT,
+                received_date DATE,
+                notes TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS inventory_issuance (
+                id SERIAL PRIMARY KEY,
+                item_id INTEGER REFERENCES inventory_items(id) ON DELETE RESTRICT,
+                employee_id TEXT,
+                employee_name TEXT,
+                quantity INTEGER DEFAULT 1,
+                issue_date DATE,
+                expiry_date DATE,
+                return_date DATE,
+                status TEXT DEFAULT 'Issued',
+                condition_out TEXT DEFAULT 'New',
+                condition_in TEXT,
+                notes TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        console.log('Migration OK: inventory tables ready');
+
+        // Seed default items (only if catalog is empty)
+        const { rows: existing } = await pool.query('SELECT COUNT(*) AS cnt FROM inventory_items');
+        if (parseInt(existing[0].cnt) === 0) {
+            await pool.query(`
+                INSERT INTO inventory_items (name, category, description, unit, has_expiry, expiry_months, min_stock) VALUES
+                ('Uniform (Shirt + Trouser)', 'Clothing', 'Standard company uniform set per contract spec', 'set', true, 12, 10),
+                ('Safety Shoes / Boots', 'PPE', 'Steel-toe safety shoes as per PPE policy', 'pair', true, 12, 5),
+                ('Safety Helmet', 'PPE', 'Hard hat meeting ANSI/ISEA Z89.1 standard', 'piece', true, 24, 5),
+                ('Safety Vest (High-Vis)', 'PPE', 'High-visibility reflective vest', 'piece', true, 12, 10),
+                ('PPE Kit (Full)', 'PPE', 'Complete PPE pack: gloves, goggles, mask, vest', 'kit', true, 12, 5),
+                ('Laptop', 'IT Equipment', 'Assigned workstation laptop', 'piece', false, null, 2),
+                ('Mobile Phone', 'IT Equipment', 'Company-issued smart phone', 'piece', false, null, 2),
+                ('Electrical Tool Box', 'Tools', 'Complete electrical tools set', 'box', false, null, 1),
+                ('Mechanical Tool Box', 'Tools', 'Complete mechanical / hand tools set', 'box', false, null, 1),
+                ('Motor Bike', 'Vehicle', 'Company-assigned motor bike for field operations', 'unit', false, null, 1)
+                ON CONFLICT DO NOTHING;
+            `);
+            console.log('Seeded 10 default inventory items');
+        }
+
         // Bulk-fill contract_date for any employee whose contract_date is still null
         // Uses LIKE match in both directions so partial names (e.g. "PSO Serai Naurang" vs "PSO") still match
         const bulkResult = await pool.query(`

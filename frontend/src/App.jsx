@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut } from 'lucide-react';
+import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package } from 'lucide-react';
 import Dashboard from './Dashboard';
 import AnnexureDashboard from './AnnexureDashboard';
 import MockOCR from './MockOCR';
@@ -12,6 +12,7 @@ import BillingProcurement from './BillingProcurement';
 import InvoiceSection from './InvoiceSection';
 import EmployeePortal from './EmployeePortal';
 import LoginScreen from './LoginScreen';
+import InventoryManagement from './InventoryManagement';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -81,6 +82,7 @@ function App() {
     { key: 'invoices', label: 'Invoices', icon: <FileText size={20} /> },
     { key: 'client', label: 'Client Information', icon: <Building size={20} /> },
     { key: 'vendor', label: 'Vendor Supplier Master', icon: <Truck size={20} /> },
+    { key: 'inventory', label: 'Inventory & Equipment', icon: <Package size={20} /> },
     { key: 'annexure', label: 'Annexure Approval', icon: <ScanLine size={20} /> },
     { key: 'config', label: 'System Configs', icon: <Settings size={20} />, disabled: true },
   ];
@@ -137,13 +139,14 @@ function App() {
 
         <main className="main-content">
           {activeTab === 'dashboard' && <Dashboard />}
-          {activeTab === 'employee' && <EmployeeInformation />}
+          {activeTab === 'employee' && <EmployeeInformation user={user} />}
           {activeTab === 'payroll' && <PayrollSheet />}
           {activeTab === 'documents' && <DocumentGenerator />}
           {activeTab === 'billing' && <BillingProcurement />}
           {activeTab === 'invoices' && <InvoiceSection />}
           {activeTab === 'client' && <ClientInformation />}
           {activeTab === 'vendor' && <VendorMaster />}
+          {activeTab === 'inventory' && <InventoryManagement />}
           {activeTab === 'annexure' && <AnnexureDashboard />}
         </main>
       </div>
