@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
-         Calculator, AlertTriangle, CheckCircle, Shield, Trash2 } from 'lucide-react';
+         Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare } from 'lucide-react';
 import { api } from './api';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -182,6 +182,31 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
     const [settlementReason, setSettlementReason] = useState('Resignation');
     const [settlementDate, setSettlementDate] = useState(new Date().toISOString().split('T')[0]);
 
+    // SMS state
+    const [showSMS, setShowSMS] = useState(false);
+    const [smsMsg, setSmsMsg] = useState('');
+    const [smsSending, setSmsSending] = useState(false);
+    const [smsResult, setSmsResult] = useState(null);
+    const SMS_TEMPLATES = [
+        { label: 'Salary Processed', text: `Dear ${emp.name}, your salary for ${new Date().toLocaleString('en-PK',{month:'long',year:'numeric'})} has been processed. Please check your account. - Allied Services` },
+        { label: 'Report to Office', text: `Dear ${emp.name}, please report to the ASIL office on your next working day. Contact HR for details. - Allied Services` },
+        { label: 'Document Required', text: `Dear ${emp.name}, please submit your updated CNIC / documents to HR at the earliest. - Allied Services` },
+        { label: 'Leave Approved', text: `Dear ${emp.name}, your leave request has been approved. Please coordinate with your supervisor. - Allied Services` },
+    ];
+    const sendSMS = async () => {
+        const phone = emp.primaryContact || emp.emergencyContact;
+        if (!phone) return alert('No contact number on record for this employee.');
+        if (!smsMsg.trim()) return alert('Message cannot be empty.');
+        setSmsSending(true); setSmsResult(null);
+        try {
+            const r = await api.sendSms(phone, smsMsg.trim(), emp.id);
+            setSmsResult({ ok: true, msg: `✅ SMS sent to ${phone}. Server response: ${r.response}` });
+        } catch (err) {
+            setSmsResult({ ok: false, msg: `❌ Failed: ${err.message}` });
+        }
+        setSmsSending(false);
+    };
+
     const save = (updated) => { setEmp(updated); onUpdate(updated); };
 
     // ── Handlers ─────────────────────────────────────────────────────────────
@@ -347,9 +372,17 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                         ))}
                     </div>
                     {!isEditing
-                        ? <button onClick={startEdit} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(99,102,241,0.15)', border: '1px solid #6366f1', color: '#6366f1', padding: '0.6rem 1.1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
-                            <Edit2 size={15} /> Edit Profile
-                          </button>
+                        ? <div style={{ display: 'flex', gap: '8px' }}>
+                            {(emp.primaryContact || emp.emergencyContact) && (
+                                <button onClick={() => { setShowSMS(true); setSmsMsg(''); setSmsResult(null); }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(34,197,94,0.12)', border: '1px solid #22c55e', color: '#22c55e', padding: '0.6rem 1.1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                                    <MessageSquare size={15} /> Send SMS
+                                </button>
+                            )}
+                            <button onClick={startEdit} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(99,102,241,0.15)', border: '1px solid #6366f1', color: '#6366f1', padding: '0.6rem 1.1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                                <Edit2 size={15} /> Edit Profile
+                            </button>
+                          </div>
                         : <div style={{ display: 'flex', gap: '8px' }}>
                             <button onClick={cancelEdit} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.6rem 1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>Cancel</button>
                             <button onClick={saveEdit} disabled={editSaving} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#22c55e', border: 'none', color: 'white', padding: '0.6rem 1.1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}>
@@ -359,6 +392,59 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                     }
                 </div>
             </Card>
+
+            {/* SMS Modal */}
+            {showSMS && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '2rem' }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '520px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
+                            <div>
+                                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><MessageSquare size={18} color="#22c55e" /> Send SMS</h3>
+                                <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.83rem' }}>To: <strong>{emp.primaryContact || emp.emergencyContact}</strong> · {emp.name}</p>
+                            </div>
+                            <button onClick={() => setShowSMS(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
+                        </div>
+                        <div style={{ padding: '1.5rem 2rem' }}>
+                            {/* Templates */}
+                            <div style={{ marginBottom: '1rem' }}>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Quick Templates</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                    {SMS_TEMPLATES.map(t => (
+                                        <button key={t.label} onClick={() => setSmsMsg(t.text)}
+                                            style={{ padding: '5px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem', transition: 'all 0.15s' }}
+                                            onMouseEnter={e => { e.target.style.borderColor = '#22c55e'; e.target.style.color = '#22c55e'; }}
+                                            onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-muted)'; }}>
+                                            {t.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            {/* Message box */}
+                            <div style={{ marginBottom: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Message</div>
+                            <textarea value={smsMsg} onChange={e => setSmsMsg(e.target.value.slice(0, 160))}
+                                rows={5} placeholder="Type your message here (max 160 characters)…"
+                                style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px', color: 'var(--text)', fontSize: '0.88rem', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginTop: '4px' }}>
+                                <span style={{ color: smsMsg.length > 140 ? '#f59e0b' : 'var(--text-muted)' }}>{smsMsg.length}/160 characters</span>
+                                {smsMsg.length > 0 && <span style={{ color: 'var(--text-muted)' }}>1 SMS credit</span>}
+                            </div>
+                            {/* Result */}
+                            {smsResult && (
+                                <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', borderRadius: '8px', background: smsResult.ok ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${smsResult.ok ? '#22c55e' : '#ef4444'}`, fontSize: '0.85rem', color: smsResult.ok ? '#22c55e' : '#ef4444' }}>
+                                    {smsResult.msg}
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                            <button onClick={() => setShowSMS(false)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Close</button>
+                            <button onClick={sendSMS} disabled={smsSending || !smsMsg.trim()}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: smsSending ? '#555' : '#22c55e', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: smsSending ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
+                                <MessageSquare size={15} /> {smsSending ? 'Sending…' : 'Send SMS'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Tabs */}
             <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid var(--border)', marginBottom: '2rem', overflowX: 'auto' }}>
