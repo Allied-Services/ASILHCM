@@ -13,6 +13,7 @@ import InvoiceSection from './InvoiceSection';
 import EmployeePortal from './EmployeePortal';
 import LoginScreen from './LoginScreen';
 import InventoryManagement from './InventoryManagement';
+import SystemConfig from './SystemConfig';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -84,7 +85,7 @@ function App() {
     { key: 'vendor', label: 'Vendor Supplier Master', icon: <Truck size={20} /> },
     { key: 'inventory', label: 'Inventory & Equipment', icon: <Package size={20} /> },
     { key: 'annexure', label: 'Annexure Approval', icon: <ScanLine size={20} /> },
-    { key: 'config', label: 'System Configs', icon: <Settings size={20} />, disabled: true },
+    { key: 'config', label: 'System Configs', icon: <Settings size={20} /> },
   ];
 
   return (
@@ -148,6 +149,7 @@ function App() {
           {activeTab === 'vendor' && <VendorMaster />}
           {activeTab === 'inventory' && <InventoryManagement />}
           {activeTab === 'annexure' && <AnnexureDashboard />}
+          {activeTab === 'config' && <SystemConfig />}
         </main>
       </div>
     </>

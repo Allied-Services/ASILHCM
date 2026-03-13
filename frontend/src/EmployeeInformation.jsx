@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Search, Plus, Filter, Upload, Download, CheckCircle, X, ChevronDown } from 'lucide-react';
+import { Users, Search, Plus, Filter, Upload, Download, CheckCircle, X,
+         ChevronDown, Mail, MessageCircle } from 'lucide-react';
 import { api } from './api';
 import EmployeeProfile from './EmployeeProfile';
 
@@ -51,7 +52,7 @@ const Overlay = ({ children, wide }) => (
     </div>
 );
 
-export default function EmployeeInformation() {
+export default function EmployeeInformation({ user }) {
     const [emps, setEmps] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -98,7 +99,18 @@ export default function EmployeeInformation() {
         return matchSearch && matchActive && matchClient && matchLocation && matchDept;
     });
 
-    // ── Download template ────────────────────────────────────────────────────
+    // ── Flexible CSV header lookup (case-insensitive, multi-alias) ─────────
+    const getF = (obj, ...keys) => {
+        const lcObj = {};
+        Object.keys(obj).forEach(k => { lcObj[k.toLowerCase().replace(/[^a-z0-9]/g, '')] = obj[k]; });
+        for (const k of keys) {
+            const norm = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (lcObj[norm] !== undefined) return lcObj[norm] || '';
+        }
+        return '';
+    };
+
+    // ── Download template ─────────────────────────────────────────────────────
     const downloadTpl = () => {
         const ex = ['ASIL/SPL-001/25', 'WafiBPO', 'Yes', 'Client Name Ltd', 'Trading & Supply', 'Security Services', 'Security Guard', 'Karachi', 'Sindh', 'Muhammad Ali', 'Father Name', 'Mother Name', '42101-1234567-1', '01-Jan-20', '01-Jan-30', 'Karachi', 'EOBI-001', 'Islam', '"38,000.00"', 'Married', '0300-1234567', '0311-9876543', 'email@example.com', 'Present Address', 'Permanent Address', '01-Jan-1990', '', '01-Jan-2024', '1.0', '"38,000.00"', 'Spouse Name', '30', 'XXXXX-XXXXXXX-X', 'Child 1', '5', 'B-Form', 'Child 2', '3', 'B-Form', 'Self & Family', 'Yes', '500000', 'HBL', '12345678901', 'Muhammad Ali', 'NOK Name', 'Father', '0300-0000000'].join(',');
         const blob = new Blob([MASTER_COLUMNS.join(',') + '\n' + ex], { type: 'text/csv' });
@@ -120,53 +132,53 @@ export default function EmployeeInformation() {
                     const obj = {};
                     hdrs.forEach((h, j) => { obj[h] = vals[j] || ''; });
                     return {
-                        id: obj['ASIL Employee Code'] || `IMP-${i + 1}`,
-                        bu: obj['ASIL BU'] || '',
-                        active: obj['Active'] || 'Yes',
-                        client: obj['CLIENT NAME'] || '',
-                        clientBU: obj['Client Business Unit'] || '',
-                        dept: obj['Department'] || '',
-                        designation: obj['Designation'] || '',
-                        location: obj['Client Location'] || '',
-                        province: obj['Province'] || '',
-                        name: obj['Employee Name'] || '',
-                        fatherName: obj["Father's Name"] || '',
-                        motherName: obj["Mother's Name"] || '',
-                        cnic: obj['CNIC Number'] || '',
-                        cnicIssue: obj['CNIC Issue'] || '',
-                        cnicExpiry: obj['CNIC Expiry'] || '',
-                        placeOfBirth: obj['Place of Birth'] || '',
-                        eobiNo: obj['EOBI No'] || '',
-                        religion: obj['Religion'] || '',
-                        salary: parseSalary(obj['Salary']),
-                        lastSalary: parseSalary(obj['Salary (Last/After Increment)'] || obj['Salary']),
-                        maritalStatus: obj['Marital Status'] || 'Single',
-                        primaryContact: obj['Primary Contact'] || '',
-                        emergencyContact: obj['Emergency Contact'] || '',
-                        email: obj['Email Address'] || '',
-                        presentAddress: obj['Present Address'] || '',
-                        permanentAddress: obj['Permanent Address'] || '',
-                        dob: obj['Date of Birth'] || '',
-                        doj: obj['Date of Joining'] || '',
-                        spouseName: obj['Spouse Name'] || '',
-                        spouseAge: obj['Spouse Age'] || '',
-                        spouseCnic: obj['Spouse CNIC'] || '',
-                        child1Name: obj['Child 1 Name'] || '',
-                        child1Age: obj['Child 1 Age'] || '',
-                        child1Id: obj['Child 1 CNIC/Bay Form'] || '',
-                        child2Name: obj['Child 2 Name'] || '',
-                        child2Age: obj['Child 2 Age'] || '',
-                        child2Id: obj['Child 2 CNIC/Bay Form'] || '',
-                        medicalType: obj['Medical Coverage (Type)'] || '',
-                        medicalMaternity: obj['Medical Coverage Maternity'] || '',
-                        totalMedicalCoverage: obj['Total Medical Coverage (Self & Family)'] || '',
-                        bankName: obj['Bank Name'] || '',
-                        bankAccount: obj['Bank Account'] || '',
-                        accountTitle: obj['Account Title'] || '',
-                        nokName: obj['NEXT OF KIN NAME'] || '',
-                        nokRelation: obj['NEXT OF KIN RELATION'] || '',
-                        nokContact: obj['NEXT OF KIN CONTACT'] || '',
-                        salaryHistory: parseSalary(obj['Salary']) ? [{ date: obj['Date of Joining'] || '', basic: parseSalary(obj['Salary']), hra: 0, conveyance: 0, medical: 0, other: 0, gross: parseSalary(obj['Salary']), note: 'Imported from CSV' }] : [],
+                        id: getF(obj, 'ASIL Employee Code', 'Employee Code', 'ID', 'EmpID') || `IMP-${i + 1}`,
+                        bu: getF(obj, 'ASIL BU', 'BU', 'Business Unit'),
+                        active: getF(obj, 'Active', 'Status') || 'Yes',
+                        client: getF(obj, 'CLIENT NAME', 'Client Name', 'Client'),
+                        clientBU: getF(obj, 'Client Business Unit', 'Client BU', 'ClientBU'),
+                        dept: getF(obj, 'Department', 'Dept'),
+                        designation: getF(obj, 'Designation', 'Position', 'Job Title'),
+                        location: getF(obj, 'Client Location', 'Location', 'Site'),
+                        province: getF(obj, 'Province'),
+                        name: getF(obj, 'Employee Name', 'Name', 'Full Name'),
+                        fatherName: getF(obj, "Father's Name", 'Father Name', 'Fathers Name', 'Father'),
+                        motherName: getF(obj, "Mother's Name", 'Mother Name', 'Mothers Name', 'Mother'),
+                        cnic: getF(obj, 'CNIC Number', 'CNIC No', 'CNIC', 'NIC'),
+                        cnicIssue: getF(obj, 'CNIC Issue', 'CNIC Issue Date', 'Issue Date'),
+                        cnicExpiry: getF(obj, 'CNIC Expiry', 'CNIC Expiry Date', 'Expiry Date'),
+                        placeOfBirth: getF(obj, 'Place of Birth', 'Birth Place', 'POB'),
+                        eobiNo: getF(obj, 'EOBI No', 'EOBI Number', 'EOBI'),
+                        religion: getF(obj, 'Religion') || '',
+                        salary: parseSalary(getF(obj, 'Salary', 'Basic Salary', 'Gross Salary')),
+                        lastSalary: parseSalary(getF(obj, 'Salary (Last/After Increment)', 'Last Salary', 'Salary After Increment') || getF(obj, 'Salary')),
+                        maritalStatus: getF(obj, 'Marital Status', 'Marital') || 'Single',
+                        primaryContact: getF(obj, 'Primary Contact', 'Phone', 'Mobile', 'Contact'),
+                        emergencyContact: getF(obj, 'Emergency Contact', 'Emergency Phone'),
+                        email: getF(obj, 'Email Address', 'Email'),
+                        presentAddress: getF(obj, 'Present Address', 'Current Address', 'Address'),
+                        permanentAddress: getF(obj, 'Permanent Address', 'Home Address'),
+                        dob: getF(obj, 'Date of Birth', 'DOB', 'Birth Date'),
+                        doj: getF(obj, 'Date of Joining', 'DOJ', 'Joining Date', 'Start Date'),
+                        spouseName: getF(obj, 'Spouse Name', 'Spouse'),
+                        spouseAge: getF(obj, 'Spouse Age'),
+                        spouseCnic: getF(obj, 'Spouse CNIC', 'Spouse NIC', 'Spouse ID'),
+                        child1Name: getF(obj, 'Child 1 Name', 'Child1 Name', 'Child 1'),
+                        child1Age: getF(obj, 'Child 1 Age', 'Child1 Age'),
+                        child1Id: getF(obj, 'Child 1 CNIC/Bay Form', 'Child1 CNIC', 'Child 1 ID', 'Child1 ID'),
+                        child2Name: getF(obj, 'Child 2 Name', 'Child2 Name', 'Child 2'),
+                        child2Age: getF(obj, 'Child 2 Age', 'Child2 Age'),
+                        child2Id: getF(obj, 'Child 2 CNIC/Bay Form', 'Child2 CNIC', 'Child 2 ID', 'Child2 ID'),
+                        medicalType: getF(obj, 'Medical Coverage (Type)', 'Medical Type', 'Medical Coverage'),
+                        medicalMaternity: getF(obj, 'Medical Coverage Maternity', 'Maternity'),
+                        totalMedicalCoverage: getF(obj, 'Total Medical Coverage (Self & Family)', 'Total Medical Coverage', 'Medical Coverage Amount'),
+                        bankName: getF(obj, 'Bank Name', 'Bank'),
+                        bankAccount: getF(obj, 'Bank Account', 'Bank Account No', 'Account Number', 'Account No'),
+                        accountTitle: getF(obj, 'Account Title', 'Account Name'),
+                        nokName: getF(obj, 'NEXT OF KIN NAME', 'NOK Name', 'Next of Kin', 'NOK'),
+                        nokRelation: getF(obj, 'NEXT OF KIN RELATION', 'NOK Relation', 'Next of Kin Relation'),
+                        nokContact: getF(obj, 'NEXT OF KIN CONTACT', 'NOK Contact', 'Next of Kin Contact'),
+                        salaryHistory: parseSalary(getF(obj, 'Salary')) ? [{ date: getF(obj, 'Date of Joining', 'DOJ') || '', basic: parseSalary(getF(obj, 'Salary')), hra: 0, conveyance: 0, medical: 0, other: 0, gross: parseSalary(getF(obj, 'Salary')), note: 'Imported from CSV' }] : [],
                         leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
                     };
                 }).filter(r => r.name);
@@ -180,8 +192,15 @@ export default function EmployeeInformation() {
         setSaving(true);
         try {
             const data = await api.bulkImportEmployees(csvRows);
-            setEmps(p => [...p, ...data.employees]);
-            if (data.errors?.length) alert(`Imported ${data.saved} employees. ${data.errors.length} skipped (duplicate IDs).`);
+            // UPSERT behaviour — update existing, add new, avoid duplicates
+            setEmps(p => {
+                const map = new Map(p.map(e => [e.id, e]));
+                data.employees.forEach(e => map.set(e.id, e));
+                return Array.from(map.values());
+            });
+            const msg = `✅ ${data.saved} employee(s) imported/updated.`
+                + (data.errors?.length ? ` ${data.errors.length} skipped.` : '');
+            alert(msg);
             setCsvRows([]); setShowAdd(false);
             if (fileRef.current) fileRef.current.value = '';
         } catch (err) { alert('Import error: ' + err.message); }
@@ -222,7 +241,7 @@ export default function EmployeeInformation() {
         </div>
     );
 
-    if (profile) return <EmployeeProfile employee={profile} onBack={() => setProfile(null)} onUpdate={updateEmployee} />;
+    if (profile) return <EmployeeProfile employee={profile} user={user} onBack={() => setProfile(null)} onUpdate={updateEmployee} />;
 
     return (
         <div className="dashboard">
@@ -279,7 +298,7 @@ export default function EmployeeInformation() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', minWidth: '900px' }}>
                     <thead>
                         <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-dark)' }}>
-                            {['Employee Code', 'Name', 'Client', 'Designation', 'Location', 'Salary', 'Status', ''].map(h => (
+                            {['Employee Code', 'Name', 'Client', 'Designation', 'Location', 'Contract Start', 'Salary', 'Status', ''].map(h => (
                                 <th key={h} style={{ padding: '0.9rem 1rem', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
                         </tr>
@@ -305,6 +324,11 @@ export default function EmployeeInformation() {
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>{emp.designation}</td>
                                 <td style={{ padding: '0.85rem 1rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{emp.location}, {emp.province}</td>
+                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap', fontSize: '0.82rem' }}>
+                                    {emp.contractDate ? (
+                                        <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{String(emp.contractDate).slice(0, 10)}</span>
+                                    ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                                </td>
                                 <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
                                     <div style={{ fontWeight: 600 }}>Rs. {(emp.salary || 0).toLocaleString()}</div>
                                     {emp.lastSalary && emp.lastSalary !== emp.salary && <div style={{ color: '#22c55e', fontSize: '0.76rem' }}>↑ Rs. {emp.lastSalary.toLocaleString()}</div>}
@@ -313,7 +337,30 @@ export default function EmployeeInformation() {
                                     <span style={{ background: emp.active === 'Yes' ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: emp.active === 'Yes' ? '#22c55e' : '#eab308', padding: '3px 10px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 600 }}>{emp.active === 'Yes' ? 'Active' : 'Inactive'}</span>
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem' }}>
-                                    <button onClick={() => setProfile(emp)} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>View Profile</button>
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <button onClick={() => setProfile(emp)} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>View Profile</button>
+                                        {emp.email && (
+                                            <a href={`mailto:${emp.email}`} title={`Email ${emp.name}`}
+                                                style={{ display: 'flex', alignItems: 'center', padding: '5px 7px', borderRadius: '6px',
+                                                    border: '1px solid var(--border)', color: 'var(--text-muted)',
+                                                    textDecoration: 'none', transition: 'all 0.15s' }}
+                                                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.color = 'var(--primary)'; }}
+                                                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+                                                <Mail size={13} />
+                                            </a>
+                                        )}
+                                        {emp.primaryContact && (
+                                            <a href={`https://wa.me/92${emp.primaryContact.replace(/[^0-9]/g, '').slice(1)}`}
+                                                target="_blank" rel="noreferrer" title={`WhatsApp ${emp.name}`}
+                                                style={{ display: 'flex', alignItems: 'center', padding: '5px 7px', borderRadius: '6px',
+                                                    border: '1px solid var(--border)', color: 'var(--text-muted)',
+                                                    textDecoration: 'none', transition: 'all 0.15s' }}
+                                                onMouseEnter={e => { e.currentTarget.style.borderColor = '#22c55e'; e.currentTarget.style.color = '#22c55e'; }}
+                                                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+                                                <MessageCircle size={13} />
+                                            </a>
+                                        )}
+                                    </div>
                                 </td>
                             </tr>
                         ))}

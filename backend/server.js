@@ -76,6 +76,7 @@ app.get('/', (req, res) => res.json({ name: 'ASIL HCM API', status: 'running', a
 
 // ─── Employee Mappers ─────────────────────────────────────────────────────────
 const nullDate = (d) => (d && d !== '' && d !== 'undefined') ? d : null;
+const toDateStr = d => !d ? '' : (d instanceof Date ? d.toISOString().slice(0,10) : String(d).slice(0,10));
 const nullNum = (n) => (n !== '' && n != null) ? parseFloat(n) || null : null;
 
 const empToDb = (e) => ({
@@ -248,8 +249,8 @@ app.get('/api/clients', requireAuth, async (req, res) => {
                 id: ct.id, contractName: ct.contract_name,
                 location: ct.location, serviceType: ct.service_type,
                 headcount: ct.headcount, status: ct.status,
-                startDate: ct.start_date ? String(ct.start_date).slice(0, 10) : '',
-                endDate: ct.end_date ? String(ct.end_date).slice(0, 10) : '',
+                startDate: toDateStr(ct.start_date),
+                endDate: toDateStr(ct.end_date),
                 costs: ct.costs || {}, financials: ct.financials || {},
             }))
         }));
@@ -291,7 +292,7 @@ app.put('/api/clients/:id', requireAuth, async (req, res) => {
         }
         // Return updated client with contracts
         const { rows: ctRows } = await pool.query('SELECT * FROM contracts WHERE client_id=$1', [req.params.id]);
-        res.json({ client: { ...clientFromDb(rows[0]), contracts: ctRows.map(ct => ({ id: ct.id, contractName: ct.contract_name, location: ct.location, serviceType: ct.service_type, headcount: ct.headcount, status: ct.status, startDate: ct.start_date ? String(ct.start_date).slice(0, 10) : '', endDate: ct.end_date ? String(ct.end_date).slice(0, 10) : '', costs: ct.costs, financials: ct.financials })) } });
+        res.json({ client: { ...clientFromDb(rows[0]), contracts: ctRows.map(ct => ({ id: ct.id, contractName: ct.contract_name, location: ct.location, serviceType: ct.service_type, headcount: ct.headcount, status: ct.status, startDate: toDateStr(ct.start_date), endDate: toDateStr(ct.end_date), costs: ct.costs, financials: ct.financials })) } });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -319,6 +320,178 @@ app.patch('/api/contracts/:id/reassign', requireAuth, async (req, res) => {
         );
         if (!rows.length) return res.status(404).json({ error: 'Contract not found' });
         res.json({ ok: true, contract: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// VENDOR MANAGEMENT
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/vendors', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT v.*,
+              COALESCE(SUM(vp.amount), 0) AS total_paid,
+              COALESCE(SUM(vp.wht_amount), 0) AS total_wht
+            FROM vendors v
+            LEFT JOIN vendor_payments vp ON vp.vendor_id = v.id
+            GROUP BY v.id ORDER BY v.name ASC`);
+        res.json({ vendors: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/vendors', requireAuth, async (req, res) => {
+    try {
+        const { name, category, ntn, strn, cnic, address, contact_person, phone, email,
+                bank_name, bank_account, account_title, is_filer = true, is_active = true,
+                payment_terms, notes } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO vendors (name,category,ntn,strn,cnic,address,contact_person,phone,email,
+             bank_name,bank_account,account_title,is_filer,is_active,payment_terms,notes)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+            [name,category,ntn,strn,cnic,address,contact_person,phone,email,
+             bank_name,bank_account,account_title,is_filer,is_active,payment_terms,notes]
+        );
+        res.json({ vendor: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/vendors/:id', requireAuth, async (req, res) => {
+    try {
+        const { name, category, ntn, strn, cnic, address, contact_person, phone, email,
+                bank_name, bank_account, account_title, is_filer, is_active, payment_terms, notes } = req.body;
+        const { rows } = await pool.query(
+            `UPDATE vendors SET name=$1,category=$2,ntn=$3,strn=$4,cnic=$5,address=$6,
+             contact_person=$7,phone=$8,email=$9,bank_name=$10,bank_account=$11,account_title=$12,
+             is_filer=$13,is_active=$14,payment_terms=$15,notes=$16,updated_at=NOW()
+             WHERE id=$17 RETURNING *`,
+            [name,category,ntn,strn,cnic,address,contact_person,phone,email,
+             bank_name,bank_account,account_title,is_filer,is_active,payment_terms,notes,req.params.id]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Not found' });
+        res.json({ vendor: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/vendors/:id', requireAuth, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM vendors WHERE id=$1', [req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/vendors/:id/payments', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM vendor_payments WHERE vendor_id=$1 ORDER BY payment_date DESC, created_at DESC',
+            [req.params.id]);
+        res.json({ payments: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/vendors/:id/payments', requireAuth, async (req, res) => {
+    try {
+        const { payment_date, amount, wht_rate, description, bill_ref, category } = req.body;
+        const whtAmt = Math.round((parseFloat(amount)||0) * (parseFloat(wht_rate)||0) / 100 * 100) / 100;
+        const netPay = (parseFloat(amount)||0) - whtAmt;
+        const { rows } = await pool.query(
+            `INSERT INTO vendor_payments (vendor_id,payment_date,amount,wht_rate,wht_amount,net_payment,description,bill_ref,category)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+            [req.params.id, payment_date||null, amount, wht_rate||0, whtAmt, netPay, description, bill_ref, category]
+        );
+        res.json({ payment: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// SYSTEM CONFIGURATION (FBR Tax Tables — editable)
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/config/:key', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM system_config WHERE key=$1', [req.params.key]);
+        if (!rows.length) return res.status(404).json({ error: 'Config key not found' });
+        res.json({ config: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/config/:key', requireAuth, async (req, res) => {
+    try {
+        const { value } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO system_config (key,value) VALUES ($1,$2)
+             ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW() RETURNING *`,
+            [req.params.key, JSON.stringify(value)]
+        );
+        res.json({ config: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// EMPLOYEE DOCUMENTS (Fitness to Work, Police Clearance, CNIC etc.)
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/employees/:id/documents', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM employee_documents WHERE employee_id=$1 ORDER BY doc_type, expiry_date ASC',
+            [req.params.id]);
+        res.json({ documents: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/employees/:id/documents', requireAuth, async (req, res) => {
+    try {
+        const { doc_type, doc_name, issue_date, expiry_date, issuing_authority, doc_no, notes } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO employee_documents (employee_id,doc_type,doc_name,issue_date,expiry_date,issuing_authority,doc_no,notes)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+            [req.params.id, doc_type, doc_name, issue_date||null, expiry_date||null, issuing_authority, doc_no, notes]
+        );
+        res.json({ document: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/employees/:id/documents/:docId', requireAuth, async (req, res) => {
+    try {
+        const { doc_type, doc_name, issue_date, expiry_date, issuing_authority, doc_no, notes } = req.body;
+        const { rows } = await pool.query(
+            `UPDATE employee_documents SET doc_type=$1,doc_name=$2,issue_date=$3,expiry_date=$4,
+             issuing_authority=$5,doc_no=$6,notes=$7,updated_at=NOW()
+             WHERE id=$8 AND employee_id=$9 RETURNING *`,
+            [doc_type,doc_name,issue_date||null,expiry_date||null,issuing_authority,doc_no,notes,req.params.docId,req.params.id]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Not found' });
+        res.json({ document: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/employees/:id/documents/:docId', requireAuth, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM employee_documents WHERE id=$1 AND employee_id=$2', [req.params.docId, req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/employees/:id/messages', requireAuth, async (req, res) => {
+    try {
+        const { channel, subject, body } = req.body;
+        const sender = req.user?.email || 'system';
+        const { rows } = await pool.query(
+            `INSERT INTO employee_messages (employee_id,channel,subject,body,sender,sent_at)
+             VALUES ($1,$2,$3,$4,$5,NOW()) RETURNING *`,
+            [req.params.id, channel||'email', subject||'', body||'', sender]
+        );
+        res.json({ message: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/employees/:id/messages', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM employee_messages WHERE employee_id=$1 ORDER BY sent_at DESC',
+            [req.params.id]);
+        res.json({ messages: rows });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -550,6 +723,87 @@ app.listen(PORT, async () => {
                 ON CONFLICT DO NOTHING;
             `);
             console.log('Seeded 10 default inventory items');
+        }
+
+        // ── Vendor tables ─────────────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS vendors (
+                id SERIAL PRIMARY KEY, name TEXT NOT NULL, category TEXT,
+                ntn TEXT, strn TEXT, cnic TEXT, address TEXT,
+                contact_person TEXT, phone TEXT, email TEXT,
+                bank_name TEXT, bank_account TEXT, account_title TEXT,
+                is_filer BOOLEAN DEFAULT TRUE, is_active BOOLEAN DEFAULT TRUE,
+                payment_terms TEXT, notes TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS vendor_payments (
+                id SERIAL PRIMARY KEY,
+                vendor_id INTEGER REFERENCES vendors(id) ON DELETE CASCADE,
+                payment_date DATE, amount NUMERIC(12,2), wht_rate NUMERIC(5,2),
+                wht_amount NUMERIC(12,2), net_payment NUMERIC(12,2),
+                description TEXT, bill_ref TEXT, category TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        console.log('Migration OK: vendor tables ready');
+
+        // ── System Config ─────────────────────────────────────────────────────
+        await pool.query(`CREATE TABLE IF NOT EXISTS system_config (
+            key TEXT PRIMARY KEY, value JSONB NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+        )`);
+        const { rows: cfgChk } = await pool.query("SELECT key FROM system_config WHERE key='fbr_individual_tax'");
+        if (!cfgChk.length) {
+            const iTax = [
+                {from:0,to:600000,rate:0,base:0,label:'Up to Rs. 600,000'},
+                {from:600001,to:1200000,rate:5,base:0,label:'Rs. 600,001 \u2013 1,200,000'},
+                {from:1200001,to:2200000,rate:15,base:30000,label:'Rs. 1,200,001 \u2013 2,200,000'},
+                {from:2200001,to:3200000,rate:25,base:180000,label:'Rs. 2,200,001 \u2013 3,200,000'},
+                {from:3200001,to:4100000,rate:30,base:430000,label:'Rs. 3,200,001 \u2013 4,100,000'},
+                {from:4100001,to:null,rate:35,base:700000,label:'Above Rs. 4,100,000'}
+            ];
+            const vWHT = [
+                {category:'Supply of Goods',filer:4,nonFiler:8,section:'153(1)(a)'},
+                {category:'Services',filer:8,nonFiler:16,section:'153(1)(b)'},
+                {category:'Execution of Contract / Works',filer:7,nonFiler:7,section:'153(1)(c)'},
+                {category:'IT Services',filer:8,nonFiler:16,section:'153A'},
+                {category:'Advertising Services',filer:10,nonFiler:20,section:'153(1)(b)'},
+                {category:'Transport / Freight',filer:2,nonFiler:4,section:'153(1)(b)'},
+                {category:'Electricity & Gas',filer:7.5,nonFiler:10,section:'235'},
+                {category:'Cleaning & Janitorial',filer:8,nonFiler:16,section:'153(1)(b)'},
+                {category:'PPE & Safety Equipment',filer:4,nonFiler:8,section:'153(1)(a)'},
+                {category:'Uniform & Clothing Supply',filer:4,nonFiler:8,section:'153(1)(a)'},
+                {category:'Office Supplies & Stationery',filer:4,nonFiler:8,section:'153(1)(a)'},
+                {category:'Security Services',filer:8,nonFiler:16,section:'153(1)(b)'},
+                {category:'Catering & Food',filer:8,nonFiler:16,section:'153(1)(b)'},
+                {category:'Fuel & Petroleum',filer:4,nonFiler:8,section:'153(1)(a)'},
+                {category:'Construction & Civil Works',filer:7,nonFiler:7,section:'153(1)(c)'}
+            ];
+            await pool.query("INSERT INTO system_config (key,value) VALUES ('fbr_individual_tax',$1),('fbr_vendor_wht',$2) ON CONFLICT (key) DO NOTHING",
+                [JSON.stringify(iTax),JSON.stringify(vWHT)]);
+            console.log('Seeded FBR default tax configuration');
+        }
+        console.log('Migration OK: system_config ready');
+
+        // ── Employee Docs + Messages ───────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS employee_documents (
+                id SERIAL PRIMARY KEY, employee_id TEXT NOT NULL,
+                doc_type TEXT NOT NULL, doc_name TEXT,
+                issue_date DATE, expiry_date DATE,
+                issuing_authority TEXT, doc_no TEXT, notes TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS employee_messages (
+                id SERIAL PRIMARY KEY, employee_id TEXT NOT NULL,
+                channel TEXT DEFAULT 'email', subject TEXT, body TEXT,
+                sender TEXT, sent_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        console.log('Migration OK: employee_documents + employee_messages ready');
+
+        // ─── placeholder so existing closing brace still works ───────────────
+        const _dummy = true; if (!_dummy) {
         }
 
         // Bulk-fill contract_date for any employee whose contract_date is still null

@@ -50,4 +50,26 @@ export const api = {
     createIssuance:        (data)    => apiFetch('/api/inventory/issuances', { method: 'POST', body: JSON.stringify(data) }),
     updateIssuance:        (id, d)   => apiFetch(`/api/inventory/issuances/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
     deleteIssuance:        (id)      => apiFetch(`/api/inventory/issuances/${id}`, { method: 'DELETE' }),
+
+    // ── Vendors ───────────────────────────────────────────────────────────────
+    getVendors:            ()        => apiFetch('/api/vendors'),
+    createVendor:          (data)    => apiFetch('/api/vendors', { method: 'POST', body: JSON.stringify(data) }),
+    updateVendor:          (id, d)   => apiFetch(`/api/vendors/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+    deleteVendor:          (id)      => apiFetch(`/api/vendors/${id}`, { method: 'DELETE' }),
+    getVendorPayments:     (id)      => apiFetch(`/api/vendors/${id}/payments`),
+    createVendorPayment:   (id, d)   => apiFetch(`/api/vendors/${id}/payments`, { method: 'POST', body: JSON.stringify(d) }),
+
+    // ── System Config ─────────────────────────────────────────────────────────
+    getConfig:             (key)     => apiFetch(`/api/config/${key}`),
+    updateConfig:          (key, v)  => apiFetch(`/api/config/${key}`, { method: 'PUT', body: JSON.stringify({ value: v }) }),
+
+    // ── Employee Documents ────────────────────────────────────────────────────
+    getEmployeeDocs:       (id)      => apiFetch(`/api/employees/${id}/documents`),
+    createEmployeeDoc:     (id, d)   => apiFetch(`/api/employees/${id}/documents`, { method: 'POST', body: JSON.stringify(d) }),
+    updateEmployeeDoc:     (id, did, d) => apiFetch(`/api/employees/${id}/documents/${did}`, { method: 'PUT', body: JSON.stringify(d) }),
+    deleteEmployeeDoc:     (id, did) => apiFetch(`/api/employees/${id}/documents/${did}`, { method: 'DELETE' }),
+
+    // ── Employee Messaging ────────────────────────────────────────────────────
+    getEmployeeMessages:   (id)      => apiFetch(`/api/employees/${id}/messages`),
+    sendEmployeeMessage:   (id, d)   => apiFetch(`/api/employees/${id}/messages`, { method: 'POST', body: JSON.stringify(d) }),
 };

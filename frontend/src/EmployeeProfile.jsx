@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText, Calculator, AlertTriangle, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
+         Calculator, AlertTriangle, CheckCircle, Shield, Trash2 } from 'lucide-react';
+import { api } from './api';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = n => (parseFloat(n) || 0).toLocaleString('en-PK');
@@ -115,10 +117,47 @@ function PayslipModal({ payslip, employee, onClose }) {
 }
 
 // ── MAIN PROFILE ─────────────────────────────────────────────────────────────
-export default function EmployeeProfile({ employee, onBack, onUpdate }) {
+export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
+    const isSuperAdmin = user?.role === 'admin' || user?.role === 'superadmin';
     const [tab, setTab] = useState('personal');
     const [emp, setEmp] = useState(employee);
     const [viewPayslip, setViewPayslip] = useState(null);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editForm, setEditForm] = useState({});
+    const [editSaving, setEditSaving] = useState(false);
+
+    // ── Inline edit helpers ──────────────────────────────────────────────────
+    const ef = (field) => editForm[field] ?? '';
+    const setEf = (field, val) => setEditForm(p => ({ ...p, [field]: val }));
+    const EI = ({ field, disabled = false, type = 'text', opts }) => (
+        opts ? (
+            <select value={ef(field)} onChange={e => setEf(field, e.target.value)} disabled={disabled}
+                style={{ background: 'var(--bg-dark)', border: `1px solid ${disabled ? '#555' : 'var(--primary)'}`, borderRadius: '6px', padding: '4px 8px', color: disabled ? 'var(--text-muted)' : 'var(--text)', fontSize: '0.85rem', width: '100%', opacity: disabled ? 0.55 : 1 }}>
+                {opts.map(o => <option key={o}>{o}</option>)}
+            </select>
+        ) : (
+            <input type={type} value={ef(field)} onChange={e => setEf(field, e.target.value)} disabled={disabled}
+                style={{ background: 'var(--bg-dark)', border: `1px solid ${disabled ? '#555' : 'var(--primary)'}`, borderRadius: '6px', padding: '4px 8px', color: disabled ? 'var(--text-muted)' : 'var(--text)', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box', opacity: disabled ? 0.55 : 1 }} />
+        )
+    );
+    const ERow = ({ label, field, disabled = false, type = 'text', opts }) => (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>{label}{disabled && !isSuperAdmin ? ' 🔒' : ''}</span>
+            <div style={{ flex: 1 }}><EI field={field} disabled={disabled && !isSuperAdmin} type={type} opts={opts} /></div>
+        </div>
+    );
+    const startEdit = () => { setEditForm({ ...emp }); setIsEditing(true); };
+    const cancelEdit = () => { setEditForm({}); setIsEditing(false); };
+    const saveEdit = async () => {
+        setEditSaving(true);
+        try {
+            const res = await api.updateEmployee(editForm.id, editForm);
+            const updated = res.employee || editForm;
+            setEmp(updated); onUpdate(updated);
+            setIsEditing(false); setEditForm({});
+        } catch (err) { alert('Save failed: ' + err.message); }
+        setEditSaving(false);
+    };
 
     // Salary History state
     const [showAddSalary, setShowAddSalary] = useState(false);
@@ -201,12 +240,86 @@ export default function EmployeeProfile({ employee, onBack, onUpdate }) {
 
     const TABS = [
         { key: 'personal', label: 'Personal Info', icon: <FileText size={15} /> },
+        { key: 'documents', label: 'Documents & Compliance', icon: <Shield size={15} /> },
         { key: 'salary', label: 'Salary & Increments', icon: <TrendingUp size={15} /> },
         { key: 'payroll', label: 'Payroll & Payslips', icon: <Calculator size={15} /> },
         { key: 'leaves', label: 'Leave Management', icon: <Calendar size={15} /> },
         { key: 'medical', label: 'Medical & Insurance', icon: <Heart size={15} /> },
         { key: 'settlement', label: 'Final Settlement', icon: <AlertTriangle size={15} /> },
     ];
+
+    // ── Documents tab state ──────────────────────────────────────────────────
+    const [docs, setDocs] = useState([]);
+    const [docsLoaded, setDocsLoaded] = useState(false);
+    const [showAddDoc, setShowAddDoc] = useState(false);
+    const [editDoc, setEditDoc] = useState(null);
+    const [docForm, setDocForm] = useState({ doc_type: 'cnic', doc_name: '', issue_date: '', expiry_date: '', issuing_authority: '', doc_no: '', notes: '' });
+
+    useEffect(() => {
+        if (tab === 'documents' && !docsLoaded) {
+            api.getEmployeeDocs(emp.id)
+                .then(d => { setDocs(d.documents || []); setDocsLoaded(true); })
+                .catch(() => setDocsLoaded(true));
+        }
+    }, [tab, emp.id, docsLoaded]);
+
+    // Also add CNIC from employee record as a synthetic doc if no docs loaded yet
+    const allDocs = docsLoaded
+        ? docs
+        : [];
+
+    const DOC_TYPES = [
+        { value: 'cnic', label: 'CNIC / National ID' },
+        { value: 'fitness_to_work', label: 'Fitness to Work Certificate' },
+        { value: 'police_clearance', label: 'Police Clearance Certificate' },
+        { value: 'passport', label: 'Passport' },
+        { value: 'driving_license', label: 'Driving License' },
+        { value: 'medical_certificate', label: 'Medical Certificate' },
+        { value: 'other', label: 'Other' },
+    ];
+
+    const daysUntilExpiry = d => d ? Math.ceil((new Date(d) - Date.now()) / 86400000) : null;
+    const docStatus = d => {
+        if (!d.expiry_date) return { label: 'No Expiry', color: 'var(--text-muted)', bg: 'var(--bg-dark)' };
+        const days = daysUntilExpiry(d.expiry_date);
+        if (days < 0) return { label: 'Expired', color: '#ef4444', bg: 'rgba(239,68,68,0.1)' };
+        if (days <= 30) return { label: `Expires in ${days}d`, color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' };
+        if (days <= 90) return { label: `Expires in ${days}d`, color: '#eab308', bg: 'rgba(234,179,8,0.08)' };
+        return { label: 'Valid', color: '#22c55e', bg: 'rgba(34,197,94,0.08)' };
+    };
+
+    const saveDoc = async () => {
+        try {
+            if (editDoc?.id) {
+                const d = await api.updateEmployeeDoc(emp.id, editDoc.id, docForm);
+                setDocs(p => p.map(x => x.id === editDoc.id ? d.document : x));
+            } else {
+                const d = await api.createEmployeeDoc(emp.id, docForm);
+                setDocs(p => [...p, d.document]);
+            }
+            setShowAddDoc(false); setEditDoc(null);
+            setDocForm({ doc_type: 'cnic', doc_name: '', issue_date: '', expiry_date: '', issuing_authority: '', doc_no: '', notes: '' });
+        } catch (err) { alert('Save failed: ' + err.message); }
+    };
+
+    const deleteDoc = async (id) => {
+        if (!confirm('Delete this document?')) return;
+        try {
+            await api.deleteEmployeeDoc(emp.id, id);
+            setDocs(p => p.filter(x => x.id !== id));
+        } catch (err) { alert('Delete failed: ' + err.message); }
+    };
+
+    const openAddDoc = () => {
+        setEditDoc(null);
+        setDocForm({ doc_type: 'cnic', doc_name: '', issue_date: '', expiry_date: '', issuing_authority: '', doc_no: '', notes: '' });
+        setShowAddDoc(true);
+    };
+    const openEditDoc = (doc) => {
+        setEditDoc(doc);
+        setDocForm({ doc_type: doc.doc_type, doc_name: doc.doc_name || '', issue_date: doc.issue_date ? String(doc.issue_date).slice(0,10) : '', expiry_date: doc.expiry_date ? String(doc.expiry_date).slice(0,10) : '', issuing_authority: doc.issuing_authority || '', doc_no: doc.doc_no || '', notes: doc.notes || '' });
+        setShowAddDoc(true);
+    };
 
     return (
         <div className="dashboard">
@@ -227,10 +340,23 @@ export default function EmployeeProfile({ employee, onBack, onUpdate }) {
                         <p style={{ margin: '2px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>{emp.location}, {emp.province} · Service: {svc.years}y {svc.months}m</p>
                     </div>
                 </div>
-                <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-                    {[['Gross Salary', fmtRs(currentSal.gross || emp.salary)], ['EOBI (EE)', fmtRs(eobi.employee)], ['Income Tax', fmtRs(wht)], ['Net Est.', fmtRs((currentSal.gross || emp.salary) - eobi.employee - wht)]].map(([l, v]) => (
-                        <div key={l} style={{ textAlign: 'center' }}><div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--primary)' }}>{v}</div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{l}</div></div>
-                    ))}
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                        {[['Gross Salary', fmtRs(currentSal.gross || emp.salary)], ['EOBI (EE)', fmtRs(eobi.employee)], ['Income Tax', fmtRs(wht)], ['Net Est.', fmtRs((currentSal.gross || emp.salary) - eobi.employee - wht)]].map(([l, v]) => (
+                            <div key={l} style={{ textAlign: 'center' }}><div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--primary)' }}>{v}</div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{l}</div></div>
+                        ))}
+                    </div>
+                    {!isEditing
+                        ? <button onClick={startEdit} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(99,102,241,0.15)', border: '1px solid #6366f1', color: '#6366f1', padding: '0.6rem 1.1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                            <Edit2 size={15} /> Edit Profile
+                          </button>
+                        : <div style={{ display: 'flex', gap: '8px' }}>
+                            <button onClick={cancelEdit} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.6rem 1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>Cancel</button>
+                            <button onClick={saveEdit} disabled={editSaving} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#22c55e', border: 'none', color: 'white', padding: '0.6rem 1.1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}>
+                                <Save size={15} /> {editSaving ? 'Saving…' : 'Save Changes'}
+                            </button>
+                          </div>
+                    }
                 </div>
             </Card>
 
@@ -244,8 +370,9 @@ export default function EmployeeProfile({ employee, onBack, onUpdate }) {
             </div>
 
             {/* ── TAB: Personal Info ── */}
-            {tab === 'personal' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+            {tab === 'personal' && (<>
+                {!isSuperAdmin && isEditing && <div style={{ background:'rgba(234,179,8,0.1)', border:'1px solid rgba(234,179,8,0.3)', borderRadius:'8px', padding:'0.6rem 1rem', fontSize:'0.84rem', color:'#eab308', marginBottom:'0.75rem' }}>🔒 Fields with lock icon can only be changed by an Administrator.</div>}
+                {!isEditing && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                     <Card><STitle>Employment</STitle>
                         {[['Employee Code', emp.id], ['ASIL BU', emp.bu], ['Client', emp.client], ['Client BU', emp.clientBU], ['Department', emp.dept], ['Designation', emp.designation], ['Location', emp.location + ', ' + (emp.province || '')], ['Date of Joining', emp.doj], ['Status', emp.active === 'Yes' ? 'Active' : 'Inactive']].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
                     </Card>
@@ -266,9 +393,62 @@ export default function EmployeeProfile({ employee, onBack, onUpdate }) {
                                 <div style={{ background: 'var(--bg-dark)', borderRadius: '8px', padding: '1rem' }}><div style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginBottom: '6px' }}>CHILD 2</div>{[['Name', emp.child2Name || '—'], ['Age', emp.child2Age || '—'], ['ID', emp.child2Id || '—']].map(([l, v]) => <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '2px 0' }}><span style={{ color: 'var(--text-muted)' }}>{l}</span><span>{v}</span></div>)}</div>
                             </div>
                         </Card>
-                    )}
-                </div>
-            )}
+                        )}
+                </div>}
+                {isEditing && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                    <Card><STitle>Employment</STitle>
+                        <ERow label="Employee Code" field="id" disabled />
+                        <ERow label="ASIL BU" field="bu" />
+                        <ERow label="Client Name" field="client" />
+                        <ERow label="Client BU" field="clientBU" />
+                        <ERow label="Department" field="dept" />
+                        <ERow label="Designation" field="designation" />
+                        <ERow label="Location" field="location" />
+                        <ERow label="Province" field="province" opts={['Sindh','Punjab','KPK','Balochistan','Gilgit-Baltistan','Islamabad']} />
+                        <ERow label="Date of Joining" field="doj" type="date" />
+                        <ERow label="Status (Admin Only)" field="active" disabled opts={['Yes','No']} />
+                    </Card>
+                    <Card><STitle>Personal</STitle>
+                        <ERow label="Full Name (Admin Only)" field="name" disabled />
+                        <ERow label="Father's Name" field="fatherName" />
+                        <ERow label="Mother's Name" field="motherName" />
+                        <ERow label="CNIC" field="cnic" />
+                        <ERow label="CNIC Issue" field="cnicIssue" type="date" />
+                        <ERow label="CNIC Expiry" field="cnicExpiry" type="date" />
+                        <ERow label="Date of Birth" field="dob" type="date" />
+                        <ERow label="Place of Birth" field="placeOfBirth" />
+                        <ERow label="Religion" field="religion" />
+                        <ERow label="Marital Status" field="maritalStatus" opts={['Single','Married','Divorced','Widowed']} />
+                    </Card>
+                    <Card><STitle>Contact</STitle>
+                        <ERow label="Primary Contact" field="primaryContact" />
+                        <ERow label="Emergency Contact" field="emergencyContact" />
+                        <ERow label="Email" field="email" type="email" />
+                        <ERow label="Present Address" field="presentAddress" />
+                        <ERow label="Permanent Address" field="permanentAddress" />
+                    </Card>
+                    <Card><STitle>Compliance &amp; Banking</STitle>
+                        <ERow label="EOBI No." field="eobiNo" />
+                        <ERow label="Bank Name" field="bankName" />
+                        <ERow label="Bank Account" field="bankAccount" />
+                        <ERow label="Account Title" field="accountTitle" />
+                        <ERow label="NOK Name" field="nokName" />
+                        <ERow label="NOK Relation" field="nokRelation" />
+                        <ERow label="NOK Contact" field="nokContact" />
+                    </Card>
+                    <Card style={{ gridColumn: '1/-1' }}><STitle>Family Details</STitle>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem' }}>
+                            <div><div style={{ fontWeight:600, fontSize:'0.75rem', color:'var(--text-muted)', marginBottom:'8px', textTransform:'uppercase' }}>Spouse</div>
+                                <ERow label="Name" field="spouseName" /><ERow label="Age" field="spouseAge" /><ERow label="CNIC" field="spouseCnic" /></div>
+                            <div><div style={{ fontWeight:600, fontSize:'0.75rem', color:'var(--text-muted)', marginBottom:'8px', textTransform:'uppercase' }}>Child 1</div>
+                                <ERow label="Name" field="child1Name" /><ERow label="Age" field="child1Age" /><ERow label="ID" field="child1Id" /></div>
+                            <div><div style={{ fontWeight:600, fontSize:'0.75rem', color:'var(--text-muted)', marginBottom:'8px', textTransform:'uppercase' }}>Child 2</div>
+                                <ERow label="Name" field="child2Name" /><ERow label="Age" field="child2Age" /><ERow label="ID" field="child2Id" /></div>
+                        </div>
+                    </Card>
+                </div>}
+            </>)}
+
 
             {/* ── TAB: Salary & Increments ── */}
             {tab === 'salary' && (
@@ -577,6 +757,133 @@ export default function EmployeeProfile({ employee, onBack, onUpdate }) {
                             </Card>
                         );
                     })()}
+                </div>
+            )}
+
+            {/* ── TAB: Documents & Compliance ── */}
+            {tab === 'documents' && (
+                <div>
+                    {/* CNIC from employee record - always shown */}
+                    <Card style={{ marginBottom: '1.25rem', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                        <div style={{ gridColumn: '1/-1' }}><STitle><Shield size={14} /> CNIC on Record (from Employee Profile)</STitle></div>
+                        {[['CNIC Number', emp.cnic || '—'], ['Issue Date', emp.cnicIssue ? String(emp.cnicIssue).slice(0,10) : '—'], ['Expiry Date', emp.cnicExpiry ? String(emp.cnicExpiry).slice(0,10) : '—']].map(([l, v]) => (
+                            <div key={l}>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>{l}</div>
+                                <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{v}</div>
+                                {l === 'Expiry Date' && emp.cnicExpiry && (() => {
+                                    const days = daysUntilExpiry(emp.cnicExpiry);
+                                    const clr = days < 0 ? '#ef4444' : days <= 90 ? '#f59e0b' : '#22c55e';
+                                    const msg = days < 0 ? '⚠️ Expired' : days <= 90 ? `⚠️ Expires in ${days} days` : `✅ Valid (${days} days)`;
+                                    return <div style={{ fontSize: '0.78rem', color: clr, marginTop: '4px', fontWeight: 600 }}>{msg}</div>;
+                                })()}
+                            </div>
+                        ))}
+                        <div style={{ gridColumn: '1/-1', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            To update CNIC dates, use the <strong>Edit Profile</strong> button above (Personal Info → CNIC fields).
+                        </div>
+                    </Card>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                        <h3 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>Additional Compliance Documents</h3>
+                        <button onClick={openAddDoc}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                            <Plus size={15} /> Add Document
+                        </button>
+                    </div>
+
+                    {!docsLoaded && <div style={{ color: 'var(--text-muted)', padding: '1rem' }}>Loading documents...</div>}
+
+                    {docsLoaded && allDocs.length === 0 && (
+                        <div style={{ border: '2px dashed var(--border)', borderRadius: '12px', padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            <Shield size={36} style={{ opacity: 0.3, marginBottom: '0.75rem' }} />
+                            <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>No compliance documents added yet</div>
+                            <div style={{ fontSize: '0.85rem' }}>Add Fitness to Work, Police Clearance, or any other required documents.</div>
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {allDocs.map(doc => {
+                            const st = docStatus(doc);
+                            const typeLabel = DOC_TYPES.find(t => t.value === doc.doc_type)?.label || doc.doc_type;
+                            return (
+                                <div key={doc.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                                            <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{doc.doc_name || typeLabel}</span>
+                                            <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700, background: st.bg, color: st.color }}>{st.label}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.82rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+                                            <span>Type: <strong style={{ color: 'var(--text)' }}>{typeLabel}</strong></span>
+                                            {doc.doc_no && <span>No: <strong style={{ color: 'var(--text)' }}>{doc.doc_no}</strong></span>}
+                                            {doc.issue_date && <span>Issued: <strong style={{ color: 'var(--text)' }}>{String(doc.issue_date).slice(0,10)}</strong></span>}
+                                            {doc.expiry_date && <span>Expires: <strong style={{ color: st.color }}>{String(doc.expiry_date).slice(0,10)}</strong></span>}
+                                            {doc.issuing_authority && <span>Authority: <strong style={{ color: 'var(--text)' }}>{doc.issuing_authority}</strong></span>}
+                                        </div>
+                                        {doc.notes && <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>{doc.notes}</div>}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button onClick={() => openEditDoc(doc)}
+                                            style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                            <Edit2 size={13} />
+                                        </button>
+                                        <button onClick={() => deleteDoc(doc.id)}
+                                            style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                            <Trash2 size={13} />
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Add / Edit Doc Modal */}
+                    {showAddDoc && (
+                        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '2rem' }}>
+                            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '580px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
+                                    <h3 style={{ margin: 0 }}>{editDoc ? 'Edit' : 'Add'} Compliance Document</h3>
+                                    <button onClick={() => { setShowAddDoc(false); setEditDoc(null); }} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
+                                </div>
+                                <div style={{ padding: '1.5rem 2rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                    <div style={{ gridColumn: '1/-1' }}>
+                                        <FLabel>Document Type</FLabel>
+                                        <select value={docForm.doc_type} onChange={e => setDocForm(p => ({ ...p, doc_type: e.target.value }))}
+                                            style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.88rem', width: '100%' }}>
+                                            {DOC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                        </select>
+                                    </div>
+                                    <FField label="Document Name / Reference">
+                                        <FInput value={docForm.doc_name} onChange={e => setDocForm(p => ({ ...p, doc_name: e.target.value }))} ph="e.g. CNIC Renewal 2026" />
+                                    </FField>
+                                    <FField label="Document Number">
+                                        <FInput value={docForm.doc_no} onChange={e => setDocForm(p => ({ ...p, doc_no: e.target.value }))} ph="ID / Certificate number" />
+                                    </FField>
+                                    <FField label="Issue Date">
+                                        <FInput type="date" value={docForm.issue_date} onChange={e => setDocForm(p => ({ ...p, issue_date: e.target.value }))} />
+                                    </FField>
+                                    <FField label="Expiry Date">
+                                        <FInput type="date" value={docForm.expiry_date} onChange={e => setDocForm(p => ({ ...p, expiry_date: e.target.value }))} />
+                                    </FField>
+                                    <div style={{ gridColumn: '1/-1' }}>
+                                        <FField label="Issuing Authority">
+                                            <FInput value={docForm.issuing_authority} onChange={e => setDocForm(p => ({ ...p, issuing_authority: e.target.value }))} ph="e.g. NADRA / Police / Hospital" />
+                                        </FField>
+                                    </div>
+                                    <div style={{ gridColumn: '1/-1' }}>
+                                        <FField label="Notes">
+                                            <FInput value={docForm.notes} onChange={e => setDocForm(p => ({ ...p, notes: e.target.value }))} ph="Optional notes" />
+                                        </FField>
+                                    </div>
+                                </div>
+                                <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                                    <button onClick={() => { setShowAddDoc(false); setEditDoc(null); }} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                                    <button onClick={saveDoc} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '0.7rem 1.75rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <Save size={15} /> {editDoc ? 'Save Changes' : 'Add Document'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
