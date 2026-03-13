@@ -230,6 +230,74 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
     res.json({ saved: saved.length, errors, employees: saved });
 });
 
+// ─── SMS Routes (Jazz CMT) ────────────────────────────────────────────────────
+const https = require('https');
+
+// Normalise Pakistani mobile numbers → 03XXXXXXXXX (10 digits starting with 0)
+const normalisePhone = (raw = '') => {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('92') && digits.length === 12) return '0' + digits.slice(2);
+    if (digits.startsWith('3') && digits.length === 10) return '0' + digits;
+    if (digits.startsWith('03') && digits.length === 11) return digits;
+    return digits; // return as-is if unrecognised, let Jazz CMT reject it
+};
+
+const sendJazzSMS = (to, message) => new Promise((resolve, reject) => {
+    const SMS_USER = process.env.JAZZ_SMS_USER || '03268366056';
+    const SMS_PASS = process.env.JAZZ_SMS_PASS || '';
+    const SMS_MASK = process.env.JAZZ_SMS_MASK || 'AlliedServ';
+    const phone = normalisePhone(to);
+    const url = `https://connect.jazzcmt.com/sendsms_url.html?Username=${encodeURIComponent(SMS_USER)}&Password=${encodeURIComponent(SMS_PASS)}&From=${encodeURIComponent(SMS_MASK)}&To=${encodeURIComponent(phone)}&Message=${encodeURIComponent(message)}`;
+
+    https.get(url, (resp) => {
+        let data = '';
+        resp.on('data', chunk => data += chunk);
+        resp.on('end', () => resolve({ to: phone, response: data.trim() }));
+    }).on('error', reject);
+});
+
+// Send to a single number
+app.post('/api/sms/send', requireAuth, async (req, res) => {
+    const { to, message } = req.body;
+    if (!to || !message) return res.status(400).json({ error: 'to and message are required' });
+    if (message.length > 160) return res.status(400).json({ error: 'Message exceeds 160 characters' });
+    try {
+        const result = await sendJazzSMS(to, message);
+        // Log to employee_messages table if employee_id provided
+        if (req.body.employee_id) {
+            try {
+                await pool.query(
+                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                    [req.body.employee_id, message, req.user.email]
+                );
+            } catch (_) {}
+        }
+        res.json({ ok: true, ...result });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Send to multiple employees at once
+app.post('/api/sms/bulk', requireAuth, async (req, res) => {
+    const { recipients = [], message } = req.body; // recipients = [{ employee_id, phone, name }]
+    if (!message || !recipients.length) return res.status(400).json({ error: 'recipients and message required' });
+    const results = [];
+    for (const r of recipients) {
+        try {
+            const result = await sendJazzSMS(r.phone, message);
+            try {
+                await pool.query(
+                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                    [r.employee_id, message, req.user.email]
+                );
+            } catch (_) {}
+            results.push({ name: r.name, phone: r.phone, ok: true, response: result.response });
+        } catch (err) {
+            results.push({ name: r.name, phone: r.phone, ok: false, error: err.message });
+        }
+    }
+    res.json({ sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
+});
+
 // ─── Client Mappers ───────────────────────────────────────────────────────────
 const clientFromDb = (r) => ({
     id: r.id, name: r.name, hq: r.hq, ntn: r.ntn, strn: r.strn, industry: r.industry,
