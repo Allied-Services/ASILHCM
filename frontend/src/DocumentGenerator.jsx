@@ -19,12 +19,14 @@ const SIGNATURE_URL = `${window.location.origin}/asil-signature.png`;
 
 const today = () => new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' });
 
-// Small breathing room before the table tbody ends
+// Small breathing room at end of content
 const FOOTER_SPACER = `<div style="height:10px;"></div>`;
 
-// Footer inner HTML — rendered inside <tfoot> which auto-repeats every print page
+// Footer HTML — used inside iframe print; position:fixed puts it at page bottom on every page
 const FOOTER_HTML_INNER = `
-  <div style="border-top:1.2px solid #c0392b; font-size:9pt; color:#444; line-height:1.15; text-align:center; padding:4px 10px 3px;">
+  <div id="asil-footer" style="position:fixed; bottom:0; left:0; right:0; background:white;
+       border-top:1.2px solid #c0392b; font-size:9pt; color:#444; line-height:1.15;
+       text-align:center; padding:4px 14mm 5px;">
     <div>${CO.footer1}</div>
     <div>${CO.footer2}</div>
     <div>${CO.footer3}</div>
@@ -209,6 +211,12 @@ function renderJoiningReport(emp) {
       <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5;">Site</td>
       <td style="padding:7px 10px; border:1px solid #bbb;">${emp.location || ''}</td>
     </tr>
+    <tr>
+      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5;">CNIC No.</td>
+      <td style="padding:7px 10px; border:1px solid #bbb;">${emp.cnic || ''}</td>
+      <td style="padding:7px 10px; border:1px solid #bbb; font-weight:bold; background:#f5f5f5;">Contract Start Date</td>
+      <td style="padding:7px 10px; border:1px solid #bbb;">${doj}</td>
+    </tr>
   </table>
 
   <p>Reference to my Employment Offer Confirmation, I wish to inform you that I have joined duty from <strong>${doj}</strong>.<br/>
@@ -216,7 +224,7 @@ function renderJoiningReport(emp) {
 
   <div style="margin-top:40px; font-size:10.5pt;">
     <p style="margin-bottom:48px;">Employee Signature: ____________________________________________</p>
-    <p style="margin-bottom:16px;">CNIC: __________________________________________</p>
+    <p style="margin-bottom:16px;">CNIC: <strong>${emp.cnic || '__________________________________________'}</strong></p>
     <p>Date: ___________________________________________</p>
   </div>
 
@@ -298,6 +306,7 @@ function renderUniformForm(emp) {
 </div>`;
 }
 
+
 // ─── Document definitions ─────────────────────────────────────────────────────
 const DOCS = [
   { key: 'contract', label: 'Employment Contract', render: renderEmploymentContract },
@@ -305,32 +314,29 @@ const DOCS = [
   { key: 'uniform', label: 'Uniform Measurement Form', render: renderUniformForm },
 ];
 
-// ─── Print helper ─────────────────────────────────────────────────────────────
+// ─── Print helper — hidden iframe so footer sits at page bottom correctly ─────
 function printDocument(htmlContent, filename) {
-  const win = window.open('', '_blank', 'width=900,height=700');
-  if (!win) { alert('Please allow popups to print/export documents.'); return; }
-  win.document.write(`<!DOCTYPE html><html><head>
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:none;';
+  document.body.appendChild(iframe);
+  const doc = iframe.contentDocument || iframe.contentWindow.document;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head>
     <title>${filename}</title>
     <style>
-      @media print { @page { margin: 12mm; } body { margin:0; } }
+      @media print {
+        @page { margin: 12mm 12mm 22mm 12mm; }
+        body { margin: 0; }
+      }
       body { font-family:'Times New Roman',serif; margin:0; padding:0; }
-      /* Table-footer-group: the ONLY reliable way to repeat footer every page without overlap */
-      table.doc-wrap { width:100%; border-collapse:collapse; }
-      tfoot.doc-footer { display:table-footer-group; }
-      tbody.doc-body  { display:table-row-group; }
     </style>
-  </head><body>
-  <table class="doc-wrap">
-    <tfoot class="doc-footer"><tr><td style="padding:0;">${FOOTER_HTML_INNER}</td></tr></tfoot>
-    <tbody class="doc-body" ><tr><td style="padding:0;">${htmlContent}</td></tr></tbody>
-  </table>
-  <script>
-    window.onload = function() {
-      document.title = '${filename}';
-      setTimeout(function(){ window.print(); }, 500);
-    };
-  <\/script></body></html>`);
-  win.document.close();
+  </head><body>${htmlContent}${FOOTER_HTML_INNER}</body></html>`);
+  doc.close();
+  setTimeout(() => {
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+    setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 10000);
+  }, 400);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
