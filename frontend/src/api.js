@@ -72,4 +72,8 @@ export const api = {
     // ── Employee Messaging ────────────────────────────────────────────────────
     getEmployeeMessages:   (id)      => apiFetch(`/api/employees/${id}/messages`),
     sendEmployeeMessage:   (id, d)   => apiFetch(`/api/employees/${id}/messages`, { method: 'POST', body: JSON.stringify(d) }),
+
+    // ── SMS (Jazz CMT) ────────────────────────────────────────────────────────
+    sendSms: (to, message, employee_id) => apiFetch('/api/sms/send', { method: 'POST', body: JSON.stringify({ to, message, employee_id }) }),
+    bulkSms: (recipients, message)      => apiFetch('/api/sms/bulk',  { method: 'POST', body: JSON.stringify({ recipients, message }) }),
 };

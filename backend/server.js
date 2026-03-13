@@ -72,6 +72,14 @@ app.get('/auth/google/callback',
 app.get('/auth/me', requireAuth, (req, res) => res.json({ user: req.user }));
 app.post('/auth/logout', (req, res) => res.json({ ok: true }));
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+app.get('/health/ip', (req, res) => {
+    // Returns this server's outbound public IP (for Jazz CMT whitelisting)
+    const https = require('https');
+    https.get('https://api.ipify.org?format=json', (r) => {
+        let d = ''; r.on('data', c => d += c);
+        r.on('end', () => res.json({ outbound_ip: JSON.parse(d).ip, note: 'Whitelist this IP with Jazz CMT' }));
+    }).on('error', e => res.status(500).json({ error: e.message }));
+});
 app.get('/', (req, res) => res.json({ name: 'ASIL HCM API', status: 'running', app: 'https://asil-hcm-frontend.onrender.com' }));
 
 // ─── Employee Mappers ─────────────────────────────────────────────────────────
