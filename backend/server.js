@@ -250,32 +250,30 @@ const normalisePhone = (raw = '') => {
     return digits; // return as-is if unrecognised, let Jazz CMT reject it
 };
 
-const sendJazzSMS = (to, message) => new Promise((resolve, reject) => {
+const sendJazzSMS = (to, message) => new Promise(async (resolve, reject) => {
     const SMS_USER = process.env.JAZZ_SMS_USER || '03268366056';
-    const SMS_PASS = process.env.JAZZ_SMS_PASS || '';
+    const SMS_PASS = process.env.JAZZ_SMS_PASS || 'Jazz@123';
     const SMS_MASK = process.env.JAZZ_SMS_MASK || 'AlliedServ';
+    const WORKER_URL = process.env.JAZZ_WORKER_URL || 'https://jazz-sms-proxy.shezad-mumtaz.workers.dev';
     const phone = normalisePhone(to);
-    const url = `https://connect.jazzcmt.com/sendsms_url.html?Username=${encodeURIComponent(SMS_USER)}&Password=${encodeURIComponent(SMS_PASS)}&From=${encodeURIComponent(SMS_MASK)}&To=${encodeURIComponent(phone)}&Message=${encodeURIComponent(message)}`;
-    const parsedUrl = new URL(url);
 
-    const options = {
-        hostname: parsedUrl.hostname,
-        path: parsedUrl.pathname + parsedUrl.search,
-        method: 'GET',
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-            'Referer': 'https://connect.jazzcmt.com/',
-        },
-    };
-
-    https.get(options, (resp) => {
-        let data = '';
-        resp.on('data', chunk => data += chunk);
-        resp.on('end', () => resolve({ to: phone, response: data.trim() }));
-    }).on('error', reject);
+    try {
+        const resp = await fetch(WORKER_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                to: phone,
+                message,
+                username: SMS_USER,
+                password: SMS_PASS,
+                from_mask: SMS_MASK,
+            }),
+        });
+        const data = await resp.json();
+        resolve({ to: phone, response: data.response || JSON.stringify(data) });
+    } catch (err) {
+        reject(err);
+    }
 });
 
 // Send to a single number
