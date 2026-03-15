@@ -256,8 +256,22 @@ const sendJazzSMS = (to, message) => new Promise((resolve, reject) => {
     const SMS_MASK = process.env.JAZZ_SMS_MASK || 'AlliedServ';
     const phone = normalisePhone(to);
     const url = `https://connect.jazzcmt.com/sendsms_url.html?Username=${encodeURIComponent(SMS_USER)}&Password=${encodeURIComponent(SMS_PASS)}&From=${encodeURIComponent(SMS_MASK)}&To=${encodeURIComponent(phone)}&Message=${encodeURIComponent(message)}`;
+    const parsedUrl = new URL(url);
 
-    https.get(url, (resp) => {
+    const options = {
+        hostname: parsedUrl.hostname,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: 'GET',
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Referer': 'https://connect.jazzcmt.com/',
+        },
+    };
+
+    https.get(options, (resp) => {
         let data = '';
         resp.on('data', chunk => data += chunk);
         resp.on('end', () => resolve({ to: phone, response: data.trim() }));
