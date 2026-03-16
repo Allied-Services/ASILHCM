@@ -60,20 +60,40 @@ function OCRModal({ onSave, onClose }) {
     const [purpose, setPurpose] = useState('');
     const [note, setNote] = useState('');
 
-    const handleFile = e => {
+    const handleFile = async e => {
         const f = e.target.files[0]; if (!f) return;
         setImg(URL.createObjectURL(f)); setPhase('scanning');
-        setTimeout(() => {
+
+        // Read image as base64
+        const toBase64 = file => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(',')[1]); // strip data:...;base64,
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+
+        try {
+            const imageBase64 = await toBase64(f);
+            const token = localStorage.getItem('asil_hcm_token');
+            const resp = await fetch(`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/bills/ocr`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ imageBase64, mimeType: f.type || 'image/jpeg' }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'OCR failed');
+            setExtracted(data.extracted);
+            setPhase('review');
+        } catch (err) {
+            // Fall back to manual entry with error shown
             setExtracted({
-                vendor: '⚠️ SAMPLE — Replace with actual vendor', date: new Date().toISOString().split('T')[0],
-                items: [
-                    { desc: 'SAMPLE ITEM — Replace with actual item', qty: 1, unit: 0, total: 0 },
-                ],
+                vendor: '', date: new Date().toISOString().split('T')[0],
+                items: [{ desc: '', qty: 1, unit: 0, total: 0 }],
                 subtotal: 0, gst: 0, grandTotal: 0, confidence: 0,
-                raw: '⚠️ DEMO MODE — Real OCR not connected.\nPlease manually enter all values from your bill above.',
+                raw: `❌ OCR failed: ${err.message}\n\nPlease fill in the details manually.`,
             });
             setPhase('review');
-        }, 1500);
+        }
     };
 
     const setItem = (i, f, v) => setExtracted(p => {
@@ -129,11 +149,14 @@ function OCRModal({ onSave, onClose }) {
                             <div>
                                 {img && <img src={img} alt="Original" style={{ width: '100%', maxHeight: '200px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)' }} />}
                                 <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '0.75rem', marginTop: '0.75rem', fontSize: '0.76rem', fontFamily: 'monospace', color: '#94a3b8', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{extracted.raw}</div>
-                                <div style={{ marginTop: '0.5rem', padding: '0.6rem 0.75rem', background: 'rgba(239,68,68,0.12)', border: '1px solid #ef444460', borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                    <AlertTriangle size={16} color="#ef4444" style={{ flexShrink: 0, marginTop: '1px' }} />
-                                    <div style={{ fontSize: '0.78rem', color: '#ef4444', lineHeight: 1.5 }}>
-                                        <strong>DEMO MODE — OCR not connected.</strong><br />
-                                        The values above are sample placeholders. You <strong>must</strong> manually correct the vendor name, items, quantities, and amounts from your actual bill before saving.
+                                <div style={{ marginTop: '0.5rem', padding: '0.6rem 0.75rem', background: extracted.confidence > 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.12)', border: `1px solid ${extracted.confidence > 0 ? '#22c55e40' : '#ef444460'}`, borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                    {extracted.confidence > 0
+                                        ? <CheckCircle size={16} color="#22c55e" style={{ flexShrink: 0, marginTop: '1px' }} />
+                                        : <AlertTriangle size={16} color="#ef4444" style={{ flexShrink: 0, marginTop: '1px' }} />}
+                                    <div style={{ fontSize: '0.78rem', color: extracted.confidence > 0 ? '#22c55e' : '#ef4444', lineHeight: 1.5 }}>
+                                        {extracted.confidence > 0
+                                            ? <><strong>AI Confidence: {Math.round(extracted.confidence * 100)}%</strong> — Please verify all extracted values before saving.</>
+                                            : <><strong>OCR not available.</strong> Please fill in all values manually from your bill.</>}
                                     </div>
                                 </div>
                             </div>

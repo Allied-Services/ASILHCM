@@ -321,6 +321,101 @@ app.post('/api/sms/bulk', requireAuth, async (req, res) => {
 
 
 // ─── Bills / Procurement (persisted) ─────────────────────────────────────────
+
+// ── OCR endpoint — GPT-4o Vision ─────────────────────────────────────────────
+app.post('/api/bills/ocr', requireAuth, async (req, res) => {
+    const { imageBase64, mimeType = 'image/jpeg' } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
+
+    const OPENAI_KEY = process.env.OPENAI_API_KEY;
+    if (!OPENAI_KEY || OPENAI_KEY.startsWith('sk-dummy')) {
+        return res.status(503).json({ error: 'OpenAI API key not configured on server' });
+    }
+
+    const prompt = `You are a bill/receipt data extraction assistant for a Pakistani company.
+Extract data from this bill image (may be handwritten, printed, in Urdu or English).
+
+Return ONLY valid JSON (no markdown, no extra text) with this exact structure:
+{
+  "vendor": "vendor or supplier name",
+  "date": "YYYY-MM-DD or empty string if not found",
+  "items": [
+    { "desc": "item description", "qty": 1, "unit": 0, "total": 0 }
+  ],
+  "subtotal": 0,
+  "gst": 0,
+  "grandTotal": 0,
+  "confidence": 0.85,
+  "raw": "all text visible in the image, line by line"
+}
+
+Rules:
+- All amounts must be numbers (no commas, no currency symbols)
+- If GST is not mentioned, set gst to 0
+- grandTotal = subtotal + gst
+- confidence is your estimate of extraction quality (0.0 to 1.0)
+- If you cannot read a value clearly, use 0 for numbers and a "?" for strings
+- Extract every line item separately`;
+
+    try {
+        const oaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${OPENAI_KEY}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                max_tokens: 1000,
+                messages: [{
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: prompt },
+                        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}`, detail: 'high' } }
+                    ]
+                }]
+            }),
+        });
+
+        if (!oaiRes.ok) {
+            const errText = await oaiRes.text();
+            console.error('OpenAI error:', errText);
+            return res.status(502).json({ error: 'OpenAI API error: ' + oaiRes.status });
+        }
+
+        const oaiData = await oaiRes.json();
+        const rawContent = oaiData.choices?.[0]?.message?.content || '{}';
+
+        // Strip markdown code fences if present
+        const cleaned = rawContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        let extracted;
+        try {
+            extracted = JSON.parse(cleaned);
+        } catch {
+            return res.status(502).json({ error: 'Could not parse OCR response — try a clearer image' });
+        }
+
+        // Ensure items array is valid
+        if (!Array.isArray(extracted.items)) extracted.items = [];
+        extracted.items = extracted.items.map(it => ({
+            desc: String(it.desc || ''),
+            qty: parseFloat(it.qty) || 1,
+            unit: parseFloat(it.unit) || 0,
+            total: parseFloat(it.total) || Math.round((parseFloat(it.qty) || 1) * (parseFloat(it.unit) || 0)),
+        }));
+        // Recalculate subtotal from items if not provided
+        if (!extracted.subtotal && extracted.items.length) {
+            extracted.subtotal = extracted.items.reduce((a, it) => a + it.total, 0);
+        }
+        if (!extracted.grandTotal) extracted.grandTotal = (extracted.subtotal || 0) + (extracted.gst || 0);
+
+        res.json({ ok: true, extracted });
+    } catch (err) {
+        console.error('OCR fetch error:', err.message);
+        res.status(500).json({ error: 'OCR request failed: ' + err.message });
+    }
+});
+
 // Auto-create table if missing
 pool.query(`
     CREATE TABLE IF NOT EXISTS bills (
