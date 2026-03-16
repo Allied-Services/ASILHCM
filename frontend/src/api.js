@@ -82,4 +82,9 @@ export const api = {
     // ── SMS (Jazz CMT) ────────────────────────────────────────────────────────
     sendSms: (to, message, employee_id) => apiFetch('/api/sms/send', { method: 'POST', body: JSON.stringify({ to, message, employee_id }) }),
     bulkSms: (recipients, message)      => apiFetch('/api/sms/bulk',  { method: 'POST', body: JSON.stringify({ recipients, message }) }),
+
+    // ── Bills / Procurement ───────────────────────────────────────────────────
+    getBills:          ()          => apiFetch('/api/bills'),
+    saveBill:          (bill)      => apiFetch('/api/bills', { method: 'POST', body: JSON.stringify(bill) }),
+    updateBillStatus:  (id, status) => apiFetch(`/api/bills/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 };

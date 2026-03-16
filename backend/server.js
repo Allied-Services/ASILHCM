@@ -319,7 +319,79 @@ app.post('/api/sms/bulk', requireAuth, async (req, res) => {
     res.json({ sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
 });
 
+
+// ─── Bills / Procurement (persisted) ─────────────────────────────────────────
+// Auto-create table if missing
+pool.query(`
+    CREATE TABLE IF NOT EXISTS bills (
+        id          TEXT PRIMARY KEY,
+        type        TEXT,
+        vendor      TEXT,
+        date        TEXT,
+        client      TEXT,
+        contract    TEXT,
+        site        TEXT,
+        bill_type   TEXT,
+        purpose     TEXT,
+        note        TEXT,
+        items       JSONB DEFAULT '[]',
+        amount      NUMERIC(12,2) DEFAULT 0,
+        gst         NUMERIC(12,2) DEFAULT 0,
+        total       NUMERIC(12,2) DEFAULT 0,
+        status      TEXT DEFAULT 'Draft',
+        created_by  TEXT,
+        created_at  TIMESTAMPTZ DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+`).catch(e => console.error('bills table init error:', e.message));
+
+app.get('/api/bills', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM bills ORDER BY created_at DESC');
+        res.json(rows.map(r => ({
+            id: r.id, type: r.type, vendor: r.vendor, date: r.date,
+            client: r.client, contract: r.contract, site: r.site,
+            billType: r.bill_type, purpose: r.purpose, note: r.note,
+            items: r.items || [], amount: parseFloat(r.amount) || 0,
+            gst: parseFloat(r.gst) || 0, total: parseFloat(r.total) || 0,
+            status: r.status, createdBy: r.created_by,
+            createdAt: r.created_at,
+        })));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/bills', requireAuth, async (req, res) => {
+    const b = req.body;
+    try {
+        const { rows } = await pool.query(
+            `INSERT INTO bills (id,type,vendor,date,client,contract,site,bill_type,purpose,note,items,amount,gst,total,status,created_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+             ON CONFLICT (id) DO UPDATE SET
+               vendor=EXCLUDED.vendor, date=EXCLUDED.date, client=EXCLUDED.client,
+               contract=EXCLUDED.contract, site=EXCLUDED.site, bill_type=EXCLUDED.bill_type,
+               purpose=EXCLUDED.purpose, note=EXCLUDED.note, items=EXCLUDED.items,
+               amount=EXCLUDED.amount, gst=EXCLUDED.gst, total=EXCLUDED.total,
+               status=EXCLUDED.status, updated_at=NOW()
+             RETURNING *`,
+            [b.id, b.type, b.vendor, b.date, b.client, b.contract, b.site,
+             b.billType, b.purpose, b.note, JSON.stringify(b.items || []),
+             b.amount || 0, b.gst || 0, b.total || 0, b.status || 'Draft', req.user.email]
+        );
+        const r = rows[0];
+        res.json({ ok: true, bill: { id: r.id, type: r.type, vendor: r.vendor, date: r.date, client: r.client, contract: r.contract, site: r.site, billType: r.bill_type, purpose: r.purpose, note: r.note, items: r.items || [], amount: parseFloat(r.amount) || 0, gst: parseFloat(r.gst) || 0, total: parseFloat(r.total) || 0, status: r.status, createdBy: r.created_by } });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch('/api/bills/:id/status', requireAuth, async (req, res) => {
+    const { status } = req.body;
+    try {
+        await pool.query('UPDATE bills SET status=$1, updated_at=NOW() WHERE id=$2', [status, req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── Client Mappers ───────────────────────────────────────────────────────────
+
 const clientFromDb = (r) => ({
     id: r.id, name: r.name, hq: r.hq, ntn: r.ntn, strn: r.strn, industry: r.industry,
     contacts: r.contacts || [],

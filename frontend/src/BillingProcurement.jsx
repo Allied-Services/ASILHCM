@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
-import { FileText, Upload, Edit3, CheckCircle, Loader, Eye } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { FileText, Upload, Edit3, CheckCircle, Loader, Eye, AlertTriangle } from 'lucide-react';
+import { api } from './api';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CLIENTS = ['Wafi Energy Pakistan Limited', 'Bank Al Habib', 'Pakistan State Oil Company', 'Gul Ahmed Textile'];
@@ -64,17 +65,15 @@ function OCRModal({ onSave, onClose }) {
         setImg(URL.createObjectURL(f)); setPhase('scanning');
         setTimeout(() => {
             setExtracted({
-                vendor: 'Al-Kareem General Store', date: new Date().toISOString().split('T')[0],
+                vendor: '⚠️ SAMPLE — Replace with actual vendor', date: new Date().toISOString().split('T')[0],
                 items: [
-                    { desc: 'Cleaning supplies', qty: 5, unit: 350, total: 1750 },
-                    { desc: 'Mop & bucket set', qty: 2, unit: 850, total: 1700 },
-                    { desc: 'Dustbin (large)', qty: 3, unit: 450, total: 1350 },
+                    { desc: 'SAMPLE ITEM — Replace with actual item', qty: 1, unit: 0, total: 0 },
                 ],
-                subtotal: 4800, gst: 0, grandTotal: 4800, confidence: 0.91,
-                raw: 'Al-Kareem General Store\nDate: 07/03/2026\nCleaning supplies x5 @350 = 1750\nMop set x2 @850 = 1700\nDustbin x3 @450 = 1350\nTotal: Rs. 4800',
+                subtotal: 0, gst: 0, grandTotal: 0, confidence: 0,
+                raw: '⚠️ DEMO MODE — Real OCR not connected.\nPlease manually enter all values from your bill above.',
             });
             setPhase('review');
-        }, 2800);
+        }, 1500);
     };
 
     const setItem = (i, f, v) => setExtracted(p => {
@@ -130,8 +129,12 @@ function OCRModal({ onSave, onClose }) {
                             <div>
                                 {img && <img src={img} alt="Original" style={{ width: '100%', maxHeight: '200px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)' }} />}
                                 <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '0.75rem', marginTop: '0.75rem', fontSize: '0.76rem', fontFamily: 'monospace', color: '#94a3b8', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{extracted.raw}</div>
-                                <div style={{ marginTop: '0.5rem', fontSize: '0.76rem', color: '#22c55e', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                    <CheckCircle size={13} /> AI Confidence: {Math.round(extracted.confidence * 100)}% — please verify all values
+                                <div style={{ marginTop: '0.5rem', padding: '0.6rem 0.75rem', background: 'rgba(239,68,68,0.12)', border: '1px solid #ef444460', borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                    <AlertTriangle size={16} color="#ef4444" style={{ flexShrink: 0, marginTop: '1px' }} />
+                                    <div style={{ fontSize: '0.78rem', color: '#ef4444', lineHeight: 1.5 }}>
+                                        <strong>DEMO MODE — OCR not connected.</strong><br />
+                                        The values above are sample placeholders. You <strong>must</strong> manually correct the vendor name, items, quantities, and amounts from your actual bill before saving.
+                                    </div>
                                 </div>
                             </div>
 
@@ -521,7 +524,8 @@ function BillDetailModal({ bill, onAction, onClose }) {
 // MAIN COMPONENT — starts with empty register (no mock data)
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function BillingProcurement() {
-    const [bills, setBills] = useState([]);   // ← empty on fresh deploy
+    const [bills, setBills] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [showOCR, setShowOCR] = useState(false);
     const [showManual, setShowManual] = useState(false);
     const [showQuote, setShowQuote] = useState(false);
@@ -530,6 +534,14 @@ export default function BillingProcurement() {
     const [filterClient, setFilterClient] = useState('All');
     const [filterStatus, setFilterStatus] = useState('All');
 
+    // Load bills from DB on mount — shared across all users
+    useEffect(() => {
+        api.getBills()
+            .then(data => setBills(Array.isArray(data) ? data : []))
+            .catch(err => console.error('Bills load error:', err.message))
+            .finally(() => setLoading(false));
+    }, []);
+
     const filtered = bills.filter(b =>
         (filterType === 'All' || b.type === filterType) &&
         (filterClient === 'All' || b.client === filterClient) &&
@@ -537,12 +549,22 @@ export default function BillingProcurement() {
     );
     const totals = filtered.reduce((a, b) => ({ total: a.total + b.total, gst: a.gst + b.gst }), { total: 0, gst: 0 });
 
-    const addBill = b => setBills(p => [b, ...p]);
-    const doAction = (id, action) => setBills(p => p.map(b => {
-        if (b.id !== id) return b;
+    const addBill = async b => {
+        try {
+            const { bill } = await api.saveBill(b);
+            setBills(p => [bill, ...p]);
+        } catch (err) { alert('Failed to save bill: ' + err.message); }
+    };
+
+    const doAction = async (id, action) => {
         const map = { 'Submit for Approval': 'Pending', 'Approve': 'Approved', 'Post to Ledger': 'Posted', 'Reject': 'Rejected', 'Archive': 'Archived' };
-        return { ...b, status: map[action] || b.status };
-    }));
+        const newStatus = map[action];
+        if (!newStatus) return;
+        try {
+            await api.updateBillStatus(id, newStatus);
+            setBills(p => p.map(b => b.id === id ? { ...b, status: newStatus } : b));
+        } catch (err) { alert('Status update failed: ' + err.message); }
+    };
 
     const TYPES = ['All', 'OCR / Katcha', 'Manual', 'Quotation'];
     const STATUSES = ['All', 'Draft', 'Pending', 'Approved', 'Posted', 'Rejected'];
