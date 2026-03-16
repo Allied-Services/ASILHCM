@@ -188,6 +188,8 @@ export default function EmployeeInformation({ user }) {
         reader.readAsText(f);
     };
 
+    const [importResult, setImportResult] = useState(null); // { saved, errors: [{id,name,error}] }
+
     const importBulk = async () => {
         setSaving(true);
         try {
@@ -198,11 +200,9 @@ export default function EmployeeInformation({ user }) {
                 data.employees.forEach(e => map.set(e.id, e));
                 return Array.from(map.values());
             });
-            const msg = `✅ ${data.saved} employee(s) imported/updated.`
-                + (data.errors?.length ? ` ${data.errors.length} skipped.` : '');
-            alert(msg);
             setCsvRows([]); setShowAdd(false);
             if (fileRef.current) fileRef.current.value = '';
+            setImportResult({ saved: data.saved, errors: data.errors || [] });
         } catch (err) { alert('Import error: ' + err.message); }
         setSaving(false);
     };
@@ -249,6 +249,67 @@ export default function EmployeeInformation({ user }) {
                 <h1>Employee Information</h1>
                 <p>Full master roster — Employment, Personal, Compliance, Salary, Family, Medical &amp; Banking.</p>
             </header>
+
+            {/* ── Import Results Modal ─────────────────────────────────────── */}
+            {importResult && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '2rem' }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '780px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+                        {/* Header */}
+                        <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ margin: 0 }}>Import Results</h3>
+                            <button onClick={() => setImportResult(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
+                        </div>
+                        {/* Summary KPIs */}
+                        <div style={{ display: 'flex', gap: '1rem', padding: '1.25rem 2rem', borderBottom: '1px solid var(--border)' }}>
+                            <div style={{ flex: 1, background: 'rgba(34,197,94,0.1)', border: '1px solid #22c55e40', borderRadius: '10px', padding: '1rem', textAlign: 'center' }}>
+                                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#22c55e' }}>{importResult.saved}</div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>✅ Imported / Updated</div>
+                            </div>
+                            <div style={{ flex: 1, background: importResult.errors.length ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.05)', border: `1px solid ${importResult.errors.length ? '#ef444440' : '#22c55e20'}`, borderRadius: '10px', padding: '1rem', textAlign: 'center' }}>
+                                <div style={{ fontSize: '2rem', fontWeight: 800, color: importResult.errors.length ? '#ef4444' : '#22c55e' }}>{importResult.errors.length}</div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{importResult.errors.length ? '❌ Skipped (errors below)' : '✅ No Errors'}</div>
+                            </div>
+                        </div>
+                        {/* Error table */}
+                        {importResult.errors.length > 0 && (
+                            <div style={{ flex: 1, overflowY: 'auto', padding: '0 2rem 1rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 0 0.5rem' }}>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Skipped Records — Fix these in your CSV and re-upload</div>
+                                    <button onClick={() => {
+                                        const csv = ['Employee Code,Name,Error', ...importResult.errors.map(e => `"${e.id}","${e.name}","${e.error}"`)].join('\n');
+                                        const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+                                        a.download = 'import_errors.csv'; a.click();
+                                    }} style={{ fontSize: '0.8rem', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer' }}>
+                                        ⬇ Download Error Report
+                                    </button>
+                                </div>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                                    <thead>
+                                        <tr style={{ background: 'var(--bg-dark)' }}>
+                                            {['#', 'Employee Code', 'Name', 'Error Reason'].map(h => (
+                                                <th key={h} style={{ padding: '0.6rem 0.75rem', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {importResult.errors.map((e, i) => (
+                                            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                                                <td style={{ padding: '0.6rem 0.75rem', color: 'var(--text-muted)', width: '40px' }}>{i + 1}</td>
+                                                <td style={{ padding: '0.6rem 0.75rem', fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{e.id || '—'}</td>
+                                                <td style={{ padding: '0.6rem 0.75rem', fontWeight: 500 }}>{e.name || '—'}</td>
+                                                <td style={{ padding: '0.6rem 0.75rem', color: '#ef4444', fontSize: '0.82rem' }}>{e.error}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                        <div style={{ padding: '1rem 2rem', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border)' }}>
+                            <button onClick={() => setImportResult(null)} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '0.7rem 2rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>Done</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Toolbar */}
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
