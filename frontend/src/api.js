@@ -11,6 +11,12 @@ export async function apiFetch(path, options = {}) {
             ...(options.headers || {}),
         },
     });
+    // Auto logout on expired/invalid token
+    if (res.status === 401) {
+        localStorage.removeItem('asil_hcm_token');
+        window.location.href = '/?error=session_expired';
+        throw new Error('Session expired. Please sign in again.');
+    }
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
         throw new Error(err.error || `Request failed: ${res.status}`);
