@@ -50,9 +50,10 @@ const FL = ({ label, children, span }) => (
 // ─── OCR Modal ────────────────────────────────────────────────────────────────
 function OCRModal({ onSave, onClose }) {
     const fileRef = useRef();
-    const [img, setImg] = useState(null);
-    const [phase, setPhase] = useState('upload');
-    const [extracted, setExtracted] = useState(null);
+    const [phase, setPhase] = useState('upload'); // upload | scanning | review
+    const [scanStatus, setScanStatus] = useState('');
+    const [pages, setPages] = useState([]); // [{ img, extracted }]
+    const [pageIdx, setPageIdx] = useState(0);
     const [client, setClient] = useState('');
     const [contract, setContract] = useState('');
     const [site, setSite] = useState('');
@@ -60,61 +61,126 @@ function OCRModal({ onSave, onClose }) {
     const [purpose, setPurpose] = useState('');
     const [note, setNote] = useState('');
 
+    const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+
+    // Converts a canvas to base64 JPEG
+    const canvasToBase64 = (canvas) => canvas.toDataURL('image/jpeg', 0.92).split(',')[1];
+
+    // Sends one base64 image to the OCR API
+    const ocrImage = async (base64, mimeType = 'image/jpeg') => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const resp = await fetch(`${API}/api/bills/ocr`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ imageBase64: base64, mimeType }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'OCR failed');
+        return data.extracted;
+    };
+
     const handleFile = async e => {
         const f = e.target.files[0]; if (!f) return;
-        setImg(URL.createObjectURL(f)); setPhase('scanning');
-
-        // Read image as base64
-        const toBase64 = file => new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(',')[1]); // strip data:...;base64,
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
+        setPhase('scanning'); setScanStatus('Reading file…');
 
         try {
-            const imageBase64 = await toBase64(f);
-            const token = localStorage.getItem('asil_hcm_token');
-            const resp = await fetch(`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/bills/ocr`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ imageBase64, mimeType: f.type || 'image/jpeg' }),
-            });
-            const data = await resp.json();
-            if (!resp.ok) throw new Error(data.error || 'OCR failed');
-            setExtracted(data.extracted);
-            setPhase('review');
+            if (f.type === 'application/pdf') {
+                // ── PDF: render each page via PDF.js ──────────────────────────
+                const pdfjsLib = await import('pdfjs-dist');
+                pdfjsLib.GlobalWorkerOptions.workerSrc =
+                    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+
+                const arrayBuffer = await f.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const numPages = pdf.numPages;
+                const results = [];
+
+                for (let p = 1; p <= numPages; p++) {
+                    setScanStatus(`Scanning page ${p} of ${numPages}…`);
+                    const page = await pdf.getPage(p);
+                    const viewport = page.getViewport({ scale: 2.0 }); // 2x for quality
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width; canvas.height = viewport.height;
+                    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+                    const imgDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                    const base64 = imgDataUrl.split(',')[1];
+
+                    let extracted;
+                    try {
+                        extracted = await ocrImage(base64);
+                    } catch (err) {
+                        extracted = { vendor: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, unit: 0, total: 0 }], subtotal: 0, gst: 0, grandTotal: 0, confidence: 0, raw: `❌ OCR failed: ${err.message}` };
+                    }
+                    results.push({ img: imgDataUrl, extracted });
+                }
+                setPages(results); setPageIdx(0); setPhase('review');
+
+            } else {
+                // ── Single image ──────────────────────────────────────────────
+                setScanStatus('Extracting data with AI…');
+                const imgDataUrl = await new Promise((res, rej) => {
+                    const r = new FileReader();
+                    r.onload = () => res(r.result);
+                    r.onerror = rej;
+                    r.readAsDataURL(f);
+                });
+                const base64 = imgDataUrl.split(',')[1];
+                let extracted;
+                try {
+                    extracted = await ocrImage(base64, f.type || 'image/jpeg');
+                } catch (err) {
+                    extracted = { vendor: '', date: new Date().toISOString().split('T')[0], items: [{ desc: '', qty: 1, unit: 0, total: 0 }], subtotal: 0, gst: 0, grandTotal: 0, confidence: 0, raw: `❌ OCR failed: ${err.message}` };
+                }
+                setPages([{ img: imgDataUrl, extracted }]); setPageIdx(0); setPhase('review');
+            }
         } catch (err) {
-            // Fall back to manual entry with error shown
-            setExtracted({
-                vendor: '', date: new Date().toISOString().split('T')[0],
-                items: [{ desc: '', qty: 1, unit: 0, total: 0 }],
-                subtotal: 0, gst: 0, grandTotal: 0, confidence: 0,
-                raw: `❌ OCR failed: ${err.message}\n\nPlease fill in the details manually.`,
-            });
-            setPhase('review');
+            alert('File read error: ' + err.message);
+            setPhase('upload');
         }
     };
 
-    const setItem = (i, f, v) => setExtracted(p => {
-        const items = [...p.items]; items[i] = { ...items[i], [f]: v };
-        if (f === 'qty' || f === 'unit') items[i].total = Math.round((parseFloat(f === 'qty' ? v : items[i].qty) || 0) * (parseFloat(f === 'unit' ? v : items[i].unit) || 0));
-        const subtotal = items.reduce((a, it) => a + (parseFloat(it.total) || 0), 0);
-        return { ...p, items, subtotal, grandTotal: subtotal + (p.gst || 0) };
+    const cur = pages[pageIdx] || null;
+
+    const setItem = (i, field, v) => {
+        setPages(prev => {
+            const next = [...prev];
+            const items = [...next[pageIdx].extracted.items];
+            items[i] = { ...items[i], [field]: v };
+            if (field === 'qty' || field === 'unit') items[i].total = Math.round((parseFloat(field === 'qty' ? v : items[i].qty) || 0) * (parseFloat(field === 'unit' ? v : items[i].unit) || 0));
+            const subtotal = items.reduce((a, it) => a + (parseFloat(it.total) || 0), 0);
+            next[pageIdx] = { ...next[pageIdx], extracted: { ...next[pageIdx].extracted, items, subtotal, grandTotal: subtotal + (next[pageIdx].extracted.gst || 0) } };
+            return next;
+        });
+    };
+
+    const setExt = (patch) => setPages(prev => {
+        const next = [...prev];
+        next[pageIdx] = { ...next[pageIdx], extracted: { ...next[pageIdx].extracted, ...patch } };
+        return next;
     });
 
-    const saveOCR = () => {
-        onSave({ id: `BILL-${Date.now()}`, type: 'OCR / Katcha', client, contract, site, vendor: extracted.vendor, date: extracted.date, items: extracted.items, amount: extracted.subtotal, gst: extracted.gst, total: extracted.grandTotal, purpose, billType, status: 'Draft', note });
+    const saveCurrent = () => {
+        if (!cur) return;
+        const ex = cur.extracted;
+        onSave({ id: `BILL-${Date.now()}-${pageIdx}`, type: 'OCR / Katcha', client, contract, site, vendor: ex.vendor, date: ex.date, items: ex.items, amount: ex.subtotal, gst: ex.gst, total: ex.grandTotal, purpose, billType, status: 'Draft', note });
+    };
+
+    const saveAllAndClose = () => {
+        pages.forEach((pg, i) => {
+            const ex = pg.extracted;
+            onSave({ id: `BILL-${Date.now()}-${i}`, type: 'OCR / Katcha', client, contract, site, vendor: ex.vendor, date: ex.date, items: ex.items, amount: ex.subtotal, gst: ex.gst, total: ex.grandTotal, purpose, billType, status: 'Draft', note });
+        });
         onClose();
     };
 
     return (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-            <div className="modal-box" style={{ maxWidth: '840px' }}>
+            <div className="modal-box" style={{ maxWidth: '900px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 2rem', borderBottom: '1px solid var(--border)' }}>
                     <div>
                         <h3 style={{ margin: 0 }}>Katcha Bill / OCR Upload</h3>
-                        <p style={{ margin: '3px 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>Upload a photo of a handwritten bill • English & Urdu supported</p>
+                        <p style={{ margin: '3px 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>Upload a photo or PDF of a bill • English &amp; Urdu supported • Multi-page PDF = multiple bills</p>
                     </div>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.4rem' }}>×</button>
                 </div>
@@ -124,104 +190,103 @@ function OCRModal({ onSave, onClose }) {
                         <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', border: '2px dashed var(--border)', borderRadius: '12px', padding: '3rem', cursor: 'pointer', background: 'rgba(56,189,248,0.03)' }}>
                             <Upload size={36} color="var(--primary)" />
                             <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontWeight: 700, marginBottom: '4px' }}>Upload Bill Photo</div>
-                                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>JPG, PNG or WEBP · Handwritten OK · Urdu/English</div>
+                                <div style={{ fontWeight: 700, marginBottom: '4px' }}>Upload Bill Photo or PDF</div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>JPG, PNG, WEBP or PDF · Handwritten OK · Urdu/English · Multi-page PDF supported</div>
                             </div>
-                            <input type="file" accept="image/*" ref={fileRef} onChange={handleFile} style={{ display: 'none' }} />
-                            <div style={{ background: 'var(--primary)', color: 'white', padding: '8px 20px', borderRadius: '8px', fontWeight: 700 }}>Choose Photo</div>
+                            <input type="file" accept="image/*,application/pdf" ref={fileRef} onChange={handleFile} style={{ display: 'none' }} />
+                            <div style={{ background: 'var(--primary)', color: 'white', padding: '8px 20px', borderRadius: '8px', fontWeight: 700 }}>Choose File</div>
                         </label>
                     )}
 
                     {phase === 'scanning' && (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem', padding: '3rem' }}>
-                            {img && <img src={img} alt="Bill" style={{ maxHeight: '200px', borderRadius: '8px', border: '1px solid var(--border)' }} />}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <Loader size={24} color="var(--primary)" style={{ animation: 'spin 1s linear infinite' }} />
-                                <div><div style={{ fontWeight: 600 }}>Extracting data with AI...</div><div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Reading vendor, items, amounts</div></div>
+                            <Loader size={32} color="var(--primary)" style={{ animation: 'spin 1s linear infinite' }} />
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontWeight: 600, marginBottom: '4px' }}>{scanStatus}</div>
+                                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Reading vendor, items, amounts — Urdu &amp; English</div>
                             </div>
                             <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
                         </div>
                     )}
 
-                    {phase === 'review' && extracted && (
-                        <>
-                            {/* Left: image + raw */}
-                            <div>
-                                {img && <img src={img} alt="Original" style={{ width: '100%', maxHeight: '200px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)' }} />}
-                                <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '0.75rem', marginTop: '0.75rem', fontSize: '0.76rem', fontFamily: 'monospace', color: '#94a3b8', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{extracted.raw}</div>
-                                <div style={{ marginTop: '0.5rem', padding: '0.6rem 0.75rem', background: extracted.confidence > 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.12)', border: `1px solid ${extracted.confidence > 0 ? '#22c55e40' : '#ef444460'}`, borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                    {extracted.confidence > 0
-                                        ? <CheckCircle size={16} color="#22c55e" style={{ flexShrink: 0, marginTop: '1px' }} />
-                                        : <AlertTriangle size={16} color="#ef4444" style={{ flexShrink: 0, marginTop: '1px' }} />}
-                                    <div style={{ fontSize: '0.78rem', color: extracted.confidence > 0 ? '#22c55e' : '#ef4444', lineHeight: 1.5 }}>
-                                        {extracted.confidence > 0
-                                            ? <><strong>AI Confidence: {Math.round(extracted.confidence * 100)}%</strong> — Please verify all extracted values before saving.</>
-                                            : <><strong>OCR not available.</strong> Please fill in all values manually from your bill.</>}
-                                    </div>
+                    {phase === 'review' && cur && (<>
+                        {/* Left: image + raw text + confidence */}
+                        <div>
+                            {/* Page navigator for multi-page PDFs */}
+                            {pages.length > 1 && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', background: 'rgba(56,189,248,0.07)', borderRadius: '8px', padding: '0.5rem 0.75rem' }}>
+                                    <button onClick={() => setPageIdx(p => Math.max(0, p - 1))} disabled={pageIdx === 0} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer' }}>‹</button>
+                                    <span style={{ flex: 1, textAlign: 'center', fontSize: '0.82rem', fontWeight: 600 }}>Page {pageIdx + 1} of {pages.length}</span>
+                                    <button onClick={() => setPageIdx(p => Math.min(pages.length - 1, p + 1))} disabled={pageIdx === pages.length - 1} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer' }}>›</button>
+                                </div>
+                            )}
+                            {cur.img && <img src={cur.img} alt="Bill" style={{ width: '100%', maxHeight: '220px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)' }} />}
+                            <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '0.75rem', marginTop: '0.75rem', fontSize: '0.76rem', fontFamily: 'monospace', color: '#94a3b8', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: '140px', overflowY: 'auto' }}>{cur.extracted.raw}</div>
+                            <div style={{ marginTop: '0.5rem', padding: '0.6rem 0.75rem', background: cur.extracted.confidence > 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.12)', border: `1px solid ${cur.extracted.confidence > 0 ? '#22c55e40' : '#ef444460'}`, borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                {cur.extracted.confidence > 0 ? <CheckCircle size={15} color="#22c55e" style={{ flexShrink: 0, marginTop: '1px' }} /> : <AlertTriangle size={15} color="#ef4444" style={{ flexShrink: 0, marginTop: '1px' }} />}
+                                <div style={{ fontSize: '0.77rem', color: cur.extracted.confidence > 0 ? '#22c55e' : '#ef4444', lineHeight: 1.5 }}>
+                                    {cur.extracted.confidence > 0 ? <><strong>AI Confidence: {Math.round(cur.extracted.confidence * 100)}%</strong> — Verify all values before saving.</> : <><strong>OCR unavailable.</strong> Please fill in manually.</>}
                                 </div>
                             </div>
+                        </div>
 
-                            {/* Right: editable data + classify */}
-                            <div style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: '4px' }}>
-                                <div style={{ fontWeight: 700, marginBottom: '0.75rem', fontSize: '0.9rem' }}>Extracted Data — Verify & Edit</div>
-                                <FL label="Vendor"><SI value={extracted.vendor} onChange={e => setExtracted(p => ({ ...p, vendor: e.target.value }))} /></FL>
-                                <FL label="Date"><SI type="date" value={extracted.date} onChange={e => setExtracted(p => ({ ...p, date: e.target.value }))} /></FL>
+                        {/* Right: editable form */}
+                        <div style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: '4px' }}>
+                            <div style={{ fontWeight: 700, marginBottom: '0.75rem', fontSize: '0.9rem' }}>Extracted Data — Verify &amp; Edit</div>
+                            <FL label="Vendor"><SI value={cur.extracted.vendor} onChange={e => setExt({ vendor: e.target.value })} /></FL>
+                            <FL label="Date"><SI type="date" value={cur.extracted.date} onChange={e => setExt({ date: e.target.value })} /></FL>
 
-                                <div style={{ fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: '6px' }}>Line Items</div>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden', marginBottom: '0.75rem' }}>
-                                    <thead><tr style={{ background: 'var(--bg-dark)' }}>
-                                        {['Description', 'Qty', 'Unit', 'Total'].map(h => <th key={h} style={{ padding: '5px 7px', textAlign: h === 'Description' ? 'left' : 'right', fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700 }}>{h}</th>)}
-                                    </tr></thead>
-                                    <tbody>{extracted.items.map((item, i) => (
-                                        <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
-                                            {['desc', 'qty', 'unit', 'total'].map(f => (
-                                                <td key={f} style={{ padding: '3px 4px' }}>
-                                                    <SI value={item[f]} onChange={e => setItem(i, f, e.target.value)} style={{ textAlign: f === 'desc' ? 'left' : 'right', fontSize: '0.78rem', padding: '4px 6px' }} />
-                                                </td>
-                                            ))}
-                                        </tr>
-                                    ))}</tbody>
-                                </table>
+                            <div style={{ fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                Line Items
+                                <button onClick={() => setPages(prev => { const next = [...prev]; next[pageIdx] = { ...next[pageIdx], extracted: { ...next[pageIdx].extracted, items: [...next[pageIdx].extracted.items, { desc: '', qty: 1, unit: 0, total: 0 }] } }; return next; })} style={{ fontSize: '0.75rem', background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', padding: '2px 8px', borderRadius: '5px', cursor: 'pointer' }}>+ Add</button>
+                            </div>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden', marginBottom: '0.75rem' }}>
+                                <thead><tr style={{ background: 'var(--bg-dark)' }}>{['Description', 'Qty', 'Unit', 'Total'].map(h => <th key={h} style={{ padding: '5px 7px', textAlign: h === 'Description' ? 'left' : 'right', fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700 }}>{h}</th>)}</tr></thead>
+                                <tbody>{cur.extracted.items.map((item, i) => (
+                                    <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                                        {['desc', 'qty', 'unit', 'total'].map(f => (
+                                            <td key={f} style={{ padding: '3px 4px' }}>
+                                                <SI value={item[f]} onChange={e => setItem(i, f, e.target.value)} style={{ textAlign: f === 'desc' ? 'left' : 'right', fontSize: '0.78rem', padding: '4px 6px' }} />
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))}</tbody>
+                            </table>
 
-                                <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(56,189,248,0.07)', borderRadius: '8px', padding: '0.6rem 0.9rem', fontWeight: 700, marginBottom: '1rem' }}>
-                                    <span>Grand Total</span><span style={{ color: 'var(--primary)' }}>{Rs(extracted.grandTotal)}</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(56,189,248,0.07)', borderRadius: '8px', padding: '0.6rem 0.9rem', fontWeight: 700, marginBottom: '1rem' }}>
+                                <span>Grand Total</span><span style={{ color: 'var(--primary)' }}>{Rs(cur.extracted.grandTotal)}</span>
+                            </div>
+
+                            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                                <div style={{ fontWeight: 700, marginBottom: '0.6rem', fontSize: '0.85rem' }}>Classify This Bill</div>
+                                <FL label="Client"><SS value={client} onChange={e => { setClient(e.target.value); setContract(''); }} opts={CLIENTS} /></FL>
+                                <FL label="Contract"><SS value={contract} onChange={e => setContract(e.target.value)} opts={CONTRACTS[client] || []} /></FL>
+                                <FL label="Site"><SS value={site} onChange={e => setSite(e.target.value)} opts={SITES} /></FL>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                                    <FL label="Bill Type"><SS value={billType} onChange={e => setBillType(e.target.value)} opts={BILL_TYPES} /></FL>
+                                    <FL label="Purpose"><SS value={purpose} onChange={e => setPurpose(e.target.value)} opts={PURPOSES} /></FL>
                                 </div>
-
-                                {/* Classify */}
-                                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-                                    <div style={{ fontWeight: 700, marginBottom: '0.6rem', fontSize: '0.85rem' }}>Classify This Bill</div>
-                                    <FL label="Client">
-                                        <SS value={client} onChange={e => { setClient(e.target.value); setContract(''); }} opts={CLIENTS} />
-                                    </FL>
-                                    <FL label="Contract">
-                                        <SS value={contract} onChange={e => setContract(e.target.value)} opts={CONTRACTS[client] || []} />
-                                    </FL>
-                                    <FL label="Site"><SS value={site} onChange={e => setSite(e.target.value)} opts={SITES} /></FL>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                                        <FL label="Bill Type">
-                                            <SS value={billType} onChange={e => setBillType(e.target.value)} opts={BILL_TYPES} />
-                                        </FL>
-                                        <FL label="Purpose">
-                                            <SS value={purpose} onChange={e => setPurpose(e.target.value)} opts={PURPOSES} />
-                                        </FL>
-                                    </div>
-                                    <FL label="Internal Note"><SI value={note} onChange={e => setNote(e.target.value)} placeholder="Optional" /></FL>
-                                    <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
-                                        <button onClick={onClose} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '9px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
-                                        <button onClick={saveOCR} disabled={!client || !billType}
-                                            style={{ flex: 2, background: client && billType ? 'var(--primary)' : '#334155', border: 'none', color: 'white', padding: '9px', borderRadius: '8px', cursor: client && billType ? 'pointer' : 'not-allowed', fontWeight: 700 }}>
-                                            Save Bill (Draft)
+                                <FL label="Internal Note"><SI value={note} onChange={e => setNote(e.target.value)} placeholder="Optional" /></FL>
+                                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                                    <button onClick={onClose} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '9px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                                    {pages.length > 1 ? (<>
+                                        <button onClick={() => { saveCurrent(); if (pageIdx < pages.length - 1) setPageIdx(p => p + 1); }} disabled={!client || !billType} style={{ flex: 2, background: client && billType ? 'var(--primary)' : '#334155', border: 'none', color: 'white', padding: '9px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                                            Save Page {pageIdx + 1} & Next →
                                         </button>
-                                    </div>
+                                        {pageIdx === pages.length - 1 && <button onClick={saveAllAndClose} disabled={!client || !billType} style={{ flex: 2, background: client && billType ? '#22c55e' : '#334155', border: 'none', color: 'white', padding: '9px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>Save All & Done ✓</button>}
+                                    </>) : (
+                                        <button onClick={() => { saveCurrent(); onClose(); }} disabled={!client || !billType} style={{ flex: 2, background: client && billType ? 'var(--primary)' : '#334155', border: 'none', color: 'white', padding: '9px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>Save Bill (Draft)</button>
+                                    )}
                                 </div>
                             </div>
-                        </>
-                    )}
+                        </div>
+                    </>)}
                 </div>
             </div>
         </div>
     );
 }
+
 
 // ─── Manual Bill Modal — with line items ──────────────────────────────────────
 function ManualBillModal({ onSave, onClose }) {

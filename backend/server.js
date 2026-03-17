@@ -332,30 +332,33 @@ app.post('/api/bills/ocr', requireAuth, async (req, res) => {
         return res.status(503).json({ error: 'OpenAI API key not configured on server' });
     }
 
-    const prompt = `You are a bill/receipt data extraction assistant for a Pakistani company.
-Extract data from this bill image (may be handwritten, printed, in Urdu or English).
+    const prompt = `You are an expert bill/receipt extraction assistant specializing in Pakistani bills.
+This image may contain a handwritten or printed bill in Urdu, English, or both.
 
-Return ONLY valid JSON (no markdown, no extra text) with this exact structure:
+IMPORTANT RULES:
+1. Pakistani bills often show: vendor name in Urdu at top, items listed with Urdu descriptions, amounts on the right side
+2. Amounts are in Pakistani Rupees (Rs) — numbers like 2600, 5000, 2800 are PKR amounts
+3. The last/largest number at the bottom is usually the GRAND TOTAL
+4. Translate any Urdu item descriptions to English (best effort)
+5. If unit price is not shown, calculate it from total ÷ qty
+6. Do NOT invent data — if something is unclear, write "?" for text or 0 for numbers
+7. The confidence score must reflect actual legibility (blurry/old receipts = 0.5-0.7)
+
+Return ONLY valid JSON, no markdown, no explanation:
 {
-  "vendor": "vendor or supplier name",
-  "date": "YYYY-MM-DD or empty string if not found",
+  "vendor": "vendor name in English (translate from Urdu if needed)",
+  "date": "YYYY-MM-DD (convert Pakistani date DD-MM-YY format)",
   "items": [
-    { "desc": "item description", "qty": 1, "unit": 0, "total": 0 }
+    { "desc": "item description in English", "qty": 1, "unit": 0, "total": 2600 }
   ],
-  "subtotal": 0,
+  "subtotal": 10200,
   "gst": 0,
-  "grandTotal": 0,
-  "confidence": 0.85,
-  "raw": "all text visible in the image, line by line"
+  "grandTotal": 10200,
+  "confidence": 0.82,
+  "raw": "all visible text from image, line by line"
 }
 
-Rules:
-- All amounts must be numbers (no commas, no currency symbols)
-- If GST is not mentioned, set gst to 0
-- grandTotal = subtotal + gst
-- confidence is your estimate of extraction quality (0.0 to 1.0)
-- If you cannot read a value clearly, use 0 for numbers and a "?" for strings
-- Extract every line item separately`;
+Verify: items totals should sum to subtotal. grandTotal = subtotal + gst.`;
 
     try {
         const oaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -365,8 +368,8 @@ Rules:
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                max_tokens: 1000,
+                model: 'gpt-4o',
+                max_tokens: 1200,
                 messages: [{
                     role: 'user',
                     content: [
