@@ -25,7 +25,8 @@ export const calcWHT = (annual) => {
     return Math.round((700000 + (annual - 4100000) * 0.35) / 12);
 };
 export const calcEOBI_fn = (basic) => {
-    const w = Math.min(basic, 37000);
+    // EOBI based on minimum wage ceiling — Rs. 40,000 (2025-26 notification)
+    const w = Math.min(basic, 40000);
     return { employee: Math.round(w * 0.01), employer: Math.round(w * 0.05) };
 };
 export const calcPF_fn = (basic, enrolled) => enrolled ? Math.round(basic * 0.0833) : 0;
