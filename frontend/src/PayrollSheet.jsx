@@ -1,11 +1,13 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X } from 'lucide-react';
 import {
-    PAYROLL_EMPLOYEES as EMPLOYEES, PAYROLL_CONTRACT_CFG as CONTRACT_CFG,
+    PAYROLL_CONTRACT_CFG as CONTRACT_CFG,
     calcEmployeeRow, downloadCSV,
     buildPayrollCSV, buildHBLFile, buildWHTFile, buildEOBIFile, buildSESSIFile,
     calcWHT, calcEOBI_fn, calcGratuityMonthly, calcPF_fn, COMPANY,
 } from './payrollUtils';
+import { api } from './api';
+
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = v => Math.round(parseFloat(v) || 0).toLocaleString('en-PK');
@@ -95,9 +97,7 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
 }
 
 // ─── Import Modal ─────────────────────────────────────────────────────────────
-// Required columns in import CSV: CNIC, Staff Code, Month, Year,
-// ASIL Employee Code, OT Hrs @ 2X, OT Hrs @ 3X, OPD, Expense Reimbursement, Arrears
-function ImportModal({ onApply, onClose }) {
+function ImportModal({ onApply, onClose, employees = [] }) {
     const fileRef = useRef();
     const [preview, setPreview] = useState([]);
     const [errors, setErrors] = useState([]);
@@ -121,11 +121,13 @@ function ImportModal({ onApply, onClose }) {
                 vals.push(cur.trim());
                 const obj = {}; hdrs.forEach((h, j) => { obj[h] = vals[j] || ''; });
                 const cnic = obj['CNIC']; const empCode = obj['ASIL Employee Code'];
-                const match = EMPLOYEES.find(e => e.cnic === cnic && e.id === empCode);
+                // Match by CNIC first, then by employee code (either is sufficient)
+                const match = employees.find(e => e.cnic === cnic) ||
+                              employees.find(e => e.id === empCode);
                 if (!match) {
                     errs.push(`Row ${i + 2}: No employee found for CNIC ${cnic} + Code ${empCode}`);
                 } else {
-                    rows.push({ empId: match.id, ot2_hrs: obj['OT Hrs @ 2X'] || 0, ot3_hrs: obj['OT Hrs @ 3X'] || 0, opd_claim: obj['OPD'] || 0, reimbursement: obj['Expense Reimbursement'] || 0, arrears: obj['Arrears'] || 0 });
+                    rows.push({ empId: match.id, ot2_hrs: parseFloat(obj['OT Hrs @ 2X']) || 0, ot3_hrs: parseFloat(obj['OT Hrs @ 3X']) || 0, opd_claim: parseFloat(obj['OPD']) || 0, reimbursement: parseFloat(obj['Expense Reimbursement']) || 0, arrears: parseFloat(obj['Arrears']) || 0 });
                     prev.push({ name: match.name, id: match.id, ot2: obj['OT Hrs @ 2X'] || 0, ot3: obj['OT Hrs @ 3X'] || 0, opd: obj['OPD'] || 0, reimb: obj['Expense Reimbursement'] || 0, arrears: obj['Arrears'] || 0 });
                 }
             });
@@ -137,6 +139,7 @@ function ImportModal({ onApply, onClose }) {
     const downloadTemplate = () => {
         downloadCSV('payroll_import_template.csv', [{ 'CNIC': '42101-1234567-1', 'Staff Code': 'SEC-001', 'Month': 'March', 'Year': '2026', 'ASIL Employee Code': 'EMP-2026-201', 'OT Hrs @ 2X': '8', 'OT Hrs @ 3X': '0', 'OPD': '0', 'Expense Reimbursement': '0', 'Arrears': '0' }]);
     };
+
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1100, padding: '2rem', overflowY: 'auto' }}>
@@ -247,6 +250,32 @@ export default function PayrollSheet() {
     const [approvalSent, setApprovalSent] = useState({});
     const [showExport, setShowExport] = useState(false);
     const [showImport, setShowImport] = useState(false);
+    const [EMPLOYEES, setEMPLOYEES] = useState([]);
+
+    // Load employees from DB and map to payroll format
+    useEffect(() => {
+        api.getEmployees().then(data => {
+            const mapped = (data.employees || []).map(e => {
+                const gross = parseFloat(e.salary) || 0;
+                return {
+                    id: e.id, cnic: e.cnic, name: e.name,
+                    designation: e.designation || '', contract: e.clientBU || 'Standard',
+                    location: e.location || '', client: e.client || '',
+                    gross,
+                    basic:              Math.round(gross * 0.60),
+                    hra:                Math.round(gross * 0.20),
+                    conveyance:         Math.round(gross * 0.10),
+                    medical_allowance:  Math.round(gross * 0.07),
+                    other_allowances:   Math.round(gross * 0.03),
+                    pf_enrolled: false,
+                    bankAccount: e.bankAccount || '', bankName: e.bankName || '',
+                    eobiNo: e.eobiNo || '', email: e.email || '',
+                    contact: e.primaryContact || '',
+                };
+            });
+            setEMPLOYEES(mapped);
+        }).catch(() => {});
+    }, []);
 
     const setOv = (id, field, val) => setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
     const getOv = (id, field, def) => { const o = overrides[id]; return (o && o[field] !== undefined) ? o[field] : def; };
@@ -521,7 +550,7 @@ export default function PayrollSheet() {
 
             {breakdown && <BreakdownPanel emp={breakdown.emp} calc={breakdown.calc} workDays={workDays} onClose={() => setBreakdown(null)} />}
             {showExport && <ExportMenu rows={rows} month={month} onClose={() => setShowExport(false)} />}
-            {showImport && <ImportModal onApply={applyImport} onClose={() => setShowImport(false)} />}
+            {showImport && <ImportModal onApply={applyImport} onClose={() => setShowImport(false)} employees={EMPLOYEES} />}
         </div>
     );
 }

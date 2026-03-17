@@ -87,11 +87,11 @@ export default function EmployeeInformation({ user }) {
     const filtered = emps.filter(e => {
         const q = search.toLowerCase();
         const matchSearch = !search ||
-            e.name.toLowerCase().includes(q) ||
-            e.cnic.includes(search) ||
-            e.id.toLowerCase().includes(q) ||
-            e.client.toLowerCase().includes(q) ||
-            e.designation.toLowerCase().includes(q);
+            (e.name || '').toLowerCase().includes(q) ||
+            (e.cnic || '').includes(search) ||
+            (e.id || '').toLowerCase().includes(q) ||
+            (e.client || '').toLowerCase().includes(q) ||
+            (e.designation || '').toLowerCase().includes(q);
         const matchActive = filterActive === 'All' || (filterActive === 'Active' && e.active === 'Yes') || (filterActive === 'Inactive' && e.active === 'No');
         const matchClient = filterClient === 'All' || e.client === filterClient;
         const matchLocation = filterLocation === 'All' || e.location === filterLocation;
