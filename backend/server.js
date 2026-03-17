@@ -626,12 +626,32 @@ app.delete('/api/clients/:id', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/contracts', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT c.*, cl.name AS client_name
+            FROM contracts c
+            LEFT JOIN clients cl ON c.client_id = cl.id
+            ORDER BY cl.name ASC, c.contract_name ASC
+        `);
+        res.json({ contracts: rows.map(ct => ({
+            id: ct.id, contractName: ct.contract_name,
+            clientId: ct.client_id, clientName: ct.client_name,
+            location: ct.location, serviceType: ct.service_type,
+            headcount: ct.headcount, status: ct.status,
+            startDate: toDateStr(ct.start_date), endDate: toDateStr(ct.end_date),
+            costs: ct.costs || {}, financials: ct.financials || {},
+        })) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.delete('/api/contracts/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM contracts WHERE id=$1', [req.params.id]);
         res.json({ ok: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 
 app.patch('/api/contracts/:id/reassign', requireAuth, async (req, res) => {
     try {

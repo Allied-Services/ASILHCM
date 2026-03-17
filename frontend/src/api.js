@@ -39,6 +39,7 @@ export const api = {
     deleteClient: (id) => apiFetch(`/api/clients/${id}`, { method: 'DELETE' }),
 
     // ── Contracts ─────────────────────────────────────────────────────────────
+    getContracts: () => apiFetch('/api/contracts'),
     deleteContract: (id) => apiFetch(`/api/contracts/${id}`, { method: 'DELETE' }),
     reassignContract: (id, clientId) => apiFetch(`/api/contracts/${id}/reassign`, { method: 'PATCH', body: JSON.stringify({ client_id: clientId }) }),
 

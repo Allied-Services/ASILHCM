@@ -19,7 +19,18 @@ const STATUS_OPTS = ['Active', 'Expiring', 'Expired', 'Cancelled', 'Draft'];
 const EMPTY_CONTRACT = {
     id: '', contractName: '', location: '', serviceType: 'Manpower Services', headcount: 0,
     status: 'Active', startDate: '', endDate: '',
-    costs: { eobi: 1560, sessi: 2220, life_insurance: 500, medical_premium: 1200, uniform_cost: 300, shoes_cost: 150, ppe_cost: 200, opd: 500, dedicated_staff: 0, courier: 3000, other1_name: '', other1_amount: 0, other2_name: '', other2_amount: 0 },
+    costs: {
+        eobi: 2000,           // EOBI employer (flat statutory Rs.2,000)
+        life_insurance: 500,  // Life insurance per head/month
+        medical_ee: 800,      // Medical premium — Employee (Self)
+        medical_sp: 600,      // Medical premium — Spouse
+        medical_child: 300,   // Medical premium — per Child (max 2)
+        bonus_months: 1,      // Bonus = X months of gross per year
+        bonus_min_months: 12, // Min service months for full bonus (0 = always pro-rata)
+        uniform_cost: 300, shoes_cost: 150, ppe_cost: 200, opd: 500,
+        dedicated_staff: 0, courier: 3000,
+        other1_name: '', other1_amount: 0, other2_name: '', other2_amount: 0,
+    },
     financials: { wht_pct: 7, sales_tax_pct: 17, service_charges_pct: 15 }
 };
 
@@ -74,10 +85,7 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
     };
 
     const costFields = [
-        ['eobi', 'EOBI — Employer Share (Rs. / head / month)'],
-        ['sessi', 'SESSI (Rs. / head / month)'],
         ['life_insurance', 'Life Insurance Premium (Rs. / head / month)'],
-        ['medical_premium', 'Medical / Group Health Premium (Rs. / head / month)'],
         ['uniform_cost', 'Uniform Cost (Rs. / head / YEAR)'],
         ['shoes_cost', 'Shoes Cost (Rs. / head / YEAR)'],
         ['ppe_cost', 'PPEs Cost (Rs. / head / YEAR)'],
@@ -121,10 +129,42 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                 {/* Per-Head Costs */}
                 <div style={{ background: 'var(--bg-dark)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
                     <h3 style={{ margin: '0 0 1.25rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>Operational Costs (PKR)</h3>
+
+                    {/* Medical Insurance — separate per member */}
+                    <div style={{ background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '10px', padding: '1rem', marginBottom: '1rem' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--primary)', marginBottom: '0.75rem' }}>Medical Insurance Premiums (Rs./head/month)</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                            <FRow label="Employee (Self)">
+                                <FInput type="number" value={c.costs.medical_ee ?? 0} onChange={e => set('costs.medical_ee', parseFloat(e.target.value) || 0)} ph="0" />
+                            </FRow>
+                            <FRow label="Spouse">
+                                <FInput type="number" value={c.costs.medical_sp ?? 0} onChange={e => set('costs.medical_sp', parseFloat(e.target.value) || 0)} ph="0" />
+                            </FRow>
+                            <FRow label="Per Child (max 2 covered)">
+                                <FInput type="number" value={c.costs.medical_child ?? 0} onChange={e => set('costs.medical_child', parseFloat(e.target.value) || 0)} ph="0" />
+                            </FRow>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Auto-applied per employee based on their HR family data. Children capped at 2.</div>
+                    </div>
+
+                    {/* Bonus policy */}
+                    <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '10px', padding: '1rem', marginBottom: '1rem' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#f59e0b', marginBottom: '0.75rem' }}>Annual Bonus Policy</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                            <FRow label="Bonus = X months of Gross Salary">
+                                <FInput type="number" value={c.costs.bonus_months ?? 1} onChange={e => set('costs.bonus_months', parseFloat(e.target.value) || 0)} ph="1" />
+                            </FRow>
+                            <FRow label="Min. service months for full bonus (0 = always pro-rata)">
+                                <FInput type="number" value={c.costs.bonus_min_months ?? 12} onChange={e => set('costs.bonus_min_months', parseFloat(e.target.value) || 0)} ph="12" />
+                            </FRow>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>e.g. 1 month bonus. If min=12, must work full year. If min=0, pro-rated from day 1. Partial year = gross × months × service_months/12.</div>
+                    </div>
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                         {costFields.map(([key, label]) => (
                             <FRow key={key} label={label}>
-                                <FInput type="number" value={c.costs[key]} onChange={e => set(`costs.${key}`, parseFloat(e.target.value) || 0)} ph="0" />
+                                <FInput type="number" value={c.costs[key] ?? 0} onChange={e => set(`costs.${key}`, parseFloat(e.target.value) || 0)} ph="0" />
                             </FRow>
                         ))}
                     </div>

@@ -99,13 +99,14 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
 }
 
 // ─── Import Modal ─────────────────────────────────────────────────────────────
-function ImportModal({ onApply, onClose, employees = [] }) {
+function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
     const fileRef = useRef();
     const [preview, setPreview] = useState([]);
     const [errors, setErrors] = useState([]);
     const [parsed, setParsed] = useState([]);
 
-    const REQUIRED = ['CNIC', 'ASIL Employee Code', 'OT Hrs @ 2X', 'OT Hrs @ 3X', 'OPD', 'Expense Reimbursement', 'Arrears'];
+    // Only CNIC or ASIL Employee Code is required, rest are optional
+    const REQUIRED = ['CNIC', 'ASIL Employee Code'];
 
     const handleFile = (e) => {
         const f = e.target.files[0]; if (!f) return;
@@ -127,10 +128,30 @@ function ImportModal({ onApply, onClose, employees = [] }) {
                 const match = employees.find(e => e.cnic === cnic) ||
                               employees.find(e => e.id === empCode);
                 if (!match) {
-                    errs.push(`Row ${i + 2}: No employee found for CNIC ${cnic} + Code ${empCode}`);
+                    errs.push(`Row ${i + 2}: No employee found for CNIC ${cnic} / Code ${empCode}`);
                 } else {
-                    rows.push({ empId: match.id, ot2_hrs: parseFloat(obj['OT Hrs @ 2X']) || 0, ot3_hrs: parseFloat(obj['OT Hrs @ 3X']) || 0, opd_claim: parseFloat(obj['OPD']) || 0, reimbursement: parseFloat(obj['Expense Reimbursement']) || 0, arrears: parseFloat(obj['Arrears']) || 0 });
-                    prev.push({ name: match.name, id: match.id, ot2: obj['OT Hrs @ 2X'] || 0, ot3: obj['OT Hrs @ 3X'] || 0, opd: obj['OPD'] || 0, reimb: obj['Expense Reimbursement'] || 0, arrears: obj['Arrears'] || 0 });
+                    // Present Days: if provided, use as paid_days (unauthorized absence = deduction)
+                    const presentDays = obj['Present Days'] !== undefined && obj['Present Days'] !== ''
+                        ? Math.min(parseFloat(obj['Present Days']) || workDays, workDays)
+                        : workDays;
+                    const leaveDays = workDays - presentDays;
+                    rows.push({
+                        empId:         match.id,
+                        paid_days:     presentDays,
+                        ot2_hrs:       parseFloat(obj['OT Hrs @ 2X']) || 0,
+                        ot3_hrs:       parseFloat(obj['OT Hrs @ 3X']) || 0,
+                        opd_claim:     parseFloat(obj['OPD']) || 0,
+                        reimbursement: parseFloat(obj['Expense Reimbursement']) || 0,
+                        arrears:       parseFloat(obj['Arrears']) || 0,
+                        bonus_amount:  parseFloat(obj['Bonus']) || 0,
+                    });
+                    prev.push({
+                        name: match.name, id: match.id,
+                        presentDays, leaveDays,
+                        ot2: obj['OT Hrs @ 2X'] || 0, ot3: obj['OT Hrs @ 3X'] || 0,
+                        opd: obj['OPD'] || 0, reimb: obj['Expense Reimbursement'] || 0,
+                        arrears: obj['Arrears'] || 0, bonus: obj['Bonus'] || 0,
+                    });
                 }
             });
             setErrors(errs); setParsed(rows); setPreview(prev);
@@ -139,24 +160,30 @@ function ImportModal({ onApply, onClose, employees = [] }) {
     };
 
     const downloadTemplate = () => {
-        downloadCSV('payroll_import_template.csv', [{ 'CNIC': '42101-1234567-1', 'Staff Code': 'SEC-001', 'Month': 'March', 'Year': '2026', 'ASIL Employee Code': 'EMP-2026-201', 'OT Hrs @ 2X': '8', 'OT Hrs @ 3X': '0', 'OPD': '0', 'Expense Reimbursement': '0', 'Arrears': '0' }]);
+        downloadCSV('payroll_import_template.csv', [{
+            'CNIC': '42101-1234567-1', 'Staff Code': 'SEC-001', 'Month': 'March', 'Year': '2026',
+            'ASIL Employee Code': 'EMP-2026-201',
+            'Present Days': '26',       // attendance (< working days = deduction)
+            'OT Hrs @ 2X': '8', 'OT Hrs @ 3X': '0',
+            'OPD': '0', 'Expense Reimbursement': '0', 'Arrears': '0', 'Bonus': '0',
+        }]);
     };
-
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1100, padding: '2rem', overflowY: 'auto' }}>
-            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '800px', marginBottom: '2rem' }}>
+            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '860px', marginBottom: '2rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
                     <div>
                         <h3 style={{ margin: 0 }}>Import Payroll Sheet</h3>
-                        <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Upload a CSV with overtime, OPD, and reimbursement data collected by site focal.</p>
+                        <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Upload attendance + overtime + adjustments CSV collected from site focals.</p>
                     </div>
                     <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.4rem' }}>×</button>
                 </div>
                 <div style={{ padding: '2rem' }}>
                     <div style={{ background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '10px', padding: '1rem', marginBottom: '1.5rem', fontSize: '0.85rem' }}>
-                        <strong>Required columns:</strong> CNIC, Staff Code, Month, Year, ASIL Employee Code, OT Hrs @ 2X, OT Hrs @ 3X, OPD, Expense Reimbursement, Arrears.
-                        <br />CNIC and ASIL Employee Code must match an employee in the system for the row to be accepted.
+                        <strong>Required:</strong> CNIC, ASIL Employee Code (either one is enough to match).<br />
+                        <strong>Optional:</strong> Present Days, OT Hrs @ 2X, OT Hrs @ 3X, OPD, Expense Reimbursement, Arrears, Bonus.<br />
+                        <strong style={{ color: '#f59e0b' }}>Present Days:</strong> If less than Working Days ({workDays}), the difference is treated as unauthorized leave and salary is deducted. Notified leave = show full {workDays} days.
                     </div>
                     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
                         <button onClick={downloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
@@ -181,18 +208,21 @@ function ImportModal({ onApply, onClose, employees = [] }) {
                             <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border)', maxHeight: '280px', overflowY: 'auto' }}>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                                     <thead style={{ background: 'var(--bg-dark)', position: 'sticky', top: 0 }}>
-                                        <tr>{['Employee', 'ID', 'OT @2X', 'OT @3X', 'OPD', 'Reimb.', 'Arrears'].map(h => <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>)}</tr>
+                                        <tr>{['Employee', 'ID', 'Pres.Days', 'Leave', 'OT @2X', 'OT @3X', 'OPD', 'Reimb.', 'Arrears', 'Bonus'].map(h => <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>)}</tr>
                                     </thead>
                                     <tbody>
                                         {preview.map((r, i) => (
-                                            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                                            <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: r.leaveDays > 0 ? 'rgba(239,68,68,0.05)' : undefined }}>
                                                 <td style={{ padding: '7px 8px', fontWeight: 600 }}>{r.name}</td>
                                                 <td style={{ padding: '7px 8px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.id}</td>
+                                                <td style={{ padding: '7px 8px', textAlign: 'right' }}>{r.presentDays}</td>
+                                                <td style={{ padding: '7px 8px', textAlign: 'right', color: r.leaveDays > 0 ? '#ef4444' : 'var(--text-muted)', fontWeight: r.leaveDays > 0 ? 700 : 400 }}>{r.leaveDays > 0 ? `-${r.leaveDays}d` : '—'}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{r.ot2}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{r.ot3}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(r.opd)}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(r.reimb)}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(r.arrears)}</td>
+                                                <td style={{ padding: '7px 8px', textAlign: 'right', color: parseFloat(r.bonus) > 0 ? '#22c55e' : 'var(--text-muted)' }}>{fmt(r.bonus)}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -253,26 +283,57 @@ export default function PayrollSheet() {
     const [showExport, setShowExport] = useState(false);
     const [showImport, setShowImport] = useState(false);
     const [EMPLOYEES, setEMPLOYEES] = useState([]);
+    const [CONTRACT_MAP, setCONTRACT_MAP] = useState({}); // clientName (lower) → costs+financials
 
-    // Load employees from DB and map to payroll format
+    // Load contracts from DB → build lookup map by client name
+    useEffect(() => {
+        api.getContracts().then(data => {
+            const map = {};
+            (data.contracts || []).forEach(ct => {
+                if (ct.clientName) {
+                    const key = ct.clientName.toLowerCase().trim();
+                    // If multiple contracts for same client, take the first active one
+                    if (!map[key] || ct.status === 'Active') map[key] = {
+                        service_charges_pct: ct.financials?.service_charges_pct || 0,
+                        sales_tax_pct:       ct.financials?.sales_tax_pct || 0,
+                        life_insurance:      ct.costs?.life_insurance || 0,
+                        medical_ee:          ct.costs?.medical_ee || 0,
+                        medical_sp:          ct.costs?.medical_sp || 0,
+                        medical_child:       ct.costs?.medical_child || 0,
+                        bonus_months:        ct.costs?.bonus_months || 0,
+                        bonus_min_months:    ct.costs?.bonus_min_months || 12,
+                    };
+                }
+            });
+            setCONTRACT_MAP(map);
+        }).catch(() => {});
+    }, []);
+
+    // Load employees from DB and map to payroll format (family composition → medical)
     useEffect(() => {
         api.getEmployees().then(data => {
             const mapped = (data.employees || []).map(e => {
                 const gross = parseFloat(e.salary) || 0;
+                // Family composition for medical
+                const hasSpouse = !!(e.spouseName && String(e.spouseName).trim());
+                const numChildren = [e.child1Name, e.child2Name].filter(n => n && String(n).trim()).length;
                 return {
                     id: e.id, cnic: e.cnic, name: e.name,
                     designation: e.designation || '', contract: e.clientBU || 'Standard',
                     location: e.location || '', client: e.client || '',
                     gross,
-                    basic:              Math.round(gross * 0.60),
-                    hra:                Math.round(gross * 0.20),
-                    conveyance:         Math.round(gross * 0.10),
-                    medical_allowance:  Math.round(gross * 0.07),
-                    other_allowances:   Math.round(gross * 0.03),
+                    basic:             Math.round(gross * 0.60),
+                    hra:               Math.round(gross * 0.20),
+                    conveyance:        Math.round(gross * 0.10),
+                    medical_allowance: Math.round(gross * 0.07),
+                    other_allowances:  Math.round(gross * 0.03),
                     pf_enrolled: false,
                     bankAccount: e.bankAccount || '', bankName: e.bankName || '',
                     eobiNo: e.eobiNo || '', email: e.email || '',
                     contact: e.primaryContact || '',
+                    doj: e.doj || '',
+                    // family (used for medical)
+                    hasSpouse, numChildren: Math.min(numChildren, 2),
                 };
             });
             setEMPLOYEES(mapped);
@@ -296,24 +357,30 @@ export default function PayrollSheet() {
     );
 
     const rows = filtered.map(emp => {
-        const cfg = CONTRACT_CFG[emp.contract] || {};
+        // Look up contract config by client name (case-insensitive)
+        const cfg = CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] || {};
+        // Medical defaults from contract + employee family
+        const defMedEE    = cfg.medical_ee    || 0;
+        const defMedSP    = emp.hasSpouse ? (cfg.medical_sp || 0) : 0;
+        const defMedCh1   = emp.numChildren >= 1 ? (cfg.medical_child || 0) : 0;
+        const defMedCh2   = emp.numChildren >= 2 ? (cfg.medical_child || 0) : 0;
         const ov = {
-            paid_days: getOv(emp.id, 'paid_days', workDays),
-            ot2_hrs: getOv(emp.id, 'ot2_hrs', 0),
-            ot3_hrs: getOv(emp.id, 'ot3_hrs', 0),
-            opd_claim: getOv(emp.id, 'opd_claim', 0),
-            reimbursement: getOv(emp.id, 'reimbursement', 0),
-            arrears: getOv(emp.id, 'arrears', 0),
-            special_allowance: getOv(emp.id, 'special_allowance', 0),
-            fuel_mobile: getOv(emp.id, 'fuel_mobile', 0),
-            other_deduction: getOv(emp.id, 'other_deduction', 0),
-            advance_deduction: getOv(emp.id, 'advance_deduction', 0),
-            loan_deduction: getOv(emp.id, 'loan_deduction', 0),
-            bonus_amount: getOv(emp.id, 'bonus_amount', 0),
-            medical_ee: getOv(emp.id, 'medical_ee', cfg.medical_ee || 0),
-            medical_sp: getOv(emp.id, 'medical_sp', cfg.medical_sp || 0),
-            medical_ch1: getOv(emp.id, 'medical_ch1', cfg.medical_ch || 0),
-            medical_ch2: getOv(emp.id, 'medical_ch2', 0),
+            paid_days:        getOv(emp.id, 'paid_days', workDays),
+            ot2_hrs:          getOv(emp.id, 'ot2_hrs', 0),
+            ot3_hrs:          getOv(emp.id, 'ot3_hrs', 0),
+            opd_claim:        getOv(emp.id, 'opd_claim', 0),
+            reimbursement:    getOv(emp.id, 'reimbursement', 0),
+            arrears:          getOv(emp.id, 'arrears', 0),
+            special_allowance:getOv(emp.id, 'special_allowance', 0),
+            fuel_mobile:      getOv(emp.id, 'fuel_mobile', 0),
+            other_deduction:  getOv(emp.id, 'other_deduction', 0),
+            advance_deduction:getOv(emp.id, 'advance_deduction', 0),
+            loan_deduction:   getOv(emp.id, 'loan_deduction', 0),
+            bonus_amount:     getOv(emp.id, 'bonus_amount', 0),
+            medical_ee:       getOv(emp.id, 'medical_ee',  defMedEE),
+            medical_sp:       getOv(emp.id, 'medical_sp',  defMedSP),
+            medical_ch1:      getOv(emp.id, 'medical_ch1', defMedCh1),
+            medical_ch2:      getOv(emp.id, 'medical_ch2', defMedCh2),
         };
         return { emp, cfg, calc: calcEmployeeRow(emp, ov, cfg, workDays), ov };
     });
@@ -554,7 +621,7 @@ export default function PayrollSheet() {
 
             {breakdown && <BreakdownPanel emp={breakdown.emp} calc={breakdown.calc} workDays={workDays} onClose={() => setBreakdown(null)} />}
             {showExport && <ExportMenu rows={rows} month={month} onClose={() => setShowExport(false)} />}
-            {showImport && <ImportModal onApply={applyImport} onClose={() => setShowImport(false)} employees={EMPLOYEES} />}
+            {showImport && <ImportModal onApply={applyImport} onClose={() => setShowImport(false)} employees={EMPLOYEES} workDays={workDays} />}
         </div>
     );
 }
