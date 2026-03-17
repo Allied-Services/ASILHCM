@@ -239,6 +239,71 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
     res.json({ saved: saved.length, errors, employees: saved });
 });
 
+// ─── Admin: diagnostics + cleanup ────────────────────────────────────────────
+// Find duplicate employees by CNIC
+app.get('/api/admin/employee-duplicates', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT cnic, COUNT(*) AS cnt,
+                   array_agg(id ORDER BY updated_at DESC NULLS LAST) AS ids,
+                   array_agg(name ORDER BY updated_at DESC NULLS LAST) AS names,
+                   array_agg(COALESCE(salary,0) ORDER BY updated_at DESC NULLS LAST) AS salaries
+            FROM employees
+            WHERE cnic IS NOT NULL AND cnic <> ''
+            GROUP BY cnic HAVING COUNT(*) > 1
+            ORDER BY cnt DESC
+        `);
+        const total = await pool.query('SELECT COUNT(*) FROM employees');
+        res.json({ total_employees: parseInt(total.rows[0].count), duplicate_groups: rows.length, duplicates: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Deduplicate: per CNIC, keep the row with highest salary, delete the rest
+app.post('/api/admin/dedup-employees', requireAuth, async (req, res) => {
+    try {
+        const { rows: dups } = await pool.query(`
+            SELECT cnic, array_agg(id ORDER BY
+                COALESCE(salary,0) DESC,
+                updated_at DESC NULLS LAST
+            ) AS ids
+            FROM employees
+            WHERE cnic IS NOT NULL AND cnic <> ''
+            GROUP BY cnic HAVING COUNT(*) > 1
+        `);
+        let deleted = 0;
+        for (const dup of dups) {
+            const [keep, ...remove] = dup.ids;
+            if (remove.length) {
+                await pool.query('DELETE FROM employees WHERE id = ANY($1)', [remove]);
+                deleted += remove.length;
+            }
+        }
+        const total = await pool.query('SELECT COUNT(*) FROM employees');
+        res.json({ ok: true, deleted, remaining: parseInt(total.rows[0].count) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Delete all employees whose client name contains a substring (case-insensitive)
+app.delete('/api/admin/delete-by-client', requireAuth, async (req, res) => {
+    const { client_contains } = req.body;
+    if (!client_contains) return res.status(400).json({ error: 'client_contains is required' });
+    try {
+        const preview = await pool.query(
+            'SELECT id, name, client FROM employees WHERE LOWER(client) LIKE $1',
+            [`%${client_contains.toLowerCase()}%`]
+        );
+        if (req.query.confirm !== 'yes') {
+            return res.json({ preview: preview.rows, count: preview.rows.length, message: 'Add ?confirm=yes to the URL to actually delete' });
+        }
+        const { rowCount } = await pool.query(
+            'DELETE FROM employees WHERE LOWER(client) LIKE $1',
+            [`%${client_contains.toLowerCase()}%`]
+        );
+        res.json({ ok: true, deleted: rowCount });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
 // ─── SMS Routes (Jazz CMT) ────────────────────────────────────────────────────
 const https = require('https');
 
