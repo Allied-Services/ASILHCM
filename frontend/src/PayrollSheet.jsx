@@ -61,7 +61,7 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
                     </S>
                     <S title="Employee Deductions" color="#f43f5e">
                         <R label="Income Tax (WHT)" formula={`Annual Rs.${fmt(calc.annualIncome)} → FBR 2025-26 ÷ 12`} value={calc.incomeTax} color="#f43f5e" />
-                        <R label="EOBI Employee 1%" formula={`1% × min(${fmt(emp.basic)}, 40,000) = Rs. 400`} value={calc.eobi_ee} />
+                        <R label="EOBI Employee — Fixed" formula="1% × Rs. 40,000 (statutory minimum wage)" value={calc.eobi_ee} />
                         {emp.pf_enrolled && <R label="PF Employee 8.33%" formula={`${fmt(emp.basic)} × 8.33%`} value={calc.pfEE} />}
                         {calc.advanceDed > 0 && <R label="Advance Recovery" value={calc.advanceDed} />}
                         {calc.loanDed > 0 && <R label="Loan Installment" value={calc.loanDed} />}
@@ -70,8 +70,10 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
                     </S>
                     <S title="Employer Add-ons (Billed to Client)" color="#a78bfa">
                         <R label="Gross Monthly (pass-through)" value={calc.grossMonthly} />
-                        <R label="EOBI Employer 5%" formula={`5% × min(${fmt(emp.basic)}, 40,000) = Rs. 2,000`} value={calc.eobi_er} />
-                        <R label="SESSI" value={calc.sessi} />
+                        <R label="EOBI Employer — Fixed" formula="5% × Rs. 40,000 (statutory minimum wage)" value={calc.eobi_er} />
+                        {calc.sessi > 0
+                            ? <R label={`SESSI (6% — gross Rs.${fmt(calc.grossMonthly)} < 45,000)`} formula={`6% × ${fmt(calc.grossMonthly)}`} value={calc.sessi} />
+                            : <R label="SESSI — Exempt (gross ≥ Rs. 45,000)" formula="Not applicable" value={0} muted />}
                         <R label="Gratuity (monthly accrual)" formula={`(${fmt(emp.gross)} ÷ 26) × 30 ÷ 12`} value={calc.gratuity} />
                         <R label="Life Insurance" value={calc.lifeIns} />
                         <R label="Medical — Employee" value={calc.medEE} />
@@ -543,7 +545,9 @@ export default function PayrollSheet() {
             </div>
 
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1rem 1.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                <strong>Formulas:</strong> Gross = Basic(paid) + Allowances(pro-rata) + OT | WHT = FBR 2025-26 slabs ÷ 12 | EOBI = 1%/5% × min(Basic, <strong>40,000</strong>) — Employee Rs.400, Employer Rs.2,000 |
+                <strong>Formulas:</strong> Gross = Basic(paid) + Allowances(pro-rata) + OT | WHT = FBR 2025-26 slabs ÷ 12 |
+                EOBI = Flat <strong>Rs. 400 (EE) / Rs. 2,000 (ER)</strong> for all employees |
+                SESSI = <strong>6% of gross</strong>, only where gross &lt; Rs. 45,000 (exempt above) |
                 PF = 8.33% of Basic (if enrolled) | Gratuity = (Gross÷26)×30÷12 | Total Payroll Cost = Gross + employer obligations |
                 Service Charges on Total Payroll Cost | Sales Tax on Service Charges only. Click <strong>Verify</strong> on any row for full step-by-step breakdown.
             </div>

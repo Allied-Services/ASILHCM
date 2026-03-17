@@ -24,10 +24,10 @@ export const calcWHT = (annual) => {
     if (annual <= 4100000) return Math.round((430000 + (annual - 3200000) * 0.30) / 12);
     return Math.round((700000 + (annual - 4100000) * 0.35) / 12);
 };
-export const calcEOBI_fn = (basic) => {
-    // EOBI based on minimum wage ceiling — Rs. 40,000 (2025-26 notification)
-    const w = Math.min(basic, 40000);
-    return { employee: Math.round(w * 0.01), employer: Math.round(w * 0.05) };
+export const calcEOBI_fn = () => {
+    // EOBI is a flat statutory amount — 1%/5% of minimum wage Rs. 40,000
+    // Fixed for ALL employees regardless of their salary
+    return { employee: 400, employer: 2000 };
 };
 export const calcPF_fn = (basic, enrolled) => enrolled ? Math.round(basic * 0.0833) : 0;
 export const calcGratuityMonthly = (gross) => Math.round((gross / 26) * 30 / 12);
@@ -52,14 +52,14 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const grossMonthly = basicPaid + hraPaid + convPaid + medPaid + otherPaid + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob;
     const annualIncome = grossMonthly * 12;
     const incomeTax = calcWHT(annualIncome);
-    const eobi = calcEOBI_fn(emp.basic);
+    const eobi = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
     const pfEE = calcPF_fn(emp.basic, emp.pf_enrolled);
     const otherDed = parseFloat(ov.other_deduction || 0);
     const advanceDed = parseFloat(ov.advance_deduction || 0);
     const loanDed = parseFloat(ov.loan_deduction || 0);
     const totalDeductions = incomeTax + eobi.employee + pfEE + otherDed + advanceDed + loanDed;
     const netPay = grossMonthly - totalDeductions;
-    const sessi = parseFloat(cfg.sessi || 0);
+    const sessi = grossMonthly < 45000 ? Math.round(grossMonthly * 0.06) : 0; // 6% of gross, exempt if gross >= 45,000
     const eduCess = parseFloat(cfg.edu_cess || 0);
     const bonusAmount = parseFloat(ov.bonus_amount || 0);
     const gratuity = calcGratuityMonthly(emp.gross);
