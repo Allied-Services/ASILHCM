@@ -263,8 +263,8 @@ app.post('/api/admin/dedup-employees', requireAuth, async (req, res) => {
     try {
         const { rows: dups } = await pool.query(`
             SELECT cnic, array_agg(id ORDER BY
-                COALESCE(salary,0) DESC,
-                updated_at DESC NULLS LAST
+                updated_at DESC NULLS LAST,
+                COALESCE(salary,0) DESC
             ) AS ids
             FROM employees
             WHERE cnic IS NOT NULL AND cnic <> ''
