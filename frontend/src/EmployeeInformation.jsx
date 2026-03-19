@@ -52,6 +52,23 @@ const Overlay = ({ children, wide }) => (
     </div>
 );
 
+// ── Field input defined OUTSIDE parent to prevent focus loss on re-render ──────
+// If defined inside, React sees a new component type on every keystroke → unmount → focus lost
+const FormField = ({ label, field, type = 'text', opts, form, setForm }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</label>
+        {opts?.sel ? (
+            <select value={form[field]} onChange={e => setForm(p => ({ ...p, [field]: e.target.value }))} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem' }}>
+                {opts.sel.map(o => <option key={o}>{o}</option>)}
+            </select>
+        ) : (
+            <input type={type} value={form[field] || ''} placeholder={opts?.ph || ''} onChange={e => setForm(p => ({ ...p, [field]: e.target.value }))}
+                style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+        )}
+    </div>
+);
+
+
 export default function EmployeeInformation({ user }) {
     const [emps, setEmps] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -226,20 +243,18 @@ export default function EmployeeInformation({ user }) {
         try { await api.updateEmployee(updated.id, updated); } catch (err) { console.error('Sync error:', err.message); }
     };
 
-    // ── Field Input helper ───────────────────────────────────────────────────
-    const F = ({ label, field, type = 'text', opts }) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</label>
-            {opts?.sel ? (
-                <select value={form[field]} onChange={e => setForm(p => ({ ...p, [field]: e.target.value }))} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem' }}>
-                    {opts.sel.map(o => <option key={o}>{o}</option>)}
-                </select>
-            ) : (
-                <input type={type} value={form[field] || ''} placeholder={opts?.ph || ''} onChange={e => setForm(p => ({ ...p, [field]: e.target.value }))}
-                    style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
-            )}
-        </div>
-    );
+    const deleteEmployee = async (emp) => {
+        if (!window.confirm(`Delete ${emp.name}?\nThis cannot be undone.`)) return;
+        try {
+            await api.deleteEmployee(emp.id);
+            setEmps(p => p.filter(e => e.id !== emp.id));
+        } catch (err) { alert('Delete failed: ' + err.message); }
+    };
+
+
+    // F is a thin wrapper that passes form state to the module-level FormField
+    const F = (props) => <FormField {...props} form={form} setForm={setForm} />;
+
 
     if (profile) return <EmployeeProfile employee={profile} user={user} onBack={() => setProfile(null)} onUpdate={updateEmployee} />;
 
@@ -400,6 +415,9 @@ export default function EmployeeInformation({ user }) {
                                 <td style={{ padding: '0.85rem 1rem' }}>
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                         <button onClick={() => setProfile(emp)} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>View Profile</button>
+                                        {user?.role === 'super_admin' && (
+                                            <button onClick={() => deleteEmployee(emp)} title="Delete employee" style={{ background: 'transparent', border: '1px solid #ef444460', color: '#ef4444', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' }}>🗑</button>
+                                        )}
                                         {emp.email && (
                                             <a href={`mailto:${emp.email}`} title={`Email ${emp.name}`}
                                                 style={{ display: 'flex', alignItems: 'center', padding: '5px 7px', borderRadius: '6px',
