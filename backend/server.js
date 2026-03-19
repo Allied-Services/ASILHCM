@@ -317,24 +317,27 @@ const normalisePhone = (raw = '') => {
 };
 
 const sendJazzSMS = (to, message) => new Promise(async (resolve, reject) => {
-    const SMS_USER   = process.env.JAZZ_SMS_USER || '03268366056';
-    const SMS_PASS   = process.env.JAZZ_SMS_PASS || 'Jazz@123';
-    const SMS_MASK   = process.env.JAZZ_SMS_MASK || '';   // empty = no mask → Jazz uses MSISDN
-    const WORKER_URL = process.env.JAZZ_WORKER_URL || 'https://jazz-sms-proxy.shezad-mumtaz.workers.dev';
-    const phone = normalisePhone(to);
+    const SMS_USER = process.env.JAZZ_SMS_USER || '03268366056';
+    const SMS_PASS = process.env.JAZZ_SMS_PASS || 'Jazz@123';
+    const SMS_MASK = process.env.JAZZ_SMS_MASK || 'Allied Serv';
+    const phone    = normalisePhone(to);
 
-    // Build the request payload — only include from_mask if a mask is configured
-    const payload = { to: phone, message, username: SMS_USER, password: SMS_PASS };
-    if (SMS_MASK) payload.from_mask = SMS_MASK;
+    // Call Jazz CMT API directly (Render server IP is whitelisted)
+    // Jazz uses a GET request with query parameters
+    const params = new URLSearchParams({
+        Username: SMS_USER,
+        Password: SMS_PASS,
+        From:     SMS_MASK,
+        To:       phone,
+        Message:  message,
+    });
+    const url = `https://connect.jazzcmt.com/sendsms_url.html?${params.toString()}&`;
 
     try {
-        const resp = await fetch(WORKER_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-        const data = await resp.json();
-        resolve({ to: phone, response: data.response || JSON.stringify(data) });
+        const resp = await fetch(url, { method: 'GET' });
+        const text = await resp.text();
+        console.log(`Jazz SMS → ${phone}: ${text}`);
+        resolve({ to: phone, response: text.trim() });
     } catch (err) {
         reject(err);
     }
