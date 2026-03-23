@@ -319,7 +319,7 @@ const normalisePhone = (raw = '') => {
 const sendJazzSMS = (to, message) => new Promise(async (resolve, reject) => {
     const SMS_USER = process.env.JAZZ_SMS_USER || '03268366056';
     const SMS_PASS = process.env.JAZZ_SMS_PASS || 'Jazz@123';
-    const SMS_MASK = process.env.JAZZ_SMS_MASK || 'Allied Serv';
+    const SMS_MASK = process.env.JAZZ_SMS_MASK || 'ALLIED SERV';
     const phone    = normalisePhone(to);
 
     // Call Jazz CMT API directly (Render server IP is whitelisted)
