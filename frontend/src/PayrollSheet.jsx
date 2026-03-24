@@ -349,11 +349,8 @@ export default function PayrollSheet() {
     const setOv = (id, field, val) => setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
     const getOv = (id, field, def) => { const o = overrides[id]; return (o && o[field] !== undefined) ? o[field] : def; };
 
-    // Bulk selection helpers
+    // Bulk selection helpers — defined AFTER filtered/rows (declared below)
     const toggleSelect = (id) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-    const allSelected = filtered.length > 0 && filtered.every(e => selectedIds.has(e.id));
-    const toggleAll = () => setSelectedIds(allSelected ? new Set() : new Set(filtered.map(e => e.id)));
-    const selectedRows = rows.filter(r => selectedIds.has(r.emp.id));
 
     // Bulk SMS send (uses Jazz bulk endpoint)
     const sendBulkSMS = async () => {
@@ -421,6 +418,11 @@ export default function PayrollSheet() {
         };
         return { emp, cfg, calc: calcEmployeeRow(emp, ov, cfg, workDays), ov };
     });
+
+    // Bulk helpers — placed HERE so filtered + rows are already defined
+    const allSelected = filtered.length > 0 && filtered.every(e => selectedIds.has(e.id));
+    const toggleAll = () => setSelectedIds(allSelected ? new Set() : new Set(filtered.map(e => e.id)));
+    const selectedRows = rows.filter(r => selectedIds.has(r.emp.id));
 
     const T = rows.reduce((acc, { calc }) => {
         ['grossMonthly', 'incomeTax', 'eobi_ee', 'pfEE', 'totalDeductions', 'netPay',
