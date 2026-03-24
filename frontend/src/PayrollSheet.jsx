@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X } from 'lucide-react';
+import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon } from 'lucide-react';
 import {
     PAYROLL_CONTRACT_CFG as CONTRACT_CFG,
     calcEmployeeRow, downloadCSV,
@@ -283,7 +283,13 @@ export default function PayrollSheet() {
     const [showExport, setShowExport] = useState(false);
     const [showImport, setShowImport] = useState(false);
     const [EMPLOYEES, setEMPLOYEES] = useState([]);
-    const [CONTRACT_MAP, setCONTRACT_MAP] = useState({}); // clientName (lower) → costs+financials
+    const [CONTRACT_MAP, setCONTRACT_MAP] = useState({});
+    // ── Bulk selection state ────────────────────────────────────────────────────
+    const [selectedIds, setSelectedIds] = useState(new Set());
+    const [showBulkSMS, setShowBulkSMS] = useState(false);
+    const [bulkSMSMsg, setBulkSMSMsg] = useState('');
+    const [bulkSMSSending, setBulkSMSSending] = useState(false);
+    const [bulkSMSResult, setBulkSMSResult] = useState(null);
 
     // Load contracts from DB → build lookup map by client name
     useEffect(() => {
@@ -342,6 +348,37 @@ export default function PayrollSheet() {
 
     const setOv = (id, field, val) => setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
     const getOv = (id, field, def) => { const o = overrides[id]; return (o && o[field] !== undefined) ? o[field] : def; };
+
+    // Bulk selection helpers
+    const toggleSelect = (id) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    const allSelected = filtered.length > 0 && filtered.every(e => selectedIds.has(e.id));
+    const toggleAll = () => setSelectedIds(allSelected ? new Set() : new Set(filtered.map(e => e.id)));
+    const selectedRows = rows.filter(r => selectedIds.has(r.emp.id));
+
+    // Bulk SMS send (uses Jazz bulk endpoint)
+    const sendBulkSMS = async () => {
+        if (!bulkSMSMsg.trim()) return;
+        setBulkSMSSending(true); setBulkSMSResult(null);
+        try {
+            const recipients = selectedRows.map(r => ({ phone: r.emp.contact, name: r.emp.name, netPay: Math.round(r.calc.netPay) })).filter(x => x.phone);
+            if (!recipients.length) throw new Error('No phone numbers found for selected employees.');
+            const res = await api.bulkSms(recipients, bulkSMSMsg);
+            setBulkSMSResult({ ok: true, msg: `✅ Sent to ${recipients.length} employee(s). Jazz response: ${JSON.stringify(res)}` });
+        } catch (err) { setBulkSMSResult({ ok: false, msg: '❌ ' + err.message }); }
+        setBulkSMSSending(false);
+    };
+
+    // Export bank file for selected only
+    const exportBankSelected = () => {
+        if (!selectedRows.length) return alert('Select at least one employee.');
+        downloadCSV(`HBL_Selected_${month}.csv`, buildHBLFile(selectedRows, month));
+    };
+
+    // Generate payslips for selected (open each in new tab)
+    const generatePayslips = () => {
+        if (!selectedRows.length) return alert('Select at least one employee.');
+        selectedRows.forEach(r => api.openPayslip(r.emp.id, parseInt(month.split('-')[1]), parseInt(month.split('-')[0])));
+    };
 
     // Cascading filter lists
     const allClients = ['All', ...new Set(EMPLOYEES.map(e => e.client))];
@@ -473,6 +510,75 @@ export default function PayrollSheet() {
                 </div>
             </div>
 
+            {/* Bulk action bar — shown when any rows are selected */}
+            {selectedIds.size > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.3)', borderRadius: '10px', padding: '0.75rem 1.25rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, color: 'var(--primary)', fontSize: '0.9rem' }}>
+                        <CheckSquare size={18} /> {selectedIds.size} selected
+                    </div>
+                    <div style={{ height: '20px', width: '1px', background: 'var(--border)' }} />
+                    <button onClick={() => { setShowBulkSMS(true); setBulkSMSMsg(''); setBulkSMSResult(null); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e', padding: '5px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                        <MessageSquare size={15} /> Send SMS
+                    </button>
+                    <button onClick={generatePayslips}
+                        style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.3)', color: '#38bdf8', padding: '5px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                        <FileTextIcon size={15} /> Generate Payslips
+                    </button>
+                    <button onClick={exportBankSelected}
+                        style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.3)', color: '#a78bfa', padding: '5px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                        <CreditCardIcon size={15} /> Export Bank File
+                    </button>
+                    <button onClick={() => setSelectedIds(new Set())}
+                        style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.82rem' }}>
+                        Clear Selection
+                    </button>
+                </div>
+            )}
+
+            {/* Bulk SMS Modal */}
+            {showBulkSMS && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '2rem' }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '520px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
+                            <div>
+                                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><MessageSquare size={18} color="#22c55e" /> Bulk Payroll SMS</h3>
+                                <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.83rem' }}>Sending to {selectedIds.size} employee(s) for {month}</p>
+                            </div>
+                            <button onClick={() => setShowBulkSMS(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
+                        </div>
+                        <div style={{ padding: '1.5rem 2rem' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '1rem' }}>
+                                {[
+                                    { label: 'Salary Processed', text: `Dear {name}, your salary for the month of ${month} has been processed. Net amount: Rs. {netPay}. Please verify your bank account. - ASIL` },
+                                    { label: 'Visa Status Update', text: `Dear {name}, your employment & visa status has been reviewed. Please contact HR for further details. - Allied Services International` },
+                                    { label: 'Report to Office', text: `Dear {name}, please report to the ASIL Head Office at your earliest convenience. Bring your original CNIC. - HR Department` },
+                                ].map(t => (
+                                    <button key={t.label} onClick={() => setBulkSMSMsg(t.text)}
+                                        style={{ padding: '5px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.78rem' }}>{t.label}</button>
+                                ))}
+                            </div>
+                            <div style={{ marginBottom: '4px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Message (use {name} and {netPay} as placeholders)</div>
+                            <textarea value={bulkSMSMsg} onChange={e => setBulkSMSMsg(e.target.value.slice(0, 160))}
+                                rows={5} style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px', color: 'var(--text)', fontSize: '0.88rem', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>{bulkSMSMsg.length}/160 characters</div>
+                            {bulkSMSResult && (
+                                <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', borderRadius: '8px', background: bulkSMSResult.ok ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${bulkSMSResult.ok ? '#22c55e' : '#ef4444'}`, fontSize: '0.82rem', color: bulkSMSResult.ok ? '#22c55e' : '#f87171' }}>
+                                    {bulkSMSResult.msg}
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                            <button onClick={() => setShowBulkSMS(false)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Close</button>
+                            <button onClick={sendBulkSMS} disabled={bulkSMSSending || !bulkSMSMsg.trim()}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: bulkSMSSending ? '#555' : '#22c55e', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: bulkSMSSending ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
+                                <MessageSquare size={15} /> {bulkSMSSending ? 'Sending…' : `Send to ${selectedIds.size} Employee(s)`}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {approvalSent[month] && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(99,102,241,0.1)', border: '1px solid #6366f1', borderRadius: '10px', padding: '0.85rem 1.25rem', marginBottom: '1.25rem' }}>
                     <Send size={16} color="#6366f1" />
@@ -504,12 +610,16 @@ export default function PayrollSheet() {
                     <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: '2500px' }}>
                         <thead>
                             <tr style={{ background: '#0f1823' }}>
+                                {/* Select-all checkbox header */}
+                                <th style={{ position: 'sticky', left: 0, zIndex: 4, background: '#0f1823', padding: '6px 8px', width: '36px' }}>
+                                    <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ cursor: 'pointer', width: '15px', height: '15px' }} />
+                                </th>
                                 {/* Sticky group: EMPLOYEE col */}
-                                <th style={{ position: 'sticky', left: 0, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '180px' }} />
+                                <th style={{ position: 'sticky', left: 36, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '180px' }} />
                                 {/* Sticky group: CONTRACT col */}
-                                <th style={{ position: 'sticky', left: 180, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '140px' }} />
+                                <th style={{ position: 'sticky', left: 216, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '140px' }} />
                                 {/* Sticky group: SALARY col */}
-                                <th style={{ position: 'sticky', left: 320, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '80px', borderRight: '2px solid var(--border)' }} />
+                                <th style={{ position: 'sticky', left: 356, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '80px', borderRight: '2px solid var(--border)' }} />
                                 <th colSpan={9} style={{ padding: '6px', textAlign: 'center', background: 'rgba(34,197,94,0.08)', color: '#22c55e', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>EARNINGS (blue = editable)</th>
                                 <th style={{ padding: '6px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: '0.68rem', fontWeight: 800, borderLeft: '2px solid var(--border)', borderRight: '2px solid var(--border)', whiteSpace: 'nowrap' }}>GROSS</th>
                                 <th colSpan={6} style={{ padding: '6px', textAlign: 'center', background: 'rgba(244,63,94,0.08)', color: '#f43f5e', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>DEDUCTIONS</th>
@@ -518,9 +628,10 @@ export default function PayrollSheet() {
                                 <th colSpan={3} style={{ padding: '6px', textAlign: 'center', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>INVOICE</th>
                             </tr>
                             <tr style={{ background: 'var(--bg-dark)', borderBottom: '2px solid var(--border)' }}>
-                                <th style={{ position: 'sticky', left: 0, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 10px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '180px' }}>EMPLOYEE</th>
-                                <th style={{ position: 'sticky', left: 180, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 6px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '140px' }}>CONTRACT</th>
-                                <th style={{ position: 'sticky', left: 320, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 6px', textAlign: 'right', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', borderRight: '2px solid var(--border)', minWidth: '80px' }}>SALARY</th>
+                                <th style={{ position: 'sticky', left: 0, zIndex: 4, background: 'var(--bg-dark)', padding: '7px 8px', width: '36px' }} />
+                                <th style={{ position: 'sticky', left: 36, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 10px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '180px' }}>EMPLOYEE</th>
+                                <th style={{ position: 'sticky', left: 216, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 6px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '140px' }}>CONTRACT</th>
+                                <th style={{ position: 'sticky', left: 356, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 6px', textAlign: 'right', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', borderRight: '2px solid var(--border)', minWidth: '80px' }}>SALARY</th>
                                 <TH label="Pd Days" sub="Edit" /><TH label="OT @2×" sub="Hrs" /><TH label="OT @3×" sub="Hrs" />
                                 <TH label="OT Amt" sub="Auto" /><TH label="OPD" sub="Edit" /><TH label="Reimb" sub="Edit" />
                                 <TH label="Arrears" sub="Edit" /><TH label="Spl Allow" sub="Edit" /><TH label="Fuel/Mob" sub="Edit" />
@@ -539,10 +650,13 @@ export default function PayrollSheet() {
                         </thead>
                         <tbody>
                             {rows.map(({ emp, calc }, i) => {
-                                const rowBg = i % 2 === 0 ? 'var(--bg-card)' : '#171c28';
+                                const rowBg = selectedIds.has(emp.id) ? 'rgba(56,189,248,0.07)' : (i % 2 === 0 ? 'var(--bg-card)' : '#171c28');
                                 return (
                                     <tr key={emp.id} style={{ borderBottom: '1px solid var(--border)', background: rowBg }}>
-                                        <td style={{ position: 'sticky', left: 0, zIndex: 2, background: rowBg, padding: '6px 10px', minWidth: '180px' }}>
+                                        <td style={{ position: 'sticky', left: 0, zIndex: 3, background: rowBg, padding: '6px 8px', width: '36px' }}>
+                                            <input type="checkbox" checked={selectedIds.has(emp.id)} onChange={() => toggleSelect(emp.id)} style={{ cursor: 'pointer', width: '15px', height: '15px' }} />
+                                        </td>
+                                        <td style={{ position: 'sticky', left: 36, zIndex: 2, background: rowBg, padding: '6px 10px', minWidth: '180px' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                 <button onClick={() => setBreakdown({ emp, calc })} title="Verify calculation"
                                                     style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '4px', padding: '2px 6px', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -551,8 +665,8 @@ export default function PayrollSheet() {
                                                 <div><div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{emp.name}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{emp.designation}</div></div>
                                             </div>
                                         </td>
-                                        <td style={{ position: 'sticky', left: 180, zIndex: 2, background: rowBg, padding: '6px 7px', fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '140px' }}>{emp.contract}<br /><span style={{ fontSize: '0.68rem' }}>{emp.location}</span></td>
-                                        <td style={{ position: 'sticky', left: 320, zIndex: 2, background: rowBg, padding: '6px 7px', textAlign: 'right', fontWeight: 600, borderRight: '2px solid var(--border)', whiteSpace: 'nowrap', fontSize: '0.82rem', minWidth: '80px' }}>{fmt(emp.gross)}</td>
+                                        <td style={{ position: 'sticky', left: 216, zIndex: 2, background: rowBg, padding: '6px 7px', fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '140px' }}>{emp.contract}<br /><span style={{ fontSize: '0.68rem' }}>{emp.location}</span></td>
+                                        <td style={{ position: 'sticky', left: 356, zIndex: 2, background: rowBg, padding: '6px 7px', textAlign: 'right', fontWeight: 600, borderRight: '2px solid var(--border)', whiteSpace: 'nowrap', fontSize: '0.82rem', minWidth: '80px' }}>{fmt(emp.gross)}</td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="paid_days" def={workDays} /></td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="ot2_hrs" def={0} /></td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="ot3_hrs" def={0} /></td>
@@ -587,7 +701,8 @@ export default function PayrollSheet() {
                         </tbody>
                         <tfoot>
                             <tr style={{ background: 'var(--bg-dark)', borderTop: '2px solid var(--border)', fontWeight: 700, fontSize: '0.82rem' }}>
-                                <td colSpan={3} style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--bg-dark)', padding: '9px 10px', borderRight: '2px solid var(--border)' }}>TOTALS — {rows.length} employees</td>
+                                <td style={{ position: 'sticky', left: 0, zIndex: 4, background: 'var(--bg-dark)', padding: '9px 8px', width: '36px' }} />
+                                <td colSpan={3} style={{ position: 'sticky', left: 36, zIndex: 2, background: 'var(--bg-dark)', padding: '9px 10px', borderRight: '2px solid var(--border)' }}>TOTALS — {rows.length} employees</td>
                                 <td colSpan={3} /><td style={{ padding: '9px 7px', textAlign: 'right', color: '#22c55e' }}>{fmt(T.otAmount)}</td>
                                 <td colSpan={5} />
                                 <td style={{ padding: '9px 7px', textAlign: 'right', color: '#22c55e' }}>{fmt(T.grossMonthly)}</td>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
-         Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare } from 'lucide-react';
+         Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare, Package, CreditCard, Clock } from 'lucide-react';
 import { api } from './api';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -270,8 +270,70 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
         { key: 'payroll', label: 'Payroll & Payslips', icon: <Calculator size={15} /> },
         { key: 'leaves', label: 'Leave Management', icon: <Calendar size={15} /> },
         { key: 'medical', label: 'Medical & Insurance', icon: <Heart size={15} /> },
+        { key: 'assets', label: 'Assets & Uniform', icon: <Package size={15} /> },
+        { key: 'advances', label: 'Advances & Loans', icon: <CreditCard size={15} /> },
         { key: 'settlement', label: 'Final Settlement', icon: <AlertTriangle size={15} /> },
     ];
+
+    // ── Assets state ─────────────────────────────────────────────────────────
+    const [assets, setAssets] = useState([]);
+    const [assetsLoaded, setAssetsLoaded] = useState(false);
+    const [showAddAsset, setShowAddAsset] = useState(false);
+    const [assetForm, setAssetForm] = useState({ category: 'Uniform', item_desc: '', issue_date: '', cost: '' });
+
+    useEffect(() => {
+        if (tab === 'assets' && !assetsLoaded) {
+            api.getAssets(emp.id)
+                .then(d => { setAssets(d.assets || []); setAssetsLoaded(true); })
+                .catch(() => setAssetsLoaded(true));
+        }
+    }, [tab, emp.id, assetsLoaded]);
+
+    const saveAsset = async () => {
+        try {
+            const d = await api.createAsset(emp.id, assetForm);
+            setAssets(p => [d.asset, ...p]);
+            setShowAddAsset(false);
+            setAssetForm({ category: 'Uniform', item_desc: '', issue_date: '', cost: '' });
+        } catch (err) { alert('Error: ' + err.message); }
+    };
+
+    const deleteAsset = async (id) => {
+        if (!confirm('Delete this asset record?')) return;
+        try { await api.deleteAsset(emp.id, id); setAssets(p => p.filter(a => a.id !== id)); }
+        catch (err) { alert('Error: ' + err.message); }
+    };
+
+    // ── Advances state ────────────────────────────────────────────────────────
+    const [advances, setAdvances] = useState([]);
+    const [advancesLoaded, setAdvancesLoaded] = useState(false);
+    const [showAddAdv, setShowAddAdv] = useState(false);
+    const [advForm, setAdvForm] = useState({ type: 'Advance', reason: '', total_amount: '', installments: '1' });
+
+    useEffect(() => {
+        if (tab === 'advances' && !advancesLoaded) {
+            api.getAdvances(emp.id)
+                .then(d => { setAdvances(d.advances || []); setAdvancesLoaded(true); })
+                .catch(() => setAdvancesLoaded(true));
+        }
+    }, [tab, emp.id, advancesLoaded]);
+
+    const saveAdvance = async () => {
+        if (!advForm.total_amount || !advForm.installments) return alert('Amount and installments required.');
+        try {
+            const d = await api.createAdvance(emp.id, advForm);
+            setAdvances(p => [d.advance, ...p]);
+            setShowAddAdv(false);
+            setAdvForm({ type: 'Advance', reason: '', total_amount: '', installments: '1' });
+        } catch (err) { alert('Error: ' + err.message); }
+    };
+
+    const payInstallment = async (advId) => {
+        try {
+            const d = await api.payAdvanceInstallment(emp.id, advId);
+            setAdvances(p => p.map(a => a.id == advId ? d.advance : a));
+        } catch (err) { alert('Error: ' + err.message); }
+    };
 
     // ── Documents tab state ──────────────────────────────────────────────────
     const [docs, setDocs] = useState([]);
@@ -966,6 +1028,166 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                                     <button onClick={saveDoc} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '0.7rem 1.75rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <Save size={15} /> {editDoc ? 'Save Changes' : 'Add Document'}
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ── TAB: Assets & Uniforms ── */}
+            {tab === 'assets' && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.88rem' }}>Uniform = 6-month replacement cycle. PPE/Equipment = 12-month cycle. Replacement date is auto-calculated.</p>
+                        <button onClick={() => setShowAddAsset(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                            <Plus size={15} /> Issue Asset
+                        </button>
+                    </div>
+
+                    {!assetsLoaded && <div style={{ color: 'var(--text-muted)', padding: '1rem' }}>Loading...</div>}
+                    {assetsLoaded && assets.length === 0 && (
+                        <div style={{ border: '2px dashed var(--border)', borderRadius: '12px', padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            <Package size={36} style={{ opacity: 0.3, marginBottom: '0.75rem' }} />
+                            <div>No assets issued yet.</div>
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {assets.map(a => {
+                            const repDate = a.replacement_due ? new Date(a.replacement_due) : null;
+                            const daysLeft = repDate ? Math.ceil((repDate - Date.now()) / 86400000) : null;
+                            const repColor = !daysLeft ? 'var(--text-muted)' : daysLeft < 0 ? '#ef4444' : daysLeft < 30 ? '#f59e0b' : '#22c55e';
+                            const repLabel = !daysLeft ? '—' : daysLeft < 0 ? `Overdue (${Math.abs(daysLeft)}d ago)` : daysLeft < 30 ? `Due in ${daysLeft} days` : repDate.toLocaleDateString('en-PK');
+                            return (
+                                <div key={a.id} style={{ background: 'var(--bg-card)', border: `1px solid ${daysLeft !== null && daysLeft < 0 ? 'rgba(239,68,68,0.3)' : 'var(--border)'}`, borderRadius: '10px', padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                            <span style={{ fontWeight: 700 }}>{a.item_desc}</span>
+                                            <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700, background: a.category === 'Uniform' ? 'rgba(56,189,248,0.12)' : 'rgba(167,139,250,0.12)', color: a.category === 'Uniform' ? '#38bdf8' : '#a78bfa' }}>{a.category}</span>
+                                            {a.returned && <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700, background: 'rgba(100,116,139,0.12)', color: '#64748b' }}>Returned</span>}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '1.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                            <span>Issued: <strong style={{ color: 'var(--text)' }}>{a.issue_date ? new Date(a.issue_date).toLocaleDateString('en-PK') : '—'}</strong></span>
+                                            <span>Replacement Due: <strong style={{ color: repColor }}>{repLabel}</strong></span>
+                                            {a.cost && <span>Cost: <strong style={{ color: 'var(--text)' }}>Rs. {Math.round(a.cost).toLocaleString()}</strong></span>}
+                                        </div>
+                                    </div>
+                                    <button onClick={() => deleteAsset(a.id)} style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                        <Trash2 size={13} />
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {showAddAsset && (
+                        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '2rem' }}>
+                            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '500px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
+                                    <h3 style={{ margin: 0 }}>Issue Asset / Uniform</h3>
+                                    <button onClick={() => setShowAddAsset(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
+                                </div>
+                                <div style={{ padding: '1.5rem 2rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                    <div style={{ gridColumn: '1/-1' }}>
+                                        <FLabel>Category</FLabel>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            {['Uniform', 'PPE', 'Equipment'].map(c => (
+                                                <button key={c} onClick={() => setAssetForm(p => ({ ...p, category: c }))}
+                                                    style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid', borderColor: assetForm.category === c ? 'var(--primary)' : 'var(--border)', background: assetForm.category === c ? 'rgba(56,189,248,0.12)' : 'transparent', color: assetForm.category === c ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: assetForm.category === c ? 700 : 400, fontSize: '0.83rem' }}>{c}</button>
+                                            ))}
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>Replacement: Uniform = 6 months · PPE/Equipment = 12 months (auto)</div>
+                                    </div>
+                                    <div style={{ gridColumn: '1/-1' }}><FField label="Item Description"><FInput value={assetForm.item_desc} onChange={e => setAssetForm(p => ({ ...p, item_desc: e.target.value }))} ph="e.g. Security Guard Uniform Set, Safety Helmet" /></FField></div>
+                                    <FField label="Issue Date"><FInput type="date" value={assetForm.issue_date} onChange={e => setAssetForm(p => ({ ...p, issue_date: e.target.value }))} /></FField>
+                                    <FField label="Cost (Rs.) Optional"><FInput type="number" value={assetForm.cost} onChange={e => setAssetForm(p => ({ ...p, cost: e.target.value }))} ph="0" /></FField>
+                                </div>
+                                <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                                    <button onClick={() => setShowAddAsset(false)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                                    <button onClick={saveAsset} disabled={!assetForm.item_desc || !assetForm.issue_date} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>Issue Asset</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ── TAB: Advances & Loans ── */}
+            {tab === 'advances' && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.25rem' }}>
+                        <button onClick={() => setShowAddAdv(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                            <Plus size={15} /> New Advance / Loan
+                        </button>
+                    </div>
+
+                    {!advancesLoaded && <div style={{ color: 'var(--text-muted)', padding: '1rem' }}>Loading...</div>}
+                    {advancesLoaded && advances.length === 0 && (
+                        <div style={{ border: '2px dashed var(--border)', borderRadius: '12px', padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            <CreditCard size={36} style={{ opacity: 0.3, marginBottom: '0.75rem' }} />
+                            <div>No advances or loans on record.</div>
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        {advances.map(adv => {
+                            const progress = adv.installments > 0 ? (adv.paid_installments / adv.installments) * 100 : 0;
+                            return (
+                                <Card key={adv.id} style={{ borderLeft: `3px solid ${adv.status === 'Settled' ? '#22c55e' : '#f59e0b'}` }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{adv.type} — {adv.reason || 'No reason'}</div>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>Installment {adv.paid_installments + (adv.status === 'Active' ? 1 : 0)} of {adv.installments} · Rs. {Math.round(adv.installment_amt).toLocaleString()} / month</div>
+                                        </div>
+                                        <span style={{ padding: '3px 10px', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 700, background: adv.status === 'Settled' ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)', color: adv.status === 'Settled' ? '#22c55e' : '#f59e0b' }}>{adv.status}</span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                                        <div><div style={{ color: 'var(--text-muted)', marginBottom: '2px' }}>Total Amount</div><div style={{ fontWeight: 700 }}>Rs. {Math.round(adv.total_amount).toLocaleString()}</div></div>
+                                        <div><div style={{ color: 'var(--text-muted)', marginBottom: '2px' }}>Remaining</div><div style={{ fontWeight: 700, color: '#f59e0b' }}>Rs. {Math.round(parseFloat(adv.remaining)).toLocaleString()}</div></div>
+                                        <div><div style={{ color: 'var(--text-muted)', marginBottom: '2px' }}>Paid</div><div style={{ fontWeight: 700, color: '#22c55e' }}>Rs. {Math.round(adv.total_amount - adv.remaining).toLocaleString()}</div></div>
+                                    </div>
+                                    <div style={{ height: '6px', background: 'var(--bg-dark)', borderRadius: '99px', marginBottom: '8px', overflow: 'hidden' }}>
+                                        <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #38bdf8, #22c55e)', borderRadius: '99px' }} />
+                                    </div>
+                                    {adv.status === 'Active' && (
+                                        <button onClick={() => payInstallment(adv.id)}
+                                            style={{ fontSize: '0.8rem', background: 'rgba(34,197,94,0.1)', border: '1px solid #22c55e', color: '#22c55e', padding: '5px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                            <Clock size={12} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Mark Installment Paid
+                                        </button>
+                                    )}
+                                </Card>
+                            );
+                        })}
+                    </div>
+
+                    {showAddAdv && (
+                        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '2rem' }}>
+                            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '500px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
+                                    <h3 style={{ margin: 0 }}>New Advance / Loan</h3>
+                                    <button onClick={() => setShowAddAdv(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
+                                </div>
+                                <div style={{ padding: '1.5rem 2rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                    <div style={{ gridColumn: '1/-1' }}>
+                                        <FLabel>Type</FLabel>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            {['Advance', 'Loan'].map(t => (
+                                                <button key={t} onClick={() => setAdvForm(p => ({ ...p, type: t }))}
+                                                    style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid', borderColor: advForm.type === t ? 'var(--primary)' : 'var(--border)', background: advForm.type === t ? 'rgba(56,189,248,0.12)' : 'transparent', color: advForm.type === t ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: advForm.type === t ? 700 : 400, fontSize: '0.88rem' }}>{t}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div style={{ gridColumn: '1/-1' }}><FField label="Reason / Purpose"><FInput value={advForm.reason} onChange={e => setAdvForm(p => ({ ...p, reason: e.target.value }))} ph="e.g. Medical emergency, Rent" /></FField></div>
+                                    <FField label="Total Amount (Rs.)"><FInput type="number" value={advForm.total_amount} onChange={e => setAdvForm(p => ({ ...p, total_amount: e.target.value }))} ph="e.g. 30000" /></FField>
+                                    <FField label="No. of Installments">
+                                        <FInput type="number" value={advForm.installments} onChange={e => setAdvForm(p => ({ ...p, installments: e.target.value }))} ph="1" />
+                                        {advForm.total_amount && advForm.installments && <div style={{ fontSize: '0.75rem', color: '#22c55e', marginTop: '4px' }}>Monthly deduction: Rs. {Math.ceil(parseFloat(advForm.total_amount)/parseInt(advForm.installments)||1).toLocaleString()}</div>}
+                                    </FField>
+                                </div>
+                                <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                                    <button onClick={() => setShowAddAdv(false)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                                    <button onClick={saveAdvance} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>Create Advance</button>
                                 </div>
                             </div>
                         </div>

@@ -88,4 +88,57 @@ export const api = {
     getBills:          ()          => apiFetch('/api/bills'),
     saveBill:          (bill)      => apiFetch('/api/bills', { method: 'POST', body: JSON.stringify(bill) }),
     updateBillStatus:  (id, status) => apiFetch(`/api/bills/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    getHitlFlags:      ()          => apiFetch('/api/bills/hitl-flags'),
+
+    // ── Advances / Loans ──────────────────────────────────────────────────────
+    getAdvances:         (id)      => apiFetch(`/api/employees/${id}/advances`),
+    createAdvance:       (id, d)   => apiFetch(`/api/employees/${id}/advances`, { method: 'POST', body: JSON.stringify(d) }),
+    payAdvanceInstallment: (id, advId) => apiFetch(`/api/employees/${id}/advances/${advId}/pay-installment`, { method: 'POST' }),
+    deleteAdvance:       (id, advId) => apiFetch(`/api/employees/${id}/advances/${advId}`, { method: 'DELETE' }),
+    getAdvanceDeductions: ()       => apiFetch('/api/payroll/advance-deductions'),
+
+    // ── PF Ledger ─────────────────────────────────────────────────────────────
+    getPFLedger:         (id)      => apiFetch(`/api/employees/${id}/pf-ledger`),
+    upsertPFEntry:       (id, d)   => apiFetch(`/api/employees/${id}/pf-ledger`, { method: 'POST', body: JSON.stringify(d) }),
+
+    // ── Gratuity Ledger ───────────────────────────────────────────────────────
+    getGratuityLedger:   (id)      => apiFetch(`/api/employees/${id}/gratuity-ledger`),
+    upsertGratuityEntry: (id, d)   => apiFetch(`/api/employees/${id}/gratuity-ledger`, { method: 'POST', body: JSON.stringify(d) }),
+
+    // ── Asset Issuances ───────────────────────────────────────────────────────
+    getAssets:           (id)      => apiFetch(`/api/employees/${id}/assets`),
+    createAsset:         (id, d)   => apiFetch(`/api/employees/${id}/assets`, { method: 'POST', body: JSON.stringify(d) }),
+    returnAsset:         (id, aid) => apiFetch(`/api/employees/${id}/assets/${aid}/return`, { method: 'PATCH' }),
+    deleteAsset:         (id, aid) => apiFetch(`/api/employees/${id}/assets/${aid}`, { method: 'DELETE' }),
+
+    // ── Invoices ──────────────────────────────────────────────────────────────
+    getInvoices:         ()        => apiFetch('/api/invoices'),
+    createInvoice:       (d)       => apiFetch('/api/invoices', { method: 'POST', body: JSON.stringify(d) }),
+    updateInvoiceStatus: (id, status) => apiFetch(`/api/invoices/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+
+    // ── Payslips ──────────────────────────────────────────────────────────────
+    getPayslipUrl: (empId, month, year) => `${API}/api/payslip/${empId}/${month}/${year}`,
+    openPayslip:   (empId, month, year) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        // Open payslip in new tab with auth token in URL for direct access
+        const url = `${API}/api/payslip/${empId}/${month}/${year}`;
+        fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+            .then(r => r.text())
+            .then(html => { const w = window.open('', '_blank'); w.document.write(html); w.document.close(); })
+            .catch(e => alert('Could not load payslip: ' + e.message));
+    },
+
+    // ── Bulk Payroll SMS ──────────────────────────────────────────────────────
+    sendPayrollSMS: (employeeIds, month, year, messageTemplate) =>
+        apiFetch('/api/sms/payroll-batch', { method: 'POST', body: JSON.stringify({ employeeIds, month, year, messageTemplate }) }),
+
+    // ── Portal (Employee Self-Service) ────────────────────────────────────────
+    portalRequestOtp: (phone) => apiFetch('/api/portal/request-otp', { method: 'POST', body: JSON.stringify({ phone }) }),
+    portalVerifyOtp:  (phone, otp) => apiFetch('/api/portal/verify-otp', { method: 'POST', body: JSON.stringify({ phone, otp }) }),
+    portalGetMe: (portalToken) => {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        return fetch(`${API_URL}/api/portal/me`, { headers: { Authorization: `Bearer ${portalToken}` } })
+            .then(r => r.json());
+    },
 };
+

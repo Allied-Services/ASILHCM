@@ -839,6 +839,490 @@ app.get('/api/employees/:id/messages', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ════════════════════════════════════════════════════════════════════════════════
+// ADVANCES & LOANS
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/employees/:id/advances', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM employee_advances WHERE employee_id=$1 ORDER BY created_at DESC',
+            [req.params.id]);
+        res.json({ advances: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/employees/:id/advances', requireAuth, async (req, res) => {
+    try {
+        const { type, reason, total_amount, installments } = req.body;
+        const total = parseFloat(total_amount) || 0;
+        const inst = parseInt(installments) || 1;
+        const inst_amt = Math.ceil(total / inst);
+        const { rows } = await pool.query(
+            `INSERT INTO employee_advances (employee_id,type,reason,total_amount,installments,installment_amt,paid_installments,remaining,created_by)
+             VALUES ($1,$2,$3,$4,$5,$6,0,$4,$7) RETURNING *`,
+            [req.params.id, type||'Advance', reason||'', total, inst, inst_amt, req.user?.email||'system']
+        );
+        res.json({ advance: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Mark one installment as paid
+app.post('/api/employees/:id/advances/:advId/pay-installment', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `UPDATE employee_advances
+             SET paid_installments = paid_installments + 1,
+                 remaining = remaining - installment_amt,
+                 status = CASE WHEN paid_installments + 1 >= installments THEN 'Settled' ELSE status END,
+                 updated_at = NOW()
+             WHERE id=$1 AND employee_id=$2 AND status='Active' RETURNING *`,
+            [req.params.advId, req.params.id]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Advance not found or already settled' });
+        res.json({ advance: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/employees/:id/advances/:advId', requireAuth, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM employee_advances WHERE id=$1 AND employee_id=$2', [req.params.advId, req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Get active advance deduction for payroll (per employee, current month)
+app.get('/api/payroll/advance-deductions', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT employee_id, SUM(installment_amt) as total_deduction,
+                   json_agg(json_build_object('id',id,'type',type,'inst',paid_installments+1,'of',installments,'amount',installment_amt)) as details
+            FROM employee_advances WHERE status='Active'
+            GROUP BY employee_id
+        `);
+        const map = {};
+        rows.forEach(r => { map[r.employee_id] = { totalDeduction: parseFloat(r.total_deduction), details: r.details }; });
+        res.json(map);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PF LEDGER
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM employee_pf_ledger WHERE employee_id=$1 ORDER BY year DESC, month DESC',
+            [req.params.id]);
+        res.json({ ledger: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
+    try {
+        const { month, year, ee_contribution, er_contribution } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO employee_pf_ledger (employee_id,month,year,ee_contribution,er_contribution)
+             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (employee_id,month,year)
+             DO UPDATE SET ee_contribution=$4, er_contribution=$5 RETURNING *`,
+            [req.params.id, month, year, parseFloat(ee_contribution)||0, parseFloat(er_contribution)||0]
+        );
+        res.json({ entry: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// GRATUITY LEDGER
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/employees/:id/gratuity-ledger', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM employee_gratuity_ledger WHERE employee_id=$1 ORDER BY year DESC, month DESC',
+            [req.params.id]);
+        res.json({ ledger: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/employees/:id/gratuity-ledger', requireAuth, async (req, res) => {
+    try {
+        const { month, year, accrual, cumulative } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO employee_gratuity_ledger (employee_id,month,year,accrual,cumulative)
+             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (employee_id,month,year)
+             DO UPDATE SET accrual=$4, cumulative=$5 RETURNING *`,
+            [req.params.id, month, year, parseFloat(accrual)||0, parseFloat(cumulative)||0]
+        );
+        res.json({ entry: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// ASSET / UNIFORM ISSUANCES
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/employees/:id/assets', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM asset_issuances WHERE employee_id=$1 ORDER BY issue_date DESC',
+            [req.params.id]);
+        res.json({ assets: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/employees/:id/assets', requireAuth, async (req, res) => {
+    try {
+        const { category, item_desc, issue_date, cost } = req.body;
+        // Auto-calculate replacement_due: Uniform = +6 months, PPE/Equipment = +12 months
+        let replacementDue = null;
+        if (issue_date) {
+            const d = new Date(issue_date);
+            const months = category === 'Uniform' ? 6 : 12;
+            d.setMonth(d.getMonth() + months);
+            replacementDue = d.toISOString().split('T')[0];
+        }
+        const { rows } = await pool.query(
+            `INSERT INTO asset_issuances (employee_id,category,item_desc,issue_date,replacement_due,cost)
+             VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+            [req.params.id, category||'Uniform', item_desc, issue_date||null, replacementDue, parseFloat(cost)||null]
+        );
+        res.json({ asset: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch('/api/employees/:id/assets/:assetId/return', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'UPDATE asset_issuances SET returned=TRUE WHERE id=$1 AND employee_id=$2 RETURNING *',
+            [req.params.assetId, req.params.id]);
+        res.json({ asset: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/employees/:id/assets/:assetId', requireAuth, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM asset_issuances WHERE id=$1 AND employee_id=$2', [req.params.assetId, req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// INVOICES (persistent DB-backed)
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/invoices', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM invoices ORDER BY created_at DESC');
+        res.json({ invoices: rows.map(r => ({
+            id: r.id, client: r.client, contract: r.contract, period: r.period,
+            poNumber: r.po_number, dueDate: r.due_date,
+            payrollIds: r.payroll_ids || [], billIds: r.bill_ids || [],
+            subtotal: parseFloat(r.subtotal)||0, svcCharges: parseFloat(r.svc_charges)||0,
+            salesTax: parseFloat(r.sales_tax)||0, wht: parseFloat(r.wht)||0,
+            grandTotal: parseFloat(r.grand_total)||0,
+            status: r.status, createdBy: r.created_by, createdAt: r.created_at
+        })) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/invoices', requireAuth, async (req, res) => {
+    try {
+        const { id, client, contract, period, poNumber, dueDate, payrollIds, billIds,
+                subtotal, svcCharges, salesTax, wht, grandTotal } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO invoices (id,client,contract,period,po_number,due_date,payroll_ids,bill_ids,subtotal,svc_charges,sales_tax,wht,grand_total,status,created_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'Draft',$14) RETURNING *`,
+            [id, client, contract||null, period||null, poNumber||null, dueDate||null,
+             JSON.stringify(payrollIds||[]), JSON.stringify(billIds||[]),
+             subtotal||0, svcCharges||0, salesTax||0, wht||0, grandTotal||0,
+             req.user?.email||'system']
+        );
+        res.json({ invoice: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch('/api/invoices/:id/status', requireAuth, async (req, res) => {
+    try {
+        const { status } = req.body;
+        const { rows } = await pool.query(
+            'UPDATE invoices SET status=$1,updated_at=NOW() WHERE id=$2 RETURNING *',
+            [status, req.params.id]);
+        if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
+        res.json({ invoice: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PAYSLIP GENERATION
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) => {
+    try {
+        const { employeeId, month, year } = req.params;
+        const [empRes, payRes, advRes] = await Promise.all([
+            pool.query('SELECT * FROM employees WHERE id=$1', [employeeId]),
+            pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 AND month=$2 AND year=$3', [employeeId, month, year]),
+            pool.query('SELECT SUM(installment_amt) as adv FROM employee_advances WHERE employee_id=$1 AND status=\'Active\'', [employeeId])
+        ]);
+        const emp = empRes.rows[0];
+        const pay = payRes.rows[0];
+        if (!emp) return res.status(404).json({ error: 'Employee not found' });
+
+        const gross = parseFloat(pay?.gross || emp.salary || 0);
+        const net = parseFloat(pay?.net || 0) || (gross - parseFloat(pay?.wht||0) - parseFloat(pay?.eobi_ee||0));
+        const monthName = new Date(2000, parseInt(month)-1, 1).toLocaleString('en-PK', { month: 'long' });
+
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+  body{font-family:Arial,sans-serif;font-size:10pt;color:#000;margin:0}
+  .page{max-width:700px;margin:0 auto;padding:24px 30px}
+  .hdr{background:#1e3a5f;color:#fff;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;border-radius:8px 8px 0 0}
+  .hdr h2{margin:0;font-size:15pt}
+  .hdr p{margin:3px 0;font-size:9pt;opacity:.85}
+  .meta{display:grid;grid-template-columns:1fr 1fr;gap:12px;background:#f8fafc;padding:14px 18px;border:1px solid #e2e8f0}
+  .meta-cell label{font-size:8pt;color:#64748b;font-weight:700;text-transform:uppercase;display:block}
+  .meta-cell span{font-size:10pt;font-weight:600}
+  table{width:100%;border-collapse:collapse;margin-top:16px}
+  th{background:#334155;color:#fff;padding:7px 12px;font-size:8.5pt;text-align:left}
+  td{padding:7px 12px;border-bottom:1px solid #f1f5f9;font-size:9.5pt}
+  .amount{text-align:right;font-weight:600}
+  .deduction{color:#ef4444}
+  .total-row td{background:#f8fafc;font-weight:800;font-size:10.5pt}
+  .net-box{background:#1e3a5f;color:#fff;padding:14px 20px;margin-top:16px;border-radius:6px;display:flex;justify-content:space-between;align-items:center}
+  .net-box .label{font-size:9pt;opacity:.8}
+  .net-box .amount{font-size:18pt;font-weight:800}
+  .footer{margin-top:20px;font-size:8pt;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;padding-top:10px}
+</style></head><body><div class="page">
+<div class="hdr">
+  <div><h2>SALARY SLIP</h2><p>Allied Services International (Pvt.) Ltd.</p><p>NTN: 7483900-1 | accounts@asil.com.pk</p></div>
+  <div style="text-align:right;font-size:9pt"><p>${monthName} ${year}</p><p>Generated: ${new Date().toLocaleDateString('en-PK')}</p></div>
+</div>
+<div class="meta">
+  <div class="meta-cell"><label>Employee Name</label><span>${emp.name}</span></div>
+  <div class="meta-cell"><label>Employee Code</label><span>${emp.id}</span></div>
+  <div class="meta-cell"><label>Designation</label><span>${emp.designation||'—'}</span></div>
+  <div class="meta-cell"><label>Client / Location</label><span>${emp.client||'—'} / ${emp.location||'—'}</span></div>
+  <div class="meta-cell"><label>CNIC</label><span>${emp.cnic||'—'}</span></div>
+  <div class="meta-cell"><label>Bank Account</label><span>${emp.bank_name||'—'} — ${emp.bank_account||'—'}</span></div>
+</div>
+<table>
+  <thead><tr><th>EARNINGS</th><th class="amount">Amount (Rs.)</th></tr></thead>
+  <tbody>
+    <tr><td>Basic Salary</td><td class="amount">${Math.round(pay?.basic||gross*0.6).toLocaleString()}</td></tr>
+    <tr><td>House Rent Allowance (HRA)</td><td class="amount">${Math.round(pay?.hra||gross*0.2).toLocaleString()}</td></tr>
+    <tr><td>Conveyance Allowance</td><td class="amount">${Math.round(pay?.conv||gross*0.1).toLocaleString()}</td></tr>
+    <tr><td>Medical Allowance</td><td class="amount">${Math.round(pay?.med||gross*0.1).toLocaleString()}</td></tr>
+    ${pay?.ot>0?`<tr><td>Overtime</td><td class="amount">${Math.round(pay.ot).toLocaleString()}</td></tr>`:''}
+    ${pay?.opd>0?`<tr><td>OPD / Reimbursement</td><td class="amount">${Math.round(pay.opd).toLocaleString()}</td></tr>`:''}
+    <tr class="total-row"><td>GROSS SALARY</td><td class="amount">${Math.round(gross).toLocaleString()}</td></tr>
+  </tbody>
+</table>
+<table>
+  <thead><tr><th>DEDUCTIONS</th><th class="amount">Amount (Rs.)</th></tr></thead>
+  <tbody>
+    <tr><td class="deduction">Income Tax (WHT)</td><td class="amount deduction">- ${Math.round(pay?.wht||0).toLocaleString()}</td></tr>
+    <tr><td class="deduction">EOBI (Employee Share)</td><td class="amount deduction">- ${Math.round(pay?.eobi_ee||370).toLocaleString()}</td></tr>
+    ${pay?.pf_ee>0?`<tr><td class="deduction">Provident Fund (EE)</td><td class="amount deduction">- ${Math.round(pay.pf_ee).toLocaleString()}</td></tr>`:''}
+    ${pay?.adv>0?`<tr><td class="deduction">Advance / Loan Installment</td><td class="amount deduction">- ${Math.round(pay.adv).toLocaleString()}</td></tr>`:''}
+    <tr class="total-row"><td>TOTAL DEDUCTIONS</td><td class="amount deduction">- ${Math.round((pay?.wht||0)+(pay?.eobi_ee||370)+(pay?.pf_ee||0)+(pay?.adv||0)).toLocaleString()}</td></tr>
+  </tbody>
+</table>
+<div class="net-box">
+  <div><div class="label">NET SALARY PAYABLE</div><div style="font-size:9pt;opacity:.7">${monthName} ${year}</div></div>
+  <div class="amount">Rs. ${Math.round(net).toLocaleString()}</div>
+</div>
+<div class="footer">This is a computer-generated salary slip and does not require a signature. | Allied Services International (Pvt.) Ltd.</div>
+</div></body></html>`;
+
+        res.setHeader('Content-Type', 'text/html');
+        res.send(html);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// HITL FLAGS — Bills where OCR total ≠ items sum
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/bills/hitl-flags', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT id, vendor, date, client, total, items, amount
+            FROM bills WHERE items IS NOT NULL AND jsonb_array_length(items) > 0
+        `);
+        const flagged = rows.filter(r => {
+            const itemsSum = (r.items || []).reduce((a, item) => a + (parseFloat(item.total||item.amount||item.price||0)), 0);
+            const billTotal = parseFloat(r.total || r.amount || 0);
+            return Math.abs(itemsSum - billTotal) > 1; // >Rs.1 discrepancy
+        }).map(r => {
+            const itemsSum = (r.items || []).reduce((a, item) => a + parseFloat(item.total||item.amount||item.price||0), 0);
+            return { ...r, itemsSum: Math.round(itemsSum), discrepancy: Math.round(parseFloat(r.total||0) - itemsSum) };
+        });
+        res.json({ flagged, count: flagged.length });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// BULK PAYROLL SMS
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.post('/api/sms/payroll-batch', requireAuth, async (req, res) => {
+    try {
+        const { employeeIds, month, year, messageTemplate } = req.body;
+        if (!employeeIds?.length) return res.status(400).json({ error: 'No employees selected' });
+
+        const { rows: employees } = await pool.query(
+            `SELECT e.id, e.name, e.primary_contact, p.net, p.gross
+             FROM employees e
+             LEFT JOIN payroll_transactions p ON p.employee_id=e.id AND p.month=$1 AND p.year=$2
+             WHERE e.id = ANY($3)`,
+            [month||new Date().getMonth()+1, year||new Date().getFullYear(), employeeIds]
+        );
+
+        const results = [];
+        for (const emp of employees) {
+            if (!emp.primary_contact) { results.push({ name: emp.name, ok: false, error: 'No phone on file' }); continue; }
+            const net = Math.round(parseFloat(emp.net)||0);
+            const monthName = new Date(2000, parseInt(month||new Date().getMonth())-1, 1).toLocaleString('en-PK', { month: 'long' });
+            const message = messageTemplate
+                ? messageTemplate.replace('{name}', emp.name).replace('{net}', net.toLocaleString()).replace('{month}', monthName).replace('{year}', year||new Date().getFullYear())
+                : `Dear ${emp.name}, your ${monthName} ${year||new Date().getFullYear()} salary of Rs. ${net.toLocaleString()} has been processed. Allied Services`;
+            const result = await sendJazzSMS(emp.primary_contact, message);
+            results.push({ name: emp.name, phone: emp.primary_contact, ok: true, response: result.response });
+        }
+        res.json({ sent: results.filter(r=>r.ok).length, failed: results.filter(r=>!r.ok).length, results });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// EMPLOYEE PORTAL — OTP LOGIN + SELF-SERVICE
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Request OTP — looks up employee by phone, sends OTP via Jazz SMS
+app.post('/api/portal/request-otp', async (req, res) => {
+    try {
+        const { phone } = req.body;
+        if (!phone) return res.status(400).json({ error: 'Phone number required' });
+        // Normalise phone
+        let p = phone.replace(/\D/g, '');
+        if (p.startsWith('92') && p.length === 12) p = '0' + p.slice(2);
+        if (p.startsWith('3') && p.length === 10) p = '0' + p;
+
+        // Find employee with this phone
+        const { rows } = await pool.query(
+            `SELECT id, name FROM employees WHERE regexp_replace(primary_contact,'\\D','','g') = $1 AND active='Yes'`,
+            [p]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'No active employee found with this phone number' });
+
+        // Generate 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        // Save OTP
+        await pool.query(
+            `INSERT INTO portal_otps (phone, otp, expires_at) VALUES ($1,$2,$3)`,
+            [p, otp, expiresAt]
+        );
+
+        // Send via Jazz SMS
+        const message = `Your ASIL HCM login code is: ${otp}. Valid for 10 minutes. Do not share this code.`;
+        await sendJazzSMS(p, message);
+
+        res.json({ ok: true, message: `OTP sent to ${p.slice(0,5)}****${p.slice(-2)}`, employeeName: rows[0].name });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Verify OTP — returns portal JWT
+app.post('/api/portal/verify-otp', async (req, res) => {
+    try {
+        const { phone, otp } = req.body;
+        let p = (phone||'').replace(/\D/g, '');
+        if (p.startsWith('92') && p.length === 12) p = '0' + p.slice(2);
+        if (p.startsWith('3') && p.length === 10) p = '0' + p;
+
+        const { rows: otpRows } = await pool.query(
+            `SELECT * FROM portal_otps WHERE phone=$1 AND otp=$2 AND used=FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
+            [p, otp]
+        );
+        if (!otpRows.length) return res.status(401).json({ error: 'Invalid or expired OTP' });
+
+        // Mark as used
+        await pool.query('UPDATE portal_otps SET used=TRUE WHERE id=$1', [otpRows[0].id]);
+
+        // Find employee
+        const { rows: empRows } = await pool.query(
+            `SELECT id, name, designation, client, location FROM employees WHERE regexp_replace(primary_contact,'\\D','','g') = $1 AND active='Yes'`,
+            [p]
+        );
+        if (!empRows.length) return res.status(404).json({ error: 'Employee not found' });
+        const emp = empRows[0];
+
+        // Issue portal JWT (24h, limited scope)
+        const token = jwt.sign(
+            { employeeId: emp.id, name: emp.name, portal: true },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+        res.json({ ok: true, token, employee: { id: emp.id, name: emp.name, designation: emp.designation, client: emp.client, location: emp.location } });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Portal middleware — validates portal JWT
+function requirePortalAuth(req, res, next) {
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'Portal auth required' });
+    try {
+        const payload = jwt.verify(auth.split(' ')[1], JWT_SECRET);
+        if (!payload.portal) return res.status(403).json({ error: 'Not a portal token' });
+        req.portalEmployee = payload;
+        next();
+    } catch { res.status(401).json({ error: 'Invalid or expired portal session' }); }
+}
+
+// Portal: get full employee self-service data
+app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
+    try {
+        const empId = req.portalEmployee.employeeId;
+        const currentMonth = new Date().getMonth() + 1;
+        const currentYear = new Date().getFullYear();
+
+        const [empRes, payrollRes, advancesRes, leavesRes] = await Promise.all([
+            pool.query('SELECT * FROM employees WHERE id=$1', [empId]),
+            pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 ORDER BY year DESC, month DESC LIMIT 12', [empId]),
+            pool.query('SELECT * FROM employee_advances WHERE employee_id=$1 ORDER BY created_at DESC', [empId]),
+            pool.query('SELECT * FROM employee_leaves WHERE employee_id=$1 ORDER BY taken_on DESC LIMIT 20', [empId]).catch(() => ({ rows: [] }))
+        ]);
+
+        const emp = empRes.rows[0];
+        if (!emp) return res.status(404).json({ error: 'Employee not found' });
+
+        // Remove sensitive fields before sending to portal
+        const { bank_account, cnic, ...safeEmp } = emp;
+
+        res.json({
+            employee: {
+                ...safeEmp,
+                cnicMasked: emp.cnic ? emp.cnic.replace(/(\d{5})(\d{7})(\d)/, '$1-*******-$3') : null,
+                bankAccountMasked: emp.bank_account ? '****' + emp.bank_account.slice(-4) : null
+            },
+            payslips: payrollRes.rows.map(p => ({
+                month: p.month, year: p.year,
+                gross: parseFloat(p.gross)||0, net: parseFloat(p.net)||0,
+                wht: parseFloat(p.wht)||0, eobi: parseFloat(p.eobi_ee)||0,
+                advance: parseFloat(p.adv)||0, status: p.status
+            })),
+            advances: advancesRes.rows.map(a => ({
+                id: a.id, type: a.type, reason: a.reason,
+                totalAmount: parseFloat(a.total_amount), installmentAmt: parseFloat(a.installment_amt),
+                paidInstallments: a.paid_installments, totalInstallments: a.installments,
+                remaining: parseFloat(a.remaining), status: a.status
+            })),
+            leaves: leavesRes.rows
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── Tax Calculation (public) ─────────────────────────────────────────────────
 app.post('/api/calculate', (req, res) => {
     const { grossSalary, joiningDate, calcDate } = req.body;
@@ -1145,6 +1629,116 @@ app.listen(PORT, async () => {
             );
         `);
         console.log('Migration OK: employee_documents + employee_messages ready');
+
+        // ─── New columns on employees ─────────────────────────────────────────
+        await pool.query(`
+            ALTER TABLE employees ADD COLUMN IF NOT EXISTS insurance_policy_no TEXT;
+            ALTER TABLE employees ADD COLUMN IF NOT EXISTS id_card_status TEXT DEFAULT 'Pending';
+            ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_date DATE;
+        `).catch(() => {});
+
+        // ─── Advances / Loans ─────────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS employee_advances (
+                id          SERIAL PRIMARY KEY,
+                employee_id TEXT NOT NULL,
+                type        TEXT DEFAULT 'Advance',    -- 'Advance' | 'Loan'
+                reason      TEXT,
+                total_amount      NUMERIC(12,2) NOT NULL,
+                installments      INT DEFAULT 1,
+                installment_amt   NUMERIC(12,2) NOT NULL,
+                paid_installments INT DEFAULT 0,
+                remaining         NUMERIC(12,2) NOT NULL,
+                status      TEXT DEFAULT 'Active',     -- 'Active' | 'Settled'
+                created_by  TEXT,
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        console.log('Migration OK: employee_advances');
+
+        // ─── PF Ledger ────────────────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS employee_pf_ledger (
+                id          SERIAL PRIMARY KEY,
+                employee_id TEXT NOT NULL,
+                month       INT NOT NULL,
+                year        INT NOT NULL,
+                ee_contribution NUMERIC(12,2) DEFAULT 0,
+                er_contribution NUMERIC(12,2) DEFAULT 0,
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(employee_id, month, year)
+            );
+        `);
+        console.log('Migration OK: employee_pf_ledger');
+
+        // ─── Gratuity Ledger ──────────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS employee_gratuity_ledger (
+                id          SERIAL PRIMARY KEY,
+                employee_id TEXT NOT NULL,
+                month       INT NOT NULL,
+                year        INT NOT NULL,
+                accrual     NUMERIC(12,2) DEFAULT 0,
+                cumulative  NUMERIC(12,2) DEFAULT 0,
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(employee_id, month, year)
+            );
+        `);
+        console.log('Migration OK: employee_gratuity_ledger');
+
+        // ─── Asset / Uniform Issuances ────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS asset_issuances (
+                id              SERIAL PRIMARY KEY,
+                employee_id     TEXT NOT NULL,
+                category        TEXT DEFAULT 'Uniform',  -- 'Uniform' | 'PPE' | 'Equipment'
+                item_desc       TEXT NOT NULL,
+                issue_date      DATE NOT NULL,
+                replacement_due DATE,          -- auto = +6m Uniform, +12m PPE
+                cost            NUMERIC(12,2),
+                returned        BOOLEAN DEFAULT FALSE,
+                created_at      TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        console.log('Migration OK: asset_issuances');
+
+        // ─── Portal OTPs ──────────────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS portal_otps (
+                id         SERIAL PRIMARY KEY,
+                phone      TEXT NOT NULL,
+                otp        TEXT NOT NULL,
+                expires_at TIMESTAMPTZ NOT NULL,
+                used       BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        console.log('Migration OK: portal_otps');
+
+        // ─── Invoices (persistent) ────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS invoices (
+                id           TEXT PRIMARY KEY,
+                client       TEXT NOT NULL,
+                contract     TEXT,
+                period       TEXT,
+                po_number    TEXT,
+                due_date     DATE,
+                payroll_ids  JSONB DEFAULT '[]',
+                bill_ids     JSONB DEFAULT '[]',
+                subtotal     NUMERIC(12,2) DEFAULT 0,
+                svc_charges  NUMERIC(12,2) DEFAULT 0,
+                sales_tax    NUMERIC(12,2) DEFAULT 0,
+                wht          NUMERIC(12,2) DEFAULT 0,
+                grand_total  NUMERIC(12,2) DEFAULT 0,
+                status       TEXT DEFAULT 'Draft',
+                created_by   TEXT,
+                created_at   TIMESTAMPTZ DEFAULT NOW(),
+                updated_at   TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        console.log('Migration OK: invoices');
 
         // ─── placeholder so existing closing brace still works ───────────────
         const _dummy = true; if (!_dummy) {
