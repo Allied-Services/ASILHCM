@@ -499,8 +499,14 @@ export default function PayrollSheet() {
 
     // Contract cfg lookup: try client name first, then contract name (clientBU)
     const rows = filtered.map(emp => {
-        const cfg = CONTRACT_MAP[emp.contract?.toLowerCase()?.trim()] ||
-                    CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] || {};
+        const _buKey = (emp.contract || emp.clientBU)?.toLowerCase()?.trim();
+        let cfg = CONTRACT_MAP[_buKey];
+        if (!cfg && _buKey) {
+            // Fuzzy: "janitorial services" matches "janitorial services lmt korangi & lmp-a kemari"
+            const _fk = Object.keys(CONTRACT_MAP).find(k => k.startsWith(_buKey) || k.includes(_buKey));
+            if (_fk) cfg = CONTRACT_MAP[_fk];
+        }
+        cfg = cfg || CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] || {};
         // Medical defaults from contract + employee family
         const defMedEE    = cfg.medical_ee    || 0;
         const defMedSP    = emp.hasSpouse ? (cfg.medical_sp || 0) : 0;
