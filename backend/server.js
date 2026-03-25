@@ -1059,7 +1059,9 @@ app.patch('/api/invoices/:id/status', requireAuth, async (req, res) => {
 
 app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) => {
     try {
-        const { employeeId, month, year } = req.params;
+        // Express decodes path params, but explicitly decode to be safe with encoded IDs
+        const employeeId = decodeURIComponent(req.params.employeeId);
+        const { month, year } = req.params;
         const [empRes, payRes, advRes] = await Promise.all([
             pool.query('SELECT * FROM employees WHERE id=$1', [employeeId]),
             pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 AND month=$2 AND year=$3', [employeeId, month, year]),
@@ -1480,6 +1482,152 @@ app.delete('/api/inventory/issuances/:id', requireAuth, async (req, res) => {
 
 
 
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PAYROLL TRANSACTIONS — persistent storage for monthly payroll data
+// ════════════════════════════════════════════════════════════════════════════════
+
+// GET /api/payroll/:year/:month — load saved overrides for a given month
+app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
+    try {
+        const { year, month } = req.params;
+        const { rows } = await pool.query(
+            'SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2',
+            [parseInt(year), parseInt(month)]
+        );
+        // Also check if any row for this month is locked
+        const locked = rows.length > 0 && rows.every(r => r.locked);
+        res.json({
+            rows: rows.map(r => ({
+                employee_id:       r.employee_id,
+                paid_days:         parseFloat(r.paid_days)         || null,
+                ot2_hrs:           parseFloat(r.ot2_hrs)           || 0,
+                ot3_hrs:           parseFloat(r.ot3_hrs)           || 0,
+                opd_claim:         parseFloat(r.opd_claim)         || 0,
+                reimbursement:     parseFloat(r.reimbursement)     || 0,
+                arrears:           parseFloat(r.arrears)           || 0,
+                bonus_amount:      parseFloat(r.bonus_amount)      || 0,
+                special_allowance: parseFloat(r.special_allowance) || 0,
+                fuel_mobile:       parseFloat(r.fuel_mobile)       || 0,
+                other_deduction:   parseFloat(r.other_deduction)   || 0,
+                advance_deduction: parseFloat(r.advance_deduction) || 0,
+                loan_deduction:    parseFloat(r.loan_deduction)    || 0,
+                medical_ee:        r.medical_ee != null ? parseFloat(r.medical_ee) : null,
+                medical_sp:        r.medical_sp != null ? parseFloat(r.medical_sp) : null,
+                medical_ch1:       r.medical_ch1 != null ? parseFloat(r.medical_ch1) : null,
+                medical_ch2:       r.medical_ch2 != null ? parseFloat(r.medical_ch2) : null,
+                gross:             parseFloat(r.gross)             || 0,
+                net:               parseFloat(r.net)               || 0,
+                wht:               parseFloat(r.wht)               || 0,
+                eobi_ee:           parseFloat(r.eobi_ee)           || 0,
+                service_charges:   parseFloat(r.service_charges)   || 0,
+                sales_tax:         parseFloat(r.sales_tax)         || 0,
+                total_invoice:     parseFloat(r.total_invoice)     || 0,
+                locked:            r.locked || false,
+            })),
+            locked,
+            lockedBy:  rows[0]?.locked_by  || null,
+            lockedAt:  rows[0]?.locked_at  || null,
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/payroll/:year/:month — bulk UPSERT (newest import wins, blocked if locked)
+app.post('/api/payroll/:year/:month', requireAuth, async (req, res) => {
+    try {
+        const { year, month } = req.params;
+        const { rows: incoming = [] } = req.body; // array of { employee_id, overrides, calc }
+
+        // Check if month is locked
+        const lockCheck = await pool.query(
+            'SELECT locked FROM payroll_transactions WHERE year=$1 AND month=$2 AND locked=TRUE LIMIT 1',
+            [parseInt(year), parseInt(month)]
+        );
+        if (lockCheck.rows.length > 0) {
+            return res.status(403).json({ error: 'Payroll for this month is locked. Unlock it first.' });
+        }
+
+        const saved = [];
+        for (const row of incoming) {
+            const { employee_id, ov = {}, calc = {} } = row;
+            if (!employee_id) continue;
+            const { rows: upserted } = await pool.query(`
+                INSERT INTO payroll_transactions
+                    (month, year, employee_id, paid_days, ot2_hrs, ot3_hrs, opd_claim,
+                     reimbursement, arrears, bonus_amount, special_allowance, fuel_mobile,
+                     other_deduction, advance_deduction, loan_deduction,
+                     medical_ee, medical_sp, medical_ch1, medical_ch2,
+                     gross, net, wht, eobi_ee, service_charges, sales_tax, total_invoice,
+                     created_by, updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,NOW())
+                ON CONFLICT (employee_id, month, year) DO UPDATE SET
+                    paid_days=$4, ot2_hrs=$5, ot3_hrs=$6, opd_claim=$7,
+                    reimbursement=$8, arrears=$9, bonus_amount=$10, special_allowance=$11,
+                    fuel_mobile=$12, other_deduction=$13, advance_deduction=$14, loan_deduction=$15,
+                    medical_ee=$16, medical_sp=$17, medical_ch1=$18, medical_ch2=$19,
+                    gross=$20, net=$21, wht=$22, eobi_ee=$23, service_charges=$24,
+                    sales_tax=$25, total_invoice=$26, updated_at=NOW()
+                RETURNING employee_id`,
+                [
+                    parseInt(month), parseInt(year), employee_id,
+                    ov.paid_days   != null ? parseFloat(ov.paid_days)   : null,
+                    parseFloat(ov.ot2_hrs)           || 0,
+                    parseFloat(ov.ot3_hrs)           || 0,
+                    parseFloat(ov.opd_claim)         || 0,
+                    parseFloat(ov.reimbursement)     || 0,
+                    parseFloat(ov.arrears)           || 0,
+                    parseFloat(ov.bonus_amount)      || 0,
+                    parseFloat(ov.special_allowance) || 0,
+                    parseFloat(ov.fuel_mobile)       || 0,
+                    parseFloat(ov.other_deduction)   || 0,
+                    parseFloat(ov.advance_deduction) || 0,
+                    parseFloat(ov.loan_deduction)    || 0,
+                    ov.medical_ee  != null ? parseFloat(ov.medical_ee)  : null,
+                    ov.medical_sp  != null ? parseFloat(ov.medical_sp)  : null,
+                    ov.medical_ch1 != null ? parseFloat(ov.medical_ch1) : null,
+                    ov.medical_ch2 != null ? parseFloat(ov.medical_ch2) : null,
+                    parseFloat(calc.grossMonthly)    || 0,
+                    parseFloat(calc.netPay)          || 0,
+                    parseFloat(calc.incomeTax)       || 0,
+                    parseFloat(calc.eobi_ee)         || 0,
+                    parseFloat(calc.serviceCharges)  || 0,
+                    parseFloat(calc.salesTax)        || 0,
+                    parseFloat(calc.totalInvoice)    || 0,
+                    req.user?.email || 'system',
+                ]
+            );
+            if (upserted.length) saved.push(upserted[0].employee_id);
+        }
+        res.json({ ok: true, saved: saved.length });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /api/payroll/:year/:month/lock — lock a payroll month
+app.patch('/api/payroll/:year/:month/lock', requireAuth, async (req, res) => {
+    try {
+        const { year, month } = req.params;
+        await pool.query(
+            `UPDATE payroll_transactions SET locked=TRUE, locked_by=$1, locked_at=NOW()
+             WHERE year=$2 AND month=$3`,
+            [req.user.email, parseInt(year), parseInt(month)]
+        );
+        res.json({ ok: true, locked: true, lockedBy: req.user.email });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /api/payroll/:year/:month/unlock — unlock a payroll month
+app.patch('/api/payroll/:year/:month/unlock', requireAuth, async (req, res) => {
+    try {
+        const { year, month } = req.params;
+        await pool.query(
+            `UPDATE payroll_transactions SET locked=FALSE, locked_by=NULL, locked_at=NULL
+             WHERE year=$1 AND month=$2`,
+            [parseInt(year), parseInt(month)]
+        );
+        res.json({ ok: true, locked: false });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.listen(PORT, async () => {
     console.log(`ASIL HCM Backend running on port ${PORT}`);
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
@@ -1739,6 +1887,47 @@ app.listen(PORT, async () => {
             );
         `);
         console.log('Migration OK: invoices');
+
+        // ─── Payroll Transactions ─────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS payroll_transactions (
+                id                SERIAL PRIMARY KEY,
+                month             INT NOT NULL,
+                year              INT NOT NULL,
+                employee_id       TEXT NOT NULL,
+                paid_days         NUMERIC(5,2),
+                ot2_hrs           NUMERIC(8,2) DEFAULT 0,
+                ot3_hrs           NUMERIC(8,2) DEFAULT 0,
+                opd_claim         NUMERIC(12,2) DEFAULT 0,
+                reimbursement     NUMERIC(12,2) DEFAULT 0,
+                arrears           NUMERIC(12,2) DEFAULT 0,
+                bonus_amount      NUMERIC(12,2) DEFAULT 0,
+                special_allowance NUMERIC(12,2) DEFAULT 0,
+                fuel_mobile       NUMERIC(12,2) DEFAULT 0,
+                other_deduction   NUMERIC(12,2) DEFAULT 0,
+                advance_deduction NUMERIC(12,2) DEFAULT 0,
+                loan_deduction    NUMERIC(12,2) DEFAULT 0,
+                medical_ee        NUMERIC(12,2),
+                medical_sp        NUMERIC(12,2),
+                medical_ch1       NUMERIC(12,2),
+                medical_ch2       NUMERIC(12,2),
+                gross             NUMERIC(12,2) DEFAULT 0,
+                net               NUMERIC(12,2) DEFAULT 0,
+                wht               NUMERIC(12,2) DEFAULT 0,
+                eobi_ee           NUMERIC(12,2) DEFAULT 0,
+                service_charges   NUMERIC(12,2) DEFAULT 0,
+                sales_tax         NUMERIC(12,2) DEFAULT 0,
+                total_invoice     NUMERIC(12,2) DEFAULT 0,
+                locked            BOOLEAN DEFAULT FALSE,
+                locked_by         TEXT,
+                locked_at         TIMESTAMPTZ,
+                created_by        TEXT,
+                created_at        TIMESTAMPTZ DEFAULT NOW(),
+                updated_at        TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(employee_id, month, year)
+            );
+        `);
+        console.log('Migration OK: payroll_transactions table ready');
 
         // ─── placeholder so existing closing brace still works ───────────────
         const _dummy = true; if (!_dummy) {

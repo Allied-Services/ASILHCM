@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon, Lock, Unlock, Save } from 'lucide-react';
 import {
     PAYROLL_CONTRACT_CFG as CONTRACT_CFG,
     calcEmployeeRow, downloadCSV,
@@ -226,6 +226,19 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                                             </tr>
                                         ))}
                                     </tbody>
+                                    <tfoot>
+                                        <tr style={{ background: '#0f1823', fontWeight: 700, fontSize: '0.78rem', borderTop: '2px solid var(--border)' }}>
+                                            <td colSpan={2} style={{ padding: '7px 8px', color: 'var(--text-muted)' }}>TOTALS ({preview.length} rows)</td>
+                                            <td style={{ padding: '7px 8px', textAlign: 'right' }}>{preview.reduce((s,r)=>s+(parseFloat(r.presentDays)||0),0)}</td>
+                                            <td style={{ padding: '7px 8px', textAlign: 'right', color: '#ef4444' }}>{preview.reduce((s,r)=>s+(parseFloat(r.leaveDays)||0),0)}</td>
+                                            <td style={{ padding: '7px 8px', textAlign: 'right' }}>{preview.reduce((s,r)=>s+(parseFloat(r.ot2)||0),0).toFixed(1)}</td>
+                                            <td style={{ padding: '7px 8px', textAlign: 'right' }}>{preview.reduce((s,r)=>s+(parseFloat(r.ot3)||0),0).toFixed(1)}</td>
+                                            <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(preview.reduce((s,r)=>s+(parseFloat(r.opd)||0),0))}</td>
+                                            <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(preview.reduce((s,r)=>s+(parseFloat(r.reimb)||0),0))}</td>
+                                            <td style={{ padding: '7px 8px', textAlign: 'right', color: '#22c55e' }}>{fmt(preview.reduce((s,r)=>s+(parseFloat(r.arrears)||0),0))}</td>
+                                            <td style={{ padding: '7px 8px', textAlign: 'right', color: '#22c55e' }}>{fmt(preview.reduce((s,r)=>s+(parseFloat(r.bonus)||0),0))}</td>
+                                        </tr>
+                                    </tfoot>
                                 </table>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.25rem' }}>
@@ -284,6 +297,11 @@ export default function PayrollSheet() {
     const [showImport, setShowImport] = useState(false);
     const [EMPLOYEES, setEMPLOYEES] = useState([]);
     const [CONTRACT_MAP, setCONTRACT_MAP] = useState({});
+    // ── Lock / DB state ─────────────────────────────────────────────────────────
+    const [isLocked, setIsLocked] = useState(false);
+    const [lockedBy, setLockedBy] = useState(null);
+    const [isSaving, setIsSaving] = useState(false);
+    const saveTimerRef = useRef(null);
     // ── Bulk selection state ────────────────────────────────────────────────────
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [showBulkSMS, setShowBulkSMS] = useState(false);
@@ -291,25 +309,33 @@ export default function PayrollSheet() {
     const [bulkSMSSending, setBulkSMSSending] = useState(false);
     const [bulkSMSResult, setBulkSMSResult] = useState(null);
 
-    // Load contracts from DB → build lookup map by client name
+    // Load contracts from DB → build lookup map by client name AND contract name
     useEffect(() => {
         api.getContracts().then(data => {
             const map = {};
+            const addToMap = (key, cfg) => {
+                const k = key?.toLowerCase()?.trim();
+                if (!k) return;
+                if (!map[k] || cfg._isActive) map[k] = cfg;
+            };
             (data.contracts || []).forEach(ct => {
-                if (ct.clientName) {
-                    const key = ct.clientName.toLowerCase().trim();
-                    // If multiple contracts for same client, take the first active one
-                    if (!map[key] || ct.status === 'Active') map[key] = {
-                        service_charges_pct: ct.financials?.service_charges_pct || 0,
-                        sales_tax_pct:       ct.financials?.sales_tax_pct || 0,
-                        life_insurance:      ct.costs?.life_insurance || 0,
-                        medical_ee:          ct.costs?.medical_ee || 0,
-                        medical_sp:          ct.costs?.medical_sp || 0,
-                        medical_child:       ct.costs?.medical_child || 0,
-                        bonus_months:        ct.costs?.bonus_months || 0,
-                        bonus_min_months:    ct.costs?.bonus_min_months || 12,
-                    };
-                }
+                const cfg = {
+                    service_charges_pct: parseFloat(ct.financials?.service_charges_pct) || 0,
+                    sales_tax_pct:       parseFloat(ct.financials?.sales_tax_pct) || 0,
+                    life_insurance:      parseFloat(ct.costs?.life_insurance) || 0,
+                    medical_ee:          parseFloat(ct.costs?.medical_ee) || 0,
+                    medical_sp:          parseFloat(ct.costs?.medical_sp) || 0,
+                    medical_child:       parseFloat(ct.costs?.medical_child) || 0,
+                    bonus_months:        parseFloat(ct.costs?.bonus_months) || 0,
+                    bonus_min_months:    parseFloat(ct.costs?.bonus_min_months) || 12,
+                    _isActive:           ct.status === 'Active',
+                };
+                // Index by client name (for lookup by emp.client)
+                addToMap(ct.clientName, cfg);
+                // Also index by contract name (for lookup by emp.contract = clientBU)
+                addToMap(ct.contractName, cfg);
+                // Also index by contract id
+                addToMap(ct.id, cfg);
             });
             setCONTRACT_MAP(map);
         }).catch(() => {});
@@ -345,6 +371,60 @@ export default function PayrollSheet() {
             setEMPLOYEES(mapped);
         }).catch(() => {});
     }, []);
+
+    // ── Load saved payroll from DB whenever month changes ──────────────────────
+    useEffect(() => {
+        const [yr, mo] = month.split('-');
+        setOverrides({});
+        setIsLocked(false);
+        setLockedBy(null);
+        api.getPayroll(yr, mo).then(data => {
+            if (!data.rows || !data.rows.length) return;
+            const ov = {};
+            data.rows.forEach(r => {
+                ov[r.employee_id] = {
+                    ...(r.paid_days != null ? { paid_days: r.paid_days } : {}),
+                    ot2_hrs:           r.ot2_hrs,
+                    ot3_hrs:           r.ot3_hrs,
+                    opd_claim:         r.opd_claim,
+                    reimbursement:     r.reimbursement,
+                    arrears:           r.arrears,
+                    bonus_amount:      r.bonus_amount,
+                    special_allowance: r.special_allowance,
+                    fuel_mobile:       r.fuel_mobile,
+                    other_deduction:   r.other_deduction,
+                    advance_deduction: r.advance_deduction,
+                    loan_deduction:    r.loan_deduction,
+                    ...(r.medical_ee  != null ? { medical_ee:  r.medical_ee  } : {}),
+                    ...(r.medical_sp  != null ? { medical_sp:  r.medical_sp  } : {}),
+                    ...(r.medical_ch1 != null ? { medical_ch1: r.medical_ch1 } : {}),
+                    ...(r.medical_ch2 != null ? { medical_ch2: r.medical_ch2 } : {}),
+                };
+            });
+            setOverrides(ov);
+            setIsLocked(data.locked || false);
+            setLockedBy(data.lockedBy || null);
+        }).catch(() => {}); // silently ignore if table not yet created
+    }, [month]);
+
+    // ── Save rows to DB (debounced) ─────────────────────────────────────────────
+    const saveToDb = useCallback((ovState, rowsData) => {
+        if (isLocked) return;
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(async () => {
+            try {
+                setIsSaving(true);
+                const [yr, mo] = month.split('-');
+                const payload = rowsData.map(({ emp, ov: rowOv, calc }) => ({
+                    employee_id: emp.id,
+                    ov: rowOv,
+                    calc,
+                }));
+                await api.savePayroll(yr, mo, payload);
+            } catch (e) { console.warn('Payroll save failed:', e.message); }
+            finally { setIsSaving(false); }
+        }, 800);
+    }, [month, isLocked]);
 
     const setOv = (id, field, val) => setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
     const getOv = (id, field, def) => { const o = overrides[id]; return (o && o[field] !== undefined) ? o[field] : def; };
@@ -390,9 +470,10 @@ export default function PayrollSheet() {
         (filterLoc === 'All' || e.location === filterLoc)
     );
 
+    // Contract cfg lookup: try client name first, then contract name (clientBU)
     const rows = filtered.map(emp => {
-        // Look up contract config by client name (case-insensitive)
-        const cfg = CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] || {};
+        const cfg = CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] ||
+                    CONTRACT_MAP[emp.contract?.toLowerCase()?.trim()] || {};
         // Medical defaults from contract + employee family
         const defMedEE    = cfg.medical_ee    || 0;
         const defMedSP    = emp.hasSpouse ? (cfg.medical_sp || 0) : 0;
@@ -433,19 +514,71 @@ export default function PayrollSheet() {
         return acc;
     }, {});
 
-    const applyImport = (parsed) => {
+    const applyImport = async (parsed) => {
+        const newOv = { ...overrides };
         parsed.forEach(({ empId, ...fields }) => {
-            Object.entries(fields).forEach(([field, val]) => setOv(empId, field, val));
+            newOv[empId] = { ...(newOv[empId] || {}), ...fields };
         });
+        setOverrides(newOv);
+        // Save immediately to DB after import
+        try {
+            const [yr, mo] = month.split('-');
+            const payload = filtered.map(emp => {
+                const cfg = CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] ||
+                            CONTRACT_MAP[emp.contract?.toLowerCase()?.trim()] || {};
+                const empOv = newOv[emp.id] || {};
+                const ov = {
+                    paid_days:         empOv.paid_days         ?? workDays,
+                    ot2_hrs:           empOv.ot2_hrs           ?? 0,
+                    ot3_hrs:           empOv.ot3_hrs           ?? 0,
+                    opd_claim:         empOv.opd_claim         ?? 0,
+                    reimbursement:     empOv.reimbursement     ?? 0,
+                    arrears:           empOv.arrears           ?? 0,
+                    bonus_amount:      empOv.bonus_amount      ?? 0,
+                    special_allowance: empOv.special_allowance ?? 0,
+                    fuel_mobile:       empOv.fuel_mobile       ?? 0,
+                    other_deduction:   empOv.other_deduction   ?? 0,
+                    advance_deduction: empOv.advance_deduction ?? 0,
+                    loan_deduction:    empOv.loan_deduction    ?? 0,
+                };
+                const calc = calcEmployeeRow(emp, ov, cfg, workDays);
+                return { employee_id: emp.id, ov, calc };
+            });
+            await api.savePayroll(yr, mo, payload);
+        } catch (e) { console.warn('Import save failed:', e.message); }
+    };
+
+    const handleLock = async () => {
+        if (!window.confirm('Lock this payroll month? No further edits will be allowed after locking.')) return;
+        try {
+            const [yr, mo] = month.split('-');
+            await api.lockPayroll(yr, mo);
+            setIsLocked(true);
+            setLockedBy('You');
+        } catch (e) { alert('Lock failed: ' + e.message); }
+    };
+
+    const handleUnlock = async () => {
+        if (!window.confirm('Unlock this payroll? This means the bank has NOT processed it yet.')) return;
+        try {
+            const [yr, mo] = month.split('-');
+            await api.unlockPayroll(yr, mo);
+            setIsLocked(false);
+            setLockedBy(null);
+        } catch (e) { alert('Unlock failed: ' + e.message); }
     };
 
     const needsApproval = rows.some(r => r.cfg.client_approval);
 
-    // Editable cell
+    // Editable cell — disabled when payroll is locked
     const EC = ({ empId, field, def = 0, w = '68px' }) => (
         <input type="number" min={0} value={getOv(empId, field, def)}
-            onChange={e => setOv(empId, field, e.target.value)}
-            style={{ width: w, background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '4px', padding: '3px 5px', color: 'var(--text)', fontSize: '0.78rem', textAlign: 'right', outline: 'none' }} />
+            disabled={isLocked}
+            onChange={e => {
+                if (isLocked) return;
+                setOv(empId, field, e.target.value);
+            }}
+            style={{ width: w, background: isLocked ? 'transparent' : 'rgba(56,189,248,0.07)', border: isLocked ? 'none' : '1px solid rgba(56,189,248,0.2)', borderRadius: '4px', padding: '3px 5px', color: 'var(--text)', fontSize: '0.78rem', textAlign: 'right', outline: 'none', cursor: isLocked ? 'not-allowed' : 'text', opacity: isLocked ? 0.7 : 1 }} />
     );
     const RC = ({ val, pos, neg, bold, muted }) => (
         <td style={{ padding: '6px 7px', textAlign: 'right', fontWeight: bold ? 700 : 400, fontSize: '0.8rem', whiteSpace: 'nowrap', color: neg ? '#f43f5e' : pos ? '#22c55e' : muted ? '#64748b' : 'var(--text)' }}>
@@ -496,8 +629,10 @@ export default function PayrollSheet() {
                         <button onClick={() => { setFilterClient('All'); setFilterContract('All'); setFilterLoc('All'); }}
                             style={{ fontSize: '0.75rem', color: '#ef4444', background: 'transparent', border: '1px solid #ef444440', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>Clear</button>}
                 </div>
-                <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem' }}>
-                    <button onClick={() => setShowImport(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    {isSaving && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={13} />Saving…</span>}
+                    <button onClick={() => setShowImport(true)} disabled={isLocked}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? '#333' : 'var(--bg-card)', border: '1px solid var(--border)', color: isLocked ? '#555' : 'var(--text)', padding: '8px 16px', borderRadius: '8px', cursor: isLocked ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
                         <Upload size={15} /> Import
                     </button>
                     {needsApproval && (
@@ -509,6 +644,13 @@ export default function PayrollSheet() {
                     <button onClick={() => setShowExport(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#22c55e', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                         <Download size={15} /> Export <ChevronDown size={14} />
                     </button>
+                    {!isLocked
+                        ? <button onClick={handleLock} title="Lock payroll — mark as bank-processed" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f59e0b', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                            <Lock size={15} /> Lock Payroll
+                          </button>
+                        : <button onClick={handleUnlock} title="Unlock payroll to allow edits" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.4)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                            <Unlock size={15} /> Unlock
+                          </button>}
                 </div>
             </div>
 
@@ -581,6 +723,18 @@ export default function PayrollSheet() {
                 </div>
             )}
 
+            {/* Lock Banner */}
+            {isLocked && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '10px', padding: '0.85rem 1.25rem', marginBottom: '1.25rem' }}>
+                    <Lock size={16} color="#f87171" />
+                    <span style={{ fontSize: '0.9rem', color: '#f87171' }}>
+                        <strong>Payroll Locked</strong> — This payroll has been sent to the bank for processing.
+                        {lockedBy && <span style={{ opacity: 0.8 }}> Locked by {lockedBy}.</span>}
+                        {' '}No edits allowed. Click <strong>Unlock</strong> to re-open.
+                    </span>
+                </div>
+            )}
+
             {approvalSent[month] && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(99,102,241,0.1)', border: '1px solid #6366f1', borderRadius: '10px', padding: '0.85rem 1.25rem', marginBottom: '1.25rem' }}>
                     <Send size={16} color="#6366f1" />
@@ -608,9 +762,9 @@ export default function PayrollSheet() {
 
             {/* Table */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', marginBottom: '1.25rem' }}>
-                <div style={{ overflowX: 'auto', position: 'relative' }}>
+                <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 280px)', position: 'relative' }}>
                     <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: '2500px' }}>
-                        <thead>
+                        <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
                             <tr style={{ background: '#0f1823' }}>
                                 {/* Select-all checkbox header */}
                                 <th style={{ position: 'sticky', left: 0, zIndex: 4, background: '#0f1823', padding: '6px 8px', width: '36px' }}>

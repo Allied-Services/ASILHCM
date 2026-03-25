@@ -116,14 +116,20 @@ export const api = {
     createInvoice:       (d)       => apiFetch('/api/invoices', { method: 'POST', body: JSON.stringify(d) }),
     updateInvoiceStatus: (id, status) => apiFetch(`/api/invoices/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 
+    // ── Payroll Persistence ───────────────────────────────────────────────────
+    getPayroll:    (year, month)        => apiFetch(`/api/payroll/${year}/${month}`),
+    savePayroll:   (year, month, rows)  => apiFetch(`/api/payroll/${year}/${month}`, { method: 'POST', body: JSON.stringify({ rows }) }),
+    lockPayroll:   (year, month)        => apiFetch(`/api/payroll/${year}/${month}/lock`,   { method: 'PATCH' }),
+    unlockPayroll: (year, month)        => apiFetch(`/api/payroll/${year}/${month}/unlock`, { method: 'PATCH' }),
+
     // ── Payslips ──────────────────────────────────────────────────────────────
-    getPayslipUrl: (empId, month, year) => `${API}/api/payslip/${empId}/${month}/${year}`,
+    getPayslipUrl: (empId, month, year) => `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}`,
     openPayslip:   (empId, month, year) => {
         const token = localStorage.getItem('asil_hcm_token');
-        // Open payslip in new tab with auth token in URL for direct access
-        const url = `${API}/api/payslip/${empId}/${month}/${year}`;
+        // URL-encode employee ID to handle IDs with slashes or special characters
+        const url = `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}`;
         fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-            .then(r => r.text())
+            .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
             .then(html => { const w = window.open('', '_blank'); w.document.write(html); w.document.close(); })
             .catch(e => alert('Could not load payslip: ' + e.message));
     },
