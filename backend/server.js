@@ -1059,82 +1059,163 @@ app.patch('/api/invoices/:id/status', requireAuth, async (req, res) => {
 
 app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) => {
     try {
-        // Express decodes path params, but explicitly decode to be safe with encoded IDs
         const employeeId = decodeURIComponent(req.params.employeeId);
         const { month, year } = req.params;
-        const [empRes, payRes, advRes] = await Promise.all([
+
+        const [empRes, payRes] = await Promise.all([
             pool.query('SELECT * FROM employees WHERE id=$1', [employeeId]),
-            pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 AND month=$2 AND year=$3', [employeeId, month, year]),
-            pool.query('SELECT SUM(installment_amt) as adv FROM employee_advances WHERE employee_id=$1 AND status=\'Active\'', [employeeId])
+            pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 AND month=$2 AND year=$3',
+                [employeeId, month, year])
         ]);
         const emp = empRes.rows[0];
         const pay = payRes.rows[0];
         if (!emp) return res.status(404).json({ error: 'Employee not found' });
 
-        const gross = parseFloat(pay?.gross || emp.salary || 0);
-        const net = parseFloat(pay?.net || 0) || (gross - parseFloat(pay?.wht||0) - parseFloat(pay?.eobi_ee||0));
         const monthName = new Date(2000, parseInt(month)-1, 1).toLocaleString('en-PK', { month: 'long' });
+        const fmt = v => Math.round(parseFloat(v)||0).toLocaleString('en-PK');
+
+        // ── Salary components from employee master (prorated if paid_days saved) ─
+        const grossSalary  = parseFloat(emp.salary) || 0;
+        const workDays     = 26;
+        const paidDays     = parseFloat(pay?.paid_days ?? workDays);
+        const ratio        = paidDays / workDays;
+        const basicSalary  = Math.round(grossSalary * 0.60 * ratio);
+        const hra          = Math.round(grossSalary * 0.20 * ratio);
+        const conveyance   = Math.round(grossSalary * 0.10 * ratio);
+        const medical      = Math.round(grossSalary * 0.07 * ratio);
+        const otherAllow   = Math.round(grossSalary * 0.03 * ratio);
+
+        // ── Variable components from payroll_transactions ─────────────────────
+        const otAmount       = Math.round(parseFloat(pay?.ot2_hrs||0) * 2 * (grossSalary*0.60/workDays/8)
+                                         + parseFloat(pay?.ot3_hrs||0) * 3 * (grossSalary*0.60/workDays/8));
+        const opdClaim       = Math.round(parseFloat(pay?.opd_claim||0));
+        const reimbursement  = Math.round(parseFloat(pay?.reimbursement||0));
+        const arrears        = Math.round(parseFloat(pay?.arrears||0));
+        const splAllow       = Math.round(parseFloat(pay?.special_allowance||0));
+        const fuelMobile     = Math.round(parseFloat(pay?.fuel_mobile||0));
+        const bonusAmount    = Math.round(parseFloat(pay?.bonus_amount||0));
+
+        // ── Gross = sum of all earnings ────────────────────────────────────────
+        const grossTotal = basicSalary + hra + conveyance + medical + otherAllow
+                         + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile + bonusAmount;
+
+        // ── Deductions ────────────────────────────────────────────────────────
+        const incomeTax    = Math.round(parseFloat(pay?.wht||0));
+        const eobiEE       = Math.round(parseFloat(pay?.eobi_ee||0)) || 400;  // flat Rs.400
+        const advanceDed   = Math.round(parseFloat(pay?.advance_deduction||0));
+        const loanDed      = Math.round(parseFloat(pay?.loan_deduction||0));
+        const otherDed     = Math.round(parseFloat(pay?.other_deduction||0));
+        // PF: 8.33% of basic if enrolled (we don't track pf_enrolled in payroll_transactions, use 0 as default)
+        const pfEE         = 0;
+
+        const totalDeductions = incomeTax + eobiEE + pfEE + advanceDed + loanDed + otherDed;
+        const netPay          = grossTotal - totalDeductions;
+
+        // ── Helper: only emit row if value > 0 ───────────────────────────────
+        const row = (label, val, isDeduction = false) =>
+            val > 0 ? `<tr><td>${label}</td><td class="amount${isDeduction?' deduction':''}">
+                ${isDeduction ? '- ' : ''}${fmt(val)}</td></tr>` : '';
 
         const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Salary Slip — ${emp.name} — ${monthName} ${year}</title>
 <style>
-  body{font-family:Arial,sans-serif;font-size:10pt;color:#000;margin:0}
-  .page{max-width:700px;margin:0 auto;padding:24px 30px}
-  .hdr{background:#1e3a5f;color:#fff;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;border-radius:8px 8px 0 0}
-  .hdr h2{margin:0;font-size:15pt}
-  .hdr p{margin:3px 0;font-size:9pt;opacity:.85}
-  .meta{display:grid;grid-template-columns:1fr 1fr;gap:12px;background:#f8fafc;padding:14px 18px;border:1px solid #e2e8f0}
-  .meta-cell label{font-size:8pt;color:#64748b;font-weight:700;text-transform:uppercase;display:block}
-  .meta-cell span{font-size:10pt;font-weight:600}
-  table{width:100%;border-collapse:collapse;margin-top:16px}
-  th{background:#334155;color:#fff;padding:7px 12px;font-size:8.5pt;text-align:left}
-  td{padding:7px 12px;border-bottom:1px solid #f1f5f9;font-size:9.5pt}
-  .amount{text-align:right;font-weight:600}
-  .deduction{color:#ef4444}
-  .total-row td{background:#f8fafc;font-weight:800;font-size:10.5pt}
-  .net-box{background:#1e3a5f;color:#fff;padding:14px 20px;margin-top:16px;border-radius:6px;display:flex;justify-content:space-between;align-items:center}
-  .net-box .label{font-size:9pt;opacity:.8}
-  .net-box .amount{font-size:18pt;font-weight:800}
-  .footer{margin-top:20px;font-size:8pt;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;padding-top:10px}
+  @media print { body { margin: 0; } .page { padding: 16px 20px; } }
+  body { font-family: Arial, sans-serif; font-size: 10pt; color: #000; margin: 0; background: #f0f4f8; }
+  .page { max-width: 720px; margin: 20px auto; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,.12); }
+  .hdr { background: #1e3a5f; color: #fff; padding: 18px 26px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .hdr h2 { margin: 0 0 4px; font-size: 16pt; letter-spacing: .5px; }
+  .hdr p { margin: 3px 0; font-size: 9pt; opacity: .85; }
+  .hdr-right { text-align: right; font-size: 9pt; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-bottom: 2px solid #e2e8f0; }
+  .meta-cell { padding: 10px 18px; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
+  .meta-cell:nth-child(even) { border-right: none; }
+  .meta-cell label { font-size: 7.5pt; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 3px; }
+  .meta-cell span { font-size: 10pt; font-weight: 600; color: #1e293b; }
+  .section { margin: 0 18px 14px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+  th { background: #334155; color: #fff; padding: 8px 12px; font-size: 8.5pt; text-align: left; letter-spacing: .05em; }
+  th:last-child { text-align: right; }
+  td { padding: 7px 12px; border-bottom: 1px solid #f1f5f9; font-size: 9.5pt; color: #1e293b; }
+  .amount { text-align: right; font-weight: 600; }
+  .deduction { color: #dc2626; }
+  .total-row td { background: #f8fafc; font-weight: 800; font-size: 10.5pt; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1; }
+  .net-box { background: #1e3a5f; color: #fff; padding: 16px 24px; margin: 0; display: flex; justify-content: space-between; align-items: center; }
+  .net-box .label { font-size: 10pt; opacity: .85; }
+  .net-box .sub { font-size: 8pt; opacity: .65; margin-top: 2px; }
+  .net-box .amount { font-size: 20pt; font-weight: 800; }
+  .footer { padding: 12px 20px; font-size: 8pt; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+  .paid-days-badge { background: rgba(255,255,255,.15); padding: 3px 10px; border-radius: 20px; font-size: 8pt; margin-top: 6px; display: inline-block; }
 </style></head><body><div class="page">
+
 <div class="hdr">
-  <div><h2>SALARY SLIP</h2><p>Allied Services International (Pvt.) Ltd.</p><p>NTN: 7483900-1 | accounts@asil.com.pk</p></div>
-  <div style="text-align:right;font-size:9pt"><p>${monthName} ${year}</p><p>Generated: ${new Date().toLocaleDateString('en-PK')}</p></div>
+  <div>
+    <h2>SALARY SLIP</h2>
+    <p>Allied Services International (Pvt.) Ltd.</p>
+    <p>NTN: 7483900-1 &nbsp;|&nbsp; accounts@asil.com.pk</p>
+  </div>
+  <div class="hdr-right">
+    <p style="font-size:12pt;font-weight:700">${monthName} ${year}</p>
+    <p>Generated: ${new Date().toLocaleDateString('en-PK', {day:'2-digit',month:'short',year:'numeric'})}</p>
+    <div class="paid-days-badge">Paid Days: ${paidDays} / ${workDays}</div>
+  </div>
 </div>
+
 <div class="meta">
   <div class="meta-cell"><label>Employee Name</label><span>${emp.name}</span></div>
   <div class="meta-cell"><label>Employee Code</label><span>${emp.id}</span></div>
   <div class="meta-cell"><label>Designation</label><span>${emp.designation||'—'}</span></div>
   <div class="meta-cell"><label>Client / Location</label><span>${emp.client||'—'} / ${emp.location||'—'}</span></div>
   <div class="meta-cell"><label>CNIC</label><span>${emp.cnic||'—'}</span></div>
-  <div class="meta-cell"><label>Bank Account</label><span>${emp.bank_name||'—'} — ${emp.bank_account||'—'}</span></div>
+  <div class="meta-cell"><label>Bank Account</label><span>${emp.bank_name||'—'} &nbsp;—&nbsp; ${emp.bank_account||'—'}</span></div>
 </div>
+
+<div class="section">
 <table>
   <thead><tr><th>EARNINGS</th><th class="amount">Amount (Rs.)</th></tr></thead>
   <tbody>
-    <tr><td>Basic Salary</td><td class="amount">${Math.round(pay?.basic||gross*0.6).toLocaleString()}</td></tr>
-    <tr><td>House Rent Allowance (HRA)</td><td class="amount">${Math.round(pay?.hra||gross*0.2).toLocaleString()}</td></tr>
-    <tr><td>Conveyance Allowance</td><td class="amount">${Math.round(pay?.conv||gross*0.1).toLocaleString()}</td></tr>
-    <tr><td>Medical Allowance</td><td class="amount">${Math.round(pay?.med||gross*0.1).toLocaleString()}</td></tr>
-    ${pay?.ot>0?`<tr><td>Overtime</td><td class="amount">${Math.round(pay.ot).toLocaleString()}</td></tr>`:''}
-    ${pay?.opd>0?`<tr><td>OPD / Reimbursement</td><td class="amount">${Math.round(pay.opd).toLocaleString()}</td></tr>`:''}
-    <tr class="total-row"><td>GROSS SALARY</td><td class="amount">${Math.round(gross).toLocaleString()}</td></tr>
+    <tr><td>Basic Salary</td><td class="amount">${fmt(basicSalary)}</td></tr>
+    <tr><td>House Rent Allowance (HRA)</td><td class="amount">${fmt(hra)}</td></tr>
+    <tr><td>Conveyance Allowance</td><td class="amount">${fmt(conveyance)}</td></tr>
+    <tr><td>Medical Allowance</td><td class="amount">${fmt(medical)}</td></tr>
+    ${otherAllow > 0 ? `<tr><td>Other Allowances</td><td class="amount">${fmt(otherAllow)}</td></tr>` : ''}
+    ${row('Overtime (OT)', otAmount)}
+    ${row('OPD Claim', opdClaim)}
+    ${row('Expense Reimbursement', reimbursement)}
+    ${row('Arrears', arrears)}
+    ${row('Special Allowance', splAllow)}
+    ${row('Fuel / Mobile Allowance', fuelMobile)}
+    ${row('Bonus', bonusAmount)}
+    <tr class="total-row"><td>GROSS SALARY</td><td class="amount">${fmt(grossTotal)}</td></tr>
   </tbody>
 </table>
+</div>
+
+<div class="section">
 <table>
   <thead><tr><th>DEDUCTIONS</th><th class="amount">Amount (Rs.)</th></tr></thead>
   <tbody>
-    <tr><td class="deduction">Income Tax (WHT)</td><td class="amount deduction">- ${Math.round(pay?.wht||0).toLocaleString()}</td></tr>
-    <tr><td class="deduction">EOBI (Employee Share)</td><td class="amount deduction">- ${Math.round(pay?.eobi_ee||370).toLocaleString()}</td></tr>
-    ${pay?.pf_ee>0?`<tr><td class="deduction">Provident Fund (EE)</td><td class="amount deduction">- ${Math.round(pay.pf_ee).toLocaleString()}</td></tr>`:''}
-    ${pay?.adv>0?`<tr><td class="deduction">Advance / Loan Installment</td><td class="amount deduction">- ${Math.round(pay.adv).toLocaleString()}</td></tr>`:''}
-    <tr class="total-row"><td>TOTAL DEDUCTIONS</td><td class="amount deduction">- ${Math.round((pay?.wht||0)+(pay?.eobi_ee||370)+(pay?.pf_ee||0)+(pay?.adv||0)).toLocaleString()}</td></tr>
+    <tr><td class="deduction">Income Tax (WHT)</td><td class="amount deduction">- ${fmt(incomeTax)}</td></tr>
+    <tr><td class="deduction">EOBI (Employee Share)</td><td class="amount deduction">- ${fmt(eobiEE)}</td></tr>
+    ${pfEE > 0 ? `<tr><td class="deduction">Provident Fund (Employee)</td><td class="amount deduction">- ${fmt(pfEE)}</td></tr>` : ''}
+    ${row('Advance Deduction', advanceDed, true)}
+    ${row('Loan Installment', loanDed, true)}
+    ${row('Other Deduction', otherDed, true)}
+    <tr class="total-row"><td>TOTAL DEDUCTIONS</td><td class="amount deduction">- ${fmt(totalDeductions)}</td></tr>
   </tbody>
 </table>
-<div class="net-box">
-  <div><div class="label">NET SALARY PAYABLE</div><div style="font-size:9pt;opacity:.7">${monthName} ${year}</div></div>
-  <div class="amount">Rs. ${Math.round(net).toLocaleString()}</div>
 </div>
-<div class="footer">This is a computer-generated salary slip and does not require a signature. | Allied Services International (Pvt.) Ltd.</div>
+
+<div class="net-box">
+  <div>
+    <div class="label">NET SALARY PAYABLE</div>
+    <div class="sub">${monthName} ${year} &nbsp;|&nbsp; Gross ${fmt(grossTotal)} − Deductions ${fmt(totalDeductions)}</div>
+  </div>
+  <div class="amount">Rs. ${fmt(netPay)}</div>
+</div>
+
+<div class="footer">
+  This is a system-generated salary slip and does not require a signature.&nbsp;&nbsp;|&nbsp;&nbsp;Allied Services International (Pvt.) Ltd.
+</div>
 </div></body></html>`;
 
         res.setHeader('Content-Type', 'text/html');
