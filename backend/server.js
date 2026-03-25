@@ -5,6 +5,7 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const session = require('express-session');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
+const nodemailer = require('nodemailer');
 
 const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratuity } = require('./taxEngine');
 
@@ -1100,7 +1101,17 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
                          + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile + bonusAmount;
 
         // ── Deductions ────────────────────────────────────────────────────────
-        const incomeTax    = Math.round(parseFloat(pay?.wht||0));
+        // WHT: use saved DB value if available, else calculate from gross
+        const incomeTax = (() => {
+            if (pay?.wht && parseFloat(pay.wht) > 0) return Math.round(parseFloat(pay.wht));
+            const ann = grossTotal * 12;
+            if (ann <= 600000) return 0;
+            if (ann <= 1200000) return Math.round(((ann-600000)*0.05)/12);
+            if (ann <= 2200000) return Math.round((30000+(ann-1200000)*0.15)/12);
+            if (ann <= 3200000) return Math.round((180000+(ann-2200000)*0.25)/12);
+            if (ann <= 4100000) return Math.round((430000+(ann-3200000)*0.30)/12);
+            return Math.round((700000+(ann-4100000)*0.35)/12);
+        })();
         const eobiEE       = Math.round(parseFloat(pay?.eobi_ee||0)) || 400;  // flat Rs.400
         const advanceDed   = Math.round(parseFloat(pay?.advance_deduction||0));
         const loanDed      = Math.round(parseFloat(pay?.loan_deduction||0));
@@ -1219,6 +1230,11 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
 </div></body></html>`;
 
         res.setHeader('Content-Type', 'text/html');
+        // ?download=1 triggers attachment download instead of opening in new tab
+        if (req.query.download === '1') {
+            const safeName = (emp.name || 'Employee').replace(/[^a-zA-Z0-9 ]/g, '_').trim();
+            res.setHeader('Content-Disposition', `attachment; filename="PaySlip_${safeName}_${monthName}_${year}.html"`);
+        }
         res.send(html);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1706,6 +1722,274 @@ app.patch('/api/payroll/:year/:month/unlock', requireAuth, async (req, res) => {
             [parseInt(year), parseInt(month)]
         );
         res.json({ ok: true, locked: false });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
+// ── Payroll CSV Export (server-side, avoids CSP/blob issues) ──────────────────
+app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
+    try {
+        const { year, month } = req.params;
+        const { type = 'payroll' } = req.query;
+        const yrInt = parseInt(year), moInt = parseInt(month);
+
+        const [empRes, payRes] = await Promise.all([
+            pool.query('SELECT * FROM employees ORDER BY name'),
+            pool.query('SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2', [yrInt, moInt])
+        ]);
+
+        const payMap = {};
+        payRes.rows.forEach(p => { payMap[p.employee_id] = p; });
+
+        const monthLabel = new Date(2000, moInt-1, 1).toLocaleString('en-PK', { month: 'long' }) + ' ' + year;
+        const WD = 26;
+
+        const whtCalc = (a) => {
+            if (a <= 600000) return 0;
+            if (a <= 1200000) return Math.round(((a-600000)*0.05)/12);
+            if (a <= 2200000) return Math.round((30000+(a-1200000)*0.15)/12);
+            if (a <= 3200000) return Math.round((180000+(a-2200000)*0.25)/12);
+            if (a <= 4100000) return Math.round((430000+(a-3200000)*0.30)/12);
+            return Math.round((700000+(a-4100000)*0.35)/12);
+        };
+
+        const calcRow = (emp, pay) => {
+            const gross = parseFloat(emp.salary) || 0;
+            const pd = parseFloat(pay?.paid_days ?? WD);
+            const ratio = pd / WD;
+            const basic    = Math.round(gross * 0.60 * ratio);
+            const hra      = Math.round(gross * 0.20 * ratio);
+            const conv     = Math.round(gross * 0.10 * ratio);
+            const med      = Math.round(gross * 0.07 * ratio);
+            const other    = Math.round(gross * 0.03 * ratio);
+            const hrly     = (gross * 0.60) / WD / 8;
+            const ot2hrs   = parseFloat(pay?.ot2_hrs||0);
+            const ot3hrs   = parseFloat(pay?.ot3_hrs||0);
+            const otAmt    = Math.round(hrly * (ot2hrs*2 + ot3hrs*3));
+            const opd      = Math.round(parseFloat(pay?.opd_claim||0));
+            const reimb    = Math.round(parseFloat(pay?.reimbursement||0));
+            const arr      = Math.round(parseFloat(pay?.arrears||0));
+            const spl      = Math.round(parseFloat(pay?.special_allowance||0));
+            const fuel     = Math.round(parseFloat(pay?.fuel_mobile||0));
+            const bonus    = Math.round(parseFloat(pay?.bonus_amount||0));
+            const grossM   = basic + hra + conv + med + other + otAmt + opd + reimb + arr + spl + fuel + bonus;
+            const wht      = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
+            const eobi_ee  = 400, eobi_er = 2000;
+            const sessi    = grossM < 45000 ? Math.round(grossM * 0.06) : 0;
+            const advDed   = Math.round(parseFloat(pay?.advance_deduction||0));
+            const loanDed  = Math.round(parseFloat(pay?.loan_deduction||0));
+            const otherDed = Math.round(parseFloat(pay?.other_deduction||0));
+            const totalDed = wht + eobi_ee + advDed + loanDed + otherDed;
+            const netPay   = grossM - totalDed;
+            const gratuity = Math.round((gross / WD) * 30 / 12);
+            const costBase = grossM + eobi_er + sessi + bonus + gratuity;
+            const sc       = pay?.service_charges ? Math.round(parseFloat(pay.service_charges)) : 0;
+            const st       = pay?.sales_tax       ? Math.round(parseFloat(pay.sales_tax))       : 0;
+            const inv      = pay?.total_invoice   ? Math.round(parseFloat(pay.total_invoice))   : costBase+sc+st;
+            return { grossM, wht, eobi_ee, eobi_er, sessi, advDed, loanDed, otherDed, totalDed, netPay,
+                     gratuity, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus, pd, ot2hrs, ot3hrs };
+        };
+
+        let rows = [], filename = 'export.csv';
+        const bu  = e => e.client_bu || e.clientbu || e.clientBU || '';
+        const cnic = e => e.cnic || '';
+
+        if (type === 'payroll') {
+            rows = empRes.rows.map(emp => {
+                const c = calcRow(emp, payMap[emp.id]);
+                return { 'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
+                    'CNIC': cnic(emp), 'Contract': bu(emp), 'Location': emp.location||'',
+                    'Salary': parseFloat(emp.salary)||0, 'Paid Days': c.pd,
+                    'OT @2X': c.ot2hrs, 'OT @3X': c.ot3hrs, 'OT Amount': c.otAmt,
+                    'OPD': c.opd, 'Reimb': c.reimb, 'Arrears': c.arr,
+                    'Spl Allow': c.spl, 'Fuel/Mob': c.fuel, 'Bonus': c.bonus,
+                    'Gross Monthly': c.grossM, 'Income Tax': c.wht, 'EOBI EE': c.eobi_ee,
+                    'Advance': c.advDed, 'Loan': c.loanDed,
+                    'Total Deductions': c.totalDed, 'Net Pay': c.netPay,
+                    'EOBI ER': c.eobi_er, 'SESSI': c.sessi, 'Gratuity': c.gratuity,
+                    'Total Payroll Cost': c.costBase, 'Service Charges': c.sc,
+                    'Sales Tax': c.st, 'Total Invoice': c.inv };
+            });
+            filename = `Payroll_${year}-${String(month).padStart(2,'0')}.csv`;
+
+        } else if (type === 'hbl') {
+            rows = empRes.rows.map((emp, i) => {
+                const c = calcRow(emp, payMap[emp.id]);
+                return { 'Employee ID': emp.id, 'Beneficiary Name': emp.name,
+                    'Account Number': emp.bank_account || emp.bankaccount || '',
+                    'Net Pay': c.netPay,
+                    'Reference': `ASIL-${year}${String(month).padStart(2,'0')}-${String(i+1).padStart(3,'0')}`,
+                    'Bank': emp.bank_name || emp.bankname || 'HBL',
+                    'Contact': emp.primary_contact || emp.primarycontact || '',
+                    'Email': emp.email || '' };
+            });
+            filename = `HBL_Bank_${year}-${String(month).padStart(2,'0')}.csv`;
+
+        } else if (type === 'wht') {
+            rows = empRes.rows.map(emp => ({ emp, c: calcRow(emp, payMap[emp.id]) }))
+                .filter(({ c }) => c.wht > 0)
+                .map(({ emp, c }) => ({
+                    'Section': 'Salary', 'CNIC': cnic(emp), 'Name': emp.name,
+                    'City': 'Karachi', 'Status': 'Individual - Salaried',
+                    'Employer': 'Allied Services (Pvt.) Ltd.',
+                    'Taxable Amount': c.grossM, 'Tax Amount': c.wht }));
+            if (!rows.length) return res.json({ msg: 'No employees with WHT this month.' });
+            filename = `WHT_Returns_${year}-${String(month).padStart(2,'0')}.csv`;
+
+        } else if (type === 'eobi') {
+            rows = empRes.rows.map(emp => ({
+                'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
+                'CNIC': cnic(emp), 'EOBI No': emp.eobi_no || emp.eobino || '',
+                'EOBI Employee (Rs.400)': 400, 'EOBI Employer (Rs.2000)': 2000,
+                'Total EOBI': 2400 }));
+            filename = `EOBI_${year}-${String(month).padStart(2,'0')}.csv`;
+
+        } else if (type === 'sessi') {
+            rows = empRes.rows.map(emp => {
+                const c = calcRow(emp, payMap[emp.id]);
+                return { 'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
+                    'CNIC': cnic(emp), 'EOBI No': emp.eobi_no || emp.eobino || '',
+                    'Gross Monthly': c.grossM, 'SESSI Amount': c.sessi };
+            });
+            filename = `SESSI_${year}-${String(month).padStart(2,'0')}.csv`;
+        } else {
+            return res.status(400).json({ error: 'Invalid type. Use payroll|hbl|wht|eobi|sessi' });
+        }
+
+        if (!rows.length) return res.status(200).send('No data to export.');
+        const hdrs = Object.keys(rows[0]);
+        const esc  = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const csv  = [hdrs.map(esc).join(','), ...rows.map(r => hdrs.map(h => esc(r[h])).join(','))].join('\r\n');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send('\uFEFF' + csv);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Send payslips by email ─────────────────────────────────────────────────────
+app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res) => {
+    try {
+        const { year, month } = req.params;
+        const { employeeIds = [] } = req.body; // [] = all
+        const yrInt = parseInt(year), moInt = parseInt(month);
+        const monthName = new Date(2000, moInt-1, 1).toLocaleString('en-PK', { month: 'long' });
+
+        if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+            return res.status(503).json({ error: 'Email not configured. Set EMAIL_USER and EMAIL_APP_PASSWORD env vars.' });
+        }
+
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_APP_PASSWORD }
+        });
+
+        let empQuery = "SELECT * FROM employees WHERE email IS NOT NULL AND email != ''";
+        const params = [];
+        if (employeeIds.length) {
+            empQuery += ` AND id = ANY($1)`;
+            params.push(employeeIds);
+        }
+        const [empRes, payRes] = await Promise.all([
+            pool.query(empQuery, params),
+            pool.query('SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2', [yrInt, moInt])
+        ]);
+        const payMap = {};
+        payRes.rows.forEach(p => { payMap[p.employee_id] = p; });
+
+        const calcWHT = (a) => {
+            if (a <= 600000) return 0;
+            if (a <= 1200000) return Math.round(((a-600000)*0.05)/12);
+            if (a <= 2200000) return Math.round((30000+(a-1200000)*0.15)/12);
+            if (a <= 3200000) return Math.round((180000+(a-2200000)*0.25)/12);
+            if (a <= 4100000) return Math.round((430000+(a-3200000)*0.30)/12);
+            return Math.round((700000+(a-4100000)*0.35)/12);
+        };
+        const fmt = v => Math.round(v||0).toLocaleString('en-PK');
+
+        let sent = 0, failed = [];
+        for (const emp of empRes.rows) {
+            if (!emp.email) continue;
+            const pay = payMap[emp.id];
+            const gross = parseFloat(emp.salary)||0;
+            const WD = 26, pd = parseFloat(pay?.paid_days ?? WD);
+            const ratio = pd / WD;
+            const grossM = Math.round(gross * ratio);
+            const wht = pay?.wht && parseFloat(pay.wht)>0 ? Math.round(parseFloat(pay.wht)) : calcWHT(grossM*12);
+            const eobi = 400;
+            const adv  = Math.round(parseFloat(pay?.advance_deduction||0));
+            const loan = Math.round(parseFloat(pay?.loan_deduction||0));
+            const netPay = grossM - wht - eobi - adv - loan;
+
+            const html = `
+<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+  body{font-family:Arial,sans-serif;font-size:13px;color:#333;background:#f5f5f5;margin:0;padding:20px}
+  .card{background:#fff;max-width:600px;margin:0 auto;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1)}
+  .header{background:#1e3a5f;color:#fff;padding:24px 28px}
+  .header h2{margin:0 0 4px;font-size:20px}
+  .header p{margin:0;opacity:.8;font-size:12px}
+  .body{padding:24px 28px}
+  .greeting{font-size:15px;margin-bottom:16px;color:#1e3a5f}
+  .slip{border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;margin:16px 0}
+  .slip-title{background:#f0f4f8;padding:10px 16px;font-weight:bold;font-size:13px;color:#1e3a5f;border-bottom:1px solid #e0e0e0}
+  table{width:100%;border-collapse:collapse}
+  td{padding:8px 16px;font-size:12px;border-bottom:1px solid #f0f0f0}
+  td:last-child{text-align:right;font-weight:600}
+  .total-row td{background:#f8fafc;font-weight:bold;font-size:13px;color:#1e3a5f}
+  .net-row td{background:#1e3a5f;color:#fff;font-weight:bold;font-size:14px}
+  .footer{padding:20px 28px;font-size:11px;color:#888;border-top:1px solid #eee;text-align:center}
+</style></head><body>
+<div class="card">
+  <div class="header">
+    <h2>Salary Slip — ${monthName} ${year}</h2>
+    <p>Allied Services International (Pvt.) Ltd.</p>
+  </div>
+  <div class="body">
+    <p class="greeting">Dear ${emp.name},</p>
+    <p>We are pleased to inform you that your salary for the month of <strong>${monthName} ${year}</strong> has been processed and sent to your bank for payment. The amount should reflect in your account shortly.</p>
+    <p>Please find below a summary of your salary details:</p>
+    <div class="slip">
+      <div class="slip-title">EARNINGS</div>
+      <table>
+        <tr><td>Basic Salary</td><td>Rs. ${fmt(gross*0.60*ratio)}</td></tr>
+        <tr><td>House Rent Allowance</td><td>Rs. ${fmt(gross*0.20*ratio)}</td></tr>
+        <tr><td>Conveyance</td><td>Rs. ${fmt(gross*0.10*ratio)}</td></tr>
+        <tr><td>Medical Allowance</td><td>Rs. ${fmt(gross*0.07*ratio)}</td></tr>
+        ${pay?.arrears > 0 ? `<tr><td>Arrears</td><td>Rs. ${fmt(pay.arrears)}</td></tr>` : ''}
+        ${pay?.bonus_amount > 0 ? `<tr><td>Bonus</td><td>Rs. ${fmt(pay.bonus_amount)}</td></tr>` : ''}
+        <tr class="total-row"><td>Gross Earnings</td><td>Rs. ${fmt(grossM)}</td></tr>
+      </table>
+    </div>
+    <div class="slip">
+      <div class="slip-title">DEDUCTIONS</div>
+      <table>
+        <tr><td>Income Tax (WHT)</td><td>Rs. ${fmt(wht)}</td></tr>
+        <tr><td>EOBI</td><td>Rs. ${fmt(eobi)}</td></tr>
+        ${adv > 0 ? `<tr><td>Advance Recovery</td><td>Rs. ${fmt(adv)}</td></tr>` : ''}
+        ${loan > 0 ? `<tr><td>Loan Installment</td><td>Rs. ${fmt(loan)}</td></tr>` : ''}
+        <tr class="total-row"><td>Total Deductions</td><td>Rs. ${fmt(wht+eobi+adv+loan)}</td></tr>
+      </table>
+    </div>
+    <table><tr class="net-row"><td>NET SALARY PAYABLE</td><td>Rs. ${fmt(netPay)}</td></tr></table>
+    <br>
+    <p>If you have any queries regarding your salary, please contact the HR department at <a href="mailto:hr@asil.com.pk">hr@asil.com.pk</a>.</p>
+    <p>Warm regards,<br><strong>HR Department</strong><br>Allied Services International (Pvt.) Ltd.</p>
+  </div>
+  <div class="footer">This is an automated email. Please do not reply directly to this message.</div>
+</div>
+</body></html>`;
+
+            try {
+                await transporter.sendMail({
+                    from: `"ASIL HR" <${process.env.EMAIL_USER}>`,
+                    to: emp.email,
+                    subject: `Salary Slip — ${monthName} ${year} | Allied Services International`,
+                    html,
+                });
+                sent++;
+            } catch (e) { failed.push({ id: emp.id, name: emp.name, err: e.message }); }
+        }
+        res.json({ ok: true, sent, failed, total: empRes.rows.length });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -261,13 +261,32 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
 }
 
 // ─── Export Dropdown ──────────────────────────────────────────────────────────
-function ExportMenu({ rows, month, onClose }) {
+function ExportMenu({ month, onClose }) {
+    const [yr, mo] = month.split('-');
+    const dlExport = async (type) => {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        const token = localStorage.getItem('asil_hcm_token');
+        try {
+            const res = await fetch(`${API_URL}/api/payroll/${yr}/${mo}/export?type=${type}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) { alert('Export failed: ' + res.status); return; }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const cd = res.headers.get('content-disposition') || '';
+            const fname = cd.match(/filename="([^"]+)"/)?.[1] || `export_${type}_${yr}-${mo}.csv`;
+            a.href = url; a.download = fname;
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a); URL.revokeObjectURL(url);
+        } catch(e) { alert('Export error: ' + e.message); }
+    };
     const opts = [
-        { label: 'Full Payroll CSV', sub: 'All columns — earnings, deductions, invoice', fn: () => downloadCSV(`Payroll_${month}.csv`, buildPayrollCSV(rows, month)) },
-        { label: 'HBL Bank File', sub: 'Net Pay per employee in HBL transfer format', fn: () => downloadCSV(`HBL_Bank_${month}.csv`, buildHBLFile(rows, month)) },
-        { label: 'WHT Returns (FBR)', sub: 'Taxable amount + tax per employee for FBR', fn: () => { const d = buildWHTFile(rows); d.length ? downloadCSV(`WHT_Returns_${month}.csv`, d) : alert('No employees with WHT this month.'); } },
-        { label: 'EOBI Contributions', sub: 'Employee & employer EOBI per head', fn: () => downloadCSV(`EOBI_${month}.csv`, buildEOBIFile(rows, month)) },
-        { label: 'SESSI Contributions', sub: 'Employer SESSI contribution per head', fn: () => downloadCSV(`SESSI_${month}.csv`, buildSESSIFile(rows, month)) },
+        { label: 'Full Payroll CSV', sub: 'All columns — earnings, deductions, invoice', fn: () => dlExport('payroll') },
+        { label: 'HBL Bank File', sub: 'Net Pay per employee in HBL transfer format', fn: () => dlExport('hbl') },
+        { label: 'WHT Returns (FBR)', sub: 'Taxable amount + tax per employee for FBR', fn: () => dlExport('wht') },
+        { label: 'EOBI Contributions', sub: 'Employee & employer EOBI per head', fn: () => dlExport('eobi') },
+        { label: 'SESSI Contributions', sub: 'Employer SESSI contribution per head', fn: () => dlExport('sessi') },
     ];
     return (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1050 }} onClick={onClose}>
@@ -478,10 +497,49 @@ export default function PayrollSheet() {
         downloadCSV(`HBL_Selected_${month}.csv`, buildHBLFile(selectedRows, month));
     };
 
-    // Generate payslips for selected (open each in new tab)
-    const generatePayslips = () => {
+    // Generate payslips for selected - authenticated fetch → blob download (no popup blocker)
+    const generatePayslips = async () => {
         if (!selectedRows.length) return alert('Select at least one employee.');
-        selectedRows.forEach(r => api.openPayslip(r.emp.id, parseInt(month.split('-')[1]), parseInt(month.split('-')[0])));
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        const token = localStorage.getItem('asil_hcm_token');
+        for (const r of selectedRows) {
+            const [yr2, mo2] = month.split('-');
+            try {
+                const res = await fetch(`${API_URL}/api/payslip/${encodeURIComponent(r.emp.id)}/${mo2}/${yr2}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) { alert(`Payslip error for ${r.emp.name}: HTTP ${res.status}`); continue; }
+                const html = await res.text();
+                const blob = new Blob([html], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Payslip_${r.emp.id}_${mo2}-${yr2}.html`;
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a); URL.revokeObjectURL(url);
+            } catch(e) { alert(`Payslip error for ${r.emp.name}: ${e.message}`); }
+        }
+    };
+
+    // Send payslips by email
+    const [sendingEmails, setSendingEmails] = React.useState(false);
+    const [emailResult, setEmailResult] = React.useState(null);
+    const sendPayslipEmails = async () => {
+        const targets = selectedIds.size > 0 ? [...selectedIds] : [];
+        if (!window.confirm(`Send salary slip emails to ${targets.length ? targets.length + ' selected' : 'ALL'} employees for ${month}?`)) return;
+        setSendingEmails(true); setEmailResult(null);
+        try {
+            const [yr2, mo2] = month.split('-');
+            const res = await fetch(`/api/payroll/${yr2}/${mo2}/send-payslips`, {
+                method: 'POST', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ employeeIds: targets }),
+            });
+            const d = await res.json();
+            if (d.error) throw new Error(d.error);
+            setEmailResult({ ok: true, msg: `✅ Sent to ${d.sent} employee(s)${d.failed?.length ? ` (⚠️ ${d.failed.length} failed)` : ''}.` });
+        } catch(e) { setEmailResult({ ok: false, msg: '❌ ' + e.message }); }
+        setSendingEmails(false);
     };
 
     // Cascading filter lists
@@ -679,13 +737,21 @@ export default function PayrollSheet() {
                     <button onClick={() => setShowExport(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#22c55e', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                         <Download size={15} /> Export <ChevronDown size={14} />
                     </button>
-                    {!isLocked
-                        ? <button onClick={handleLock} title="Lock payroll — mark as bank-processed" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f59e0b', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
-                            <Lock size={15} /> Lock Payroll
-                          </button>
-                        : <button onClick={handleUnlock} title="Unlock payroll to allow edits" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.4)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                    {!isLocked ? (
+                        <>
+                            {emailResult && <span style={{ fontSize: '0.8rem', color: emailResult.ok ? '#22c55e' : '#ef4444', marginRight: '0.5rem' }}>{emailResult.msg}</span>}
+                            <button onClick={sendPayslipEmails} disabled={sendingEmails} style={{ background: '#7c3aed', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', opacity: sendingEmails ? 0.6 : 1 }}>
+                                {sendingEmails ? '📧 Sending...' : '📧 Send Payslips'}
+                            </button>
+                            <button onClick={handleLock} title="Lock payroll — mark as bank-processed" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f59e0b', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                                <Lock size={15} /> Lock Payroll
+                            </button>
+                        </>
+                    ) : (
+                        <button onClick={handleUnlock} title="Unlock payroll to allow edits" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.4)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                             <Unlock size={15} /> Unlock
-                          </button>}
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -926,7 +992,7 @@ export default function PayrollSheet() {
             </div>
 
             {breakdown && <BreakdownPanel emp={breakdown.emp} calc={breakdown.calc} workDays={workDays} onClose={() => setBreakdown(null)} />}
-            {showExport && <ExportMenu rows={rows} month={month} onClose={() => setShowExport(false)} />}
+            {showExport && <ExportMenu month={month} onClose={() => setShowExport(false)} />}
             {showImport && <ImportModal onApply={applyImport} onClose={() => setShowImport(false)} employees={EMPLOYEES} workDays={workDays} />}
         </div>
     );
