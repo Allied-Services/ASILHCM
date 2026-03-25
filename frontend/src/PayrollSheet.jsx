@@ -33,7 +33,8 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
             <span>{label}</span><span style={{ color: color || 'var(--text)' }}>{Rs(value)}</span>
         </div>
     );
-    const cfg = CONTRACT_CFG[emp.contract] || {};
+    const empKey = (emp.contract || emp.clientBU)?.toLowerCase()?.trim();
+    const cfg = CONTRACT_MAP[empKey] || CONTRACT_CFG[emp.contract] || {};
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1100, padding: '2rem', overflowY: 'auto' }}>
             <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '720px', marginBottom: '2rem' }}>
