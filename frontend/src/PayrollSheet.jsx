@@ -426,7 +426,27 @@ export default function PayrollSheet() {
         }, 800);
     }, [month, isLocked]);
 
-    const setOv = (id, field, val) => setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
+    const rowsRef = useRef([]);
+
+    const setOv = (id, field, val) => {
+        if (isLocked) return;
+        setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
+        // Trigger debounced save after user edits
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(async () => {
+            const currentRows = rowsRef.current;
+            if (!currentRows.length || isLocked) return;
+            try {
+                setIsSaving(true);
+                const [yr, mo] = month.split('-');
+                const payload = currentRows.map(({ emp, ov: rowOv, calc }) => ({
+                    employee_id: emp.id, ov: rowOv, calc,
+                }));
+                await api.savePayroll(yr, mo, payload);
+            } catch (e) { console.warn('Payroll save failed:', e.message); }
+            finally { setIsSaving(false); }
+        }, 1200);
+    };
     const getOv = (id, field, def) => { const o = overrides[id]; return (o && o[field] !== undefined) ? o[field] : def; };
 
     // Bulk selection helpers — defined AFTER filtered/rows (declared below)
@@ -499,6 +519,8 @@ export default function PayrollSheet() {
         };
         return { emp, cfg, calc: calcEmployeeRow(emp, ov, cfg, workDays), ov };
     });
+    // Keep ref in sync so the debounced setOv save always uses current calculations
+    rowsRef.current = rows;
 
     // Bulk helpers — placed HERE so filtered + rows are already defined
     const allSelected = filtered.length > 0 && filtered.every(e => selectedIds.has(e.id));
