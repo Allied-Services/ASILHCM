@@ -85,6 +85,81 @@ app.get('/health/ip', (req, res) => {
 app.get('/', (req, res) => res.json({ name: 'ASIL HCM API', status: 'running', app: 'https://asil-hcm-frontend.onrender.com' }));
 
 // ─── Employee Mappers ─────────────────────────────────────────────────────────
+// ─── Jazz SMS Helper ─────────────────────────────────────────────────────────
+async function sendJazzSMS(to, message) {
+    const user = process.env.JAZZ_CMT_USER;
+    const pass = process.env.JAZZ_CMT_PASS;
+    const mask = process.env.JAZZ_CMT_MASK || 'ASIL-HCM';
+
+    // Normalise phone to E.164 (92XXXXXXXXXX)
+    let phone = String(to || '').replace(/\D/g, '');
+    if (phone.startsWith('0') && phone.length === 11) phone = '92' + phone.slice(1);
+    if (phone.startsWith('3') && phone.length === 10) phone = '92' + phone;
+
+    // If Jazz credentials are not configured, log and return gracefully (dev mode)
+    if (!user || !pass) {
+        console.log(`[SMS DEV MODE] Would send to ${phone}: "${message}"`);
+        return { ok: true, response: 'DEV_MODE_NO_CREDENTIALS', phone };
+    }
+
+    const params = new URLSearchParams({
+        userName: user,
+        password: pass,
+        mobileNumber: phone,
+        message,
+        senderName: mask,
+        languageType: '1',
+    });
+    const url = `https://sendcmt.com/api/SendSMS?${params.toString()}`;
+    const r = await fetch(url);
+    const text = await r.text();
+    if (!r.ok) throw new Error(`Jazz SMS HTTP ${r.status}: ${text}`);
+    return { ok: true, response: text, phone };
+}
+
+// ─── SMS Routes ──────────────────────────────────────────────────────────────
+
+// Single SMS
+app.post('/api/sms/send', requireAuth, async (req, res) => {
+    try {
+        const { to, message, employee_id } = req.body;
+        if (!to || !message) return res.status(400).json({ error: 'to and message are required' });
+        const result = await sendJazzSMS(to, message);
+        // Log to DB if employee_id given
+        if (employee_id) {
+            await pool.query(
+                `INSERT INTO employee_messages (employee_id, channel, subject, body, sender) VALUES ($1,'sms','SMS',$2,$3)`,
+                [employee_id, message, req.user.email]
+            ).catch(() => {});
+        }
+        res.json({ ok: true, response: result.response });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Bulk SMS
+app.post('/api/sms/bulk', requireAuth, async (req, res) => {
+    try {
+        const { recipients, message } = req.body; // recipients: [{id, phone, name}]
+        if (!recipients?.length || !message) return res.status(400).json({ error: 'recipients and message are required' });
+        const results = [];
+        for (const r of recipients) {
+            if (!r.phone) { results.push({ name: r.name, ok: false, error: 'No phone' }); continue; }
+            try {
+                const smsMsg = message.replace('{name}', r.name || '');
+                const result = await sendJazzSMS(r.phone, smsMsg);
+                if (r.id) {
+                    await pool.query(
+                        `INSERT INTO employee_messages (employee_id, channel, subject, body, sender) VALUES ($1,'sms','Bulk SMS',$2,$3)`,
+                        [r.id, smsMsg, req.user.email]
+                    ).catch(() => {});
+                }
+                results.push({ name: r.name, phone: r.phone, ok: true, response: result.response });
+            } catch (e) { results.push({ name: r.name, phone: r.phone, ok: false, error: e.message }); }
+        }
+        res.json({ sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 const nullDate = (d) => (d && d !== '' && d !== 'undefined') ? d : null;
 const toDateStr = d => !d ? '' : (d instanceof Date ? d.toISOString().slice(0,10) : String(d).slice(0,10));
 const nullNum = (n) => (n !== '' && n != null) ? parseFloat(n) || null : null;

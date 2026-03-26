@@ -87,6 +87,12 @@ export default function EmployeeInformation({ user }) {
     const [csvErr, setCsvErr] = useState('');
     const fileRef = useRef();
 
+    // ── Bulk selection state ─────────────────────────────────────────────────
+    const [selected, setSelected] = useState(new Set());
+    const [showBulkSMS, setShowBulkSMS] = useState(false);
+    const [bulkSmsMsg, setBulkSmsMsg] = useState('Dear {name}, this is a message from ASIL HR.');
+    const [bulkSmsSending, setBulkSmsSending] = useState(false);
+
     // ── Load employees from DB on mount ─────────────────────────────────────
     useEffect(() => {
         api.getEmployees()
@@ -252,6 +258,61 @@ export default function EmployeeInformation({ user }) {
     };
 
 
+    // ── Bulk helpers ─────────────────────────────────────────────────────────
+    const toggleSelect = (id) => setSelected(prev => {
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+    });
+    const toggleAll = () => {
+        if (selected.size === filtered.length) setSelected(new Set());
+        else setSelected(new Set(filtered.map(e => e.id)));
+    };
+    const clearSelection = () => setSelected(new Set());
+
+    const exportSelectedCSV = () => {
+        const rows = emps.filter(e => selected.has(e.id));
+        const headers = ['Employee Code','Name','Client','Designation','Location','Province','Salary','Active','CNIC','Email','Primary Contact','Bank Name','Bank Account'];
+        const lines = rows.map(e => [
+            e.id, e.name, e.client, e.designation, e.location, e.province,
+            e.salary, e.active === 'Yes' ? 'Active' : 'Inactive', e.cnic,
+            e.email, e.primaryContact, e.bankName, e.bankAccount
+        ].map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(','));
+        const csv = [headers.join(','), ...lines].join('\n');
+        const a = document.createElement('a');
+        a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+        a.download = `ASIL_Export_${new Date().toISOString().slice(0,10)}.csv`;
+        a.click();
+    };
+
+    const bulkSetStatus = async (status) => {
+        if (!window.confirm(`Set ${selected.size} employee(s) to ${status === 'Yes' ? 'Active' : 'Inactive'}?`)) return;
+        for (const id of selected) {
+            const emp = emps.find(e => e.id === id);
+            if (emp) {
+                try { await api.updateEmployee(id, { ...emp, active: status }); }
+                catch (err) { console.error(`Failed to update ${id}:`, err.message); }
+            }
+        }
+        setEmps(p => p.map(e => selected.has(e.id) ? { ...e, active: status } : e));
+        clearSelection();
+    };
+
+    const sendBulkSMS = async () => {
+        if (!bulkSmsMsg.trim()) return;
+        setBulkSmsSending(true);
+        const recipients = emps
+            .filter(e => selected.has(e.id) && e.primaryContact)
+            .map(e => ({ id: e.id, name: e.name, phone: e.primaryContact }));
+        try {
+            const res = await api.bulkSms(recipients, bulkSmsMsg);
+            alert(`✅ Sent: ${res.sent}, Failed: ${res.failed}`);
+            setShowBulkSMS(false);
+            clearSelection();
+        } catch (err) { alert('Error: ' + err.message); }
+        setBulkSmsSending(false);
+    };
+
     // F is a thin wrapper that passes form state to the module-level FormField
     const F = (props) => <FormField {...props} form={form} setForm={setForm} />;
 
@@ -326,6 +387,63 @@ export default function EmployeeInformation({ user }) {
                 </div>
             )}
 
+            {/* ── Bulk Action Bar ── */}
+            {selected.size > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', marginBottom: '0.75rem', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '10px', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, color: '#38bdf8', fontSize: '0.88rem' }}>{selected.size} selected</span>
+                    <button onClick={clearSelection} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: 'var(--text-muted)', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}>✕ Clear</button>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={exportSelectedCSV}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(34,197,94,0.12)', border: '1px solid #22c55e', color: '#22c55e', padding: '6px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                        ⬇ Export CSV
+                    </button>
+                    <button onClick={() => setShowBulkSMS(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(56,189,248,0.12)', border: '1px solid #38bdf8', color: '#38bdf8', padding: '6px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                        📱 Bulk SMS
+                    </button>
+                    <button onClick={() => bulkSetStatus('Yes')}
+                        style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid #22c55e', color: '#22c55e', padding: '6px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                        ✅ Activate
+                    </button>
+                    <button onClick={() => bulkSetStatus('No')}
+                        style={{ background: 'rgba(234,179,8,0.12)', border: '1px solid #eab308', color: '#eab308', padding: '6px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                        ⏸ Deactivate
+                    </button>
+                </div>
+            )}
+
+            {/* Bulk SMS Modal */}
+            {showBulkSMS && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '2rem' }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '540px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
+                            <div>
+                                <h3 style={{ margin: 0 }}>📱 Bulk SMS</h3>
+                                <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>Sending to {emps.filter(e => selected.has(e.id) && e.primaryContact).length} of {selected.size} selected employees with phone numbers</p>
+                            </div>
+                            <button onClick={() => setShowBulkSMS(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
+                        </div>
+                        <div style={{ padding: '1.5rem 2rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Message — use <code style={{ background: 'var(--bg-dark)', padding: '1px 5px', borderRadius: '3px' }}>{'{name}'}</code> for employee name (max 160 chars)</div>
+                            <textarea
+                                value={bulkSmsMsg}
+                                onChange={e => setBulkSmsMsg(e.target.value.slice(0, 160))}
+                                rows={4}
+                                style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px', color: 'var(--text)', fontSize: '0.88rem', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+                            />
+                            <div style={{ fontSize: '0.75rem', color: bulkSmsMsg.length > 140 ? '#f59e0b' : 'var(--text-muted)', marginTop: '4px' }}>{bulkSmsMsg.length}/160</div>
+                        </div>
+                        <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                            <button onClick={() => setShowBulkSMS(false)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={sendBulkSMS} disabled={bulkSmsSending || !bulkSmsMsg.trim()}
+                                style={{ background: '#38bdf8', border: 'none', color: '#000', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                                {bulkSmsSending ? 'Sending…' : `Send to ${emps.filter(e => selected.has(e.id) && e.primaryContact).length} employees`}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Toolbar */}
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ flex: 1, minWidth: '200px', display: 'flex', alignItems: 'center', background: 'var(--bg-card)', padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
@@ -371,9 +489,15 @@ export default function EmployeeInformation({ user }) {
 
             {/* Table */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', minWidth: '900px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', minWidth: '960px' }}>
                     <thead>
                         <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-dark)' }}>
+                            <th style={{ padding: '0.9rem 0.75rem', width: '40px' }}>
+                                <input type="checkbox"
+                                    checked={filtered.length > 0 && selected.size === filtered.length}
+                                    onChange={toggleAll}
+                                    style={{ cursor: 'pointer', accentColor: '#38bdf8', width: '15px', height: '15px' }} />
+                            </th>
                             {['Employee Code', 'Name', 'Client', 'Designation', 'Location', 'Contract Start', 'Salary', 'Status', ''].map(h => (
                                 <th key={h} style={{ padding: '0.9rem 1rem', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
@@ -381,7 +505,11 @@ export default function EmployeeInformation({ user }) {
                     </thead>
                     <tbody>
                         {filtered.map(emp => (
-                            <tr key={emp.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-dark)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                            <tr key={emp.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: selected.has(emp.id) ? 'rgba(56,189,248,0.05)' : 'transparent' }} onMouseEnter={e => { if (!selected.has(emp.id)) e.currentTarget.style.background = 'var(--bg-dark)'; }} onMouseLeave={e => { if (!selected.has(emp.id)) e.currentTarget.style.background = 'transparent'; }}>
+                                <td style={{ padding: '0.85rem 0.75rem' }}>
+                                    <input type="checkbox" checked={selected.has(emp.id)} onChange={() => toggleSelect(emp.id)}
+                                        style={{ cursor: 'pointer', accentColor: '#38bdf8', width: '15px', height: '15px' }} />
+                                </td>
                                 <td style={{ padding: '0.85rem 1rem', fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{emp.id}</td>
                                 <td style={{ padding: '0.85rem 1rem' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
