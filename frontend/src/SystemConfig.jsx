@@ -208,29 +208,39 @@ function VendorWHTEditor({ rates, onChange }) {
     );
 }
 
-// ─── EOBI / SESSI Reference Panel ────────────────────────────────────────────
-function StatutoryReferencePanel() {
-    const items = [
-        { label: 'EOBI — Employer Contribution', rate: '5% of gross salary (min Rs. 250/month)', section: 'EOBI Act 1976' },
-        { label: 'EOBI — Employee Contribution', rate: '1% of gross salary', section: 'EOBI Act 1976' },
-        { label: 'SESSI — Employer (Sindh)', rate: 'Rs. 2,220/month flat (as of 2025)', section: 'SESSI Act 2012' },
-        { label: 'SESSI — Employee (Sindh)', rate: '1% of wages', section: 'SESSI Act 2012' },
-        { label: 'ESSI — Employer (Punjab)', rate: '5% of wages', section: 'ESSI Act 1952' },
-        { label: 'Gratuity', rate: '1/30th of last month basic × years served', section: 'EOB Ord 1968' },
-        { label: 'Sales Tax on Services', rate: '15%-16% (province-specific)', section: 'SPST / PPST' },
-        { label: 'Advance Tax on Salary (244A)', rate: 'Monthly deduction per FBR slabs above', section: 'ITO 2001, Sec 149' },
-    ];
+// ─── Statutory Reference Panel (Editable) ────────────────────────────────────
+const DEFAULT_STATUTORY = [
+    { label: 'EOBI — Employer Contribution', rate: '5% of minimum wage (Rs. 37,000 cap)', section: 'EOBI Act 1976' },
+    { label: 'EOBI — Employee Contribution', rate: '1% of minimum wage (Rs. 37,000 cap)', section: 'EOBI Act 1976' },
+    { label: 'SESSI — Employer (Sindh)', rate: '6% of gross salary (exempt if gross ≥ Rs. 45,000)', section: 'SESSI Act 2012' },
+    { label: 'SESSI — Employee (Sindh)', rate: '1% of wages', section: 'SESSI Act 2012' },
+    { label: 'ESSI — Employer (Punjab)', rate: '5% of wages', section: 'ESSI Act 1952' },
+    { label: 'Gratuity', rate: '1/12th of last month basic × years served', section: 'EOB Ord 1968' },
+    { label: 'Provident Fund — Employer', rate: '8.33% of basic salary', section: 'EPF Ordinance' },
+    { label: 'Provident Fund — Employee', rate: '8.33% of basic salary', section: 'EPF Ordinance' },
+    { label: 'Sales Tax on Services', rate: '15%-16% (province-specific)', section: 'SPST / PPST' },
+    { label: 'Advance Tax on Salary (244A)', rate: 'Monthly deduction per FBR slabs (Sec. 149)', section: 'ITO 2001, Sec 149' },
+];
+
+function StatutoryReferencePanel({ items, onChange }) {
+    const setVal = (i, k, v) => {
+        const next = [...items];
+        next[i] = { ...next[i], [k]: v };
+        onChange(next);
+    };
+    const add = () => onChange([...items, { label: 'New Item', rate: '', section: '' }]);
+    const remove = i => { if (window.confirm('Remove?')) onChange(items.filter((_, j) => j !== i)); };
     return (
         <div>
             <div style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.18)',
                 borderRadius: '10px', padding: '1rem 1.25rem', marginBottom: '1rem', fontSize: '0.82rem', color: '#f59e0b' }}>
-                ⚠️ <strong>Statutory Reference Only</strong> — These rates are sourced from FBR, EOBI, and provincial Social Security authorities. Always verify the latest notifications on <strong>fbr.gov.pk</strong> and <strong>eobi.gov.pk</strong>.
+                ⚠️ <strong>Statutory Reference</strong> — Editable. Rates sourced from FBR, EOBI, provincial authorities. Always verify on <strong>fbr.gov.pk</strong> and <strong>eobi.gov.pk</strong>.
             </div>
             <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                     <thead>
                         <tr style={{ background: 'var(--bg-dark)' }}>
-                            {['Contribution / Levy', 'Rate / Amount', 'Governing Law'].map(h => (
+                            {['Contribution / Levy', 'Rate / Amount', 'Governing Law', ''].map(h => (
                                 <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '0.7rem',
                                     fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
                                     color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>{h}</th>
@@ -240,28 +250,122 @@ function StatutoryReferencePanel() {
                     <tbody>
                         {items.map((it, i) => (
                             <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                                <td style={{ padding: '9px 12px', fontWeight: 600 }}>{it.label}</td>
-                                <td style={{ padding: '9px 12px', color: 'var(--primary)', fontWeight: 600 }}>{it.rate}</td>
-                                <td style={{ padding: '9px 12px', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '0.78rem' }}>{it.section}</td>
+                                <td style={{ padding: '6px 8px' }}>
+                                    <input value={it.label} onChange={e => setVal(i, 'label', e.target.value)}
+                                        style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '5px', padding: '5px 8px', color: 'var(--text)', fontSize: '0.83rem', outline: 'none', width: '240px' }} />
+                                </td>
+                                <td style={{ padding: '6px 8px' }}>
+                                    <input value={it.rate} onChange={e => setVal(i, 'rate', e.target.value)}
+                                        style={{ background: 'rgba(56,189,248,0.04)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '5px', padding: '5px 8px', color: 'var(--primary)', fontWeight: 600, fontSize: '0.83rem', outline: 'none', width: '300px' }} />
+                                </td>
+                                <td style={{ padding: '6px 8px' }}>
+                                    <input value={it.section} onChange={e => setVal(i, 'section', e.target.value)}
+                                        style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '5px', padding: '5px 8px', color: 'var(--text-muted)', fontSize: '0.78rem', fontFamily: 'monospace', outline: 'none', width: '160px' }} />
+                                </td>
+                                <td style={{ padding: '6px 8px' }}>
+                                    <button onClick={() => remove(i)}
+                                        style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '5px', padding: '5px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                        <Trash2 size={13} />
+                                    </button>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
+            <button onClick={add}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '0.75rem',
+                    background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)',
+                    color: 'var(--primary)', padding: '6px 14px', borderRadius: '7px',
+                    cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                <Plus size={14} /> Add Row
+            </button>
+        </div>
+    );
+}
+
+// ─── Tax by Region ────────────────────────────────────────────────────────────
+const DEFAULT_REGION_TAX = [
+    { province: 'Sindh',   salesTaxPct: 15, salesTaxAct: 'SPST Act 2011',  notes: 'On services invoiced in Sindh' },
+    { province: 'Punjab',  salesTaxPct: 16, salesTaxAct: 'PPST Act 2012',  notes: 'On services invoiced in Punjab' },
+    { province: 'KPK',     salesTaxPct: 15, salesTaxAct: 'KPST Act 2013',  notes: 'On services invoiced in KPK' },
+    { province: 'Balochistan', salesTaxPct: 15, salesTaxAct: 'BSST Act 2015', notes: 'On services invoiced in Balochistan' },
+    { province: 'ICT/Federal', salesTaxPct: 17, salesTaxAct: 'Sales Tax Act 1990', notes: 'Federal area (Islamabad)' },
+];
+
+function RegionTaxEditor({ rates, onChange }) {
+    const setVal = (i, k, v) => {
+        const next = [...rates];
+        next[i] = { ...next[i], [k]: k === 'salesTaxPct' ? (parseFloat(v) || 0) : v };
+        onChange(next);
+    };
+    const add = () => onChange([...rates, { province: 'New Province', salesTaxPct: 0, salesTaxAct: '', notes: '' }]);
+    const remove = i => { if (window.confirm('Remove?')) onChange(rates.filter((_, j) => j !== i)); };
+    return (
+        <div>
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                        <tr style={{ background: 'var(--bg-dark)' }}>
+                            {['Province / Region', 'Sales Tax %', 'Governing Act', 'Notes', ''].map(h => (
+                                <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '0.7rem',
+                                    fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+                                    color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rates.map((r, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ padding: '6px 8px' }}>
+                                    <input value={r.province} onChange={e => setVal(i, 'province', e.target.value)}
+                                        style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '5px', padding: '6px 8px', color: 'var(--text)', fontSize: '0.83rem', outline: 'none', width: '180px' }} />
+                                </td>
+                                <td style={{ padding: '6px 8px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input type="number" value={r.salesTaxPct} onChange={e => setVal(i, 'salesTaxPct', e.target.value)}
+                                            style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '5px', padding: '6px 8px', color: '#f59e0b', fontWeight: 700, fontSize: '0.83rem', outline: 'none', width: '65px', textAlign: 'right' }} />
+                                        <span style={{ color: 'var(--text-muted)' }}>%</span>
+                                    </div>
+                                </td>
+                                <td style={{ padding: '6px 8px' }}>
+                                    <input value={r.salesTaxAct} onChange={e => setVal(i, 'salesTaxAct', e.target.value)}
+                                        style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '5px', padding: '6px 8px', color: 'var(--text-muted)', fontSize: '0.78rem', fontFamily: 'monospace', outline: 'none', width: '160px' }} />
+                                </td>
+                                <td style={{ padding: '6px 8px' }}>
+                                    <input value={r.notes} onChange={e => setVal(i, 'notes', e.target.value)}
+                                        style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '5px', padding: '6px 8px', color: 'var(--text)', fontSize: '0.83rem', outline: 'none', width: '240px' }} />
+                                </td>
+                                <td style={{ padding: '6px 8px' }}>
+                                    <button onClick={() => remove(i)} style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '5px', padding: '5px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                        <Trash2 size={13} />
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <button onClick={add} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '0.75rem',
+                background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)',
+                color: 'var(--primary)', padding: '6px 14px', borderRadius: '7px',
+                cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                <Plus size={14} /> Add Region
+            </button>
         </div>
     );
 }
 
 // ─── Main SystemConfig ────────────────────────────────────────────────────────
-const TABS = ['Employee Taxes', 'Vendor WHT Rates', 'Statutory Reference'];
+const TABS = ['Employee Taxes', 'Vendor WHT Rates', 'Tax by Region', 'Statutory Reference'];
 
 const DEFAULT_SLABS = [
-    { from: 0, to: 600000, rate: 0, base: 0, label: 'Up to Rs. 600,000' },
-    { from: 600001, to: 1200000, rate: 5, base: 0, label: 'Rs. 600,001 – 1,200,000' },
-    { from: 1200001, to: 2200000, rate: 15, base: 30000, label: 'Rs. 1,200,001 – 2,200,000' },
-    { from: 2200001, to: 3200000, rate: 25, base: 180000, label: 'Rs. 2,200,001 – 3,200,000' },
-    { from: 3200001, to: 4100000, rate: 30, base: 430000, label: 'Rs. 3,200,001 – 4,100,000' },
-    { from: 4100001, to: null, rate: 35, base: 700000, label: 'Above Rs. 4,100,000' },
+    { from: 0,       to: 600000,  rate: 0,  base: 0,      label: 'Up to Rs. 600,000' },
+    { from: 600001,  to: 1200000, rate: 1,  base: 0,      label: 'Rs. 600,001 – 1,200,000' },
+    { from: 1200001, to: 2200000, rate: 11, base: 6000,   label: 'Rs. 1,200,001 – 2,200,000' },
+    { from: 2200001, to: 3200000, rate: 23, base: 116000, label: 'Rs. 2,200,001 – 3,200,000' },
+    { from: 3200001, to: 4100000, rate: 30, base: 346000, label: 'Rs. 3,200,001 – 4,100,000' },
+    { from: 4100001, to: null,    rate: 35, base: 616000, label: 'Above Rs. 4,100,000' },
 ];
 
 const DEFAULT_WHT = [
@@ -286,6 +390,8 @@ export default function SystemConfig() {
     const [tab, setTab] = useState(TABS[0]);
     const [slabs, setSlabs] = useState(DEFAULT_SLABS);
     const [whtRates, setWhtRates] = useState(DEFAULT_WHT);
+    const [statutory, setStatutory] = useState(DEFAULT_STATUTORY);
+    const [regionTax, setRegionTax] = useState(DEFAULT_REGION_TAX);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState('');
     const [toast, setToast] = useState('');
@@ -296,9 +402,13 @@ export default function SystemConfig() {
         Promise.all([
             api.getConfig('fbr_individual_tax').catch(() => null),
             api.getConfig('fbr_vendor_wht').catch(() => null),
-        ]).then(([iTaxRes, vWHTRes]) => {
+            api.getConfig('statutory_reference').catch(() => null),
+            api.getConfig('region_tax').catch(() => null),
+        ]).then(([iTaxRes, vWHTRes, statRes, regRes]) => {
             if (iTaxRes?.config?.value) setSlabs(iTaxRes.config.value);
             if (vWHTRes?.config?.value) setWhtRates(vWHTRes.config.value);
+            if (statRes?.config?.value) setStatutory(statRes.config.value);
+            if (regRes?.config?.value) setRegionTax(regRes.config.value);
             setLoading(false);
         });
     }, []);
@@ -317,6 +427,24 @@ export default function SystemConfig() {
         try {
             await api.updateConfig('fbr_vendor_wht', whtRates);
             showToast('✅ Vendor WHT rates saved successfully');
+        } catch (err) { alert('Save failed: ' + err.message); }
+        setSaving('');
+    };
+
+    const saveStatutory = async () => {
+        setSaving('statutory');
+        try {
+            await api.updateConfig('statutory_reference', statutory);
+            showToast('✅ Statutory reference saved');
+        } catch (err) { alert('Save failed: ' + err.message); }
+        setSaving('');
+    };
+
+    const saveRegionTax = async () => {
+        setSaving('region');
+        try {
+            await api.updateConfig('region_tax', regionTax);
+            showToast('✅ Regional tax rates saved');
         } catch (err) { alert('Save failed: ' + err.message); }
         setSaving('');
     };
@@ -350,7 +478,7 @@ export default function SystemConfig() {
                 ))}
             </div>
 
-            {loading && tab !== TABS[2] && (
+            {loading && tab !== TABS[2] && tab !== TABS[3] && (
                 <div style={{ color: 'var(--text-muted)', padding: '2rem', textAlign: 'center' }}>Loading configuration...</div>
             )}
 
@@ -439,11 +567,50 @@ export default function SystemConfig() {
                 </div>
             )}
 
-            {/* ── Statutory Reference Tab ───────────────────────────────────── */}
+            {/* ── Tax by Region Tab ─────────────────────────────────────── */}
             {tab === TABS[2] && (
                 <div>
-                    <h2 style={{ margin: '0 0 1rem', fontSize: '1.1rem' }}>Statutory Contributions & Levies — Quick Reference</h2>
-                    <StatutoryReferencePanel />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <div>
+                            <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Sales Tax Rates by Province / Region</h2>
+                            <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Provincial GST rates on services. Used to auto-calculate invoice sales tax based on the employee's contract region.</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <button onClick={() => setRegionTax(DEFAULT_REGION_TAX)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                <RotateCcw size={14} /> Reset
+                            </button>
+                            <button onClick={saveRegionTax} disabled={saving === 'region'}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', border: 'none', color: 'white', padding: '8px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', opacity: saving === 'region' ? 0.6 : 1 }}>
+                                <Save size={14} /> {saving === 'region' ? 'Saving...' : 'Save Rates'}
+                            </button>
+                        </div>
+                    </div>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
+                        <RegionTaxEditor rates={regionTax} onChange={setRegionTax} />
+                    </div>
+                </div>
+            )}
+
+            {/* ── Statutory Reference Tab ───────────────────────────────────── */}
+            {tab === TABS[3] && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Statutory Contributions &amp; Levies</h2>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <button onClick={() => setStatutory(DEFAULT_STATUTORY)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                <RotateCcw size={14} /> Reset
+                            </button>
+                            <button onClick={saveStatutory} disabled={saving === 'statutory'}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', border: 'none', color: 'white', padding: '8px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', opacity: saving === 'statutory' ? 0.6 : 1 }}>
+                                <Save size={14} /> {saving === 'statutory' ? 'Saving...' : 'Save Reference'}
+                            </button>
+                        </div>
+                    </div>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
+                        <StatutoryReferencePanel items={statutory} onChange={setStatutory} />
+                    </div>
                 </div>
             )}
         </div>

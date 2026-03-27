@@ -16,13 +16,18 @@ export const PAYROLL_CONTRACT_CFG = {
 };
 
 // ─── Calculation engine ───────────────────────────────────────────────────────
+// Strip comma-formatting from CSV numbers like "10,000" → 10000
+export const parseNum = (v) => parseFloat(String(v || '').replace(/,/g, '')) || 0;
+
+// FBR 2025-26 Salaried Individual — Finance Act 2024
+// taxableAnnual = (grossMonthly - OPD - Reimbursement) × 12
 export const calcWHT = (annual) => {
     if (annual <= 600000) return 0;
-    if (annual <= 1200000) return Math.round(((annual - 600000) * 0.05) / 12);
-    if (annual <= 2200000) return Math.round((30000 + (annual - 1200000) * 0.15) / 12);
-    if (annual <= 3200000) return Math.round((180000 + (annual - 2200000) * 0.25) / 12);
-    if (annual <= 4100000) return Math.round((430000 + (annual - 3200000) * 0.30) / 12);
-    return Math.round((700000 + (annual - 4100000) * 0.35) / 12);
+    if (annual <= 1200000) return Math.round(((annual - 600000) * 0.01) / 12);
+    if (annual <= 2200000) return Math.round((6000 + (annual - 1200000) * 0.11) / 12);
+    if (annual <= 3200000) return Math.round((116000 + (annual - 2200000) * 0.23) / 12);
+    if (annual <= 4100000) return Math.round((346000 + (annual - 3200000) * 0.30) / 12);
+    return Math.round((616000 + (annual - 4100000) * 0.35) / 12);
 };
 export const calcEOBI_fn = () => {
     // EOBI is a flat statutory amount — 1%/5% of minimum wage Rs. 40,000
@@ -30,7 +35,8 @@ export const calcEOBI_fn = () => {
     return { employee: 400, employer: 2000 };
 };
 export const calcPF_fn = (basic, enrolled) => enrolled ? Math.round(basic * 0.0833) : 0;
-export const calcGratuityMonthly = (gross) => Math.round((gross / 26) * 30 / 12);
+// Gratuity monthly accrual: basic/26 * 30 / 12 per EOB Ordinance 1968
+export const calcGratuityMonthly = (gross) => Math.round((gross * 0.60) / 26 * 30 / 12);
 
 export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const pd = parseFloat(ov.paid_days ?? workDays) || 0;
@@ -41,22 +47,27 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const convPaid = Math.round((emp.conveyance || 0) * pd / workDays);
     const medPaid = Math.round((emp.medical_allowance || 0) * pd / workDays);
     const otherPaid = Math.round((emp.other_allowances || 0) * pd / workDays);
-    const ot2hrs = parseFloat(ov.ot2_hrs || 0);
-    const ot3hrs = parseFloat(ov.ot3_hrs || 0);
-    const otAmount = Math.round(hrlyBasic * (ot2hrs * 2 + ot3hrs * 3));
-    const opdClaim = parseFloat(ov.opd_claim || 0);
-    const reimb = parseFloat(ov.reimbursement || 0);
-    const arrears = parseFloat(ov.arrears || 0);
-    const splAllow = parseFloat(ov.special_allowance || 0);
-    const fuelMob = parseFloat(ov.fuel_mobile || 0);
+    const ot2hrs = parseNum(ov.ot2_hrs || 0);
+    const ot3hrs = parseNum(ov.ot3_hrs || 0);
+    // OT calc: basic/workDays/8 × multiplier × hours (SEPARATE amounts for display)
+    const ot2Amount = Math.round(hrlyBasic * 2 * ot2hrs);
+    const ot3Amount = Math.round(hrlyBasic * 3 * ot3hrs);
+    const otAmount = ot2Amount + ot3Amount;
+    const opdClaim = parseNum(ov.opd_claim || 0);
+    const reimb = parseNum(ov.reimbursement || 0);
+    const arrears = parseNum(ov.arrears || 0);
+    const splAllow = parseNum(ov.special_allowance || 0);
+    const fuelMob = parseNum(ov.fuel_mobile || 0);
     const grossMonthly = basicPaid + hraPaid + convPaid + medPaid + otherPaid + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob;
-    const annualIncome = grossMonthly * 12;
+    // Taxable income EXCLUDES OPD and expense reimbursements (non-taxable per FBR rules)
+    const taxableMonthly = grossMonthly - opdClaim - reimb;
+    const annualIncome = taxableMonthly * 12;
     const incomeTax = calcWHT(annualIncome);
     const eobi = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
     const pfEE = calcPF_fn(emp.basic, emp.pf_enrolled);
-    const otherDed = parseFloat(ov.other_deduction || 0);
-    const advanceDed = parseFloat(ov.advance_deduction || 0);
-    const loanDed = parseFloat(ov.loan_deduction || 0);
+    const otherDed = parseNum(ov.other_deduction || 0);
+    const advanceDed = parseNum(ov.advance_deduction || 0);
+    const loanDed = parseNum(ov.loan_deduction || 0);
     const totalDeductions = incomeTax + eobi.employee + pfEE + otherDed + advanceDed + loanDed;
     const netPay = grossMonthly - totalDeductions;
     const sessi = grossMonthly < 45000 ? Math.round(grossMonthly * 0.06) : 0; // 6% of gross, exempt if gross >= 45,000
@@ -77,8 +88,8 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const salesTax = Math.round(serviceCharges * stPct / 100);
     const totalInvoice = totalPayrollCost + serviceCharges + salesTax;
     return {
-        pd, ot2hrs, ot3hrs, basicPaid, hraPaid, convPaid, medPaid, otherPaid,
-        otAmount, opdClaim, reimb, arrears, splAllow, fuelMob, grossMonthly, annualIncome,
+        pd, ot2hrs, ot3hrs, ot2Amount, ot3Amount, basicPaid, hraPaid, convPaid, medPaid, otherPaid,
+        otAmount, opdClaim, reimb, arrears, splAllow, fuelMob, grossMonthly, taxableMonthly, annualIncome,
         incomeTax, eobi_ee: eobi.employee, pfEE, otherDed, advanceDed, loanDed,
         totalDeductions, netPay, eobi_er: eobi.employer, sessi, eduCess, bonusAmount,
         gratuity, pfER, lifeIns, medEE, medSP, medCh1, medCh2, totalMedical,

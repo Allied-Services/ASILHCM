@@ -189,6 +189,8 @@ const empToDb = (e) => ({
     bank_name: e.bankName || null, bank_account: e.bankAccount || null, account_title: e.accountTitle || null,
     nok_name: e.nokName || null, nok_relation: e.nokRelation || null, nok_contact: e.nokContact || null,
     contract_date: nullDate(e.contractDate),
+    contract_name: e.contractName || null,
+    region: e.region || null,
 });
 
 const empFromDb = (r) => ({
@@ -216,6 +218,8 @@ const empFromDb = (r) => ({
     nokName: r.nok_name, nokRelation: r.nok_relation, nokContact: r.nok_contact,
     contractStartDate: toDateStr(r.contract_date || r.contract_start_date),
     contractDate: toDateStr(r.contract_date),
+    contractName: r.contract_name || null,
+    region: r.region || null,
     salaryHistory: [],
     leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
 });
@@ -252,7 +256,7 @@ app.get('/api/employees', requireAuth, async (req, res) => {
 app.post('/api/employees', requireAuth, async (req, res) => {
     try {
         const d = empToDb(req.body);
-        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date'];
+        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'region'];
         const vals = cols.map(c => d[c]);
         const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
         const updates = cols.slice(1).map((c, i) => `${c}=EXCLUDED.${c}`).join(',');
@@ -267,7 +271,7 @@ app.post('/api/employees', requireAuth, async (req, res) => {
 app.put('/api/employees/:id', requireAuth, async (req, res) => {
     try {
         const d = empToDb({ ...req.body, id: req.params.id });
-        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date'];
+        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'region'];
         const setClauses = cols.map((c, i) => `${c}=$${i + 1}`).join(',');
         const vals = [...cols.map(c => d[c]), req.params.id];
         const { rows } = await pool.query(
@@ -295,7 +299,7 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
         'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic',
         'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id',
         'medical_type', 'medical_maternity', 'total_medical_coverage',
-        'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date'];
+        'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'region'];
     const placeholders = COLS.map((_, i) => `$${i + 1}`).join(',');
     const updates = COLS.slice(1).map(c => `${c}=EXCLUDED.${c}`).join(',');
     for (const emp of employees) {
@@ -718,6 +722,8 @@ app.get('/api/contracts', requireAuth, async (req, res) => {
             headcount: ct.headcount, status: ct.status,
             startDate: toDateStr(ct.start_date), endDate: toDateStr(ct.end_date),
             costs: ct.costs || {}, financials: ct.financials || {},
+            endOfService: ct.end_of_service || 'Gratuity',
+            regionProvince: ct.region_province || null,
         })) });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2224,6 +2230,17 @@ app.listen(PORT, async () => {
             ALTER TABLE employees ADD COLUMN IF NOT EXISTS id_card_status TEXT DEFAULT 'Pending';
             ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_date DATE;
         `).catch(() => {});
+
+        // New cols: employees (contract_name + region); contracts (end_of_service + region_province)
+        await pool.query(`
+            ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_name TEXT;
+            ALTER TABLE employees ADD COLUMN IF NOT EXISTS region TEXT;
+        `).catch(() => {});
+        await pool.query(`
+            ALTER TABLE contracts ADD COLUMN IF NOT EXISTS end_of_service TEXT DEFAULT 'Gratuity';
+            ALTER TABLE contracts ADD COLUMN IF NOT EXISTS region_province TEXT;
+        `).catch(() => {});
+        console.log('Migration OK: contract_name/region on employees; end_of_service/region_province on contracts');
 
         // ─── Advances / Loans ─────────────────────────────────────────────────
         await pool.query(`

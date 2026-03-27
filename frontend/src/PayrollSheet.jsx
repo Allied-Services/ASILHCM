@@ -57,8 +57,8 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
                         <R label="HRA" formula={`${fmt(emp.hra || 0)} × ${calc.pd}/${workDays}`} value={calc.hraPaid} />
                         <R label="Conveyance" formula={`${fmt(emp.conveyance || 0)} × ${calc.pd}/${workDays}`} value={calc.convPaid} />
                         <R label="Medical Allowance" value={calc.medPaid} />
-                        {calc.ot2hrs > 0 && <R label={`OT @2× (${calc.ot2hrs} hrs)`} formula={`${fmt(emp.basic)}÷${workDays}÷8 × 2 × ${calc.ot2hrs}`} value={calc.otAmount} />}
-                        {calc.ot3hrs > 0 && <R label={`OT @3× (${calc.ot3hrs} hrs)`} value={Math.round((emp.basic / workDays / 8) * 3 * calc.ot3hrs)} />}
+                        {calc.ot2hrs > 0 && <R label={`OT @2× (${calc.ot2hrs} hrs)`} formula={`${fmt(emp.basic)}÷${workDays}÷8 × 2 × ${calc.ot2hrs}`} value={calc.ot2Amount} />}
+                        {calc.ot3hrs > 0 && <R label={`OT @3× (${calc.ot3hrs} hrs)`} formula={`${fmt(emp.basic)}÷${workDays}÷8 × 3 × ${calc.ot3hrs}`} value={calc.ot3Amount} />}
                         {calc.opdClaim > 0 && <R label="OPD Claim" value={calc.opdClaim} />}
                         {calc.reimb > 0 && <R label="Reimbursements" value={calc.reimb} />}
                         {calc.arrears > 0 && <R label="Arrears" value={calc.arrears} />}
@@ -67,7 +67,7 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
                         <D label="Gross Monthly" value={calc.grossMonthly} color="#22c55e" />
                     </S>
                     <S title="Employee Deductions" color="#f43f5e">
-                        <R label="Income Tax (WHT)" formula={`Annual Rs.${fmt(calc.annualIncome)} → FBR 2025-26 ÷ 12`} value={calc.incomeTax} color="#f43f5e" />
+                        <R label="Income Tax (WHT)" formula={`Taxable Annual Rs.${fmt(calc.taxableMonthly*12)} → FBR 2025-26 ÷ 12`} value={calc.incomeTax} color="#f43f5e" />
                         <R label="EOBI Employee — Fixed" formula="1% × Rs. 40,000 (statutory minimum wage)" value={calc.eobi_ee} />
                         {emp.pf_enrolled && <R label="PF Employee 8.33%" formula={`${fmt(emp.basic)} × 8.33%`} value={calc.pfEE} />}
                         {calc.advanceDed > 0 && <R label="Advance Recovery" value={calc.advanceDed} />}
@@ -137,27 +137,36 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                 if (!match) {
                     errs.push(`Row ${i + 2}: No employee found for CNIC ${cnic} / Code ${empCode}`);
                 } else {
-                    // Present Days: if provided, use as paid_days (unauthorized absence = deduction)
+                    // Strip commas from formatted numbers e.g. "10,000" → 10000
+                    const n = (v) => parseFloat(String(v || '').replace(/,/g, '')) || 0;
                     const presentDays = obj['Present Days'] !== undefined && obj['Present Days'] !== ''
-                        ? Math.min(parseFloat(obj['Present Days']) || workDays, workDays)
+                        ? Math.min(n(obj['Present Days']) || workDays, workDays)
                         : workDays;
                     const leaveDays = workDays - presentDays;
                     rows.push({
-                        empId:         match.id,
-                        paid_days:     presentDays,
-                        ot2_hrs:       parseFloat(obj['OT Hrs @ 2X']) || 0,
-                        ot3_hrs:       parseFloat(obj['OT Hrs @ 3X']) || 0,
-                        opd_claim:     parseFloat(obj['OPD']) || 0,
-                        reimbursement: parseFloat(obj['Expense Reimbursement']) || 0,
-                        arrears:       parseFloat(obj['Arrears']) || 0,
-                        bonus_amount:  parseFloat(obj['Bonus']) || 0,
+                        empId:             match.id,
+                        paid_days:         presentDays,
+                        ot2_hrs:           n(obj['OT Hrs @ 2X']),
+                        ot3_hrs:           n(obj['OT Hrs @ 3X']),
+                        opd_claim:         n(obj['OPD']),
+                        reimbursement:     n(obj['Expense Reimbursement']),
+                        arrears:           n(obj['Arrears']),
+                        bonus_amount:      n(obj['Bonus']),
+                        special_allowance: n(obj['Special Allowance']),
+                        fuel_mobile:       n(obj['Other Allowance Fuel | Mobile']),
+                        other_deduction:   n(obj['Other Deduction']),
+                        contract_name:     obj['Contract Name'] || '',
                     });
                     prev.push({
                         name: match.name, id: match.id,
                         presentDays, leaveDays,
                         ot2: obj['OT Hrs @ 2X'] || 0, ot3: obj['OT Hrs @ 3X'] || 0,
-                        opd: obj['OPD'] || 0, reimb: obj['Expense Reimbursement'] || 0,
-                        arrears: obj['Arrears'] || 0, bonus: obj['Bonus'] || 0,
+                        opd: n(obj['OPD']), reimb: n(obj['Expense Reimbursement']),
+                        arrears: n(obj['Arrears']), bonus: n(obj['Bonus']),
+                        splAllow: n(obj['Special Allowance']),
+                        fuelMob: n(obj['Other Allowance Fuel | Mobile']),
+                        otherDed: n(obj['Other Deduction']),
+                        contractName: obj['Contract Name'] || '',
                     });
                 }
             });
@@ -169,10 +178,11 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
     const downloadTemplate = () => {
         downloadCSV('payroll_import_template.csv', [{
             'CNIC': '42101-1234567-1', 'Staff Code': 'SEC-001', 'Month': 'March', 'Year': '2026',
-            'ASIL Employee Code': 'EMP-2026-201',
-            'Present Days': '26',       // attendance (< working days = deduction)
+            'ASIL Employee Code': 'EMP-2026-201', 'Contract Name': 'Security Services LMT',
+            'Present Days': '26',
             'OT Hrs @ 2X': '8', 'OT Hrs @ 3X': '0',
-            'OPD': '0', 'Expense Reimbursement': '0', 'Arrears': '0', 'Bonus': '0',
+            'OPD': '0', 'Expense Reimbursement': '0', 'Arrears': '0',
+            'Special Allowance': '0', 'Other Allowance Fuel | Mobile': '0', 'Other Deduction': '0',
         }]);
     };
 
@@ -215,21 +225,23 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                             <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border)', maxHeight: '280px', overflowY: 'auto' }}>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                                     <thead style={{ background: 'var(--bg-dark)', position: 'sticky', top: 0 }}>
-                                        <tr>{['Employee', 'ID', 'Pres.Days', 'Leave', 'OT @2X', 'OT @3X', 'OPD', 'Reimb.', 'Arrears', 'Bonus'].map(h => <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>)}</tr>
+                                        <tr>{['Employee', 'ID', 'Contract', 'Pres.Days', 'OT@2X','OT@3X','OPD','Reimb.','Arrears','Spl.Allow','Fuel/Mob','OtherDed'].map(h => <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>)}</tr>
                                     </thead>
                                     <tbody>
                                         {preview.map((r, i) => (
                                             <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: r.leaveDays > 0 ? 'rgba(239,68,68,0.05)' : undefined }}>
                                                 <td style={{ padding: '7px 8px', fontWeight: 600 }}>{r.name}</td>
                                                 <td style={{ padding: '7px 8px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.id}</td>
+                                                <td style={{ padding: '7px 8px', fontSize: '0.72rem', color: r.contractName ? 'var(--primary)' : 'var(--text-muted)' }}>{r.contractName || '—'}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{r.presentDays}</td>
-                                                <td style={{ padding: '7px 8px', textAlign: 'right', color: r.leaveDays > 0 ? '#ef4444' : 'var(--text-muted)', fontWeight: r.leaveDays > 0 ? 700 : 400 }}>{r.leaveDays > 0 ? `-${r.leaveDays}d` : '—'}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{r.ot2}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{r.ot3}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(r.opd)}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(r.reimb)}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(r.arrears)}</td>
-                                                <td style={{ padding: '7px 8px', textAlign: 'right', color: parseFloat(r.bonus) > 0 ? '#22c55e' : 'var(--text-muted)' }}>{fmt(r.bonus)}</td>
+                                                <td style={{ padding: '7px 8px', textAlign: 'right', color: r.splAllow > 0 ? '#22c55e' : 'var(--text-muted)' }}>{fmt(r.splAllow)}</td>
+                                                <td style={{ padding: '7px 8px', textAlign: 'right', color: r.fuelMob > 0 ? '#22c55e' : 'var(--text-muted)' }}>{fmt(r.fuelMob)}</td>
+                                                <td style={{ padding: '7px 8px', textAlign: 'right', color: r.otherDed > 0 ? '#ef4444' : 'var(--text-muted)' }}>{fmt(r.otherDed)}</td>
                                             </tr>
                                         ))}
                                     </tbody>
