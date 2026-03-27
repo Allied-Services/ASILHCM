@@ -2386,9 +2386,40 @@ app.listen(PORT, async () => {
         `);
         console.log('Migration OK: payroll_transactions table ready');
 
+        // ─── Schema migrations: add columns that may be missing from existing table ─────
+        // These run safely with IF NOT EXISTS — needed because CREATE TABLE IF NOT EXISTS
+        // is a no-op when the table already exists (so new columns never get added).
+        const payrollCols = [
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS paid_days         NUMERIC(5,2)`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS special_allowance NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS fuel_mobile       NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS other_deduction   NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS advance_deduction NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS loan_deduction    NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS bonus_amount      NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS arrears           NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS medical_ee        NUMERIC(12,2)`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS medical_sp        NUMERIC(12,2)`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS medical_ch1       NUMERIC(12,2)`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS medical_ch2       NUMERIC(12,2)`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS service_charges   NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS sales_tax         NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS total_invoice     NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS eobi_ee           NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS locked            BOOLEAN DEFAULT FALSE`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS locked_by         TEXT`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS locked_at         TIMESTAMPTZ`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS created_by        TEXT`,
+        ];
+        for (const sql of payrollCols) {
+            try { await pool.query(sql); } catch (e) { /* column already exists — ignore */ }
+        }
+        console.log('Migration OK: payroll_transactions column migrations done');
+
         // ─── placeholder so existing closing brace still works ───────────────
         const _dummy = true; if (!_dummy) {
         }
+
 
         // Bulk-fill contract_date for any employee whose contract_date is still null
         // Uses LIKE match in both directions so partial names (e.g. "PSO Serai Naurang" vs "PSO") still match
