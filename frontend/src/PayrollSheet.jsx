@@ -47,18 +47,20 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
                     <div>
                         <h3 style={{ margin: 0 }}>Payroll Verification — {emp.name}</h3>
-                        <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>{emp.id} · {emp.contract} · Working Days: {workDays}</p>
+                        <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>{emp.id} · {emp.contract} · OT Rate: Gross÷208hrs</p>
                     </div>
                     <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.4rem' }}>×</button>
                 </div>
                 <div style={{ padding: '1.75rem 2rem' }}>
                     <S title="Earnings" color="#22c55e">
-                        <R label="Basic (paid days)" formula={`${fmt(emp.basic)} ÷ ${workDays} × ${calc.pd} days`} value={calc.basicPaid} />
-                        <R label="HRA" formula={`${fmt(emp.hra || 0)} × ${calc.pd}/${workDays}`} value={calc.hraPaid} />
-                        <R label="Conveyance" formula={`${fmt(emp.conveyance || 0)} × ${calc.pd}/${workDays}`} value={calc.convPaid} />
-                        <R label="Medical Allowance" value={calc.medPaid} />
-                        {calc.ot2hrs > 0 && <R label={`OT @2× (${calc.ot2hrs} hrs)`} formula={`${fmt(emp.basic)}÷${workDays}÷8 × 2 × ${calc.ot2hrs}`} value={calc.ot2Amount} />}
-                        {calc.ot3hrs > 0 && <R label={`OT @3× (${calc.ot3hrs} hrs)`} formula={`${fmt(emp.basic)}÷${workDays}÷8 × 3 × ${calc.ot3hrs}`} value={calc.ot3Amount} />}
+                        <R label="Basic" value={calc.basicPaid} />
+                        {calc.hraPaid > 0 && <R label="HRA" value={calc.hraPaid} />}
+                        {calc.convPaid > 0 && <R label="Conveyance" value={calc.convPaid} />}
+                        {calc.medPaid > 0 && <R label="Medical Allowance" value={calc.medPaid} />}
+                        {calc.otherPaid > 0 && <R label="Other Allowances" value={calc.otherPaid} />}
+                        {calc.absentDays > 0 && <R label={`Absence Deduction (${calc.absentDays} days)`} formula={`Gross ${fmt(calc.hrlyGross ? calc.hrlyGross*208 : 0)} ÷ 26 × ${calc.absentDays}`} value={-calc.absenceDeduction} color="#f43f5e" />}
+                        {calc.ot2hrs > 0 && <R label={`OT @2× (${calc.ot2hrs} hrs)`} formula={`Gross÷208 × 2 × ${calc.ot2hrs}`} value={calc.ot2Amount} />}
+                        {calc.ot3hrs > 0 && <R label={`OT @3× (${calc.ot3hrs} hrs)`} formula={`Gross÷208 × 3 × ${calc.ot3hrs}`} value={calc.ot3Amount} />}
                         {calc.opdClaim > 0 && <R label="OPD Claim" value={calc.opdClaim} />}
                         {calc.reimb > 0 && <R label="Reimbursements" value={calc.reimb} />}
                         {calc.arrears > 0 && <R label="Arrears" value={calc.arrears} />}
@@ -81,7 +83,7 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
                         {calc.sessi > 0
                             ? <R label={`SESSI (6% — gross Rs.${fmt(calc.grossMonthly)} < 45,000)`} formula={`6% × ${fmt(calc.grossMonthly)}`} value={calc.sessi} />
                             : <R label="SESSI — Exempt (gross ≥ Rs. 45,000)" formula="Not applicable" value={0} muted />}
-                        <R label="Gratuity (monthly accrual)" formula={`(${fmt(emp.gross)} ÷ 26) × 30 ÷ 12`} value={calc.gratuity} />
+                        <R label="Gratuity (monthly accrual)" formula={`Gross ÷ 26 ÷ 12 × 30`} value={calc.gratuity} />
                         <R label="Life Insurance" value={calc.lifeIns} />
                         <R label="Medical — Employee" value={calc.medEE} />
                         {calc.medSP > 0 && <R label="Medical — Spouse" value={calc.medSP} />}
@@ -621,37 +623,45 @@ export default function PayrollSheet() {
 
     const applyImport = async (parsed) => {
         const newOv = { ...overrides };
+        const importedIds = new Set();
         parsed.forEach(({ empId, ...fields }) => {
             newOv[empId] = { ...(newOv[empId] || {}), ...fields };
+            importedIds.add(empId);
         });
         setOverrides(newOv);
-        // Save immediately to DB after import
+        // Save ONLY the employees that were in the import CSV — never overwrite others
         try {
             const [yr, mo] = month.split('-');
-            const payload = filtered.map(emp => {
-                const cfg = CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] ||
-                            CONTRACT_MAP[emp.contract?.toLowerCase()?.trim()] || {};
-                const empOv = newOv[emp.id] || {};
-                const ov = {
-                    paid_days:         empOv.paid_days         ?? workDays,
-                    ot2_hrs:           empOv.ot2_hrs           ?? 0,
-                    ot3_hrs:           empOv.ot3_hrs           ?? 0,
-                    opd_claim:         empOv.opd_claim         ?? 0,
-                    reimbursement:     empOv.reimbursement     ?? 0,
-                    arrears:           empOv.arrears           ?? 0,
-                    bonus_amount:      empOv.bonus_amount      ?? 0,
-                    special_allowance: empOv.special_allowance ?? 0,
-                    fuel_mobile:       empOv.fuel_mobile       ?? 0,
-                    other_deduction:   empOv.other_deduction   ?? 0,
-                    advance_deduction: empOv.advance_deduction ?? 0,
-                    loan_deduction:    empOv.loan_deduction    ?? 0,
-                };
-                const calc = calcEmployeeRow(emp, ov, cfg, workDays);
-                return { employee_id: emp.id, ov, calc };
-            });
-            await api.savePayroll(yr, mo, payload);
+            const payload = filtered
+                .filter(emp => importedIds.has(emp.id))
+                .map(emp => {
+                    const cfg = CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] ||
+                                CONTRACT_MAP[emp.contract?.toLowerCase()?.trim()] || {};
+                    const empOv = newOv[emp.id] || {};
+                    const ov = {
+                        paid_days:         empOv.paid_days         ?? workDays,
+                        ot2_hrs:           empOv.ot2_hrs           ?? 0,
+                        ot3_hrs:           empOv.ot3_hrs           ?? 0,
+                        opd_claim:         empOv.opd_claim         ?? 0,
+                        reimbursement:     empOv.reimbursement     ?? 0,
+                        arrears:           empOv.arrears           ?? 0,
+                        bonus_amount:      empOv.bonus_amount      ?? 0,
+                        special_allowance: empOv.special_allowance ?? 0,
+                        fuel_mobile:       empOv.fuel_mobile       ?? 0,
+                        other_deduction:   empOv.other_deduction   ?? 0,
+                        advance_deduction: empOv.advance_deduction ?? 0,
+                        loan_deduction:    empOv.loan_deduction    ?? 0,
+                    };
+                    const calc = calcEmployeeRow(emp, ov, cfg, workDays);
+                    return { employee_id: emp.id, ov, calc };
+                });
+            if (payload.length > 0) {
+                await api.savePayroll(yr, mo, payload);
+                console.log(`Import saved ${payload.length} employees to DB`);
+            }
         } catch (e) { console.warn('Import save failed:', e.message); }
     };
+
 
     const handleLock = async () => {
         if (!window.confirm('Lock this payroll month? No further edits will be allowed after locking.')) return;

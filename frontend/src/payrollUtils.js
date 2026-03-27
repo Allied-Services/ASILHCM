@@ -40,25 +40,38 @@ export const calcGratuityMonthly = (gross) => Math.round((gross * 0.60) / 26 * 3
 
 export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const pd = parseFloat(ov.paid_days ?? workDays) || 0;
-    const dailyBasic = emp.basic / workDays;
-    const hrlyBasic = dailyBasic / 8;
-    const basicPaid = Math.round(dailyBasic * pd);
-    const hraPaid = Math.round((emp.hra || 0) * pd / workDays);
-    const convPaid = Math.round((emp.conveyance || 0) * pd / workDays);
-    const medPaid = Math.round((emp.medical_allowance || 0) * pd / workDays);
-    const otherPaid = Math.round((emp.other_allowances || 0) * pd / workDays);
+    // FIXED FORMULAS (per user spec):
+    // - OT Hourly Rate  = Gross Salary / (26 × 8) — always 208 hours/month
+    // - Leave Deduction = Gross Salary / 26       — always 26 working days
+    const grossSalary = parseFloat(emp.salary) || parseFloat(emp.basic) || 0;
+    const hrlyGross = grossSalary / (26 * 8);   // for OT calc
+    const dailyGross = grossSalary / 26;         // for leave/absence deduction
+
+    // Attendance proration of salary components (partial month)
+    const absentDays = Math.max(0, workDays - pd);
+    // Deduction for absent days = absentDays × (gross / 26)
+    const absenceDeduction = Math.round(absentDays * dailyGross);
+    // Gross components (paid = full month, absence deducted at gross/26 each)
+    const basicPaid   = Math.round(parseFloat(emp.basic || 0));
+    const hraPaid     = Math.round(parseFloat(emp.hra || 0));
+    const convPaid    = Math.round(parseFloat(emp.conveyance || 0));
+    const medPaid     = Math.round(parseFloat(emp.medical_allowance || 0));
+    const otherPaid   = Math.round(parseFloat(emp.other_allowances || 0));
+
     const ot2hrs = parseNum(ov.ot2_hrs || 0);
     const ot3hrs = parseNum(ov.ot3_hrs || 0);
-    // OT calc: basic/workDays/8 × multiplier × hours (SEPARATE amounts for display)
-    const ot2Amount = Math.round(hrlyBasic * 2 * ot2hrs);
-    const ot3Amount = Math.round(hrlyBasic * 3 * ot3hrs);
+    // OT: Gross / (26×8) × multiplier × hours
+    const ot2Amount = Math.round(hrlyGross * 2 * ot2hrs);
+    const ot3Amount = Math.round(hrlyGross * 3 * ot3hrs);
     const otAmount = ot2Amount + ot3Amount;
     const opdClaim = parseNum(ov.opd_claim || 0);
     const reimb = parseNum(ov.reimbursement || 0);
     const arrears = parseNum(ov.arrears || 0);
     const splAllow = parseNum(ov.special_allowance || 0);
     const fuelMob = parseNum(ov.fuel_mobile || 0);
-    const grossMonthly = basicPaid + hraPaid + convPaid + medPaid + otherPaid + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob;
+    // Gross = full salary components + OT + extras - absence deduction
+    const grossMonthly = basicPaid + hraPaid + convPaid + medPaid + otherPaid
+        + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob - absenceDeduction;
     // Taxable income EXCLUDES OPD and expense reimbursements (non-taxable per FBR rules)
     const taxableMonthly = grossMonthly - opdClaim - reimb;
     const annualIncome = taxableMonthly * 12;
@@ -89,11 +102,13 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const totalInvoice = totalPayrollCost + serviceCharges + salesTax;
     return {
         pd, ot2hrs, ot3hrs, ot2Amount, ot3Amount, basicPaid, hraPaid, convPaid, medPaid, otherPaid,
-        otAmount, opdClaim, reimb, arrears, splAllow, fuelMob, grossMonthly, taxableMonthly, annualIncome,
+        otAmount, opdClaim, reimb, arrears, splAllow, fuelMob, absenceDeduction, absentDays,
+        grossMonthly, taxableMonthly, annualIncome,
         incomeTax, eobi_ee: eobi.employee, pfEE, otherDed, advanceDed, loanDed,
         totalDeductions, netPay, eobi_er: eobi.employer, sessi, eduCess, bonusAmount,
         gratuity, pfER, lifeIns, medEE, medSP, medCh1, medCh2, totalMedical,
         totalPayrollCost, serviceCharges, salesTax, totalInvoice,
+        hrlyGross, dailyGross,
     };
 };
 
