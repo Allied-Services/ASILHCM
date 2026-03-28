@@ -2382,7 +2382,10 @@ app.listen(PORT, async () => {
             `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS locked_by         TEXT`,
             `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS locked_at         TIMESTAMPTZ`,
             `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS created_by        TEXT`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS created_at        TIMESTAMPTZ DEFAULT NOW()`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS updated_at        TIMESTAMPTZ DEFAULT NOW()`,
         ];
+
 
         for (const sql of payrollCols) {
             try { await pool.query(sql); } catch (e) { /* column already exists — ignore */ }
