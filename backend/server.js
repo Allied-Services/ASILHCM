@@ -2359,6 +2359,10 @@ app.listen(PORT, async () => {
         // is a no-op when the table already exists (so new columns never get added).
         const payrollCols = [
             `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS paid_days         NUMERIC(5,2)`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS ot2_hrs           NUMERIC(8,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS ot3_hrs           NUMERIC(8,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS opd_claim         NUMERIC(12,2) DEFAULT 0`,
+            `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS reimbursement     NUMERIC(12,2) DEFAULT 0`,
             `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS special_allowance NUMERIC(12,2) DEFAULT 0`,
             `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS fuel_mobile       NUMERIC(12,2) DEFAULT 0`,
             `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS other_deduction   NUMERIC(12,2) DEFAULT 0`,
@@ -2379,6 +2383,7 @@ app.listen(PORT, async () => {
             `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS locked_at         TIMESTAMPTZ`,
             `ALTER TABLE payroll_transactions ADD COLUMN IF NOT EXISTS created_by        TEXT`,
         ];
+
         for (const sql of payrollCols) {
             try { await pool.query(sql); } catch (e) { /* column already exists — ignore */ }
         }
