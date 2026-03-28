@@ -2111,9 +2111,9 @@ async function xeroGetAccessToken() {
 }
 
 // ── 1. Initiate Xero OAuth ──────────────────────────────────────────────────
-app.get('/api/xero/connect', requireAuth, (req, res) => {
-    if (!XERO_CLIENT_ID) return res.status(500).json({ error: 'XERO_CLIENT_ID env var not set' });
-    const state = Buffer.from(JSON.stringify({ userId: req.user.id, ts: Date.now() })).toString('base64');
+app.get('/api/xero/connect', (req, res) => {
+    if (!XERO_CLIENT_ID) return res.status(500).send('<h2>XERO_CLIENT_ID is not configured in Render environment variables.</h2>');
+    const state = Buffer.from(JSON.stringify({ ts: Date.now() })).toString('base64');
     const url = `https://login.xero.com/identity/connect/authorize?` + new URLSearchParams({
         response_type: 'code',
         client_id:     XERO_CLIENT_ID,

@@ -402,7 +402,7 @@ export default function SystemConfig() {
     useEffect(() => {
         if (tab === 'Integrations' && xeroStatus === null) {
             setXeroStatus('loading');
-            fetch('/api/xero/status', { headers: { 'Authorization': `Bearer ${localStorage.getItem('asil_hcm_token')}` } })
+            fetch('https://asilhcm.onrender.com/api/xero/status', { headers: { 'Authorization': `Bearer ${localStorage.getItem('asil_hcm_token')}` } })
                 .then(r => r.json())
                 .then(d => setXeroStatus(d.connected ? 'connected' : 'disconnected'))
                 .catch(() => setXeroStatus('disconnected'));
@@ -657,13 +657,13 @@ export default function SystemConfig() {
                                     style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#00B5C8', border: 'none', color: 'white', padding: '9px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.88rem', textDecoration: 'none' }}>
                                     Open Xero Dashboard ↗
                                 </a>
-                                <button onClick={() => { window.open('/api/xero/connect', '_blank', 'width=600,height=700'); }}
+                                <button onClick={() => { window.open('https://asilhcm.onrender.com/api/xero/connect', '_blank', 'width=600,height=700'); }}
                                     style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '9px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
                                     Reconnect
                                 </button>
                             </div>
                         ) : (
-                            <button onClick={() => { window.open('/api/xero/connect', '_blank', 'width=600,height=700'); setXeroStatus('loading'); }}
+                            <button onClick={() => { window.open('https://asilhcm.onrender.com/api/xero/connect', '_blank', 'width=600,height=700'); setXeroStatus('loading'); }}
                                 disabled={xeroStatus === 'loading'}
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#00B5C8', border: 'none', color: 'white', padding: '10px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.9rem', opacity: xeroStatus === 'loading' ? 0.7 : 1 }}>
                                 {xeroStatus === 'loading' ? 'Checking…' : '⚡ Connect to Xero'}
