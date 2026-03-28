@@ -2057,7 +2057,7 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
 const XERO_CLIENT_ID     = process.env.XERO_CLIENT_ID     || '';
 const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET || '';
 const XERO_REDIRECT_URI  = process.env.XERO_REDIRECT_URI  || 'https://asilhcm.onrender.com/api/xero/callback';
-const XERO_SCOPES        = 'openid profile email accounting.transactions accounting.contacts offline_access';
+const XERO_SCOPES = 'offline_access accounting.transactions accounting.contacts';
 
 // Helper: exchange code or refresh token for access token
 async function xeroGetToken(params) {
