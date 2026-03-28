@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { FilePlus, Eye, Download, CheckCircle, Lock, Send, Printer, X } from 'lucide-react';
+import { FilePlus, Eye, Download, CheckCircle, Lock, Send, Printer, X, ExternalLink } from 'lucide-react';
+import { api } from './api';
 
 // ─── Sample approved sources ───────────────────────────────────────────────────
 // In production these come from the payroll engine and billing module
@@ -42,6 +43,19 @@ const fmt = n => Math.round(parseFloat(n) || 0).toLocaleString('en-PK');
 const Rs = n => `Rs. ${fmt(n)}`;
 const today = () => new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' });
 let INV_COUNTER = 1;
+
+// Generate rolling billing period options: 12 months back + 3 months forward
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function getBillingPeriods() {
+    const periods = [];
+    const now = new Date();
+    for (let i = 12; i >= -3; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        periods.push(`${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`);
+    }
+    return periods;
+}
+const BILLING_PERIODS = getBillingPeriods();
 
 // ─── Invoice Preview / Print ───────────────────────────────────────────────────
 function renderInvoiceHTML(inv) {
@@ -121,7 +135,9 @@ function printInvoice(inv) {
 function CreateInvoiceModal({ onSave, onClose }) {
     const [client, setClient] = useState('');
     const [contract, setContract] = useState('');
-    const [period, setPeriod] = useState('March 2026');
+    const now = new Date();
+    const defaultPeriod = `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
+    const [period, setPeriod] = useState(defaultPeriod);
     const [poNumber, setPoNumber] = useState('');
     const [dueDate, setDueDate] = useState('');
     const [whtVal, setWhtVal] = useState('');
@@ -193,7 +209,16 @@ function CreateInvoiceModal({ onSave, onClose }) {
                                 </select>
                             </div>
                         ))}
-                        {[['Billing Period', null, setPeriod, period, 'text', 'e.g. March 2026'], ['PO / Reference No.', null, setPoNumber, poNumber, 'text', 'Client\'s PO number'], ['Payment Due Date', null, setDueDate, dueDate, 'date', ''], ['WHT to be deducted by client (PKR)', null, setWhtVal, whtVal, 'number', '0']].map(([label, , setter, val, type, ph]) => (
+                        {/* Billing Period — Dropdown */}
+                        <div style={{ marginBottom: '0.85rem' }}>
+                            <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px', fontWeight: 600 }}>Billing Period</label>
+                            <select value={period} onChange={e => setPeriod(e.target.value)}
+                                style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '9px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}>
+                                {BILLING_PERIODS.map(p => <option key={p}>{p}</option>)}
+                            </select>
+                        </div>
+                        {/* Other fields */}
+                        {[['PO / Reference No.', setPoNumber, poNumber, 'text', "Client's PO number"], ['Payment Due Date', setDueDate, dueDate, 'date', ''], ['WHT to be deducted by client (PKR)', setWhtVal, whtVal, 'number', '0']].map(([label, setter, val, type, ph]) => (
                             <div key={label} style={{ marginBottom: '0.85rem' }}>
                                 <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px', fontWeight: 600 }}>{label}</label>
                                 <input type={type} value={val} onChange={e => setter(e.target.value)} placeholder={ph}
@@ -245,6 +270,21 @@ function InvoicePreviewModal({ inv, onAction, onClose }) {
     const flow = { 'Draft': ['Send for Approval'], 'Pending Approval': ['Approve', 'Reject'], 'Approved': ['Mark as Sent'], 'Sent': ['Mark as Paid'], 'Paid': [], 'Rejected': [] };
     const actions = flow[inv.status] || [];
     const nextStatus = { 'Send for Approval': 'Pending Approval', 'Approve': 'Approved', 'Reject': 'Rejected', 'Mark as Sent': 'Sent', 'Mark as Paid': 'Paid' };
+    const [xeroStatus, setXeroStatus] = useState(null); // null | 'sending' | 'sent' | 'error'
+    const [xeroUrl, setXeroUrl]   = useState(null);
+    const canSendXero = ['Approved', 'Sent', 'Paid'].includes(inv.status);
+
+    const sendToXero = async () => {
+        setXeroStatus('sending');
+        try {
+            const res = await api.post('/api/xero/invoices', { invoice: inv });
+            if (res.data?.xeroUrl) setXeroUrl(res.data.xeroUrl);
+            setXeroStatus('sent');
+        } catch (e) {
+            console.error('Xero push failed:', e);
+            setXeroStatus('error');
+        }
+    };
 
     return (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -254,7 +294,20 @@ function InvoicePreviewModal({ inv, onAction, onClose }) {
                         <h3 style={{ margin: 0 }}>{inv.number}</h3>
                         <span style={{ padding: '3px 10px', borderRadius: '99px', fontSize: '0.74rem', fontWeight: 700, background: inv.status === 'Paid' ? 'rgba(34,197,94,0.12)' : inv.status === 'Approved' || inv.status === 'Sent' ? 'rgba(56,189,248,0.12)' : 'rgba(100,116,139,0.12)', color: inv.status === 'Paid' ? '#22c55e' : inv.status === 'Approved' || inv.status === 'Sent' ? 'var(--primary)' : 'var(--text-muted)' }}>{inv.status}</span>
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        {canSendXero && (
+                            xeroStatus === 'sent' ? (
+                                <a href={xeroUrl || 'https://go.xero.com/AccountsReceivable/Search.aspx'} target="_blank" rel="noreferrer"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#00B5C8', border: 'none', color: 'white', padding: '7px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', textDecoration: 'none' }}>
+                                    <ExternalLink size={14} /> View in Xero ✓
+                                </a>
+                            ) : (
+                                <button onClick={sendToXero} disabled={xeroStatus === 'sending'}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '5px', background: xeroStatus === 'error' ? '#ef4444' : '#00B5C8', border: 'none', color: 'white', padding: '7px 14px', borderRadius: '7px', cursor: xeroStatus === 'sending' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.85rem', opacity: xeroStatus === 'sending' ? 0.7 : 1 }}>
+                                    <Send size={14} /> {xeroStatus === 'sending' ? 'Sending…' : xeroStatus === 'error' ? 'Retry Xero' : 'Send to Xero'}
+                                </button>
+                            )
+                        )}
                         <button onClick={() => printInvoice(inv)}
                             style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#22c55e', border: 'none', color: 'white', padding: '7px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
                             <Printer size={14} /> Print / PDF

@@ -357,7 +357,7 @@ function RegionTaxEditor({ rates, onChange }) {
 }
 
 // ─── Main SystemConfig ────────────────────────────────────────────────────────
-const TABS = ['Employee Taxes', 'Vendor WHT Rates', 'Tax by Region', 'Statutory Reference'];
+const TABS = ['Employee Taxes', 'Vendor WHT Rates', 'Tax by Region', 'Statutory Reference', 'Integrations'];
 
 const DEFAULT_SLABS = [
     { from: 0,       to: 600000,  rate: 0,  base: 0,      label: 'Up to Rs. 600,000' },
@@ -395,8 +395,19 @@ export default function SystemConfig() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState('');
     const [toast, setToast] = useState('');
+    const [xeroStatus, setXeroStatus] = useState(null); // null | loading | connected | disconnected
 
     const showToast = msg => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+
+    useEffect(() => {
+        if (tab === 'Integrations' && xeroStatus === null) {
+            setXeroStatus('loading');
+            fetch('/api/xero/status', { headers: { 'Authorization': `Bearer ${localStorage.getItem('asil_hcm_token')}` } })
+                .then(r => r.json())
+                .then(d => setXeroStatus(d.connected ? 'connected' : 'disconnected'))
+                .catch(() => setXeroStatus('disconnected'));
+        }
+    }, [tab]);
 
     useEffect(() => {
         Promise.all([
@@ -610,6 +621,54 @@ export default function SystemConfig() {
                     </div>
                     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
                         <StatutoryReferencePanel items={statutory} onChange={setStatutory} />
+                    </div>
+                </div>
+            )}
+
+            {/* ── Integrations Tab (Xero) ─────────────────────────────────── */}
+            {tab === TABS[4] && (
+                <div>
+                    <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem' }}>Integrations</h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.75rem' }}>Connect third-party services to ASIL HCM.</p>
+
+                    {/* Xero Card */}
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '14px', padding: '1.75rem', maxWidth: '540px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '1.25rem' }}>
+                            <div style={{ width: '48px', height: '48px', background: '#00B5C8', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '1.1rem', color: 'white', letterSpacing: '-1px' }}>X</div>
+                            <div>
+                                <div style={{ fontWeight: 800, fontSize: '1.05rem' }}>Xero Accounting</div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '2px' }}>Push invoices directly to your Xero account</div>
+                            </div>
+                            {xeroStatus === 'connected' && (
+                                <span style={{ marginLeft: 'auto', padding: '4px 12px', borderRadius: '99px', background: 'rgba(34,197,94,0.12)', color: '#22c55e', fontSize: '0.78rem', fontWeight: 700 }}>● Connected</span>
+                            )}
+                            {xeroStatus === 'disconnected' && (
+                                <span style={{ marginLeft: 'auto', padding: '4px 12px', borderRadius: '99px', background: 'rgba(100,116,139,0.12)', color: '#94a3b8', fontSize: '0.78rem', fontWeight: 700 }}>● Not Connected</span>
+                            )}
+                        </div>
+
+                        <div style={{ background: 'var(--bg-dark)', borderRadius: '10px', padding: '1rem', marginBottom: '1.25rem', fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.6' }}>
+                            <strong style={{ color: 'var(--text)' }}>One-time setup:</strong> Click the button below to open Xero login. After authorizing, your account is linked and invoices can be pushed from the Invoice module automatically.
+                        </div>
+
+                        {xeroStatus === 'connected' ? (
+                            <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                <a href="https://go.xero.com/AccountsReceivable/Search.aspx" target="_blank" rel="noreferrer"
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#00B5C8', border: 'none', color: 'white', padding: '9px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.88rem', textDecoration: 'none' }}>
+                                    Open Xero Dashboard ↗
+                                </a>
+                                <button onClick={() => { window.open('/api/xero/connect', '_blank', 'width=600,height=700'); }}
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '9px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                                    Reconnect
+                                </button>
+                            </div>
+                        ) : (
+                            <button onClick={() => { window.open('/api/xero/connect', '_blank', 'width=600,height=700'); setXeroStatus('loading'); }}
+                                disabled={xeroStatus === 'loading'}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#00B5C8', border: 'none', color: 'white', padding: '10px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.9rem', opacity: xeroStatus === 'loading' ? 0.7 : 1 }}>
+                                {xeroStatus === 'loading' ? 'Checking…' : '⚡ Connect to Xero'}
+                            </button>
+                        )}
                     </div>
                 </div>
             )}

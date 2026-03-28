@@ -2042,6 +2042,197 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// XERO INTEGRATION
+// ═══════════════════════════════════════════════════════════════════════════
+// Env vars required:
+//   XERO_CLIENT_ID     — OAuth2 Client ID from Xero Developer Portal
+//   XERO_CLIENT_SECRET — OAuth2 Client Secret
+//   XERO_REDIRECT_URI  — e.g. https://asilhcm.onrender.com/api/xero/callback
+//
+// Flow: Admin visits /api/xero/connect → Xero login → /api/xero/callback
+//       → stores refresh_token in system_config table → all future POSTs
+//       use that token automatically.
+
+const XERO_CLIENT_ID     = process.env.XERO_CLIENT_ID     || '';
+const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET || '';
+const XERO_REDIRECT_URI  = process.env.XERO_REDIRECT_URI  || 'https://asilhcm.onrender.com/api/xero/callback';
+const XERO_SCOPES        = 'openid profile email accounting.transactions accounting.contacts offline_access';
+
+// Helper: exchange code or refresh token for access token
+async function xeroGetToken(params) {
+    const body = new URLSearchParams(params);
+    const r = await fetch('https://identity.xero.com/connect/token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': 'Basic ' + Buffer.from(`${XERO_CLIENT_ID}:${XERO_CLIENT_SECRET}`).toString('base64'),
+        },
+        body: body.toString(),
+    });
+    if (!r.ok) throw new Error(`Xero token error ${r.status}: ${await r.text()}`);
+    return r.json();
+}
+
+// Helper: get a valid access token (refresh if needed) + tenantId
+async function xeroGetAccessToken() {
+    const cfg = await pool.query(`SELECT value FROM system_config WHERE key = 'xero_tokens'`);
+    if (!cfg.rows.length) throw new Error('Xero is not connected. Please visit /api/xero/connect first.');
+    const tokens = JSON.parse(cfg.rows[0].value);
+
+    // Refresh token
+    const resp = await xeroGetToken({
+        grant_type:    'refresh_token',
+        refresh_token: tokens.refresh_token,
+    });
+    // Persist new tokens
+    const newTokens = { ...tokens, ...resp };
+    await pool.query(
+        `INSERT INTO system_config (key, value) VALUES ('xero_tokens', $1)
+         ON CONFLICT (key) DO UPDATE SET value = $1`,
+        [JSON.stringify(newTokens)]
+    );
+
+    // Get tenantId
+    const tenantsResp = await fetch('https://api.xero.com/connections', {
+        headers: { 'Authorization': `Bearer ${resp.access_token}`, 'Content-Type': 'application/json' },
+    });
+    const tenants = await tenantsResp.json();
+    if (!tenants.length) throw new Error('No Xero organisations connected.');
+    const tenantId = tokens.tenant_id || tenants[0].tenantId;
+    if (!newTokens.tenant_id) {
+        newTokens.tenant_id = tenantId;
+        await pool.query(
+            `INSERT INTO system_config(key, value) VALUES('xero_tokens', $1) ON CONFLICT(key) DO UPDATE SET value=$1`,
+            [JSON.stringify(newTokens)]
+        );
+    }
+    return { accessToken: resp.access_token, tenantId };
+}
+
+// ── 1. Initiate Xero OAuth ──────────────────────────────────────────────────
+app.get('/api/xero/connect', requireAuth, (req, res) => {
+    if (!XERO_CLIENT_ID) return res.status(500).json({ error: 'XERO_CLIENT_ID env var not set' });
+    const state = Buffer.from(JSON.stringify({ userId: req.user.id, ts: Date.now() })).toString('base64');
+    const url = `https://login.xero.com/identity/connect/authorize?` + new URLSearchParams({
+        response_type: 'code',
+        client_id:     XERO_CLIENT_ID,
+        redirect_uri:  XERO_REDIRECT_URI,
+        scope:         XERO_SCOPES,
+        state,
+    }).toString();
+    res.redirect(url);
+});
+
+// ── 2. Xero OAuth Callback ─────────────────────────────────────────────────
+app.get('/api/xero/callback', async (req, res) => {
+    try {
+        const { code, error } = req.query;
+        if (error) return res.send(`<h2>Xero connection failed: ${error}</h2>`);
+        const tokens = await xeroGetToken({
+            grant_type:   'authorization_code',
+            code,
+            redirect_uri: XERO_REDIRECT_URI,
+        });
+        await pool.query(
+            `INSERT INTO system_config(key, value) VALUES('xero_tokens', $1) ON CONFLICT(key) DO UPDATE SET value=$1`,
+            [JSON.stringify(tokens)]
+        );
+        res.send(`<h2 style="font-family:sans-serif;color:#00B5C8">✓ Xero Connected Successfully!</h2>
+            <p>Your Xero account is now linked to ASIL HCM. You can close this window.</p>
+            <script>setTimeout(() => window.close(), 3000);</script>`);
+    } catch (err) {
+        res.status(500).send(`<h2>Error: ${err.message}</h2>`);
+    }
+});
+
+// ── 3. Check Xero connection status ────────────────────────────────────────
+app.get('/api/xero/status', requireAuth, async (req, res) => {
+    try {
+        const cfg = await pool.query(`SELECT value FROM system_config WHERE key = 'xero_tokens'`);
+        if (!cfg.rows.length) return res.json({ connected: false });
+        const tokens = JSON.parse(cfg.rows[0].value);
+        res.json({ connected: true, tenantId: tokens.tenant_id || null });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── 4. Push invoice to Xero ────────────────────────────────────────────────
+app.post('/api/xero/invoices', requireAuth, async (req, res) => {
+    try {
+        const { invoice } = req.body;
+        if (!invoice) return res.status(400).json({ error: 'invoice payload required' });
+
+        const { accessToken, tenantId } = await xeroGetAccessToken();
+
+        // Build Xero line items from payrolls + debit notes
+        const lineItems = [
+            ...(invoice.payrolls || []).map(p => ({
+                Description:  `Manpower Services — ${p.contract?.split('—')[1]?.trim() || p.contract} (${p.period}, ${p.employees} employees)`,
+                Quantity:     1,
+                UnitAmount:   p.totalPayrollCost,
+                AccountCode:  '200', // default sales account — customise as needed
+            })),
+            ...(invoice.debitNotes || []).map(d => ({
+                Description:  `${d.description} [Debit Note ${d.id}]`,
+                Quantity:     1,
+                UnitAmount:   d.total,
+                AccountCode:  '200',
+            })),
+        ];
+
+        // Parse due date
+        let dueDateXero = null;
+        if (invoice.dueDate) {
+            const dp = new Date(invoice.dueDate);
+            if (!isNaN(dp)) dueDateXero = `/Date(${dp.getTime()}+0000)/`;
+        }
+
+        const xeroPayload = {
+            Type:          'ACCREC',
+            InvoiceNumber: invoice.number,
+            Reference:     invoice.poNumber || '',
+            CurrencyCode:  'PKR',
+            Status:        invoice.status === 'Draft' ? 'DRAFT' : 'AUTHORISED',
+            Contact:       { Name: invoice.client },
+            LineAmountTypes: 'Exclusive',
+            LineItems:     lineItems,
+            ...(dueDateXero ? { DueDate: dueDateXero } : {}),
+        };
+
+        const xeroResp = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+            method:  'POST',
+            headers: {
+                'Authorization':  `Bearer ${accessToken}`,
+                'Xero-Tenant-Id': tenantId,
+                'Content-Type':   'application/json',
+                'Accept':         'application/json',
+            },
+            body: JSON.stringify({ Invoices: [xeroPayload] }),
+        });
+
+        const data = await xeroResp.json();
+        if (!xeroResp.ok) return res.status(502).json({ error: 'Xero API error', detail: data });
+
+        const created = data.Invoices?.[0];
+        const xeroInvoiceId = created?.InvoiceID;
+        const xeroUrl = xeroInvoiceId
+            ? `https://go.xero.com/AccountsReceivable/Edit.aspx?InvoiceID=${xeroInvoiceId}`
+            : 'https://go.xero.com/AccountsReceivable/Search.aspx';
+
+        // Log to DB (fire and forget)
+        pool.query(
+            `INSERT INTO system_config(key, value) VALUES($1, $2) ON CONFLICT(key) DO UPDATE SET value=$2`,
+            [`xero_inv_${invoice.number}`, JSON.stringify({ xeroId: xeroInvoiceId, pushedAt: new Date().toISOString() })]
+        ).catch(() => {});
+
+        res.json({ ok: true, xeroInvoiceId, xeroUrl });
+    } catch (err) {
+        console.error('[Xero] push error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 app.listen(PORT, async () => {
     console.log(`ASIL HCM Backend running on port ${PORT}`);
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
