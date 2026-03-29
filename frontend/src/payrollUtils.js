@@ -43,7 +43,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     // FIXED FORMULAS (per user spec):
     // - OT Hourly Rate  = Gross Salary / (26 × 8) — always 208 hours/month
     // - Leave Deduction = Gross Salary / 26       — always 26 working days
-    const grossSalary = parseFloat(emp.salary) || parseFloat(emp.basic) || 0;
+    const grossSalary = parseFloat(emp.gross) || parseFloat(emp.salary) || parseFloat(emp.basic) || 0;
     const hrlyGross = grossSalary / (26 * 8);   // for OT calc
     const dailyGross = grossSalary / 26;         // for leave/absence deduction
 
