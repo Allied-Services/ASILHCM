@@ -45,13 +45,35 @@ passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     callbackURL: `${BACKEND_URL}/auth/google/callback`,
-}, (accessToken, refreshToken, profile, done) => {
+}, async (accessToken, refreshToken, profile, done) => {
     const email = profile.emails?.[0]?.value || '';
     if (!email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`)) {
-        console.log(`Blocked: ${email}`);
+        console.log(`Blocked login: ${email}`);
         return done(null, false, { message: 'unauthorized_domain' });
     }
-    return done(null, { id: profile.id, email, name: profile.displayName, avatar: profile.photos?.[0]?.value || null, role: 'staff' });
+    try {
+        const googleId = profile.id;
+        const name     = profile.displayName;
+        const avatar   = profile.photos?.[0]?.value || null;
+        // Count existing users to auto-assign superadmin to first ever login
+        const count = await pool.query('SELECT COUNT(*) FROM hcm_users');
+        const isFirst = parseInt(count.rows[0].count) === 0;
+        const defaultRole = isFirst ? 'superadmin' : 'pending';
+        // Upsert user — preserve existing role on re-login
+        const result = await pool.query(`
+            INSERT INTO hcm_users (google_id, email, name, avatar, role)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (google_id) DO UPDATE
+              SET name = EXCLUDED.name, avatar = EXCLUDED.avatar,
+                  last_login = NOW()
+            RETURNING *
+        `, [googleId, email, name, avatar, defaultRole]);
+        const user = result.rows[0];
+        return done(null, { id: googleId, email, name, avatar, role: user.role });
+    } catch (e) {
+        console.error('OAuth DB error:', e.message);
+        return done(null, { id: profile.id, email, name: profile.displayName, avatar: profile.photos?.[0]?.value || null, role: 'pending' });
+    }
 }));
 
 // ─── JWT Middleware ───────────────────────────────────────────────────────────
@@ -60,6 +82,13 @@ const requireAuth = (req, res, next) => {
     if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
     try { req.user = jwt.verify(auth.slice(7), JWT_SECRET); next(); }
     catch { res.status(401).json({ error: 'Token expired' }); }
+};
+
+// Require one of the listed roles (superadmin always passes)
+const requireRole = (...roles) => (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    if (req.user.role === 'superadmin' || roles.includes(req.user.role)) return next();
+    return res.status(403).json({ error: 'Forbidden: insufficient role', required: roles, got: req.user.role });
 };
 
 // ─── Auth Routes ──────────────────────────────────────────────────────────────
@@ -73,6 +102,28 @@ app.get('/auth/google/callback',
 );
 app.get('/auth/me', requireAuth, (req, res) => res.json({ user: req.user }));
 app.post('/auth/logout', (req, res) => res.json({ ok: true }));
+
+// ─── User Management (superadmin only) ───────────────────────────────────────
+app.get('/api/users', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT id, google_id, email, name, avatar, role, created_at, last_login FROM hcm_users ORDER BY created_at ASC');
+        res.json({ users: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch('/api/users/:id/role', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const { role } = req.body;
+        const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver','finance_proposer','finance_approver','pending'];
+        if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
+        const { rows } = await pool.query(
+            'UPDATE hcm_users SET role = $1 WHERE id = $2 RETURNING id, email, name, role',
+            [role, req.params.id]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'User not found' });
+        res.json({ ok: true, user: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 app.get('/health/ip', (req, res) => {
     // Returns this server's outbound public IP (for Jazz CMT whitelisting)
@@ -2238,8 +2289,24 @@ app.listen(PORT, async () => {
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
     // ── One-time migrations (safe to run every restart, IF NOT EXISTS guards) ──
     try {
+        // ── hcm_users table (RBAC) ───────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS hcm_users (
+                id          SERIAL PRIMARY KEY,
+                google_id   TEXT UNIQUE NOT NULL,
+                email       TEXT UNIQUE NOT NULL,
+                name        TEXT,
+                avatar      TEXT,
+                role        TEXT NOT NULL DEFAULT 'pending',
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                last_login  TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        console.log('Migration OK: hcm_users table ready');
+
         await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_date DATE');
         console.log('Migration OK: contract_date column ready');
+
 
         // ── Inventory tables ──────────────────────────────────────────────────
         await pool.query(`

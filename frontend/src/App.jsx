@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package } from 'lucide-react';
+import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock } from 'lucide-react';
 import Dashboard from './Dashboard';
 import AnnexureDashboard from './AnnexureDashboard';
 import MockOCR from './MockOCR';
@@ -14,8 +14,30 @@ import EmployeePortal from './EmployeePortal';
 import LoginScreen from './LoginScreen';
 import InventoryManagement from './InventoryManagement';
 import SystemConfig from './SystemConfig';
+import UserManagement from './UserManagement';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+
+// ── Role-based nav access ─────────────────────────────────────────────────────
+const ROLE_NAV = {
+    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','client','vendor','inventory','annexure','config','users'],
+    operations:           ['employee','documents'],
+    procurement_proposer: ['billing','vendor','inventory'],
+    procurement_approver: ['billing'],
+    finance_proposer:     ['payroll','invoices'],
+    finance_approver:     ['payroll','invoices'],
+    pending:              [],
+};
+
+const ROLE_BADGE = {
+    superadmin:           { label: 'Super Admin',           color: '#f59e0b' },
+    operations:           { label: 'Operations',            color: '#3b82f6' },
+    procurement_proposer: { label: 'Proc. Proposer',        color: '#8b5cf6' },
+    procurement_approver: { label: 'Proc. Approver',        color: '#6366f1' },
+    finance_proposer:     { label: 'Finance Proposer',      color: '#10b981' },
+    finance_approver:     { label: 'Finance Approver',      color: '#14b8a6' },
+    pending:              { label: 'Access Pending',         color: '#94a3b8' },
+};
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -24,23 +46,14 @@ function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState(null);
 
-  // ── On mount: check for ?token in URL (post-OAuth redirect) or stored token ──
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
     const urlError = params.get('error');
 
-    if (urlError) {
-      setAuthError(urlError);
-      setAuthReady(true);
-      window.history.replaceState({}, '', '/');
-      return;
-    }
+    if (urlError) { setAuthError(urlError); setAuthReady(true); window.history.replaceState({}, '', '/'); return; }
 
-    if (urlToken) {
-      localStorage.setItem('asil_hcm_token', urlToken);
-      window.history.replaceState({}, '', '/');
-    }
+    if (urlToken) { localStorage.setItem('asil_hcm_token', urlToken); window.history.replaceState({}, '', '/'); }
 
     const token = urlToken || localStorage.getItem('asil_hcm_token');
     if (!token) { setAuthReady(true); return; }
@@ -51,11 +64,7 @@ function App() {
       .catch(() => { localStorage.removeItem('asil_hcm_token'); setAuthReady(true); });
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('asil_hcm_token');
-    setUser(null);
-    setAuthError(null);
-  };
+  const handleLogout = () => { localStorage.removeItem('asil_hcm_token'); setUser(null); setAuthError(null); };
 
   // ── Loading ────────────────────────────────────────────────────────────────
   if (!authReady) {
@@ -70,23 +79,55 @@ function App() {
     );
   }
 
-  // ── Not authenticated → Login ──────────────────────────────────────────────
   if (!user) return <LoginScreen error={authError} />;
 
-  // ── Authenticated → Full App ───────────────────────────────────────────────
-  const NAV = [
+  const role = user.role || 'pending';
+  const allowedTabs = ROLE_NAV[role] || [];
+  const roleBadge = ROLE_BADGE[role] || ROLE_BADGE.pending;
+
+  // Auto-redirect to first allowed tab if current tab not accessible
+  const effectiveTab = allowedTabs.includes(activeTab) ? activeTab : (allowedTabs[0] || '');
+
+  // ── Pending user screen ────────────────────────────────────────────────────
+  if (role === 'pending') {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '24px' }}>
+        <div style={{ textAlign: 'center', maxWidth: '420px' }}>
+          <div style={{ width: '64px', height: '64px', background: 'rgba(99,102,241,0.12)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+            <Clock size={32} color="#6366f1" />
+          </div>
+          <h1 style={{ color: '#e2e8f0', margin: '0 0 10px', fontSize: '1.4rem' }}>Access Pending</h1>
+          <p style={{ color: '#64748b', margin: '0 0 8px', lineHeight: '1.6' }}>
+            Your account <strong style={{ color: '#94a3b8' }}>{user.email}</strong> is registered but has not been assigned a role yet.
+          </p>
+          <p style={{ color: '#64748b', margin: '0 0 24px', fontSize: '0.88rem' }}>
+            Please contact your Super Admin to assign your role. Once assigned, sign out and sign back in.
+          </p>
+          <button onClick={handleLogout} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#1e293b', border: '1px solid #334155', color: '#94a3b8', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
+            <LogOut size={16} /> Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Full nav definition — filtered per role
+  const ALL_NAV = [
     { key: 'dashboard', label: 'Managing Director View', icon: <Home size={20} /> },
-    { key: 'employee', label: 'Employee Information', icon: <Users size={20} /> },
-    { key: 'payroll', label: 'Payroll Sheet', icon: <Calculator size={20} /> },
-    { key: 'documents', label: 'Document Generator', icon: <FilePlus size={20} /> },
-    { key: 'billing', label: 'Bills & Procurement', icon: <Receipt size={20} /> },
-    { key: 'invoices', label: 'Invoices', icon: <FileText size={20} /> },
-    { key: 'client', label: 'Client Information', icon: <Building size={20} /> },
-    { key: 'vendor', label: 'Vendor Supplier Master', icon: <Truck size={20} /> },
-    { key: 'inventory', label: 'Inventory & Equipment', icon: <Package size={20} /> },
-    { key: 'annexure', label: 'Annexure Approval', icon: <ScanLine size={20} /> },
-    { key: 'config', label: 'System Configs', icon: <Settings size={20} /> },
+    { key: 'employee',  label: 'Employee Information',   icon: <Users size={20} /> },
+    { key: 'payroll',   label: 'Payroll Sheet',          icon: <Calculator size={20} /> },
+    { key: 'documents', label: 'Document Generator',     icon: <FilePlus size={20} /> },
+    { key: 'billing',   label: 'Bills & Procurement',    icon: <Receipt size={20} /> },
+    { key: 'invoices',  label: 'Invoices',               icon: <FileText size={20} /> },
+    { key: 'client',    label: 'Client Information',     icon: <Building size={20} /> },
+    { key: 'vendor',    label: 'Vendor Supplier Master', icon: <Truck size={20} /> },
+    { key: 'inventory', label: 'Inventory & Equipment',  icon: <Package size={20} /> },
+    { key: 'annexure',  label: 'Annexure Approval',      icon: <ScanLine size={20} /> },
+    { key: 'config',    label: 'System Configs',         icon: <Settings size={20} /> },
+    { key: 'users',     label: 'User Management',        icon: <Shield size={20} /> },
   ];
+
+  const NAV = ALL_NAV.filter(n => allowedTabs.includes(n.key));
 
   return (
     <>
@@ -100,9 +141,8 @@ function App() {
 
           <nav className="nav-menu">
             {NAV.map(n => (
-              <button key={n.key} className={`nav-item ${activeTab === n.key ? 'active' : ''}`}
-                onClick={() => !n.disabled && setActiveTab(n.key)} disabled={n.disabled}
-                style={n.disabled ? { opacity: 0.45, cursor: 'not-allowed' } : {}}>
+              <button key={n.key} className={`nav-item ${effectiveTab === n.key ? 'active' : ''}`}
+                onClick={() => setActiveTab(n.key)}>
                 {n.icon}{n.label}
               </button>
             ))}
@@ -116,9 +156,9 @@ function App() {
             </button>
           </div>
 
-          {/* User info + logout */}
+          {/* User info + role badge + logout */}
           <div style={{ marginTop: 'auto', padding: '12px 8px 8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', marginBottom: '6px' }}>
               {user.avatar
                 ? <img src={user.avatar} alt="" style={{ width: '28px', height: '28px', borderRadius: '50%' }} />
                 : <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.75rem', fontWeight: 700 }}>{user.name?.[0]?.toUpperCase()}</div>
@@ -127,6 +167,12 @@ function App() {
                 <div style={{ color: '#e2e8f0', fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name}</div>
                 <div style={{ color: '#64748b', fontSize: '0.7rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</div>
               </div>
+            </div>
+            {/* Role badge */}
+            <div style={{ textAlign: 'center', marginBottom: '6px' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: roleBadge.color, background: `${roleBadge.color}18`, padding: '2px 10px', borderRadius: '99px' }}>
+                {roleBadge.label}
+              </span>
             </div>
             <button onClick={handleLogout}
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px', borderRadius: '8px', background: 'transparent', border: '1px solid rgba(255,255,255,0.06)', color: '#64748b', cursor: 'pointer', fontSize: '0.8rem' }}>
@@ -139,17 +185,18 @@ function App() {
         </aside>
 
         <main className="main-content">
-          {activeTab === 'dashboard' && <Dashboard />}
-          {activeTab === 'employee' && <EmployeeInformation user={user} />}
-          {activeTab === 'payroll' && <PayrollSheet />}
-          {activeTab === 'documents' && <DocumentGenerator />}
-          {activeTab === 'billing' && <BillingProcurement />}
-          {activeTab === 'invoices' && <InvoiceSection />}
-          {activeTab === 'client' && <ClientInformation />}
-          {activeTab === 'vendor' && <VendorMaster />}
-          {activeTab === 'inventory' && <InventoryManagement />}
-          {activeTab === 'annexure' && <AnnexureDashboard />}
-          {activeTab === 'config' && <SystemConfig />}
+          {effectiveTab === 'dashboard'  && <Dashboard />}
+          {effectiveTab === 'employee'   && <EmployeeInformation user={user} />}
+          {effectiveTab === 'payroll'    && <PayrollSheet user={user} />}
+          {effectiveTab === 'documents'  && <DocumentGenerator />}
+          {effectiveTab === 'billing'    && <BillingProcurement user={user} />}
+          {effectiveTab === 'invoices'   && <InvoiceSection user={user} />}
+          {effectiveTab === 'client'     && <ClientInformation />}
+          {effectiveTab === 'vendor'     && <VendorMaster />}
+          {effectiveTab === 'inventory'  && <InventoryManagement />}
+          {effectiveTab === 'annexure'   && <AnnexureDashboard />}
+          {effectiveTab === 'config'     && <SystemConfig />}
+          {effectiveTab === 'users'      && <UserManagement />}
         </main>
       </div>
     </>
