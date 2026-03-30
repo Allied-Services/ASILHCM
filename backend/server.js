@@ -59,12 +59,15 @@ passport.use(new GoogleStrategy({
         const count = await pool.query('SELECT COUNT(*) FROM hcm_users');
         const isFirst = parseInt(count.rows[0].count) === 0;
         const defaultRole = isFirst ? 'superadmin' : 'pending';
-        // Upsert user — preserve existing role on re-login
+        // Upsert user — match on google_id (re-login) OR email (pre-registered by admin)
+        // If pre-registered by email, update google_id and preserve existing role
         const result = await pool.query(`
             INSERT INTO hcm_users (google_id, email, name, avatar, role)
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (google_id) DO UPDATE
-              SET name = EXCLUDED.name, avatar = EXCLUDED.avatar,
+            ON CONFLICT (email) DO UPDATE
+              SET google_id  = EXCLUDED.google_id,
+                  name       = EXCLUDED.name,
+                  avatar     = EXCLUDED.avatar,
                   last_login = NOW()
             RETURNING *
         `, [googleId, email, name, avatar, defaultRole]);
@@ -108,6 +111,26 @@ app.get('/api/users', requireAuth, requireRole('superadmin'), async (req, res) =
     try {
         const { rows } = await pool.query('SELECT id, google_id, email, name, avatar, role, created_at, last_login FROM hcm_users ORDER BY created_at ASC');
         res.json({ users: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/users — pre-register a user by email (superadmin only)
+app.post('/api/users', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const { email, role = 'pending' } = req.body;
+        if (!email || !email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`)) {
+            return res.status(400).json({ error: `Email must be @${ALLOWED_DOMAIN}` });
+        }
+        const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver','finance_proposer','finance_approver','pending'];
+        if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
+        // Insert with placeholder google_id — will be filled on first Google login
+        const { rows } = await pool.query(`
+            INSERT INTO hcm_users (google_id, email, name, role)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role
+            RETURNING id, google_id, email, name, avatar, role, created_at, last_login
+        `, [`pending_${Date.now()}`, email.toLowerCase(), email.split('@')[0], role]);
+        res.json({ ok: true, user: rows[0] });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -623,7 +646,7 @@ app.get('/api/bills', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/bills', requireAuth, async (req, res) => {
+app.post('/api/bills', requireAuth, requireRole('procurement_proposer','finance_proposer'), async (req, res) => {
     const b = req.body;
     try {
         const { rows } = await pool.query(
@@ -645,10 +668,18 @@ app.post('/api/bills', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.patch('/api/bills/:id/status', requireAuth, async (req, res) => {
+app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approver','finance_approver'), async (req, res) => {
     const { status } = req.body;
     try {
         await pool.query('UPDATE bills SET status=$1, updated_at=NOW() WHERE id=$2', [status, req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/bills/:id', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const result = await pool.query('DELETE FROM bills WHERE id=$1 RETURNING id', [req.params.id]);
+        if (!result.rows.length) return res.status(404).json({ error: 'Bill not found' });
         res.json({ ok: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1127,7 +1158,7 @@ app.get('/api/invoices', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/invoices', requireAuth, async (req, res) => {
+app.post('/api/invoices', requireAuth, requireRole('finance_proposer'), async (req, res) => {
     try {
         const { id, client, contract, period, poNumber, dueDate, payrollIds, billIds,
                 subtotal, svcCharges, salesTax, wht, grandTotal } = req.body;
@@ -1143,7 +1174,7 @@ app.post('/api/invoices', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.patch('/api/invoices/:id/status', requireAuth, async (req, res) => {
+app.patch('/api/invoices/:id/status', requireAuth, requireRole('finance_approver'), async (req, res) => {
     try {
         const { status } = req.body;
         const { rows } = await pool.query(
@@ -1151,6 +1182,14 @@ app.patch('/api/invoices/:id/status', requireAuth, async (req, res) => {
             [status, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
         res.json({ invoice: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/invoices/:id', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const result = await pool.query('DELETE FROM invoices WHERE id=$1 RETURNING id', [req.params.id]);
+        if (!result.rows.length) return res.status(404).json({ error: 'Invoice not found' });
+        res.json({ ok: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1730,7 +1769,7 @@ app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
 });
 
 // POST /api/payroll/:year/:month — bulk UPSERT (newest import wins, blocked if locked)
-app.post('/api/payroll/:year/:month', requireAuth, async (req, res) => {
+app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer'), async (req, res) => {
     try {
         const { year, month } = req.params;
         const { rows: incoming = [] } = req.body; // array of { employee_id, overrides, calc }
@@ -1800,7 +1839,7 @@ app.post('/api/payroll/:year/:month', requireAuth, async (req, res) => {
 });
 
 // PATCH /api/payroll/:year/:month/lock — lock a payroll month
-app.patch('/api/payroll/:year/:month/lock', requireAuth, async (req, res) => {
+app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_approver'), async (req, res) => {
     try {
         const { year, month } = req.params;
         await pool.query(
@@ -1813,7 +1852,7 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, async (req, res) => {
 });
 
 // PATCH /api/payroll/:year/:month/unlock — unlock a payroll month
-app.patch('/api/payroll/:year/:month/unlock', requireAuth, async (req, res) => {
+app.patch('/api/payroll/:year/:month/unlock', requireAuth, requireRole('finance_approver'), async (req, res) => {
     try {
         const { year, month } = req.params;
         await pool.query(
@@ -1824,6 +1863,20 @@ app.patch('/api/payroll/:year/:month/unlock', requireAuth, async (req, res) => {
         res.json({ ok: true, locked: false });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// DELETE /api/payroll/:year/:month/:employeeId — delete one employee's payroll row (superadmin only)
+app.delete('/api/payroll/:year/:month/:employeeId', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const { year, month, employeeId } = req.params;
+        const result = await pool.query(
+            'DELETE FROM payroll_transactions WHERE employee_id=$1 AND year=$2 AND month=$3 RETURNING employee_id',
+            [employeeId, parseInt(year), parseInt(month)]
+        );
+        if (!result.rows.length) return res.status(404).json({ error: 'Payroll row not found' });
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 
 // ── Payroll CSV Export (server-side, avoids CSP/blob issues) ──────────────────

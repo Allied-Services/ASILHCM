@@ -366,13 +366,26 @@ function InvoicePreviewModal({ inv, onAction, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function InvoiceSection() {
+export default function InvoiceSection({ user }) {
     const [invoices, setInvoices] = useState([]);
     const [showCreate, setShowCreate] = useState(false);
     const [previewInv, setPreviewInv] = useState(null);
 
     const addInvoice = (inv) => setInvoices(p => [inv, ...p]);
     const updateStatus = (num, status) => setInvoices(p => p.map(i => i.number === num ? { ...i, status } : i));
+
+    const deleteInvoice = async (inv) => {
+        if (!window.confirm(`⚠️ Permanently delete invoice ${inv.number}?\n\nThis cannot be undone.`)) return;
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+            const r = await fetch(`${API}/api/invoices/${inv.id || inv.number}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+            if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
+            setInvoices(p => p.filter(i => i.number !== inv.number));
+        } catch (err) { alert('Delete failed: ' + err.message); }
+    };
+
+    const isSuperAdmin = user?.role === 'superadmin';
 
     const STATUS_STYLES = {
         'Draft': { bg: 'rgba(100,116,139,0.12)', color: '#94a3b8' },
@@ -446,10 +459,19 @@ export default function InvoiceSection() {
                                             <span style={{ padding: '3px 10px', borderRadius: '99px', fontSize: '0.74rem', fontWeight: 700, background: ss.bg, color: ss.color }}>{inv.status}</span>
                                         </td>
                                         <td style={{ padding: '10px 14px' }}>
-                                            <button onClick={() => setPreviewInv(inv)}
-                                                style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-                                                <Eye size={13} /> View
-                                            </button>
+                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                                <button onClick={() => setPreviewInv(inv)}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                                                    <Eye size={13} /> View
+                                                </button>
+                                                {isSuperAdmin && (
+                                                    <button onClick={() => deleteInvoice(inv)}
+                                                        title="Delete (SuperAdmin only)"
+                                                        style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                                                        🗑
+                                                    </button>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 );

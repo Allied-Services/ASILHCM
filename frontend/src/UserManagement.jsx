@@ -34,6 +34,10 @@ export default function UserManagement() {
     const token = localStorage.getItem('asil_hcm_token');
     const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
+    const [addEmail, setAddEmail] = useState('');
+    const [addRole, setAddRole] = useState('pending');
+    const [addLoading, setAddLoading] = useState(false);
+
     const showToast = msg => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
     const load = () => {
@@ -46,6 +50,23 @@ export default function UserManagement() {
     };
 
     useEffect(load, []);
+
+    const addUser = async () => {
+        if (!addEmail.trim()) return;
+        setAddLoading(true);
+        try {
+            const r = await fetch(`${API}/api/users`, {
+                method: 'POST', headers, body: JSON.stringify({ email: addEmail.trim().toLowerCase(), role: addRole }),
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || 'Failed');
+            setUsers(prev => [...prev.filter(u => u.email !== d.user.email), d.user]);
+            setAddEmail('');
+            setAddRole('pending');
+            showToast(`✅ ${d.user.email} added as ${ROLE_LABELS[addRole]?.label}`);
+        } catch (e) { showToast(`❌ ${e.message}`); }
+        setAddLoading(false);
+    };
 
     const changeRole = async (userId, newRole, userName) => {
         setSaving(userId);
@@ -102,6 +123,38 @@ export default function UserManagement() {
                     </span>
                 </div>
             )}
+
+            {/* Add User form */}
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem 1.5rem', marginBottom: '1.5rem' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.85rem' }}>Add / Pre-Register User</div>
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 2, minWidth: '220px' }}>
+                        <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Email (@asil.com.pk)</label>
+                        <input
+                            type="email"
+                            value={addEmail}
+                            onChange={e => setAddEmail(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && addUser()}
+                            placeholder="name@asil.com.pk"
+                            style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
+                        />
+                    </div>
+                    <div style={{ flex: 1, minWidth: '180px' }}>
+                        <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Assign Role</label>
+                        <select value={addRole} onChange={e => setAddRole(e.target.value)}
+                            style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}>
+                            {ROLE_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                    </div>
+                    <button onClick={addUser} disabled={!addEmail.trim() || addLoading}
+                        style={{ padding: '8px 20px', borderRadius: '8px', background: addEmail.trim() ? '#6366f1' : '#334155', border: 'none', color: 'white', fontWeight: 700, cursor: addEmail.trim() ? 'pointer' : 'not-allowed', fontSize: '0.88rem', whiteSpace: 'nowrap' }}>
+                        {addLoading ? 'Adding…' : '+ Add User'}
+                    </button>
+                </div>
+                <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    User will get this role immediately when they log in with their Google account. Only @asil.com.pk addresses are accepted.
+                </p>
+            </div>
 
             {loading ? (
                 <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Loading users…</div>

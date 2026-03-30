@@ -611,7 +611,7 @@ function BillDetailModal({ bill, onAction, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT — starts with empty register (no mock data)
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function BillingProcurement() {
+export default function BillingProcurement({ user }) {
     const [bills, setBills] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showOCR, setShowOCR] = useState(false);
@@ -653,6 +653,19 @@ export default function BillingProcurement() {
             setBills(p => p.map(b => b.id === id ? { ...b, status: newStatus } : b));
         } catch (err) { alert('Status update failed: ' + err.message); }
     };
+
+    const deleteBill = async (bill) => {
+        if (!window.confirm(`⚠️ Permanently delete bill ${bill.id}?\n\nThis action cannot be undone.`)) return;
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+            const r = await fetch(`${API}/api/bills/${bill.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+            if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
+            setBills(p => p.filter(b => b.id !== bill.id));
+        } catch (err) { alert('Delete failed: ' + err.message); }
+    };
+
+    const isSuperAdmin = user?.role === 'superadmin';
 
     const TYPES = ['All', 'OCR / Katcha', 'Manual', 'Quotation'];
     const STATUSES = ['All', 'Draft', 'Pending', 'Approved', 'Posted', 'Rejected'];
@@ -746,10 +759,19 @@ export default function BillingProcurement() {
                                         <td style={{ padding: '9px 12px', fontWeight: 700, whiteSpace: 'nowrap', textAlign: 'right', fontSize: '0.88rem' }}>{Rs(b.total)}</td>
                                         <td style={{ padding: '9px 12px' }}><Badge status={b.status} /></td>
                                         <td style={{ padding: '9px 12px' }}>
-                                            <button onClick={() => setDetailBill(b)}
-                                                style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-                                                <Eye size={13} /> View
-                                            </button>
+                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                                <button onClick={() => setDetailBill(b)}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                                                    <Eye size={13} /> View
+                                                </button>
+                                                {isSuperAdmin && (
+                                                    <button onClick={() => deleteBill(b)}
+                                                        title="Delete (SuperAdmin only)"
+                                                        style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                                                        🗑
+                                                    </button>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

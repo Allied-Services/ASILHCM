@@ -321,7 +321,7 @@ function ExportMenu({ month, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function PayrollSheet() {
+export default function PayrollSheet({ user }) {
     const today = new Date();
     const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 
@@ -348,6 +348,8 @@ export default function PayrollSheet() {
     const [bulkSMSMsg, setBulkSMSMsg] = useState('');
     const [bulkSMSSending, setBulkSMSSending] = useState(false);
     const [bulkSMSResult, setBulkSMSResult] = useState(null);
+
+    const isSuperAdmin = user?.role === 'superadmin';
 
     // Load contracts from DB → build lookup map by client name AND contract name
     useEffect(() => {
@@ -941,6 +943,24 @@ export default function PayrollSheet() {
                                                     style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '4px', padding: '2px 6px', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                                     Verify
                                                 </button>
+                                                {isSuperAdmin && (
+                                                    <button
+                                                        title="Delete this row (SuperAdmin only)"
+                                                        onClick={async () => {
+                                                            if (!window.confirm(`⚠️ Delete payroll row for ${emp.name} (${month})?\n\nThis removes their saved overrides for this month only.`)) return;
+                                                            try {
+                                                                const [yr, mo] = month.split('-');
+                                                                const token = localStorage.getItem('asil_hcm_token');
+                                                                const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+                                                                const r = await fetch(`${API_URL}/api/payroll/${yr}/${mo}/${encodeURIComponent(emp.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+                                                                if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
+                                                                setOverrides(prev => { const next = { ...prev }; delete next[emp.id]; return next; });
+                                                            } catch (e) { alert('Delete failed: ' + e.message); }
+                                                        }}
+                                                        style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '4px', padding: '2px 5px', color: '#ef4444', cursor: 'pointer', fontSize: '0.7rem', lineHeight: 1 }}>
+                                                        🗑
+                                                    </button>
+                                                )}
                                                 <div><div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{emp.name}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{emp.designation}</div></div>
                                             </div>
                                         </td>
