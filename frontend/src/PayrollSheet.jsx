@@ -614,12 +614,20 @@ export default function PayrollSheet({ user }) {
     const toggleAll = () => setSelectedIds(allSelected ? new Set() : new Set(filtered.map(e => e.id)));
     const selectedRows = rows.filter(r => selectedIds.has(r.emp.id));
 
-    const T = rows.reduce((acc, { calc }) => {
-        ['grossMonthly', 'incomeTax', 'eobi_ee', 'pfEE', 'totalDeductions', 'netPay',
-            'eobi_er', 'sessi', 'gratuity', 'lifeIns', 'totalMedical', 'totalPayrollCost',
-            'serviceCharges', 'salesTax', 'totalInvoice', 'otAmount'].forEach(k => {
-                acc[k] = (acc[k] || 0) + (calc[k] || 0);
-            });
+    const T = rows.reduce((acc, { calc, ov }) => {
+        // Calculated fields
+        ['grossMonthly','incomeTax','eobi_ee','pfEE','totalDeductions','netPay',
+            'eobi_er','sessi','gratuity','lifeIns','totalMedical','totalPayrollCost',
+            'serviceCharges','salesTax','totalInvoice','otAmount','otherPaid','pfER'].forEach(k => {
+            acc[k] = (acc[k] || 0) + (calc[k] || 0);
+        });
+        // Override / editable fields
+        ['paid_days','ot2_hrs','ot3_hrs','opd_claim','reimbursement','arrears',
+            'special_allowance','fuel_mobile','advance_deduction','loan_deduction',
+            'other_deduction','medical_ee','medical_sp','medical_ch1','medical_ch2',
+            'bonus_amount'].forEach(k => {
+            acc[k] = (acc[k] || 0) + (parseFloat(ov[k]) || 0);
+        });
         return acc;
     }, {});
 
@@ -689,7 +697,7 @@ export default function PayrollSheet({ user }) {
 
     // Editable cell — disabled when payroll is locked
     const EC = ({ empId, field, def = 0, w = '68px' }) => (
-        <input type="number" min={0} value={getOv(empId, field, def)}
+        <input type="number" min={0} step="any" value={getOv(empId, field, def)}
             disabled={isLocked}
             onChange={e => {
                 if (isLocked) return;
@@ -999,26 +1007,41 @@ export default function PayrollSheet({ user }) {
                             })}
                         </tbody>
                         <tfoot>
-                            <tr style={{ background: 'var(--bg-dark)', borderTop: '2px solid var(--border)', fontWeight: 700, fontSize: '0.82rem' }}>
+                            <tr style={{ background: 'var(--bg-dark)', borderTop: '2px solid var(--border)', fontWeight: 700, fontSize: '0.78rem' }}>
                                 <td style={{ position: 'sticky', left: 0, zIndex: 4, background: 'var(--bg-dark)', padding: '9px 8px', width: '36px' }} />
-                                <td colSpan={3} style={{ position: 'sticky', left: 36, zIndex: 2, background: 'var(--bg-dark)', padding: '9px 10px', borderRight: '2px solid var(--border)' }}>TOTALS — {rows.length} employees</td>
-                                <td colSpan={3} /><td style={{ padding: '9px 7px', textAlign: 'right', color: '#22c55e' }}>{fmt(T.otAmount)}</td>
-                                <td colSpan={5} />
-                                <td style={{ padding: '9px 7px', textAlign: 'right', color: '#22c55e' }}>{fmt(T.grossMonthly)}</td>
-                                <td style={{ padding: '9px 7px', textAlign: 'right', color: '#f43f5e' }}>{fmt(T.incomeTax)}</td>
-                                <td style={{ padding: '9px 7px', textAlign: 'right' }}>{fmt(T.eobi_ee)}</td>
-                                <td style={{ padding: '9px 7px', textAlign: 'right' }}>{fmt(T.pfEE)}</td>
-                                <td colSpan={3} />
-                                <td style={{ padding: '9px 7px', textAlign: 'right', color: '#22c55e' }}>{fmt(T.netPay)}</td>
-                                <td style={{ padding: '9px 7px', textAlign: 'right' }}>{fmt(T.eobi_er)}</td>
-                                <td style={{ padding: '9px 7px', textAlign: 'right' }}>{fmt(T.sessi)}</td>
-                                <td style={{ padding: '9px 7px', textAlign: 'right' }}>{fmt(T.gratuity)}</td>
-                                <td style={{ padding: '9px 7px', textAlign: 'right' }}>{fmt(T.lifeIns)}</td>
-                                <td colSpan={5} />
-                                <td style={{ padding: '9px 7px', textAlign: 'right', color: '#a78bfa' }}>{fmt(T.totalPayrollCost)}</td>
-                                <td style={{ padding: '9px 7px', textAlign: 'right' }}>{fmt(T.serviceCharges)}</td>
-                                <td style={{ padding: '9px 7px', textAlign: 'right' }}>{fmt(T.salesTax)}</td>
-                                <td style={{ padding: '9px 7px', textAlign: 'right', color: '#f59e0b' }}>{fmt(T.totalInvoice)}</td>
+                                <td colSpan={3} style={{ position: 'sticky', left: 36, zIndex: 2, background: 'var(--bg-dark)', padding: '9px 10px', borderRight: '2px solid var(--border)', whiteSpace: 'nowrap' }}>TOTALS — {rows.length} employees</td>
+                                {/* Pd Days */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.paid_days > 0 ? fmt(T.paid_days) : '—'}</td>
+                                {/* OT 2x hrs */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.ot2_hrs > 0 ? parseFloat(T.ot2_hrs).toFixed(1) : '—'}</td>
+                                {/* OT 3x hrs */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.ot3_hrs > 0 ? parseFloat(T.ot3_hrs).toFixed(1) : '—'}</td>
+                                {/* OT Amt */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#22c55e' }}>{fmt(T.otAmount)}</td>
+                                {/* OPD */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.opd_claim > 0 ? fmt(T.opd_claim) : '—'}</td>
+                                {/* Reimb */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.reimbursement > 0 ? fmt(T.reimbursement) : '—'}</td>
+                                {/* Arrears */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.arrears > 0 ? fmt(T.arrears) : '—'}</td>
+                                {/* Spl Allow */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.special_allowance > 0 ? fmt(T.special_allowance) : '—'}</td>
+                                {/* Fuel/Mob */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.fuel_mobile > 0 ? fmt(T.fuel_mobile) : '—'}</td>
+                                {/* Oth Allow */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.otherPaid > 0 ? fmt(T.otherPaid) : '—'}</td>
+                                {/* GROSS */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#22c55e', fontWeight: 900 }}>{fmt(T.grossMonthly)}</td>
+                                {/* Inc Tax */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#f43f5e' }}>{fmt(T.incomeTax)}</td>
+                                {/* EOBI EE */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{fmt(T.eobi_ee)}</td>
+                                {/* PF EE */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{T.pfEE > 0 ? fmt(T.pfEE) : '—'}</td>
+                                {/* Adv */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.advance_deduction > 0 ? fmt(T.advance_deduction) : '—'}</td>
+                                {/* Loan */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.loan_deduction > 0 ? fmt(T.loan_deduction) : '—'}</td>
+                                {/* Oth Ded */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.other_deduction > 0 ? fmt(T.other_deduction) : '—'}</td>
+                                {/* NET PAY */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#22c55e', fontWeight: 900 }}>{fmt(T.netPay)}</td>
+                                {/* EOBI ER */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{fmt(T.eobi_er)}</td>
+                                {/* SESSI */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{T.sessi > 0 ? fmt(T.sessi) : '—'}</td>
+                                {/* Gratuity */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{fmt(T.gratuity)}</td>
+                                {/* Life Ins */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{T.lifeIns > 0 ? fmt(T.lifeIns) : '—'}</td>
+                                {/* Med EE */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.medical_ee > 0 ? fmt(T.medical_ee) : '—'}</td>
+                                {/* Med SP */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.medical_sp > 0 ? fmt(T.medical_sp) : '—'}</td>
+                                {/* Med Ch1 */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.medical_ch1 > 0 ? fmt(T.medical_ch1) : '—'}</td>
+                                {/* Med Ch2 */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.medical_ch2 > 0 ? fmt(T.medical_ch2) : '—'}</td>
+                                {/* Bonus */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.bonus_amount > 0 ? fmt(T.bonus_amount) : '—'}</td>
+                                {/* PF ER */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{T.pfER > 0 ? fmt(T.pfER) : '—'}</td>
+                                {/* Tot Cost */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#a78bfa', fontWeight: 900 }}>{fmt(T.totalPayrollCost)}</td>
+                                {/* Svc Chg */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{fmt(T.serviceCharges)}</td>
+                                {/* Sales Tax */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{fmt(T.salesTax)}</td>
+                                {/* INVOICE */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#f59e0b', fontWeight: 900 }}>{fmt(T.totalInvoice)}</td>
                             </tr>
                         </tfoot>
                     </table>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FilePlus, Eye, Download, CheckCircle, Lock, Send, Printer, X, ExternalLink } from 'lucide-react';
 import { api } from './api';
 
@@ -371,8 +371,45 @@ export default function InvoiceSection({ user }) {
     const [showCreate, setShowCreate] = useState(false);
     const [previewInv, setPreviewInv] = useState(null);
 
-    const addInvoice = (inv) => setInvoices(p => [inv, ...p]);
-    const updateStatus = (num, status) => setInvoices(p => p.map(i => i.number === num ? { ...i, status } : i));
+    // Load from DB on mount
+    useEffect(() => {
+        api.getInvoices().then(d => {
+            const mapped = (d.invoices || []).map(r => ({
+                id: r.id, number: r.id,
+                client: r.client, contract: r.contract, period: r.period,
+                poNumber: r.poNumber, dueDate: r.dueDate,
+                payrolls: (r.payrollIds || []).map(pid => ({ id: pid })),
+                debitNotes: (r.billIds || []).map(bid => ({ id: bid })),
+                subtotal: r.subtotal, svcCharges: r.svcCharges,
+                stCharges: r.salesTax, grandTotal: r.grandTotal,
+                status: r.status, createdAt: r.createdAt,
+            }));
+            setInvoices(mapped);
+            // Reset counter so new invoices get unique numbers
+            INV_COUNTER = Math.max(INV_COUNTER, mapped.length + 1);
+        }).catch(() => {});
+    }, []);
+
+    const addInvoice = async (inv) => {
+        // Persist to DB first
+        try {
+            await api.createInvoice({
+                id: inv.number, client: inv.client, contract: inv.contract,
+                period: inv.period, poNumber: inv.poNumber, dueDate: inv.dueDate,
+                payrollIds: (inv.payrolls || []).map(p => p.id),
+                billIds: (inv.debitNotes || []).map(d => d.id),
+                subtotal: inv.subtotal, svcCharges: inv.svcCharges,
+                salesTax: inv.stCharges || 0, wht: inv.whtOnServices || 0,
+                grandTotal: inv.grandTotal,
+            });
+        } catch(e) { console.warn('Invoice save failed:', e.message); }
+        setInvoices(p => [inv, ...p]);
+    };
+
+    const updateStatus = async (num, status) => {
+        try { await api.updateInvoiceStatus(num, status); } catch(e) { console.warn('Status update failed:', e); }
+        setInvoices(p => p.map(i => i.number === num ? { ...i, status } : i));
+    };
 
     const deleteInvoice = async (inv) => {
         if (!window.confirm(`⚠️ Permanently delete invoice ${inv.number}?\n\nThis cannot be undone.`)) return;
