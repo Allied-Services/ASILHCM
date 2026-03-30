@@ -28,8 +28,8 @@ export const api = {
     // ── Employees ────────────────────────────────────────────────────────────
     getEmployees: () => apiFetch('/api/employees'),
     createEmployee: (data) => apiFetch('/api/employees', { method: 'POST', body: JSON.stringify(data) }),
-    updateEmployee: (id, data) => apiFetch(`/api/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    deleteEmployee: (id) => apiFetch(`/api/employees/${id}`, { method: 'DELETE' }),
+    updateEmployee: (id, data) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteEmployee: (id) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     bulkImportEmployees: (employees) => apiFetch('/api/employees/bulk', { method: 'POST', body: JSON.stringify({ employees }) }),
 
     // ── Clients ───────────────────────────────────────────────────────────────
@@ -119,8 +119,9 @@ export const api = {
     // ── Payroll Persistence ───────────────────────────────────────────────────
     getPayroll:    (year, month)        => apiFetch(`/api/payroll/${year}/${month}`),
     savePayroll:   (year, month, rows)  => apiFetch(`/api/payroll/${year}/${month}`, { method: 'POST', body: JSON.stringify({ rows }) }),
-    lockPayroll:   (year, month)        => apiFetch(`/api/payroll/${year}/${month}/lock`,   { method: 'PATCH' }),
-    unlockPayroll: (year, month)        => apiFetch(`/api/payroll/${year}/${month}/unlock`, { method: 'PATCH' }),
+    lockPayroll:   (year, month, employeeIds) => apiFetch(`/api/payroll/${year}/${month}/lock`,   { method: 'PATCH', body: JSON.stringify({ employee_ids: employeeIds || [] }) }),
+    unlockPayroll: (year, month)              => apiFetch(`/api/payroll/${year}/${month}/unlock`, { method: 'PATCH' }),
+    xeroStatus:    ()                         => apiFetch('/api/xero/status'),
 
     // ── Payslips ──────────────────────────────────────────────────────────────
     getPayslipUrl: (empId, month, year) => `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}`,

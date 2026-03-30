@@ -1842,11 +1842,22 @@ app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer
 app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_approver'), async (req, res) => {
     try {
         const { year, month } = req.params;
-        await pool.query(
-            `UPDATE payroll_transactions SET locked=TRUE, locked_by=$1, locked_at=NOW()
-             WHERE year=$2 AND month=$3`,
-            [req.user.email, parseInt(year), parseInt(month)]
-        );
+        const { employee_ids } = req.body || {}; // optional: lock only specific employees
+        const yr = parseInt(year), mo = parseInt(month);
+        if (employee_ids && employee_ids.length > 0) {
+            // Lock only the filtered employees
+            await pool.query(
+                `UPDATE payroll_transactions SET locked=TRUE, locked_by=$1, locked_at=NOW()
+                 WHERE year=$2 AND month=$3 AND employee_id = ANY($4)`,
+                [req.user.email, yr, mo, employee_ids]
+            );
+        } else {
+            await pool.query(
+                `UPDATE payroll_transactions SET locked=TRUE, locked_by=$1, locked_at=NOW()
+                 WHERE year=$2 AND month=$3`,
+                [req.user.email, yr, mo]
+            );
+        }
         res.json({ ok: true, locked: true, lockedBy: req.user.email });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1906,6 +1917,16 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             return Math.round((700000+(a-4100000)*0.35)/12);
         };
 
+        // Province → provincial service tax rate
+        const provinceTaxRate = (province) => {
+            const p = (province || '').toLowerCase();
+            if (p.includes('sindh') || p.includes('karachi') || p.includes('hyderabad')) return 0.13;
+            if (p.includes('punjab') || p.includes('lahore') || p.includes('faisalabad') || p.includes('rawalpindi') || p.includes('islamabad')) return 0.16;
+            if (p.includes('kpk') || p.includes('khyber') || p.includes('peshawar') || p.includes('abbottabad')) return 0.15;
+            if (p.includes('balochistan') || p.includes('quetta')) return 0.15;
+            return 0.13; // default federal/other
+        };
+
         const calcRow = (emp, pay) => {
             const gross = parseFloat(emp.salary) || 0;
             const pd = parseFloat(pay?.paid_days ?? WD);
@@ -1915,7 +1936,8 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const conv     = Math.round(gross * 0.10 * ratio);
             const med      = Math.round(gross * 0.07 * ratio);
             const other    = Math.round(gross * 0.03 * ratio);
-            const hrly     = (gross * 0.60) / WD / 8;
+            // OT hourly rate = FULL gross / (26 working days × 8 hours)
+            const hrly     = gross / (WD * 8);
             const ot2hrs   = parseFloat(pay?.ot2_hrs||0);
             const ot3hrs   = parseFloat(pay?.ot3_hrs||0);
             const otAmt    = Math.round(hrly * (ot2hrs*2 + ot3hrs*3));
@@ -1937,8 +1959,10 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const gratuity = Math.round((gross / WD) * 30 / 12);
             const costBase = grossM + eobi_er + sessi + bonus + gratuity;
             const sc       = pay?.service_charges ? Math.round(parseFloat(pay.service_charges)) : 0;
-            const st       = pay?.sales_tax       ? Math.round(parseFloat(pay.sales_tax))       : 0;
-            const inv      = pay?.total_invoice   ? Math.round(parseFloat(pay.total_invoice))   : costBase+sc+st;
+            // Province-based sales tax (replaces contract-level hard-coded rate)
+            const stRate   = provinceTaxRate(emp.province);
+            const st       = pay?.sales_tax ? Math.round(parseFloat(pay.sales_tax)) : Math.round(sc * stRate);
+            const inv      = pay?.total_invoice ? Math.round(parseFloat(pay.total_invoice)) : costBase+sc+st;
             return { grossM, wht, eobi_ee, eobi_er, sessi, advDed, loanDed, otherDed, totalDed, netPay,
                      gratuity, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus, pd, ot2hrs, ot3hrs };
         };
@@ -1946,12 +1970,23 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         let rows = [], filename = 'export.csv';
         const bu  = e => e.client_bu || e.clientbu || e.clientBU || '';
         const cnic = e => e.cnic || '';
+        const isHBL = e => (e.bank_name || '').toLowerCase().replace(/\s/g,'').includes('hbl') ||
+                           (e.bank_name || '').toLowerCase().includes('habib');
+        const monthAbbr = new Date(2000, moInt-1, 1).toLocaleString('en-US', { month: 'short' }); // 'Mar'
+        const yr2 = String(yrInt).slice(-2); // '26'
+
+        // For exports: only use rows that are locked, so bank files are always final
+        const isSuperAdmin = req.user.role === 'superadmin';
+        const lockedIds = new Set(payRes.rows.filter(p => p.locked).map(p => p.employee_id));
+        // Payroll full export uses all; bank files use locked-only rows
+        const bankEmps = empRes.rows.filter(e => lockedIds.has(e.id));
 
         if (type === 'payroll') {
-            rows = empRes.rows.map(emp => {
+            const sourceEmps = isSuperAdmin ? empRes.rows : bankEmps;
+            rows = sourceEmps.map(emp => {
                 const c = calcRow(emp, payMap[emp.id]);
                 return { 'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
-                    'CNIC': cnic(emp), 'Contract': bu(emp), 'Location': emp.location||'',
+                    'CNIC': cnic(emp), 'Contract': emp.contract_name || bu(emp), 'Location': emp.location||'', 'Province': emp.province||'',
                     'Salary': parseFloat(emp.salary)||0, 'Paid Days': c.pd,
                     'OT @2X': c.ot2hrs, 'OT @3X': c.ot3hrs, 'OT Amount': c.otAmt,
                     'OPD': c.opd, 'Reimb': c.reimb, 'Arrears': c.arr,
@@ -1965,18 +2000,56 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             });
             filename = `Payroll_${year}-${String(month).padStart(2,'0')}.csv`;
 
-        } else if (type === 'hbl') {
-            rows = empRes.rows.map((emp, i) => {
+        } else if (type === 'hbl_same') {
+            // HBL to HBL transfers — only employees with HBL accounts, locked rows only
+            rows = bankEmps.filter(isHBL).map((emp, i) => {
                 const c = calcRow(emp, payMap[emp.id]);
-                return { 'Employee ID': emp.id, 'Beneficiary Name': emp.name,
-                    'Account Number': emp.bank_account || emp.bankaccount || '',
-                    'Net Pay': c.netPay,
-                    'Reference': `ASIL-${year}${String(month).padStart(2,'0')}-${String(i+1).padStart(3,'0')}`,
-                    'Bank': emp.bank_name || emp.bankname || 'HBL',
-                    'Contact': emp.primary_contact || emp.primarycontact || '',
-                    'Email': emp.email || '' };
+                const ref1 = `PR${monthAbbr}${yr2}-${emp.id}`;
+                return {
+                    'Beneficiary\u00a0Name': emp.name,
+                    'Beneficiary Account Number': emp.bank_account || '',
+                    'Transaction Amount': c.netPay,
+                    'Reference # 1': ref1,
+                    'Reference # 2': '',
+                    'Reference # 3': '',
+                    'Inovice Number': '',
+                    'Account Title': emp.account_title || emp.name,
+                };
             });
-            filename = `HBL_Bank_${year}-${String(month).padStart(2,'0')}.csv`;
+            if (!rows.length) return res.status(200).json({ msg: 'No HBL account holders in locked payroll.' });
+            filename = `HBL_to_HBL_${monthAbbr}${yr2}.csv`;
+
+        } else if (type === 'hbl_other') {
+            // HBL to Other Banks (IBFT) — non-HBL bank accounts, locked rows only
+            rows = bankEmps.filter(e => !isHBL(e)).map((emp, i) => {
+                const c = calcRow(emp, payMap[emp.id]);
+                const ref1 = `PR${monthAbbr}${yr2}-${emp.id}`;
+                return {
+                    'Beneficiary Name': emp.name,
+                    'Beneficiary Account Number': emp.bank_account || '',
+                    'Transaction Amount': c.netPay,
+                    'Reference # 1': ref1,
+                    'Reference # 2': '',
+                    'Reference # 3': '',
+                    'Inovice Number': '',
+                    'Account Title': emp.account_title || emp.name,
+                };
+            });
+            if (!rows.length) return res.status(200).json({ msg: 'No other-bank account holders in locked payroll.' });
+            filename = `HBL_to_Others_${monthAbbr}${yr2}.csv`;
+
+        } else if (type === 'hbl') {
+            // Legacy single HBL file — redirect to split files message
+            rows = bankEmps.map((emp, i) => {
+                const c = calcRow(emp, payMap[emp.id]);
+                return { 'Beneficiary Name': emp.name,
+                    'Beneficiary Account Number': emp.bank_account || '',
+                    'Transaction Amount': c.netPay,
+                    'Bank': emp.bank_name || '',
+                    'Reference # 1': `PR${monthAbbr}${yr2}-${emp.id}`,
+                    'Account Title': emp.account_title || emp.name };
+            });
+            filename = `Bank_Transfers_${monthAbbr}${yr2}.csv`;
 
         } else if (type === 'wht') {
             rows = empRes.rows.map(emp => ({ emp, c: calcRow(emp, payMap[emp.id]) }))
@@ -2006,7 +2079,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             });
             filename = `SESSI_${year}-${String(month).padStart(2,'0')}.csv`;
         } else {
-            return res.status(400).json({ error: 'Invalid type. Use payroll|hbl|wht|eobi|sessi' });
+            return res.status(400).json({ error: 'Invalid type. Use payroll|hbl_same|hbl_other|hbl|wht|eobi|sessi' });
         }
 
         if (!rows.length) return res.status(200).send('No data to export.');
@@ -2213,6 +2286,24 @@ async function xeroGetAccessToken() {
     }
     return { accessToken: resp.access_token, tenantId };
 }
+
+// ── 0. Xero Status Check ─────────────────────────────────────────────────────
+app.get('/api/xero/status', requireAuth, async (req, res) => {
+    try {
+        const cfg = await pool.query(`SELECT value FROM system_config WHERE key = 'xero_tokens'`);
+        if (!cfg.rows.length) return res.json({ connected: false, message: 'Not connected. Visit /api/xero/connect to authorise.' });
+        const tokens = JSON.parse(cfg.rows[0].value);
+        // Attempt a quick token refresh to test validity
+        try {
+            const resp = await xeroGetToken({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token });
+            const newTokens = { ...tokens, ...resp };
+            await pool.query(`INSERT INTO system_config(key,value) VALUES('xero_tokens',$1) ON CONFLICT(key) DO UPDATE SET value=$1`, [JSON.stringify(newTokens)]);
+            res.json({ connected: true, tenant_id: tokens.tenant_id || null, message: 'Connected ✓' });
+        } catch {
+            res.json({ connected: false, message: 'Token expired. Please reconnect at /api/xero/connect' });
+        }
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // ── 1. Initiate Xero OAuth ──────────────────────────────────────────────────
 app.get('/api/xero/connect', (req, res) => {

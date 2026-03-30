@@ -38,6 +38,18 @@ export const calcPF_fn = (basic, enrolled) => enrolled ? Math.round(basic * 0.08
 // Gratuity monthly accrual: basic/26 * 30 / 12 per EOB Ordinance 1968
 export const calcGratuityMonthly = (gross) => Math.round((gross * 0.60) / 26 * 30 / 12);
 
+// ─── Province → Provincial Service Tax Rate ──────────────────────────────────
+// Punjab: PRA 16%, Sindh: SRB 13%, KPK: KPRA 15%, Balochistan: BRA 15%, Federal/Other: 13%
+export const provinceSalesTaxRate = (province) => {
+    const p = (province || '').toLowerCase();
+    if (p.includes('sindh') || p.includes('karachi') || p.includes('hyderabad') || p.includes('sukkur')) return 0.13;
+    if (p.includes('punjab') || p.includes('lahore') || p.includes('faisalabad') || p.includes('rawalpindi') || p.includes('islamabad') || p.includes('multan') || p.includes('gujranwala')) return 0.16;
+    if (p.includes('kpk') || p.includes('khyber') || p.includes('peshawar') || p.includes('abbottabad') || p.includes('kohat')) return 0.15;
+    if (p.includes('balochistan') || p.includes('quetta')) return 0.15;
+    if (p.includes('ajk') || p.includes('azad kashmir')) return 0.13;
+    return 0.13; // default: federal/ICT
+};
+
 export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const pd = parseFloat(ov.paid_days ?? workDays) || 0;
     // FIXED FORMULAS (per user spec):
@@ -96,9 +108,10 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const totalMedical = medEE + medSP + medCh1 + medCh2;
     const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusAmount + gratuity + lifeIns + totalMedical + pfER;
     const svcPct = parseFloat(cfg.service_charges_pct || 0);
-    const stPct = parseFloat(cfg.sales_tax_pct || 0);
+    // Sales tax: province-based rate (replaces cfg.sales_tax_pct)
+    const stRate = provinceSalesTaxRate(emp.province || emp.location || '');
     const serviceCharges = Math.round(totalPayrollCost * svcPct / 100);
-    const salesTax = Math.round(serviceCharges * stPct / 100);
+    const salesTax = Math.round(serviceCharges * stRate);
     const totalInvoice = totalPayrollCost + serviceCharges + salesTax;
     return {
         pd, ot2hrs, ot3hrs, ot2Amount, ot3Amount, basicPaid, hraPaid, convPaid, medPaid, otherPaid,

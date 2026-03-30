@@ -31,7 +31,7 @@ const EMPTY_CONTRACT = {
         dedicated_staff: 0, courier: 3000,
         other1_name: '', other1_amount: 0, other2_name: '', other2_amount: 0,
     },
-    financials: { wht_pct: 7, sales_tax_pct: 17, service_charges_pct: 15 }
+    financials: { wht_pct: 7, service_charges_pct: 15 }
 };
 
 // No sample data — loaded from Neon DB
@@ -191,10 +191,13 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                 <div style={{ background: 'var(--bg-dark)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
                     <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>Contract Financials &amp; Tax</h3>
                     <p style={{ margin: '0 0 1.25rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>Service Charges % is the margin applied on cost to derive the billing amount.</p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                         <FRow label="Service Charges / Margin (%)"><FInput type="number" value={c.financials.service_charges_pct} onChange={e => set('financials.service_charges_pct', parseFloat(e.target.value) || 0)} ph="e.g. 15" /></FRow>
                         <FRow label="Withholding Tax — WHT (%)"><FInput type="number" value={c.financials.wht_pct} onChange={e => set('financials.wht_pct', parseFloat(e.target.value) || 0)} ph="e.g. 7" /></FRow>
-                        <FRow label="Sales Tax (%)"><FInput type="number" value={c.financials.sales_tax_pct} onChange={e => set('financials.sales_tax_pct', parseFloat(e.target.value) || 0)} ph="e.g. 17" /></FRow>
+                    </div>
+                    <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '8px', fontSize: '0.82rem', color: 'var(--primary)' }}>
+                        🏛️ <strong>Sales Tax is province-based (auto).</strong> Rate is determined by each employee’s Province field:<br />
+                        Punjab → PRA 16% &nbsp;&bull;&nbsp; Sindh → SRB 13% &nbsp;&bull;&nbsp; KPK → KPRA 15% &nbsp;&bull;&nbsp; Balochistan → BRA 15% &nbsp;&bull;&nbsp; Federal/Other → 13%
                     </div>
                 </div>
 
@@ -433,7 +436,7 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                                     </div>
                                     <div>
                                         <div style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Contract Financials (%)</div>
-                                        {[['WHT', ct.financials.wht_pct + '%'], ['Sales Tax', ct.financials.sales_tax_pct + '%'], ['Service Charges / Margin', ct.financials.service_charges_pct + '%']].map(([l, v]) => (
+                                        {[['WHT', ct.financials.wht_pct + '%'], ['Sales Tax', 'Province-based (auto)'], ['Service Charges / Margin', ct.financials.service_charges_pct + '%']].map(([l, v]) => (
                                             <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', padding: '3px 0' }}><span style={{ color: 'var(--text-muted)' }}>{l}</span><span style={{ fontWeight: 600, color: 'var(--primary)' }}>{v}</span></div>
                                         ))}
                                         <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--bg-dark)', borderRadius: '8px' }}>

@@ -275,9 +275,13 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
 }
 
 // ─── Export Dropdown ──────────────────────────────────────────────────────────
-function ExportMenu({ month, onClose }) {
+function ExportMenu({ month, isLocked, onClose }) {
     const [yr, mo] = month.split('-');
     const dlExport = async (type) => {
+        if (!isLocked && !['payroll'].includes(type)) {
+            alert('Payroll must be locked before exporting bank files.');
+            return;
+        }
         const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
         const token = localStorage.getItem('asil_hcm_token');
         try {
@@ -285,6 +289,13 @@ function ExportMenu({ month, onClose }) {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (!res.ok) { alert('Export failed: ' + res.status); return; }
+            // Handle JSON message (e.g. no locked rows)
+            const ct = res.headers.get('content-type') || '';
+            if (ct.includes('application/json')) {
+                const d = await res.json();
+                alert(d.msg || d.message || 'No data to export.');
+                return;
+            }
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -296,19 +307,28 @@ function ExportMenu({ month, onClose }) {
         } catch(e) { alert('Export error: ' + e.message); }
     };
     const opts = [
-        { label: 'Full Payroll CSV', sub: 'All columns — earnings, deductions, invoice', fn: () => dlExport('payroll') },
-        { label: 'HBL Bank File', sub: 'Net Pay per employee in HBL transfer format', fn: () => dlExport('hbl') },
-        { label: 'WHT Returns (FBR)', sub: 'Taxable amount + tax per employee for FBR', fn: () => dlExport('wht') },
-        { label: 'EOBI Contributions', sub: 'Employee & employer EOBI per head', fn: () => dlExport('eobi') },
-        { label: 'SESSI Contributions', sub: 'Employer SESSI contribution per head', fn: () => dlExport('sessi') },
+        { label: '📊 Full Payroll CSV', sub: 'All columns — earnings, deductions, invoice', fn: () => dlExport('payroll') },
+        { label: '🏦 HBL → HBL Transfers', sub: 'Net Pay for HBL account holders (🔒 locked rows only)', fn: () => dlExport('hbl_same'), needsLock: true },
+        { label: '🏦 HBL → Other Banks (IBFT)', sub: 'Net Pay for non-HBL accounts (🔒 locked rows only)', fn: () => dlExport('hbl_other'), needsLock: true },
+        { label: '📋 WHT Returns (FBR)', sub: 'Taxable amount + tax per employee for FBR', fn: () => dlExport('wht') },
+        { label: '📋 EOBI Contributions', sub: 'Employee & employer EOBI per head', fn: () => dlExport('eobi') },
+        { label: '📋 SESSI Contributions', sub: 'Employer SESSI contribution per head', fn: () => dlExport('sessi') },
     ];
     return (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1050 }} onClick={onClose}>
-            <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '140px', right: '2rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', minWidth: '320px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
+            <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '140px', right: '2rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', minWidth: '340px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
                 <div style={{ padding: '0.75rem 1.25rem', borderBottom: '1px solid var(--border)', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.06em' }}>Export Options — {month}</div>
+                {!isLocked && (
+                    <div style={{ padding: '0.65rem 1.25rem', background: 'rgba(245,158,11,0.1)', borderBottom: '1px solid rgba(245,158,11,0.3)', fontSize: '0.78rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        ⚠️ Bank files are only available after payroll is <strong>locked</strong>.
+                    </div>
+                )}
                 {opts.map(o => (
-                    <button key={o.label} onClick={() => { o.fn(); onClose(); }} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '0.9rem 1.25rem', background: 'transparent', border: 'none', color: 'var(--text)', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-dark)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <button key={o.label} onClick={() => { o.fn(); onClose(); }}
+                        disabled={o.needsLock && !isLocked}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '0.9rem 1.25rem', background: 'transparent', border: 'none', color: (o.needsLock && !isLocked) ? 'var(--text-muted)' : 'var(--text)', cursor: (o.needsLock && !isLocked) ? 'not-allowed' : 'pointer', borderBottom: '1px solid var(--border)', opacity: (o.needsLock && !isLocked) ? 0.5 : 1 }}
+                        onMouseEnter={e => { if (!(o.needsLock && !isLocked)) e.currentTarget.style.background = 'var(--bg-dark)'; }}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                         <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{o.label}</div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>{o.sub}</div>
                     </button>
@@ -673,11 +693,15 @@ export default function PayrollSheet({ user }) {
     };
 
 
+    const canManageLock = isSuperAdmin || user?.role === 'finance_approver';
+
     const handleLock = async () => {
-        if (!window.confirm('Lock this payroll month? No further edits will be allowed after locking.')) return;
+        const filteredIds = rows.map(r => r.emp.id);
+        const lockCount = filteredIds.length;
+        if (!window.confirm(`Lock payroll for ${lockCount} employee(s) currently showing?\n\nOnly these ${lockCount} records will be locked. Exports (bank files) will only include locked records.`)) return;
         try {
             const [yr, mo] = month.split('-');
-            await api.lockPayroll(yr, mo);
+            await api.lockPayroll(yr, mo, filteredIds);
             setIsLocked(true);
             setLockedBy('You');
         } catch (e) { alert('Lock failed: ' + e.message); }
@@ -766,20 +790,24 @@ export default function PayrollSheet({ user }) {
                             <Send size={15} /> Submit for Approval
                         </button>
                     )}
-                    <button onClick={() => setShowExport(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#22c55e', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                    <button onClick={() => setShowExport(v => !v)}
+                        disabled={!isLocked}
+                        title={!isLocked ? 'Lock payroll first to enable exports' : 'Export options'}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? '#22c55e' : '#333', color: isLocked ? 'white' : '#666', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: isLocked ? 'pointer' : 'not-allowed', fontWeight: 600, opacity: isLocked ? 1 : 0.6 }}>
                         <Download size={15} /> Export <ChevronDown size={14} />
                     </button>
-                    {!isLocked ? (
+                    {canManageLock && !isLocked && (
                         <>
                             {emailResult && <span style={{ fontSize: '0.8rem', color: emailResult.ok ? '#22c55e' : '#ef4444', marginRight: '0.5rem' }}>{emailResult.msg}</span>}
                             <button onClick={sendPayslipEmails} disabled={sendingEmails} style={{ background: '#7c3aed', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', opacity: sendingEmails ? 0.6 : 1 }}>
                                 {sendingEmails ? '📧 Sending...' : '📧 Send Payslips'}
                             </button>
-                            <button onClick={handleLock} title="Lock payroll — mark as bank-processed" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f59e0b', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
-                                <Lock size={15} /> Lock Payroll
+                            <button onClick={handleLock} title={`Lock ${rows.length} visible employee(s)`} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f59e0b', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                                <Lock size={15} /> Lock Payroll ({rows.length})
                             </button>
                         </>
-                    ) : (
+                    )}
+                    {canManageLock && isLocked && (
                         <button onClick={handleUnlock} title="Unlock payroll to allow edits" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.4)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                             <Unlock size={15} /> Unlock
                         </button>
@@ -1057,7 +1085,7 @@ export default function PayrollSheet({ user }) {
             </div>
 
             {breakdown && <BreakdownPanel emp={breakdown.emp} calc={breakdown.calc} workDays={workDays} onClose={() => setBreakdown(null)} />}
-            {showExport && <ExportMenu month={month} onClose={() => setShowExport(false)} />}
+            {showExport && <ExportMenu month={month} isLocked={isLocked} onClose={() => setShowExport(false)} />}
             {showImport && <ImportModal onApply={applyImport} onClose={() => setShowImport(false)} employees={EMPLOYEES} workDays={workDays} />}
         </div>
     );
