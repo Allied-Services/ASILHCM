@@ -6,7 +6,7 @@ import EmployeeProfile from './EmployeeProfile';
 
 // ── Exact columns from Master Data.csv ───────────────────────────────────────
 export const MASTER_COLUMNS = [
-    'ASIL Employee Code', 'ASIL BU', 'Active', 'CLIENT NAME', 'Client Business Unit',
+    'ASIL Employee Code', 'ASIL BU', 'Contract Name', 'Active', 'CLIENT NAME', 'Client Business Unit',
     'Department', 'Designation', 'Client Location', 'Province', 'Employee Name',
     "Father's Name", "Mother's Name", 'CNIC Number', 'CNIC Issue', 'CNIC Expiry',
     'Place of Birth', 'EOBI No', 'Religion', 'Salary', 'Marital Status',
@@ -29,7 +29,8 @@ const parseSalary = (s) => parseFloat(String(s || '0').replace(/,/g, '')) || 0;
 
 const EMPTY_FORM = {
     id: '', bu: '', active: 'Yes', client: '', clientBU: '', dept: '', designation: '',
-    location: '', province: '', name: '', fatherName: '', motherName: '',
+    location: '', province: '', contractName: '',
+    name: '', fatherName: '', motherName: '',
     cnic: '', cnicIssue: '', cnicExpiry: '', placeOfBirth: '', eobiNo: '', religion: 'Islam',
     salary: '', maritalStatus: 'Single',
     primaryContact: '', emergencyContact: '', email: '',
@@ -135,7 +136,7 @@ export default function EmployeeInformation({ user }) {
 
     // ── Download template ─────────────────────────────────────────────────────
     const downloadTpl = () => {
-        const ex = ['ASIL/SPL-001/25', 'WafiBPO', 'Yes', 'Client Name Ltd', 'Trading & Supply', 'Security Services', 'Security Guard', 'Karachi', 'Sindh', 'Muhammad Ali', 'Father Name', 'Mother Name', '42101-1234567-1', '01-Jan-20', '01-Jan-30', 'Karachi', 'EOBI-001', 'Islam', '"38,000.00"', 'Married', '0300-1234567', '0311-9876543', 'email@example.com', 'Present Address', 'Permanent Address', '01-Jan-1990', '', '01-Jan-2024', '1.0', '"38,000.00"', 'Spouse Name', '30', 'XXXXX-XXXXXXX-X', 'Child 1', '5', 'B-Form', 'Child 2', '3', 'B-Form', 'Self & Family', 'Yes', '500000', 'HBL', '12345678901', 'Muhammad Ali', 'NOK Name', 'Father', '0300-0000000'].join(',');
+        const ex = ['ASIL/SPL-001/25', 'WafiBPO', 'LSC Security Services', 'Yes', 'Client Name Ltd', 'Trading & Supply', 'Security Services', 'Security Guard', 'Karachi', 'Sindh', 'Muhammad Ali', 'Father Name', 'Mother Name', '42101-1234567-1', '01-Jan-20', '01-Jan-30', 'Karachi', 'EOBI-001', 'Islam', '"38,000.00"', 'Married', '0300-1234567', '0311-9876543', 'email@example.com', 'Present Address', 'Permanent Address', '01-Jan-1990', '', '01-Jan-2024', '1.0', '"38,000.00"', 'Spouse Name', '30', 'XXXXX-XXXXXXX-X', 'Child 1', '5', 'B-Form', 'Child 2', '3', 'B-Form', 'Self & Family', 'Yes', '500000', 'HBL', '12345678901', 'Muhammad Ali', 'NOK Name', 'Father', '0300-0000000'].join(',');
         const blob = new Blob([MASTER_COLUMNS.join(',') + '\n' + ex], { type: 'text/csv' });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ASIL_Employee_Master_Template.csv'; a.click();
     };
@@ -157,6 +158,7 @@ export default function EmployeeInformation({ user }) {
                     return {
                         id: getF(obj, 'ASIL Employee Code', 'Employee Code', 'ID', 'EmpID') || `IMP-${i + 1}`,
                         bu: getF(obj, 'ASIL BU', 'BU', 'Business Unit'),
+                        contractName: getF(obj, 'Contract Name', 'Contract', 'ContractName', 'Contract Name'),
                         active: getF(obj, 'Active', 'Status') || 'Yes',
                         client: getF(obj, 'CLIENT NAME', 'Client Name', 'Client'),
                         clientBU: getF(obj, 'Client Business Unit', 'Client BU', 'ClientBU'),
@@ -272,9 +274,10 @@ export default function EmployeeInformation({ user }) {
 
     const exportSelectedCSV = () => {
         const rows = emps.filter(e => selected.has(e.id));
-        const headers = ['Employee Code','Name','Client','Designation','Location','Province','Salary','Active','CNIC','Email','Primary Contact','Bank Name','Bank Account'];
+        const headers = ['Employee Code','Name','Client','Designation','Location','Province','Contract Name','Salary','Active','CNIC','Email','Primary Contact','Bank Name','Bank Account'];
         const lines = rows.map(e => [
             e.id, e.name, e.client, e.designation, e.location, e.province,
+            e.contractName || e.bu || '',
             e.salary, e.active === 'Yes' ? 'Active' : 'Inactive', e.cnic,
             e.email, e.primaryContact, e.bankName, e.bankAccount
         ].map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(','));
@@ -489,7 +492,7 @@ export default function EmployeeInformation({ user }) {
 
             {/* Table */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', minWidth: '960px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', minWidth: '1100px' }}>
                     <thead>
                         <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-dark)' }}>
                             <th style={{ padding: '0.9rem 0.75rem', width: '40px' }}>
@@ -498,7 +501,7 @@ export default function EmployeeInformation({ user }) {
                                     onChange={toggleAll}
                                     style={{ cursor: 'pointer', accentColor: '#38bdf8', width: '15px', height: '15px' }} />
                             </th>
-                            {['Employee Code', 'Name', 'Client', 'Designation', 'Location', 'Contract Start', 'Salary', 'Status', ''].map(h => (
+                            {['Employee Code', 'Name', 'Client', 'Designation', 'Location', 'Province', 'Contract', 'Salary', 'Status', ''].map(h => (
                                 <th key={h} style={{ padding: '0.9rem 1rem', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
                         </tr>
@@ -527,11 +530,16 @@ export default function EmployeeInformation({ user }) {
                                     <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{emp.dept}</div>
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>{emp.designation}</td>
-                                <td style={{ padding: '0.85rem 1rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{emp.location}, {emp.province}</td>
+                                <td style={{ padding: '0.85rem 1rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{emp.location}</td>
+                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
+                                    {emp.province
+                                        ? <span style={{ background: 'rgba(56,189,248,0.1)', color: 'var(--primary)', padding: '2px 8px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600 }}>{emp.province}</span>
+                                        : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                                </td>
                                 <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap', fontSize: '0.82rem' }}>
-                                    {emp.contractDate ? (
-                                        <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{String(emp.contractDate).slice(0, 10)}</span>
-                                    ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                                    {emp.contractName
+                                        ? <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{emp.contractName}</span>
+                                        : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
                                     <div style={{ fontWeight: 600 }}>Rs. {(emp.salary || 0).toLocaleString()}</div>
@@ -613,12 +621,13 @@ export default function EmployeeInformation({ user }) {
                                 {sec === 'Employment' && <>
                                     <F label="ASIL Employee Code" field="id" opts={{ ph: 'ASIL/SPL-XXX/25' }} />
                                     <F label="ASIL BU" field="bu" opts={{ ph: 'e.g. WafiBPO' }} />
+                                    <div style={{ gridColumn: '1/-1' }}><F label="Contract Name *" field="contractName" opts={{ ph: 'Exact contract name as per Client Service Order (e.g. LSC Security Services)' }} /></div>
                                     <F label="Client Name" field="client" opts={{ ph: 'Client organisation name' }} />
                                     <F label="Client Business Unit" field="clientBU" opts={{ ph: 'e.g. Trading & Supply' }} />
                                     <F label="Department" field="dept" opts={{ ph: 'e.g. Security Services' }} />
                                     <F label="Designation" field="designation" opts={{ ph: 'e.g. Security Guard' }} />
                                     <F label="Client Location" field="location" opts={{ ph: 'e.g. Karachi' }} />
-                                    <F label="Province" field="province" opts={{ sel: ['Sindh', 'Punjab', 'KPK', 'Balochistan', 'Gilgit-Baltistan', 'Islamabad'] }} />
+                                    <F label="Province" field="province" opts={{ sel: ['', 'Sindh', 'Punjab', 'KPK', 'Balochistan', 'Gilgit-Baltistan', 'AJK', 'Islamabad (ICT)'] }} />
                                     <F label="Date of Joining" field="doj" type="date" />
                                     <F label="Contract Start Date" field="contractDate" type="date" />
                                     <F label="Active" field="active" opts={{ sel: ['Yes', 'No'] }} />
@@ -731,7 +740,7 @@ export default function EmployeeInformation({ user }) {
                                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                                             <thead>
                                                 <tr style={{ background: 'var(--bg-card)' }}>
-                                                    {['Code', 'Name', 'Client', 'Designation', 'Location', 'Salary', 'Active'].map(h => (
+                                                    {['Code', 'Name', 'Client', 'Contract', 'Province', 'Salary', 'Active'].map(h => (
                                                         <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, position: 'sticky', top: 0, background: 'var(--bg-card)', whiteSpace: 'nowrap' }}>{h}</th>
                                                     ))}
                                                 </tr>
@@ -742,8 +751,10 @@ export default function EmployeeInformation({ user }) {
                                                         <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: '0.78rem' }}>{r.id}</td>
                                                         <td style={{ padding: '8px 12px', fontWeight: 600 }}>{r.name}</td>
                                                         <td style={{ padding: '8px 12px' }}>{r.client}</td>
-                                                        <td style={{ padding: '8px 12px' }}>{r.designation}</td>
-                                                        <td style={{ padding: '8px 12px' }}>{r.location}</td>
+                                                        <td style={{ padding: '8px 12px' }}>{r.contractName || r.bu || '—'}</td>
+                                                        <td style={{ padding: '8px 12px' }}>
+                                                            {r.province ? <span style={{ background: 'rgba(56,189,248,0.1)', color: '#38bdf8', padding: '2px 7px', borderRadius: '6px', fontSize: '0.76rem', fontWeight: 600 }}>{r.province}</span> : '—'}
+                                                        </td>
                                                         <td style={{ padding: '8px 12px' }}>Rs. {(r.salary || 0).toLocaleString()}</td>
                                                         <td style={{ padding: '8px 12px' }}><span style={{ color: r.active === 'Yes' ? '#22c55e' : '#eab308' }}>{r.active}</span></td>
                                                     </tr>
