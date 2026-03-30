@@ -2794,6 +2794,20 @@ app.listen(PORT, async () => {
         }
         console.log('Migration OK: payroll_transactions column migrations done');
 
+        // ─── Fix column types: ensure OT/paid_days are NUMERIC not INTEGER ───────
+        // ADD COLUMN IF NOT EXISTS never changes the type of an existing column.
+        // If ot2_hrs/ot3_hrs were created as INTEGER before this schema, PostgreSQL
+        // silently rounds 10.5 → 11 on insert. Force them to NUMERIC(8,2) now.
+        const typeFixCols = [
+            `ALTER TABLE payroll_transactions ALTER COLUMN ot2_hrs  TYPE NUMERIC(8,2) USING ot2_hrs::NUMERIC(8,2)`,
+            `ALTER TABLE payroll_transactions ALTER COLUMN ot3_hrs  TYPE NUMERIC(8,2) USING ot3_hrs::NUMERIC(8,2)`,
+            `ALTER TABLE payroll_transactions ALTER COLUMN paid_days TYPE NUMERIC(5,2) USING paid_days::NUMERIC(5,2)`,
+        ];
+        for (const sql of typeFixCols) {
+            try { await pool.query(sql); } catch (e) { /* already NUMERIC or other issue — ignore */ }
+        }
+        console.log('Migration OK: ot2_hrs/ot3_hrs/paid_days type ensured as NUMERIC(8,2)');
+
         // ─── placeholder so existing closing brace still works ───────────────
         const _dummy = true; if (!_dummy) {
         }
