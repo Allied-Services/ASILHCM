@@ -1255,8 +1255,10 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const advanceDed   = Math.round(parseFloat(pay?.advance_deduction||0));
         const loanDed      = Math.round(parseFloat(pay?.loan_deduction||0));
         const otherDed     = Math.round(parseFloat(pay?.other_deduction||0));
-        // PF: 8.33% of basic if enrolled (we don't track pf_enrolled in payroll_transactions, use 0 as default)
-        const pfEE         = 0;
+        // PF: 1/24 of basic salary if employee is enrolled in PF scheme
+        // Use emp.basic if stored; fallback to 60% of gross if not tracked per component
+        const actualBasic = parseFloat(emp.basic || 0) || Math.round(grossSalary * 0.60);
+        const pfEE         = emp.pf_enrolled ? Math.round(actualBasic / 24) : 0;
 
         const totalDeductions = incomeTax + eobiEE + pfEE + advanceDed + loanDed + otherDed;
         const netPay          = grossTotal - totalDeductions;
@@ -1950,20 +1952,25 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const grossM   = basic + hra + conv + med + other + otAmt + opd + reimb + arr + spl + fuel + bonus;
             const wht      = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
             const eobi_ee  = 400, eobi_er = 2000;
-            const sessi    = grossM < 45000 ? Math.round(grossM * 0.06) : 0;
+            // SESSI: 6% of actual wages, capped at 6% of min wage (Rs.40,000) = Rs.2,400
+            const sessi    = Math.min(2400, Math.round(grossM * 0.06));
+            // PF: 1/24 of basic — use emp.basic if stored, else 60% of gross
+            const actualBasic = parseFloat(emp.basic || 0) || Math.round(gross * 0.60);
+            const pfDed    = emp.pf_enrolled ? Math.round(actualBasic / 24) : 0;
+            const pfER     = pfDed; // employer matches employee PF contribution
             const advDed   = Math.round(parseFloat(pay?.advance_deduction||0));
             const loanDed  = Math.round(parseFloat(pay?.loan_deduction||0));
             const otherDed = Math.round(parseFloat(pay?.other_deduction||0));
-            const totalDed = wht + eobi_ee + advDed + loanDed + otherDed;
+            const totalDed = wht + eobi_ee + pfDed + advDed + loanDed + otherDed;
             const netPay   = grossM - totalDed;
             const gratuity = Math.round((gross / WD) * 30 / 12);
-            const costBase = grossM + eobi_er + sessi + bonus + gratuity;
+            const costBase = grossM + eobi_er + sessi + pfER + bonus + gratuity;
             const sc       = pay?.service_charges ? Math.round(parseFloat(pay.service_charges)) : 0;
             // Province-based sales tax (replaces contract-level hard-coded rate)
             const stRate   = provinceTaxRate(emp.province);
             const st       = pay?.sales_tax ? Math.round(parseFloat(pay.sales_tax)) : Math.round(sc * stRate);
             const inv      = pay?.total_invoice ? Math.round(parseFloat(pay.total_invoice)) : costBase+sc+st;
-            return { grossM, wht, eobi_ee, eobi_er, sessi, advDed, loanDed, otherDed, totalDed, netPay,
+            return { grossM, wht, eobi_ee, eobi_er, sessi, pfDed, pfER, advDed, loanDed, otherDed, totalDed, netPay,
                      gratuity, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus, pd, ot2hrs, ot3hrs };
         };
 
@@ -1992,9 +1999,9 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'OPD': c.opd, 'Reimb': c.reimb, 'Arrears': c.arr,
                     'Spl Allow': c.spl, 'Fuel/Mob': c.fuel, 'Bonus': c.bonus,
                     'Gross Monthly': c.grossM, 'Income Tax': c.wht, 'EOBI EE': c.eobi_ee,
-                    'Advance': c.advDed, 'Loan': c.loanDed,
+                    'PF EE': c.pfDed, 'Advance': c.advDed, 'Loan': c.loanDed, 'Other Deduction': c.otherDed,
                     'Total Deductions': c.totalDed, 'Net Pay': c.netPay,
-                    'EOBI ER': c.eobi_er, 'SESSI': c.sessi, 'Gratuity': c.gratuity,
+                    'EOBI ER': c.eobi_er, 'PF ER': c.pfER, 'SESSI': c.sessi, 'Gratuity': c.gratuity,
                     'Total Payroll Cost': c.costBase, 'Service Charges': c.sc,
                     'Sales Tax': c.st, 'Total Invoice': c.inv };
             });

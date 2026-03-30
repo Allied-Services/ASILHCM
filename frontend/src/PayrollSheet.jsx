@@ -71,7 +71,7 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
                     <S title="Employee Deductions" color="#f43f5e">
                         <R label="Income Tax (WHT)" formula={`Taxable Annual Rs.${fmt(calc.taxableMonthly*12)} → FBR 2025-26 ÷ 12`} value={calc.incomeTax} color="#f43f5e" />
                         <R label="EOBI Employee — Fixed" formula="1% × Rs. 40,000 (statutory minimum wage)" value={calc.eobi_ee} />
-                        {emp.pf_enrolled && <R label="PF Employee 8.33%" formula={`${fmt(emp.basic)} × 8.33%`} value={calc.pfEE} />}
+                        {emp.pf_enrolled && <R label="PF Employee (1/24 of Basic)" formula={`${fmt(emp.basic)} ÷ 24`} value={calc.pfEE} />}
                         {calc.advanceDed > 0 && <R label="Advance Recovery" value={calc.advanceDed} />}
                         {calc.loanDed > 0 && <R label="Loan Installment" value={calc.loanDed} />}
                         <D label="Total Deductions" value={calc.totalDeductions} color="#f43f5e" />

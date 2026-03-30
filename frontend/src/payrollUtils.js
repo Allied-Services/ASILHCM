@@ -34,7 +34,7 @@ export const calcEOBI_fn = () => {
     // Fixed for ALL employees regardless of their salary
     return { employee: 400, employer: 2000 };
 };
-export const calcPF_fn = (basic, enrolled) => enrolled ? Math.round(basic * 0.0833) : 0;
+export const calcPF_fn = (basic, enrolled) => enrolled ? Math.round(parseFloat(basic || 0) / 24) : 0;
 // Gratuity monthly accrual: basic/26 * 30 / 12 per EOB Ordinance 1968
 export const calcGratuityMonthly = (gross) => Math.round((gross * 0.60) / 26 * 30 / 12);
 
@@ -95,7 +95,9 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const loanDed = parseNum(ov.loan_deduction || 0);
     const totalDeductions = incomeTax + eobi.employee + pfEE + otherDed + advanceDed + loanDed;
     const netPay = grossMonthly - totalDeductions;
-    const sessi = grossMonthly < 45000 ? Math.round(grossMonthly * 0.06) : 0; // 6% of gross, exempt if gross >= 45,000
+    // SESSI: 6% of minimum wage (Rs.40,000), always capped at Rs.2,400
+    // Employer pays on ACTUAL wages but statutory ceiling = min wage, so SESSI ≤ 2,400
+    const sessi = Math.min(2400, Math.round(grossMonthly * 0.06));
     const eduCess = parseFloat(cfg.edu_cess || 0);
     const bonusAmount = parseFloat(ov.bonus_amount || 0);
     const gratuity = calcGratuityMonthly(emp.gross);
