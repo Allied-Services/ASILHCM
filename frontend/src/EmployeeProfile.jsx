@@ -28,11 +28,8 @@ const calcWHT = (monthlyGross) => {
     return Math.round(tax / 12);
 };
 
-const calcEOBI = (gross) => {
-    const cap = 37000;
-    const wage = Math.min(gross, cap);
-    return { employee: Math.round(wage * 0.01), employer: Math.round(wage * 0.05) };
-};
+// EOBI: flat statutory amounts for all employees (1%/5% of Rs.40,000 minimum wage cap)
+const calcEOBI = () => ({ employee: 400, employer: 2000 });
 
 const calcGratuity = (gross, doj, calcDate) => {
     const { years, months } = dateDiff(doj, calcDate);
@@ -232,12 +229,13 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
 
     const addPayroll = () => {
         if (!newPayroll.month) return alert('Month is required.');
-        const eobi = calcEOBI(parseFloat(newPayroll.gross) || emp.salary);
+        const gross = ['basic', 'hra', 'conveyance', 'medical_allowance', 'other_allowances'].reduce((s, k) => s + parseFloat(newPayroll[k] || 0), 0);
+        const eobi = calcEOBI(); // flat 400/2000
         const record = {
             ...newPayroll,
-            gross: ['basic', 'hra', 'conveyance', 'medical_allowance', 'other_allowances'].reduce((s, k) => s + parseFloat(newPayroll[k] || 0), 0),
+            gross,
             eobi_employee: eobi.employee, eobi_employer: eobi.employer,
-            income_tax: calcWHT(parseFloat(newPayroll.basic) || emp.salary),
+            income_tax: calcWHT(gross), // WHT on Gross, not basic
         };
         const updated = { ...emp, payrollHistory: [...(emp.payrollHistory || []), record] };
         save(updated); setShowAddPayroll(false);
@@ -720,11 +718,11 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                                         <div style={{ fontWeight: 600, fontSize: '0.8rem', textTransform: 'uppercase', color: '#f43f5e', marginBottom: '0.75rem' }}>Deductions</div>
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                                             <div>
-                                                <FLabel>EOBI (Auto-calculated)</FLabel>
-                                                <div style={{ padding: '8px 10px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-muted)', fontSize: '0.88rem' }}>Rs. {calcEOBI((newPayroll.basic || 0) + (newPayroll.hra || 0) + (newPayroll.conveyance || 0) + (newPayroll.medical_allowance || 0) + (newPayroll.other_allowances || 0)).employee.toLocaleString()}</div>
+                                                 <FLabel>EOBI (Auto — Flat statutory)</FLabel>
+                                                <div style={{ padding: '8px 10px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-muted)', fontSize: '0.88rem' }}>Rs. 400 (flat — all employees)</div>
                                             </div>
                                             <div>
-                                                <FLabel>Income Tax / WHT (Auto)</FLabel>
+                                                <FLabel>Income Tax / WHT (Auto — on Gross)</FLabel>
                                                 <div style={{ padding: '8px 10px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-muted)', fontSize: '0.88rem' }}>Rs. {calcWHT((newPayroll.basic || 0) + (newPayroll.hra || 0) + (newPayroll.conveyance || 0) + (newPayroll.medical_allowance || 0) + (newPayroll.other_allowances || 0)).toLocaleString()}</div>
                                             </div>
                                             <FField label="Advance Recovery (Rs.)"><FInput type="number" value={newPayroll.advance_deduction} onChange={e => setNewPayroll(p => ({ ...p, advance_deduction: parseFloat(e.target.value) || 0 }))} /></FField>

@@ -1226,8 +1226,9 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const otherAllow   = Math.round(grossSalary * 0.03 * ratio);
 
         // ── Variable components from payroll_transactions ─────────────────────
-        const otAmount       = Math.round(parseFloat(pay?.ot2_hrs||0) * 2 * (grossSalary*0.60/workDays/8)
-                                         + parseFloat(pay?.ot3_hrs||0) * 3 * (grossSalary*0.60/workDays/8));
+        // OT rate = Gross / (26×8) = Gross / 208
+        const otAmount       = Math.round(parseFloat(pay?.ot2_hrs||0) * 2 * (grossSalary/workDays/8)
+                                         + parseFloat(pay?.ot3_hrs||0) * 3 * (grossSalary/workDays/8));
         const opdClaim       = Math.round(parseFloat(pay?.opd_claim||0));
         const reimbursement  = Math.round(parseFloat(pay?.reimbursement||0));
         const arrears        = Math.round(parseFloat(pay?.arrears||0));
@@ -1255,10 +1256,8 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const advanceDed   = Math.round(parseFloat(pay?.advance_deduction||0));
         const loanDed      = Math.round(parseFloat(pay?.loan_deduction||0));
         const otherDed     = Math.round(parseFloat(pay?.other_deduction||0));
-        // PF: 1/24 of basic salary if employee is enrolled in PF scheme
-        // Use emp.basic if stored; fallback to 60% of gross if not tracked per component
-        const actualBasic = parseFloat(emp.basic || 0) || Math.round(grossSalary * 0.60);
-        const pfEE         = emp.pf_enrolled ? Math.round(actualBasic / 24) : 0;
+        // PF: 1/24 of Gross Salary (4.166%) — both EE and ER contribution
+        const pfEE         = emp.pf_enrolled ? Math.round(grossSalary / 24) : 0;
 
         const totalDeductions = incomeTax + eobiEE + pfEE + advanceDed + loanDed + otherDed;
         const netPay          = grossTotal - totalDeductions;
@@ -1733,8 +1732,9 @@ app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
             'SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2',
             [parseInt(year), parseInt(month)]
         );
-        // Also check if any row for this month is locked
-        const locked = rows.length > 0 && rows.every(r => r.locked);
+        // Month is locked if ANY row for this month has been locked.
+        // (rows.every would require ALL employees to be locked, which breaks per-filter locking)
+        const locked = rows.some(r => r.locked);
         res.json({
             rows: rows.map(r => ({
                 employee_id:       r.employee_id,
@@ -2811,7 +2811,13 @@ app.listen(PORT, async () => {
             `ALTER TABLE payroll_transactions ALTER COLUMN paid_days TYPE NUMERIC(5,2) USING paid_days::NUMERIC(5,2)`,
         ];
         for (const sql of typeFixCols) {
-            try { await pool.query(sql); } catch (e) { /* already NUMERIC or other issue — ignore */ }
+            try {
+                await pool.query(sql);
+                console.log('✓ Type migration OK:', sql.substring(47, 90));
+            } catch (e) {
+                // PG error 42804 = cannot change type (already correct type)
+                if (e.code !== '42804') console.warn('⚠ Type migration issue:', e.message);
+            }
         }
         console.log('Migration OK: ot2_hrs/ot3_hrs/paid_days type ensured as NUMERIC(8,2)');
 
