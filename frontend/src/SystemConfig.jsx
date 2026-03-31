@@ -215,32 +215,38 @@ const DEFAULT_STATUTORY = [
     { label: 'SESSI — Employer (Sindh)', rate: '6% of gross salary (exempt if gross ≥ Rs. 45,000)', section: 'SESSI Act 2012' },
     { label: 'SESSI — Employee (Sindh)', rate: '1% of wages', section: 'SESSI Act 2012' },
     { label: 'ESSI — Employer (Punjab)', rate: '5% of wages', section: 'ESSI Act 1952' },
-    { label: 'Gratuity', rate: '1/12th of last month basic × years served', section: 'EOB Ord 1968' },
-    { label: 'Provident Fund — Employer', rate: '8.33% of basic salary', section: 'EPF Ordinance' },
-    { label: 'Provident Fund — Employee', rate: '8.33% of basic salary', section: 'EPF Ordinance' },
+    { label: 'Gratuity', rate: '1/12th of Gross Salary (8.33% of Gross) — Employer only accrual', section: 'EOB Ord 1968' },
+    { label: 'Provident Fund — Employer', rate: '1/24th of Gross Salary (4.166% of Gross)', section: 'EPF Ordinance' },
+    { label: 'Provident Fund — Employee', rate: '1/24th of Gross Salary (4.166% of Gross)', section: 'EPF Ordinance' },
     { label: 'Sales Tax on Services', rate: '15%-16% (province-specific)', section: 'SPST / PPST' },
     { label: 'Advance Tax on Salary (244A)', rate: 'Monthly deduction per FBR slabs (Sec. 149)', section: 'ITO 2001, Sec 149' },
 ];
 
-function StatutoryReferencePanel({ items, onChange }) {
+function StatutoryReferencePanel({ items, onChange, readOnly = false }) {
     const setVal = (i, k, v) => {
+        if (readOnly) return;
         const next = [...items];
         next[i] = { ...next[i], [k]: v };
         onChange(next);
     };
-    const add = () => onChange([...items, { label: 'New Item', rate: '', section: '' }]);
-    const remove = i => { if (window.confirm('Remove?')) onChange(items.filter((_, j) => j !== i)); };
+    const add = () => { if (readOnly) return; onChange([...items, { label: 'New Item', rate: '', section: '' }]); };
+    const remove = i => { if (readOnly) return; if (window.confirm('Remove?')) onChange(items.filter((_, j) => j !== i)); };
     return (
         <div>
             <div style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.18)',
                 borderRadius: '10px', padding: '1rem 1.25rem', marginBottom: '1rem', fontSize: '0.82rem', color: '#f59e0b' }}>
-                ⚠️ <strong>Statutory Reference</strong> — Editable. Rates sourced from FBR, EOBI, provincial authorities. Always verify on <strong>fbr.gov.pk</strong> and <strong>eobi.gov.pk</strong>.
+                ⚠️ <strong>Statutory Reference</strong> — {readOnly ? 'Read-only. Only Super Admins may edit these rates.' : 'Editable. Rates sourced from FBR, EOBI, provincial authorities. Always verify on '}<strong>{readOnly ? '' : 'fbr.gov.pk'}</strong>{readOnly ? '' : ' and '}<strong>{readOnly ? '' : 'eobi.gov.pk'}</strong>{readOnly ? '' : '.'}
             </div>
+            {readOnly && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', padding: '0.65rem 1rem', marginBottom: '1rem', fontSize: '0.82rem', color: '#818cf8' }}>
+                    🔒 <strong>Restricted:</strong> Only users with the <strong>Super Admin</strong> role can modify statutory contribution rates. Contact your administrator to request changes.
+                </div>
+            )}
             <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                     <thead>
                         <tr style={{ background: 'var(--bg-dark)' }}>
-                            {['Contribution / Levy', 'Rate / Amount', 'Governing Law', ''].map(h => (
+                            {['Contribution / Levy', 'Rate / Amount', 'Governing Law', ...(readOnly ? [] : [''])].map(h => (
                                 <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '0.7rem',
                                     fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
                                     color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>{h}</th>
@@ -251,35 +257,39 @@ function StatutoryReferencePanel({ items, onChange }) {
                         {items.map((it, i) => (
                             <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
                                 <td style={{ padding: '6px 8px' }}>
-                                    <input value={it.label} onChange={e => setVal(i, 'label', e.target.value)}
-                                        style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '5px', padding: '5px 8px', color: 'var(--text)', fontSize: '0.83rem', outline: 'none', width: '240px' }} />
+                                    <input value={it.label} onChange={e => setVal(i, 'label', e.target.value)} disabled={readOnly}
+                                        style={{ background: readOnly ? 'transparent' : 'var(--bg-dark)', border: readOnly ? 'none' : '1px solid var(--border)', borderRadius: '5px', padding: '5px 8px', color: 'var(--text)', fontSize: '0.83rem', outline: 'none', width: '240px', cursor: readOnly ? 'default' : 'text' }} />
                                 </td>
                                 <td style={{ padding: '6px 8px' }}>
-                                    <input value={it.rate} onChange={e => setVal(i, 'rate', e.target.value)}
-                                        style={{ background: 'rgba(56,189,248,0.04)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '5px', padding: '5px 8px', color: 'var(--primary)', fontWeight: 600, fontSize: '0.83rem', outline: 'none', width: '300px' }} />
+                                    <input value={it.rate} onChange={e => setVal(i, 'rate', e.target.value)} disabled={readOnly}
+                                        style={{ background: readOnly ? 'transparent' : 'rgba(56,189,248,0.04)', border: readOnly ? 'none' : '1px solid rgba(56,189,248,0.2)', borderRadius: '5px', padding: '5px 8px', color: 'var(--primary)', fontWeight: 600, fontSize: '0.83rem', outline: 'none', width: '300px', cursor: readOnly ? 'default' : 'text' }} />
                                 </td>
                                 <td style={{ padding: '6px 8px' }}>
-                                    <input value={it.section} onChange={e => setVal(i, 'section', e.target.value)}
-                                        style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '5px', padding: '5px 8px', color: 'var(--text-muted)', fontSize: '0.78rem', fontFamily: 'monospace', outline: 'none', width: '160px' }} />
+                                    <input value={it.section} onChange={e => setVal(i, 'section', e.target.value)} disabled={readOnly}
+                                        style={{ background: readOnly ? 'transparent' : 'var(--bg-dark)', border: readOnly ? 'none' : '1px solid var(--border)', borderRadius: '5px', padding: '5px 8px', color: 'var(--text-muted)', fontSize: '0.78rem', fontFamily: 'monospace', outline: 'none', width: '160px', cursor: readOnly ? 'default' : 'text' }} />
                                 </td>
-                                <td style={{ padding: '6px 8px' }}>
-                                    <button onClick={() => remove(i)}
-                                        style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '5px', padding: '5px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                                        <Trash2 size={13} />
-                                    </button>
-                                </td>
+                                {!readOnly && (
+                                    <td style={{ padding: '6px 8px' }}>
+                                        <button onClick={() => remove(i)}
+                                            style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '5px', padding: '5px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                            <Trash2 size={13} />
+                                        </button>
+                                    </td>
+                                )}
                             </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
-            <button onClick={add}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '0.75rem',
-                    background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)',
-                    color: 'var(--primary)', padding: '6px 14px', borderRadius: '7px',
-                    cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
-                <Plus size={14} /> Add Row
-            </button>
+            {!readOnly && (
+                <button onClick={add}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '0.75rem',
+                        background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)',
+                        color: 'var(--primary)', padding: '6px 14px', borderRadius: '7px',
+                        cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                    <Plus size={14} /> Add Row
+                </button>
+            )}
         </div>
     );
 }
@@ -386,7 +396,8 @@ const DEFAULT_WHT = [
     { category: 'Construction & Civil Works', filer: 7, nonFiler: 7, section: '153(1)(c)' },
 ];
 
-export default function SystemConfig() {
+export default function SystemConfig({ user }) {
+    const isSuperAdmin = user?.role === 'superadmin';
     const [tab, setTab] = useState(TABS[0]);
     const [slabs, setSlabs] = useState(DEFAULT_SLABS);
     const [whtRates, setWhtRates] = useState(DEFAULT_WHT);
@@ -608,19 +619,25 @@ export default function SystemConfig() {
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Statutory Contributions &amp; Levies</h2>
-                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                             <button onClick={() => setStatutory(DEFAULT_STATUTORY)}
                                 style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>
                                 <RotateCcw size={14} /> Reset
                             </button>
-                            <button onClick={saveStatutory} disabled={saving === 'statutory'}
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', border: 'none', color: 'white', padding: '8px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', opacity: saving === 'statutory' ? 0.6 : 1 }}>
-                                <Save size={14} /> {saving === 'statutory' ? 'Saving...' : 'Save Reference'}
-                            </button>
+                            {isSuperAdmin ? (
+                                <button onClick={saveStatutory} disabled={saving === 'statutory'}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', border: 'none', color: 'white', padding: '8px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', opacity: saving === 'statutory' ? 0.6 : 1 }}>
+                                    <Save size={14} /> {saving === 'statutory' ? 'Saving...' : 'Save Reference'}
+                                </button>
+                            ) : (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(100,116,139,0.12)', border: '1px solid rgba(100,116,139,0.25)', color: '#64748b', padding: '8px 16px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
+                                    🔒 Super Admin Only
+                                </span>
+                            )}
                         </div>
                     </div>
                     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
-                        <StatutoryReferencePanel items={statutory} onChange={setStatutory} />
+                        <StatutoryReferencePanel items={statutory} onChange={isSuperAdmin ? setStatutory : () => {}} readOnly={!isSuperAdmin} />
                     </div>
                 </div>
             )}

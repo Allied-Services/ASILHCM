@@ -71,7 +71,7 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
                     <S title="Employee Deductions" color="#f43f5e">
                         <R label="Income Tax (WHT)" formula={`Taxable Annual Rs.${fmt(calc.taxableMonthly*12)} → FBR 2025-26 ÷ 12`} value={calc.incomeTax} color="#f43f5e" />
                         <R label="EOBI Employee — Fixed" formula="1% × Rs. 40,000 (statutory minimum wage)" value={calc.eobi_ee} />
-                        {emp.pf_enrolled && <R label="PF Employee (1/24 of Basic)" formula={`${fmt(emp.basic)} ÷ 24`} value={calc.pfEE} />}
+                        {emp.pf_enrolled && <R label="PF Employee (Gross ÷ 24)" formula={`${fmt(emp.gross || 0)} ÷ 24`} value={calc.pfEE} />}
                         {calc.advanceDed > 0 && <R label="Advance Recovery" value={calc.advanceDed} />}
                         {calc.loanDed > 0 && <R label="Loan Installment" value={calc.loanDed} />}
                         <D label="Total Deductions" value={calc.totalDeductions} color="#f43f5e" />
@@ -83,13 +83,13 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
                         {calc.sessi > 0
                             ? <R label={`SESSI (6% — gross Rs.${fmt(calc.grossMonthly)} < 45,000)`} formula={`6% × ${fmt(calc.grossMonthly)}`} value={calc.sessi} />
                             : <R label="SESSI — Exempt (gross ≥ Rs. 45,000)" formula="Not applicable" value={0} muted />}
-                        <R label="Gratuity (monthly accrual)" formula={`Gross ÷ 26 ÷ 12 × 30`} value={calc.gratuity} />
+                        <R label="Gratuity (monthly accrual — Employer only)" formula={`Gross ÷ 12  (8.33% of Gross)`} value={calc.gratuity} />
                         <R label="Life Insurance" value={calc.lifeIns} />
                         <R label="Medical — Employee" value={calc.medEE} />
                         {calc.medSP > 0 && <R label="Medical — Spouse" value={calc.medSP} />}
                         {calc.medCh1 > 0 && <R label="Medical — Child 1" value={calc.medCh1} />}
                         {calc.medCh2 > 0 && <R label="Medical — Child 2" value={calc.medCh2} />}
-                        {emp.pf_enrolled && <R label="PF Employer Match 8.33%" value={calc.pfER} />}
+                        {(emp.pf_enrolled || calc.pfER > 0) && <R label="PF Employer Match (Gross ÷ 24)" formula={`Gross ÷ 24 ≈ 4.17%`} value={calc.pfER} />}
                         <D label="Total Payroll Cost" value={calc.totalPayrollCost} color="#a78bfa" />
                     </S>
                     <S title="Invoice" color="#f59e0b">
@@ -359,6 +359,7 @@ export default function PayrollSheet({ user }) {
     const [CONTRACT_MAP, setCONTRACT_MAP] = useState({});
     // ── Lock / DB state ─────────────────────────────────────────────────────────
     const [isLocked, setIsLocked] = useState(false);
+    const [lockedIds, setLockedIds] = useState(new Set()); // per-employee lock status
     const [lockedBy, setLockedBy] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     const saveTimerRef = useRef(null);
@@ -390,13 +391,14 @@ export default function PayrollSheet({ user }) {
                     medical_child:       parseFloat(ct.costs?.medical_child) || 0,
                     bonus_months:        parseFloat(ct.costs?.bonus_months) || 0,
                     bonus_min_months:    parseFloat(ct.costs?.bonus_min_months) || 12,
+                    // EOSB type drives PF/Gratuity monthly provision
+                    eosb_type:           ct.costs?.eosb_type || 'None',
                     _isActive:           ct.status === 'Active',
                 };
-                // Index by client name (for lookup by emp.client)
-                addToMap(ct.clientName, cfg);
-                // Also index by contract name (for lookup by emp.contract = clientBU)
+                // Index by contract name first (most specific — matches employee.contractName)
                 addToMap(ct.contractName, cfg);
-                // Also index by contract id
+                // Also by client name (fallback)
+                addToMap(ct.clientName, cfg);
                 addToMap(ct.id, cfg);
             });
             setCONTRACT_MAP(map);
@@ -413,15 +415,20 @@ export default function PayrollSheet({ user }) {
                 const numChildren = [e.child1Name, e.child2Name].filter(n => n && String(n).trim()).length;
                 return {
                     id: e.id, cnic: e.cnic, name: e.name,
-                    designation: e.designation || '', contract: e.clientBU || 'Standard',
+                    designation: e.designation || '',
+                    // Use actual contractName from DB for service charge lookup
+                    contractName: e.contractName || '',
+                    contract: e.contractName || e.clientBU || 'Standard',
                     location: e.location || '', client: e.client || '',
+                    province: e.province || '',
                     gross,
-                    basic:             Math.round(gross * 0.60),
+                    // Use stored basic if available; fallback to 60% of gross
+                    basic:             parseFloat(e.basic) > 0 ? parseFloat(e.basic) : Math.round(gross * 0.60),
                     hra:               Math.round(gross * 0.20),
                     conveyance:        Math.round(gross * 0.10),
                     medical_allowance: Math.round(gross * 0.07),
                     other_allowances:  Math.round(gross * 0.03),
-                    pf_enrolled: false,
+                    pf_enrolled: e.pf_enrolled || false,
                     bankAccount: e.bankAccount || '', bankName: e.bankName || '',
                     eobiNo: e.eobiNo || '', email: e.email || '',
                     contact: e.primaryContact || '',
@@ -464,6 +471,8 @@ export default function PayrollSheet({ user }) {
                 };
             });
             setOverrides(ov);
+            const lockedRowIds = data.rows.filter(r => r.locked).map(r => r.employee_id);
+            setLockedIds(new Set(lockedRowIds));
             setIsLocked(data.locked || false);
             setLockedBy(data.lockedBy || null);
         }).catch(() => {}); // silently ignore if table not yet created
@@ -591,13 +600,16 @@ export default function PayrollSheet({ user }) {
         (filterLoc === 'All' || e.location === filterLoc)
     );
 
-    // Contract cfg lookup: try client name first, then contract name (clientBU)
+    // Contract cfg lookup: try employee's contractName first (most specific), then clientBU
     const rows = filtered.map(emp => {
-        const _buKey = (emp.contract || emp.clientBU)?.toLowerCase()?.trim();
-        let cfg = CONTRACT_MAP[_buKey];
-        if (!cfg && _buKey) {
+        // 1. Direct contractName match (exact key from employee record)
+        const contractKey = emp.contractName?.toLowerCase()?.trim();
+        const buKey       = emp.contract?.toLowerCase()?.trim();
+        let cfg = (contractKey && CONTRACT_MAP[contractKey])
+               || (buKey && CONTRACT_MAP[buKey]);
+        if (!cfg && buKey) {
             // Fuzzy: "janitorial services" matches "janitorial services lmt korangi & lmp-a kemari"
-            const _fk = Object.keys(CONTRACT_MAP).find(k => k.startsWith(_buKey) || k.includes(_buKey));
+            const _fk = Object.keys(CONTRACT_MAP).find(k => k.startsWith(buKey) || k.includes(buKey));
             if (_fk) cfg = CONTRACT_MAP[_fk];
         }
         cfg = cfg || CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] || {};
@@ -702,6 +714,7 @@ export default function PayrollSheet({ user }) {
         try {
             const [yr, mo] = month.split('-');
             await api.lockPayroll(yr, mo, filteredIds);
+            setLockedIds(prev => new Set([...prev, ...filteredIds]));
             setIsLocked(true);
             setLockedBy('You');
         } catch (e) { alert('Lock failed: ' + e.message); }
@@ -712,6 +725,7 @@ export default function PayrollSheet({ user }) {
         try {
             const [yr, mo] = month.split('-');
             await api.unlockPayroll(yr, mo);
+            setLockedIds(new Set());
             setIsLocked(false);
             setLockedBy(null);
         } catch (e) { alert('Unlock failed: ' + e.message); }
@@ -720,15 +734,18 @@ export default function PayrollSheet({ user }) {
     const needsApproval = rows.some(r => r.cfg.client_approval);
 
     // Editable cell — disabled when payroll is locked
-    const EC = ({ empId, field, def = 0, w = '68px' }) => (
-        <input type="number" min={0} step="any" value={getOv(empId, field, def)}
-            disabled={isLocked}
-            onChange={e => {
-                if (isLocked) return;
-                setOv(empId, field, e.target.value);
-            }}
-            style={{ width: w, background: isLocked ? 'transparent' : 'rgba(56,189,248,0.07)', border: isLocked ? 'none' : '1px solid rgba(56,189,248,0.2)', borderRadius: '4px', padding: '3px 5px', color: 'var(--text)', fontSize: '0.78rem', textAlign: 'right', outline: 'none', cursor: isLocked ? 'not-allowed' : 'text', opacity: isLocked ? 0.7 : 1 }} />
-    );
+    const EC = ({ empId, field, def = 0, w = '68px' }) => {
+        const cellLocked = isLocked || lockedIds.has(empId);
+        return (
+            <input type="number" min={0} step="any" value={getOv(empId, field, def)}
+                disabled={cellLocked}
+                onChange={e => {
+                    if (cellLocked) return;
+                    setOv(empId, field, e.target.value);
+                }}
+                style={{ width: w, background: cellLocked ? 'transparent' : 'rgba(56,189,248,0.07)', border: cellLocked ? 'none' : '1px solid rgba(56,189,248,0.2)', borderRadius: '4px', padding: '3px 5px', color: 'var(--text)', fontSize: '0.78rem', textAlign: 'right', outline: 'none', cursor: cellLocked ? 'not-allowed' : 'text', opacity: cellLocked ? 0.7 : 1 }} />
+        );
+    };
     const RC = ({ val, pos, neg, bold, muted }) => (
         <td style={{ padding: '6px 7px', textAlign: 'right', fontWeight: bold ? 700 : 400, fontSize: '0.8rem', whiteSpace: 'nowrap', color: neg ? '#f43f5e' : pos ? '#22c55e' : muted ? '#64748b' : 'var(--text)' }}>
             {fmt(val)}

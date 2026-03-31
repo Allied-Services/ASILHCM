@@ -195,7 +195,7 @@ function App() {
           {effectiveTab === 'vendor'     && <VendorMaster />}
           {effectiveTab === 'inventory'  && <InventoryManagement />}
           {effectiveTab === 'annexure'   && <AnnexureDashboard />}
-          {effectiveTab === 'config'     && <SystemConfig />}
+          {effectiveTab === 'config'     && <SystemConfig user={user} />}
           {effectiveTab === 'users'      && <UserManagement />}
         </main>
       </div>

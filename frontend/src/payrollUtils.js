@@ -34,9 +34,10 @@ export const calcEOBI_fn = () => {
     // Fixed for ALL employees regardless of their salary
     return { employee: 400, employer: 2000 };
 };
-export const calcPF_fn = (basic, enrolled) => enrolled ? Math.round(parseFloat(basic || 0) / 24) : 0;
-// Gratuity monthly accrual: basic/26 * 30 / 12 per EOB Ordinance 1968
-export const calcGratuityMonthly = (gross) => Math.round((gross * 0.60) / 26 * 30 / 12);
+// PF: 1/24th of Gross Salary (≈ 4.166%) — both EE and ER
+export const calcPF_fn = (gross, enrolled) => enrolled ? Math.round(parseFloat(gross || 0) / 24) : 0;
+// Gratuity monthly accrual: 1/12th of Gross Salary (≈ 8.33%) — Employer cost only, per EOB Ord 1968
+export const calcGratuityMonthly = (gross) => Math.round(parseFloat(gross || 0) / 12);
 
 // ─── Province → Provincial Service Tax Rate ──────────────────────────────────
 // Punjab: PRA 16%, Sindh: SRB 13%, KPK: KPRA 15%, Balochistan: BRA 15%, Federal/Other: 13%
@@ -89,25 +90,37 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const annualIncome = taxableMonthly * 12;
     const incomeTax = calcWHT(annualIncome);
     const eobi = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
-    const pfEE = calcPF_fn(emp.basic, emp.pf_enrolled);
+    // ── End-of-Service Benefit (EOSB) from contract type ──────────────────────
+    // Priority: contract cfg.eosb_type > employee pf_enrolled flag
+    const eosbType = cfg.eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
+    const isPF       = eosbType === 'Provident Fund';
+    const isGratuity = eosbType === 'Gratuity';
+    // PF Employee & Employer: Gross/24 if Provident Fund scheme
+    const pfEE = isPF ? calcPF_fn(grossSalary, true) : 0;
+    const pfER = pfEE; // employer matches employee 1-for-1
     const otherDed = parseNum(ov.other_deduction || 0);
     const advanceDed = parseNum(ov.advance_deduction || 0);
     const loanDed = parseNum(ov.loan_deduction || 0);
     const totalDeductions = incomeTax + eobi.employee + pfEE + otherDed + advanceDed + loanDed;
     const netPay = grossMonthly - totalDeductions;
     // SESSI: 6% of minimum wage (Rs.40,000), always capped at Rs.2,400
-    // Employer pays on ACTUAL wages but statutory ceiling = min wage, so SESSI ≤ 2,400
     const sessi = Math.min(2400, Math.round(grossMonthly * 0.06));
     const eduCess = parseFloat(cfg.edu_cess || 0);
     const bonusAmount = parseFloat(ov.bonus_amount || 0);
-    const gratuity = calcGratuityMonthly(emp.gross);
-    const pfER = calcPF_fn(emp.basic, emp.pf_enrolled);
+    // Gratuity monthly accrual (Employer cost only — no employee deduction):
+    //   Gratuity  = Gross / 12  (1/12th = 8.33% of Gross — per EOB Ordinance 1968)
+    //   PF        = 0 when Gratuity scheme active (pfER covers Provident Fund instead)
+    //   None      = 0 (no EOSB provision)
+    const gratuity = isGratuity ? Math.round(grossSalary / 12) : 0;
+    // pfER already declared above — employer matches employee contribution
     const lifeIns = parseFloat(cfg.life_insurance || 0);
     const medEE = parseFloat(ov.medical_ee ?? (cfg.medical_ee || 0));
     const medSP = parseFloat(ov.medical_sp ?? (cfg.medical_sp || 0));
-    const medCh1 = parseFloat(ov.medical_ch1 ?? (cfg.medical_ch || 0));
+    const medCh1 = parseFloat(ov.medical_ch1 ?? (cfg.medical_child || 0));
     const medCh2 = parseFloat(ov.medical_ch2 ?? 0);
     const totalMedical = medEE + medSP + medCh1 + medCh2;
+    // Total employer payroll cost = gross + all employer obligations
+    // pfER is employer's PF contribution (= employee's contribution when PF type)
     const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusAmount + gratuity + lifeIns + totalMedical + pfER;
     const svcPct = parseFloat(cfg.service_charges_pct || 0);
     // Sales tax: province-based rate (replaces cfg.sales_tax_pct)

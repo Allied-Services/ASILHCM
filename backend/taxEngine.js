@@ -4,27 +4,30 @@
  * Taxable income = Gross - OPD Claims - Expense Reimbursements
  */
 
-const MIN_WAGE = 37000;
+// EOBI statutory minimum wage cap (Rs. 40,000 as of 2025-26)
+const EOBI_MIN_WAGE = 40000;
 
 /**
  * Calculates EOBI employee and employer shares.
- * Capped at minimum wage (Rs. 37,000 / flat Rs. 400 EE / Rs. 1,850 ER based on 37,000)
+ * Flat rate against statutory minimum wage (Rs. 40,000 cap).
+ * EE = 1% × 40,000 = Rs. 400 (flat for all employees)
+ * ER = 5% × 40,000 = Rs. 2,000 (flat for all employees)
  */
-function calculateEOBI(grossWage) {
-    const applicableWage = Math.min(grossWage, MIN_WAGE);
+function calculateEOBI() {
     return {
-        employeeShare: Number((applicableWage * 0.01).toFixed(2)),
-        employerShare: Number((applicableWage * 0.05).toFixed(2)),
+        employeeShare: 400,
+        employerShare: 2000,
     };
 }
 
 /**
- * Calculates SESSI (Employer only) — Sindh only, 6% of gross if gross < Rs. 45,000
+ * Calculates SESSI (Employer only) — Sindh only.
+ * 6% of gross, capped at Rs. 2,400 (min wage Rs. 40,000 × 6% = 2,400)
+ * Exempt if gross >= Rs. 45,000 per SESSI Act.
  */
 function calculateSESSI(grossWage) {
     if (grossWage >= 45000) return 0;
-    const applicableWage = Math.min(grossWage, MIN_WAGE);
-    return Number((applicableWage * 0.06).toFixed(2));
+    return Math.min(2400, Math.round(grossWage * 0.06));
 }
 
 /**
@@ -66,26 +69,51 @@ function calculateMonthlyIncomeTax(monthlyGross, monthlyOPD = 0, monthlyReimb = 
 }
 
 /**
- * Gratuity monthly accrual.
- * Formula: (Last Drawn Basic / 26) × 30 / 12  — per EOB Ordinance 1968
- * Note: Based on BASIC salary (not gross), 30 calendar days per year of service,
- * divided by 12 for monthly provision.
+ * Gratuity MONTHLY accrual (Employer cost only — no employee deduction).
+ * Formula: Gross Salary / 12  (1/12th = 8.33% — per EOB Ordinance 1968)
+ * @param {number} grossSalary - Employee's monthly gross salary
+ * @returns {number} Monthly gratuity provision amount
  */
-function calculateGratuity(grossSalary, joiningDate, calcDate) {
+function calculateMonthlyGratuity(grossSalary) {
+    return Math.round(parseFloat(grossSalary || 0) / 12);
+}
+
+/**
+ * Gratuity FINAL SETTLEMENT calculation.
+ * Formula: (Basic / 26) × 30 × Years of Service
+ * @param {number} basicSalary - Last drawn basic salary
+ * @param {string|Date} joiningDate - Date of joining
+ * @param {string|Date} calcDate - Date of calculation
+ */
+function calculateGratuitySettlement(basicSalary, joiningDate, calcDate) {
     const join = new Date(joiningDate);
     const calc = new Date(calcDate);
     const msPerYear = 31536000000;
     const yearsOfService = (calc.getTime() - join.getTime()) / msPerYear;
     if (yearsOfService <= 0) return 0;
-    // Monthly gratuity accrual: basic/26*30/12 × years (for full settlement use years directly)
-    const basic = grossSalary * 0.60; // assume 60% basic if only gross provided
-    const gratuity = (basic / 26) * 30 * yearsOfService;
-    return Number(gratuity.toFixed(2));
+    const basic = parseFloat(basicSalary) || 0;
+    return Number(((basic / 26) * 30 * yearsOfService).toFixed(2));
+}
+
+/**
+ * Provident Fund — Employee and Employer contribution.
+ * Both EE and ER = 1/24th of Gross Salary (4.166%)
+ * @param {number} grossSalary - Employee's monthly gross salary
+ * @param {boolean} enrolled - Whether employee is enrolled in PF scheme
+ */
+function calculatePF(grossSalary, enrolled = false) {
+    if (!enrolled) return { employeeShare: 0, employerShare: 0 };
+    const contribution = Math.round(parseFloat(grossSalary || 0) / 24);
+    return { employeeShare: contribution, employerShare: contribution };
 }
 
 module.exports = {
     calculateEOBI,
     calculateSESSI,
     calculateMonthlyIncomeTax,
-    calculateGratuity
+    calculateMonthlyGratuity,
+    calculateGratuitySettlement,
+    calculatePF,
+    // Legacy alias
+    calculateGratuity: calculateGratuitySettlement,
 };
