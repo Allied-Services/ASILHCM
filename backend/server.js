@@ -337,16 +337,57 @@ app.delete('/api/employees/:id', requireAuth, async (req, res) => {
 app.post('/api/employees/bulk', requireAuth, async (req, res) => {
     const { employees = [] } = req.body;
     const saved = [], errors = [];
+
+    // \u2500\u2500 Step 1: Build contract lookup from DB \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    const ctRows = (await pool.query(`
+        SELECT c.id, c.contract_name, c.costs, c.financials, cl.name AS client_name, c.status
+        FROM contracts c LEFT JOIN clients cl ON c.client_id = cl.id
+    `)).rows;
+    const ctByName = {}, ctById = {};
+    ctRows.forEach(ct => {
+        ctByName[ct.contract_name?.toLowerCase()?.trim()] = ct;
+        if (ct.id) ctById[ct.id] = ct;
+    });
+
     const COLS = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province',
         'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth',
         'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact',
         'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic',
         'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id',
         'medical_type', 'medical_maternity', 'total_medical_coverage',
-        'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'region'];
+        'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact',
+        'contract_date', 'contract_name', 'contract_id', 'region'];
     const placeholders = COLS.map((_, i) => `$${i + 1}`).join(',');
     const updates = COLS.slice(1).map(c => `${c}=EXCLUDED.${c}`).join(',');
+
     for (const emp of employees) {
+        // \u2500\u2500 Step 2: Resolve contract \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        const rawContract = emp.contractName || emp.contractId || '';
+        let resolvedCt = null;
+        if (rawContract) {
+            // Try exact ID first, then name (case-insensitive)
+            resolvedCt = ctById[rawContract]
+                || ctByName[rawContract.toLowerCase().trim()]
+                || null;
+        }
+
+        // \u2500\u2500 Step 3: Hard-reject unrecognised contract names \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        if (rawContract && !resolvedCt) {
+            errors.push({
+                id: emp.id, name: emp.name,
+                error: `Contract "${rawContract}" not found in database. Please register this contract first or correct the name.`
+            });
+            continue; // skip this row \u2014 do NOT save to DB
+        }
+
+        // \u2500\u2500 Step 4: Inherit contract fields if resolved \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        if (resolvedCt) {
+            emp.contractId   = resolvedCt.id;
+            emp.contractName = resolvedCt.contract_name;
+            // Auto-fill client name from contract if not provided
+            if (!emp.client) emp.client = resolvedCt.client_name || emp.client;
+        }
+
         try {
             const d = empToDb(emp);
             const vals = COLS.map(c => d[c]);
@@ -356,7 +397,6 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
                  RETURNING *`,
                 vals
             );
-
             if (rows.length) saved.push(empFromDb(rows[0]));
         } catch (err) { errors.push({ id: emp.id, name: emp.name, error: err.message }); }
     }

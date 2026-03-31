@@ -153,60 +153,88 @@ export default function EmployeeInformation({ user }) {
             try {
                 const lines = ev.target.result.replace(/\r/g, '').split('\n').filter(Boolean);
                 const hdrs = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+                // Build a fast contract lookup map: name (lc) → contract object
+                const ctByName = {};
+                const ctById   = {};
+                contractsList.forEach(ct => {
+                    ctByName[ct.contractName?.toLowerCase()?.trim()] = ct;
+                    if (ct.id) ctById[ct.id] = ct;
+                });
                 const rows = lines.slice(1).map((line, i) => {
                     // Handle quoted fields with commas
                     const vals = []; let cur = '', inQ = false;
                     for (const ch of line) { if (ch === '"') { inQ = !inQ; } else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; } else { cur += ch; } } vals.push(cur.trim());
                     const obj = {};
                     hdrs.forEach((h, j) => { obj[h] = vals[j] || ''; });
+
+                    // ── Contract resolution: match CSV 'Contract Name' to DB contract ──
+                    const rawContract = getF(obj, 'Contract Name', 'Contract', 'ContractName', 'Contract Name');
+                    let resolvedCt = null;
+                    if (rawContract) {
+                        // Try exact ID first, then name (case-insensitive)
+                        resolvedCt = ctById[rawContract] || ctByName[rawContract.toLowerCase().trim()] || null;
+                    }
+                    const contractError = rawContract && !resolvedCt
+                        ? `Contract "${rawContract}" not found in system`
+                        : (!rawContract ? '⚠ No contract specified (will import without EOSB/invoice logic)' : null);
+
                     return {
-                        id: getF(obj, 'ASIL Employee Code', 'Employee Code', 'ID', 'EmpID') || `IMP-${i + 1}`,
-                        bu: getF(obj, 'ASIL BU', 'BU', 'Business Unit'),
-                        contractName: getF(obj, 'Contract Name', 'Contract', 'ContractName', 'Contract Name'),
-                        active: getF(obj, 'Active', 'Status') || 'Yes',
-                        client: getF(obj, 'CLIENT NAME', 'Client Name', 'Client'),
-                        clientBU: getF(obj, 'Client Business Unit', 'Client BU', 'ClientBU'),
-                        dept: getF(obj, 'Department', 'Dept'),
-                        designation: getF(obj, 'Designation', 'Position', 'Job Title'),
-                        location: getF(obj, 'Client Location', 'Location', 'Site'),
-                        province: getF(obj, 'Province'),
-                        name: getF(obj, 'Employee Name', 'Name', 'Full Name'),
-                        fatherName: getF(obj, "Father's Name", 'Father Name', 'Fathers Name', 'Father'),
-                        motherName: getF(obj, "Mother's Name", 'Mother Name', 'Mothers Name', 'Mother'),
-                        cnic: getF(obj, 'CNIC Number', 'CNIC No', 'CNIC', 'NIC'),
-                        cnicIssue: getF(obj, 'CNIC Issue', 'CNIC Issue Date', 'Issue Date'),
-                        cnicExpiry: getF(obj, 'CNIC Expiry', 'CNIC Expiry Date', 'Expiry Date'),
+                        id:          getF(obj, 'ASIL Employee Code', 'Employee Code', 'ID', 'EmpID') || `IMP-${i + 1}`,
+                        bu:          getF(obj, 'ASIL BU', 'BU', 'Business Unit'),
+                        // ── Contract ──
+                        contractName: resolvedCt?.contractName || rawContract || '',
+                        contractId:   resolvedCt?.id           || '',
+                        _contractRaw:   rawContract,
+                        _contractError: contractError,
+                        _contractOk:    !!resolvedCt,
+                        // ── Inherited from contract ──
+                        _eosbType:    resolvedCt?.costs?.eosb_type          || 'None',
+                        _svcChargePct:resolvedCt?.financials?.service_charges_pct || 0,
+                        // ── Employment ──
+                        active:       getF(obj, 'Active', 'Status') || 'Yes',
+                        client:       resolvedCt?.clientName || getF(obj, 'CLIENT NAME', 'Client Name', 'Client'),
+                        clientBU:     getF(obj, 'Client Business Unit', 'Client BU', 'ClientBU'),
+                        dept:         getF(obj, 'Department', 'Dept'),
+                        designation:  getF(obj, 'Designation', 'Position', 'Job Title'),
+                        location:     getF(obj, 'Client Location', 'Location', 'Site'),
+                        province:     getF(obj, 'Province'),
+                        name:         getF(obj, 'Employee Name', 'Name', 'Full Name'),
+                        fatherName:   getF(obj, "Father's Name", 'Father Name', 'Fathers Name', 'Father'),
+                        motherName:   getF(obj, "Mother's Name", 'Mother Name', 'Mothers Name', 'Mother'),
+                        cnic:         getF(obj, 'CNIC Number', 'CNIC No', 'CNIC', 'NIC'),
+                        cnicIssue:    getF(obj, 'CNIC Issue', 'CNIC Issue Date', 'Issue Date'),
+                        cnicExpiry:   getF(obj, 'CNIC Expiry', 'CNIC Expiry Date', 'Expiry Date'),
                         placeOfBirth: getF(obj, 'Place of Birth', 'Birth Place', 'POB'),
-                        eobiNo: getF(obj, 'EOBI No', 'EOBI Number', 'EOBI'),
-                        religion: getF(obj, 'Religion') || '',
-                        salary: parseSalary(getF(obj, 'Salary', 'Basic Salary', 'Gross Salary')),
-                        lastSalary: parseSalary(getF(obj, 'Salary (Last/After Increment)', 'Last Salary', 'Salary After Increment') || getF(obj, 'Salary')),
-                        maritalStatus: getF(obj, 'Marital Status', 'Marital') || 'Single',
-                        primaryContact: getF(obj, 'Primary Contact', 'Phone', 'Mobile', 'Contact'),
+                        eobiNo:       getF(obj, 'EOBI No', 'EOBI Number', 'EOBI'),
+                        religion:     getF(obj, 'Religion') || '',
+                        salary:       parseSalary(getF(obj, 'Salary', 'Basic Salary', 'Gross Salary')),
+                        lastSalary:   parseSalary(getF(obj, 'Salary (Last/After Increment)', 'Last Salary', 'Salary After Increment') || getF(obj, 'Salary')),
+                        maritalStatus:    getF(obj, 'Marital Status', 'Marital') || 'Single',
+                        primaryContact:   getF(obj, 'Primary Contact', 'Phone', 'Mobile', 'Contact'),
                         emergencyContact: getF(obj, 'Emergency Contact', 'Emergency Phone'),
-                        email: getF(obj, 'Email Address', 'Email'),
-                        presentAddress: getF(obj, 'Present Address', 'Current Address', 'Address'),
+                        email:            getF(obj, 'Email Address', 'Email'),
+                        presentAddress:   getF(obj, 'Present Address', 'Current Address', 'Address'),
                         permanentAddress: getF(obj, 'Permanent Address', 'Home Address'),
-                        dob: getF(obj, 'Date of Birth', 'DOB', 'Birth Date'),
-                        doj: getF(obj, 'Date of Joining', 'DOJ', 'Joining Date', 'Start Date'),
-                        spouseName: getF(obj, 'Spouse Name', 'Spouse'),
-                        spouseAge: getF(obj, 'Spouse Age'),
-                        spouseCnic: getF(obj, 'Spouse CNIC', 'Spouse NIC', 'Spouse ID'),
-                        child1Name: getF(obj, 'Child 1 Name', 'Child1 Name', 'Child 1'),
-                        child1Age: getF(obj, 'Child 1 Age', 'Child1 Age'),
-                        child1Id: getF(obj, 'Child 1 CNIC/Bay Form', 'Child1 CNIC', 'Child 1 ID', 'Child1 ID'),
-                        child2Name: getF(obj, 'Child 2 Name', 'Child2 Name', 'Child 2'),
-                        child2Age: getF(obj, 'Child 2 Age', 'Child2 Age'),
-                        child2Id: getF(obj, 'Child 2 CNIC/Bay Form', 'Child2 CNIC', 'Child 2 ID', 'Child2 ID'),
-                        medicalType: getF(obj, 'Medical Coverage (Type)', 'Medical Type', 'Medical Coverage'),
+                        dob:              getF(obj, 'Date of Birth', 'DOB', 'Birth Date'),
+                        doj:              getF(obj, 'Date of Joining', 'DOJ', 'Joining Date', 'Start Date'),
+                        spouseName:       getF(obj, 'Spouse Name', 'Spouse'),
+                        spouseAge:        getF(obj, 'Spouse Age'),
+                        spouseCnic:       getF(obj, 'Spouse CNIC', 'Spouse NIC', 'Spouse ID'),
+                        child1Name:       getF(obj, 'Child 1 Name', 'Child1 Name', 'Child 1'),
+                        child1Age:        getF(obj, 'Child 1 Age', 'Child1 Age'),
+                        child1Id:         getF(obj, 'Child 1 CNIC/Bay Form', 'Child1 CNIC', 'Child 1 ID', 'Child1 ID'),
+                        child2Name:       getF(obj, 'Child 2 Name', 'Child2 Name', 'Child 2'),
+                        child2Age:        getF(obj, 'Child 2 Age', 'Child2 Age'),
+                        child2Id:         getF(obj, 'Child 2 CNIC/Bay Form', 'Child2 CNIC', 'Child 2 ID', 'Child2 ID'),
+                        medicalType:      getF(obj, 'Medical Coverage (Type)', 'Medical Type', 'Medical Coverage'),
                         medicalMaternity: getF(obj, 'Medical Coverage Maternity', 'Maternity'),
                         totalMedicalCoverage: getF(obj, 'Total Medical Coverage (Self & Family)', 'Total Medical Coverage', 'Medical Coverage Amount'),
-                        bankName: getF(obj, 'Bank Name', 'Bank'),
+                        bankName:    getF(obj, 'Bank Name', 'Bank'),
                         bankAccount: getF(obj, 'Bank Account', 'Bank Account No', 'Account Number', 'Account No'),
-                        accountTitle: getF(obj, 'Account Title', 'Account Name'),
-                        nokName: getF(obj, 'NEXT OF KIN NAME', 'NOK Name', 'Next of Kin', 'NOK'),
+                        accountTitle:getF(obj, 'Account Title', 'Account Name'),
+                        nokName:     getF(obj, 'NEXT OF KIN NAME', 'NOK Name', 'Next of Kin', 'NOK'),
                         nokRelation: getF(obj, 'NEXT OF KIN RELATION', 'NOK Relation', 'Next of Kin Relation'),
-                        nokContact: getF(obj, 'NEXT OF KIN CONTACT', 'NOK Contact', 'Next of Kin Contact'),
+                        nokContact:  getF(obj, 'NEXT OF KIN CONTACT', 'NOK Contact', 'Next of Kin Contact'),
                         salaryHistory: parseSalary(getF(obj, 'Salary')) ? [{ date: getF(obj, 'Date of Joining', 'DOJ') || '', basic: parseSalary(getF(obj, 'Salary')), hra: 0, conveyance: 0, medical: 0, other: 0, gross: parseSalary(getF(obj, 'Salary')), note: 'Imported from CSV' }] : [],
                         leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
                     };
@@ -220,6 +248,9 @@ export default function EmployeeInformation({ user }) {
     const [importResult, setImportResult] = useState(null); // { saved, errors: [{id,name,error}] }
 
     const importBulk = async () => {
+        if (csvRows.some(r => r._contractError && !r._contractError.startsWith('⚠'))) {
+            return alert('Cannot import: Some rows have invalid contracts. Please fix them first.');
+        }
         setSaving(true);
         try {
             const data = await api.bulkImportEmployees(csvRows);
@@ -742,9 +773,12 @@ export default function EmployeeInformation({ user }) {
                         <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                             <div style={{ background: 'var(--bg-dark)', borderRadius: '10px', padding: '1.5rem' }}>
                                 <h3 style={{ margin: '0 0 0.5rem' }}>Step 1: Download the Official Template</h3>
-                                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: '0 0 1rem' }}>This template matches the ASIL Employee Master format exactly (48 columns). You can also use your existing Master Data CSV directly if the columns match.</p>
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>This template matches the ASIL Employee Master format (49 columns). Column C is <strong style={{ color: '#38bdf8' }}>Contract Name</strong> — it must exactly match a contract name registered in the system.</p>
+                                <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', padding: '0.65rem 1rem', fontSize: '0.82rem', color: '#f59e0b', marginBottom: '1rem' }}>
+                                    ⚠ <strong>Contract Name is required.</strong> Rows with an unrecognised contract name will be blocked at import. Leave the column blank only if the employee has no contract (EOSB/invoice will not be calculated).
+                                </div>
                                 <button onClick={downloadTpl} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--primary)', color: 'white', border: 'none', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
-                                    <Download size={16} /> Download ASIL Master Template
+                                    <Download size={16} /> Download ASIL Master Template (v2 — Contract Column Included)
                                 </button>
                             </div>
 
@@ -759,43 +793,72 @@ export default function EmployeeInformation({ user }) {
                                 {csvErr && <p style={{ color: '#ef4444', marginTop: '0.75rem', fontSize: '0.9rem' }}>⚠ {csvErr}</p>}
                             </div>
 
-                            {csvRows.length > 0 && (
-                                <div style={{ background: 'var(--bg-dark)', borderRadius: '10px', padding: '1.5rem' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                                        <h3 style={{ margin: 0 }}>Step 3: Preview &amp; Import</h3>
-                                        <span style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e', padding: '4px 12px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600 }}>{csvRows.length} records ready</span>
-                                    </div>
-                                    <div style={{ overflowX: 'auto', maxHeight: '220px', overflowY: 'auto', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-                                            <thead>
-                                                <tr style={{ background: 'var(--bg-card)' }}>
-                                                    {['Code', 'Name', 'Client', 'Contract', 'Province', 'Salary', 'Active'].map(h => (
-                                                        <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, position: 'sticky', top: 0, background: 'var(--bg-card)', whiteSpace: 'nowrap' }}>{h}</th>
-                                                    ))}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {csvRows.map((r, i) => (
-                                                    <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
-                                                        <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: '0.78rem' }}>{r.id}</td>
-                                                        <td style={{ padding: '8px 12px', fontWeight: 600 }}>{r.name}</td>
-                                                        <td style={{ padding: '8px 12px' }}>{r.client}</td>
-                                                        <td style={{ padding: '8px 12px' }}>{r.contractName || r.bu || '—'}</td>
-                                                        <td style={{ padding: '8px 12px' }}>
-                                                            {r.province ? <span style={{ background: 'rgba(56,189,248,0.1)', color: '#38bdf8', padding: '2px 7px', borderRadius: '6px', fontSize: '0.76rem', fontWeight: 600 }}>{r.province}</span> : '—'}
-                                                        </td>
-                                                        <td style={{ padding: '8px 12px' }}>Rs. {(r.salary || 0).toLocaleString()}</td>
-                                                        <td style={{ padding: '8px 12px' }}><span style={{ color: r.active === 'Yes' ? '#22c55e' : '#eab308' }}>{r.active}</span></td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <button onClick={importBulk} style={{ marginTop: '1rem', background: '#22c55e', border: 'none', color: 'white', padding: '0.75rem 2rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        <CheckCircle size={18} /> Import {csvRows.length} Employees
-                                    </button>
-                                </div>
-                            )}
+                            {csvRows.length > 0 && (() => {
+                                    const hardErrors = csvRows.filter(r => r._contractError && !r._contractError.startsWith('⚠'));
+                                    const warnOnly   = csvRows.filter(r => r._contractError?.startsWith('⚠'));
+                                    return (
+                                        <div style={{ background: 'var(--bg-dark)', borderRadius: '10px', padding: '1.5rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                                                <h3 style={{ margin: 0 }}>Step 3: Preview &amp; Import</h3>
+                                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                    <span style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e', padding: '4px 12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}>{csvRows.length} rows parsed</span>
+                                                    {hardErrors.length > 0 && <span style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', padding: '4px 12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}>✗ {hardErrors.length} contract error(s) — BLOCKED</span>}
+                                                    {warnOnly.length > 0 && <span style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', padding: '4px 12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}>⚠ {warnOnly.length} without contract</span>}
+                                                </div>
+                                            </div>
+                                            {hardErrors.length > 0 && (
+                                                <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.82rem' }}>
+                                                    <div style={{ fontWeight: 700, color: '#f87171', marginBottom: '6px' }}>✗ These rows have unrecognised contract names and cannot be imported:</div>
+                                                    {hardErrors.map((r, i) => <div key={i} style={{ color: '#fca5a5', marginTop: '3px' }}>• Row {csvRows.indexOf(r)+2}: <strong>{r.name}</strong> — {r._contractError}</div>)}
+                                                    <div style={{ color: 'var(--text-muted)', marginTop: '8px', fontSize: '0.78rem' }}>Fix the contract name (must exactly match a contract in the system) and re-upload.</div>
+                                                </div>
+                                            )}
+                                            <div style={{ overflowX: 'auto', maxHeight: '260px', overflowY: 'auto', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                                                    <thead>
+                                                        <tr style={{ background: 'var(--bg-card)' }}>
+                                                            {['Code', 'Name', 'Contract / EOSB', 'Client', 'Province', 'Salary', 'Active'].map(h => (
+                                                                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, position: 'sticky', top: 0, background: 'var(--bg-card)', whiteSpace: 'nowrap' }}>{h}</th>
+                                                            ))}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {csvRows.map((r, i) => (
+                                                            <tr key={i} style={{ borderTop: '1px solid var(--border)', background: (r._contractError && !r._contractError.startsWith('⚠')) ? 'rgba(239,68,68,0.06)' : 'transparent' }}>
+                                                                <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: '0.78rem' }}>{r.id}</td>
+                                                                <td style={{ padding: '8px 12px', fontWeight: 600 }}>{r.name}</td>
+                                                                <td style={{ padding: '8px 12px', minWidth: '200px' }}>
+                                                                    {r._contractOk
+                                                                        ? <div>
+                                                                            <span style={{ color: '#22c55e', fontWeight: 600, fontSize: '0.8rem' }}>✓ {r.contractName}</span>
+                                                                            {r._eosbType !== 'None' && <span style={{ marginLeft: '6px', background: 'rgba(167,139,250,0.15)', color: '#a78bfa', padding: '1px 6px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600 }}>{r._eosbType}</span>}
+                                                                          </div>
+                                                                        : r._contractRaw
+                                                                            ? <span style={{ color: '#ef4444', fontSize: '0.8rem' }}>✗ '{r._contractRaw}' — not found</span>
+                                                                            : <span style={{ color: '#f59e0b', fontSize: '0.8rem' }}>⚠ None (no EOSB)</span>
+                                                                    }
+                                                                </td>
+                                                                <td style={{ padding: '8px 12px' }}>{r.client}</td>
+                                                                <td style={{ padding: '8px 12px' }}>
+                                                                    {r.province ? <span style={{ background: 'rgba(56,189,248,0.1)', color: '#38bdf8', padding: '2px 7px', borderRadius: '6px', fontSize: '0.76rem', fontWeight: 600 }}>{r.province}</span> : '—'}
+                                                                </td>
+                                                                <td style={{ padding: '8px 12px' }}>Rs. {(r.salary || 0).toLocaleString()}</td>
+                                                                <td style={{ padding: '8px 12px' }}><span style={{ color: r.active === 'Yes' ? '#22c55e' : '#eab308' }}>{r.active}</span></td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <button
+                                                onClick={importBulk}
+                                                disabled={saving || hardErrors.length > 0}
+                                                title={hardErrors.length > 0 ? 'Fix contract errors above before importing' : ''}
+                                                style={{ marginTop: '1rem', background: hardErrors.length > 0 ? '#374151' : '#22c55e', border: '1px solid', borderColor: hardErrors.length > 0 ? '#ef444455' : '#22c55e', color: hardErrors.length > 0 ? '#9ca3af' : 'white', padding: '0.75rem 2rem', borderRadius: '8px', cursor: hardErrors.length > 0 ? 'not-allowed' : 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: hardErrors.length > 0 ? 0.6 : 1 }}>
+                                                <CheckCircle size={18} /> {hardErrors.length > 0 ? `Blocked — Fix ${hardErrors.length} Contract Error(s)` : `Import ${csvRows.length} Employees`}
+                                            </button>
+                                        </div>
+                                    );
+                                })()}
                         </div>
                     )}
                 </Overlay>
