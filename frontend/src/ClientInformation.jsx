@@ -30,6 +30,8 @@ const EMPTY_CONTRACT = {
         uniform_cost: 300, shoes_cost: 150, ppe_cost: 200, opd: 500,
         dedicated_staff: 0, courier: 3000,
         other1_name: '', other1_amount: 0, other2_name: '', other2_amount: 0,
+        // End of Service Benefit type — drives monthly EOSB accrual in payroll
+        eosb_type: 'None',   // 'None' | 'Gratuity' | 'Provident Fund'
     },
     financials: { wht_pct: 7, service_charges_pct: 15 }
 };
@@ -184,6 +186,25 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                         <FRow label="Other Cost 2 — Amount (Rs.)">
                             <FInput type="number" value={c.costs.other2_amount} onChange={e => set('costs.other2_amount', parseFloat(e.target.value) || 0)} ph="0" />
                         </FRow>
+                    </div>
+                </div>
+
+                {/* End of Service Benefits (EOSB) */}
+                <div style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+                    <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#f59e0b' }}>End of Service Benefits (EOSB)</h3>
+                    <p style={{ margin: '0 0 1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>Determines how monthly EOSB is calculated and shown in payroll &amp; invoice.</p>
+                    <FRow label="EOSB / Retirement Scheme *">
+                        <select value={c.costs.eosb_type || 'None'} onChange={e => set('costs.eosb_type', e.target.value)}
+                            style={{ background: 'var(--bg-dark)', border: '1px solid #f59e0b', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%' }}>
+                            <option value="None">None — No EOSB (0)</option>
+                            <option value="Gratuity">Gratuity — Gross ÷ 12 per month (employer accrual only)</option>
+                            <option value="Provident Fund">Provident Fund — Gross ÷ 24 employee deduction + employer match</option>
+                        </select>
+                    </FRow>
+                    <div style={{ marginTop: '0.75rem', fontSize: '0.79rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                        {(c.costs.eosb_type || 'None') === 'None' && '⬛ No monthly EOSB accrual or employee deduction.'}
+                        {c.costs.eosb_type === 'Gratuity' && '🟡 Employer accrues Gross ÷ 12 per month (8.33%). Paid at termination as Last Gross × Years of Service. No employee deduction.'}
+                        {c.costs.eosb_type === 'Provident Fund' && '🟢 Employee deduction: Gross ÷ 24/month (4.17%). Employer matches Gross ÷ 24/month. Total monthly cost = Gross ÷ 12.'}
                     </div>
                 </div>
 
@@ -406,6 +427,14 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                                         <span style={{ background: (ST_CLR[ct.status] || '#94a3b8') + '20', color: ST_CLR[ct.status] || '#94a3b8', padding: '3px 10px', borderRadius: '10px', fontSize: '0.78rem', fontWeight: 600 }}>{ct.status}</span>
                                     </div>
                                     <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.86rem' }}>{ct.id} &nbsp;·&nbsp; {ct.serviceType} &nbsp;·&nbsp; <strong>{ct.headcount}</strong> employees &nbsp;·&nbsp; {ct.location}</p>
+                                    {ct.costs?.eosb_type && ct.costs.eosb_type !== 'None' && (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', marginTop: '5px', padding: '2px 10px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 700,
+                                            background: ct.costs.eosb_type === 'Provident Fund' ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)',
+                                            color: ct.costs.eosb_type === 'Provident Fund' ? '#22c55e' : '#f59e0b',
+                                            border: `1px solid ${ct.costs.eosb_type === 'Provident Fund' ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.3)'}` }}>
+                                            {ct.costs.eosb_type === 'Provident Fund' ? '🟢' : '🟡'} EOSB: {ct.costs.eosb_type}
+                                        </span>
+                                    )}
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                                     <button onClick={() => setViewContract(viewContract?.id === ct.id ? null : ct)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
@@ -436,8 +465,16 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                                     </div>
                                     <div>
                                         <div style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Contract Financials (%)</div>
-                                        {[['WHT', ct.financials.wht_pct + '%'], ['Sales Tax', 'Province-based (auto)'], ['Service Charges / Margin', ct.financials.service_charges_pct + '%']].map(([l, v]) => (
-                                            <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', padding: '3px 0' }}><span style={{ color: 'var(--text-muted)' }}>{l}</span><span style={{ fontWeight: 600, color: 'var(--primary)' }}>{v}</span></div>
+                                        {[
+                                            ['WHT', ct.financials?.wht_pct + '%'],
+                                            ['Sales Tax', 'Province-based (auto)'],
+                                            ['Service Charges / Margin', ct.financials?.service_charges_pct + '%'],
+                                            ['EOSB Type', ct.costs?.eosb_type || 'None'],
+                                        ].map(([l, v]) => (
+                                            <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', padding: '3px 0' }}>
+                                                <span style={{ color: 'var(--text-muted)' }}>{l}</span>
+                                                <span style={{ fontWeight: 600, color: l === 'EOSB Type' ? (v === 'Provident Fund' ? '#22c55e' : v === 'Gratuity' ? '#f59e0b' : 'var(--text-muted)') : 'var(--primary)' }}>{v}</span>
+                                            </div>
                                         ))}
                                         <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--bg-dark)', borderRadius: '8px' }}>
                                             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Contract Period</div>
