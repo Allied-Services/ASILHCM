@@ -372,17 +372,12 @@ export default function PayrollSheet({ user }) {
 
     const isSuperAdmin = user?.role === 'superadmin';
 
-    // Load contracts from DB → build lookup map by client name AND contract name
     useEffect(() => {
         api.getContracts().then(data => {
             const map = {};
-            const addToMap = (key, cfg) => {
-                const k = key?.toLowerCase()?.trim();
-                if (!k) return;
-                if (!map[k] || cfg._isActive) map[k] = cfg;
-            };
             (data.contracts || []).forEach(ct => {
                 const cfg = {
+                    id:                  ct.id,
                     service_charges_pct: parseFloat(ct.financials?.service_charges_pct) || 0,
                     sales_tax_pct:       parseFloat(ct.financials?.sales_tax_pct) || 0,
                     life_insurance:      parseFloat(ct.costs?.life_insurance) || 0,
@@ -391,38 +386,37 @@ export default function PayrollSheet({ user }) {
                     medical_child:       parseFloat(ct.costs?.medical_child) || 0,
                     bonus_months:        parseFloat(ct.costs?.bonus_months) || 0,
                     bonus_min_months:    parseFloat(ct.costs?.bonus_min_months) || 12,
-                    // EOSB type drives PF/Gratuity monthly provision
                     eosb_type:           ct.costs?.eosb_type || 'None',
                     _isActive:           ct.status === 'Active',
                 };
-                // Index by contract name first (most specific — matches employee.contractName)
-                addToMap(ct.contractName, cfg);
-                // Also by client name (fallback)
-                addToMap(ct.clientName, cfg);
-                addToMap(ct.id, cfg);
+                // Primary index: contract ID (most specific — exact match)
+                if (ct.id) map[ct.id] = cfg;
+                // Secondary: contract name (string match from employee.contractName)
+                const nameKey = ct.contractName?.toLowerCase()?.trim();
+                if (nameKey && (!map[nameKey] || cfg._isActive)) map[nameKey] = cfg;
+                // Tertiary: client name (group-level fallback)
+                const clientKey = ct.clientName?.toLowerCase()?.trim();
+                if (clientKey && (!map[clientKey] || cfg._isActive)) map[clientKey] = cfg;
             });
             setCONTRACT_MAP(map);
         }).catch(() => {});
     }, []);
 
-    // Load employees from DB and map to payroll format (family composition → medical)
     useEffect(() => {
         api.getEmployees().then(data => {
             const mapped = (data.employees || []).map(e => {
                 const gross = parseFloat(e.salary) || 0;
-                // Family composition for medical
                 const hasSpouse = !!(e.spouseName && String(e.spouseName).trim());
                 const numChildren = [e.child1Name, e.child2Name].filter(n => n && String(n).trim()).length;
                 return {
                     id: e.id, cnic: e.cnic, name: e.name,
                     designation: e.designation || '',
-                    // Use actual contractName from DB for service charge lookup
-                    contractName: e.contractName || '',
+                    contractId:   e.contractId   || '',   // primary FK link
+                    contractName: e.contractName || '',   // human label
                     contract: e.contractName || e.clientBU || 'Standard',
                     location: e.location || '', client: e.client || '',
                     province: e.province || '',
                     gross,
-                    // Use stored basic if available; fallback to 60% of gross
                     basic:             parseFloat(e.basic) > 0 ? parseFloat(e.basic) : Math.round(gross * 0.60),
                     hra:               Math.round(gross * 0.20),
                     conveyance:        Math.round(gross * 0.10),
@@ -433,7 +427,6 @@ export default function PayrollSheet({ user }) {
                     eobiNo: e.eobiNo || '', email: e.email || '',
                     contact: e.primaryContact || '',
                     doj: e.doj || '',
-                    // family (used for medical)
                     hasSpouse, numChildren: Math.min(numChildren, 2),
                 };
             });
@@ -600,19 +593,26 @@ export default function PayrollSheet({ user }) {
         (filterLoc === 'All' || e.location === filterLoc)
     );
 
-    // Contract cfg lookup: try employee's contractName first (most specific), then clientBU
+    // Contract cfg lookup: ID first (exact), then name, then client fuzzy fallback
     const rows = filtered.map(emp => {
-        // 1. Direct contractName match (exact key from employee record)
+        // 1. Primary: exact contract ID match (most precise)
+        let cfg = emp.contractId && CONTRACT_MAP[emp.contractId];
+        // 2. Contract name string match
         const contractKey = emp.contractName?.toLowerCase()?.trim();
-        const buKey       = emp.contract?.toLowerCase()?.trim();
-        let cfg = (contractKey && CONTRACT_MAP[contractKey])
-               || (buKey && CONTRACT_MAP[buKey]);
+        if (!cfg && contractKey) cfg = CONTRACT_MAP[contractKey];
+        // 3. clientBU / contract label fuzzy fallback
+        const buKey = emp.contract?.toLowerCase()?.trim();
+        if (!cfg && buKey) cfg = CONTRACT_MAP[buKey];
         if (!cfg && buKey) {
-            // Fuzzy: "janitorial services" matches "janitorial services lmt korangi & lmp-a kemari"
             const _fk = Object.keys(CONTRACT_MAP).find(k => k.startsWith(buKey) || k.includes(buKey));
             if (_fk) cfg = CONTRACT_MAP[_fk];
         }
-        cfg = cfg || CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] || {};
+        // 4. Client name fallback (group-level)
+        cfg = cfg || CONTRACT_MAP[emp.client?.toLowerCase()?.trim()];
+        // Flag no-contract employees — they must be excluded from invoice calculation
+        const noContract = !cfg;
+        cfg = cfg || {};
+        cfg._noContract = noContract;
         // Medical defaults from contract + employee family
         const defMedEE    = cfg.medical_ee    || 0;
         const defMedSP    = emp.hasSpouse ? (cfg.medical_sp || 0) : 0;
@@ -983,8 +983,27 @@ export default function PayrollSheet({ user }) {
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map(({ emp, calc }, i) => {
+                            {rows.map(({ emp, cfg, calc }, i) => {
                                 const rowBg = selectedIds.has(emp.id) ? 'rgba(56,189,248,0.07)' : (i % 2 === 0 ? 'var(--bg-card)' : '#171c28');
+                                // ── NO CONTRACT WARNING ROW ──────────────────────────────────────────
+                                if (cfg._noContract) {
+                                    return (
+                                        <tr key={emp.id} style={{ borderBottom: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.05)' }}>
+                                            <td colSpan={2} style={{ padding: '8px 12px', position: 'sticky', left: 0, zIndex: 2, background: 'rgba(239,68,68,0.05)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <AlertCircle size={14} color="#ef4444" />
+                                                    <span style={{ fontWeight: 600, fontSize: '0.82rem', color: '#f87171' }}>{emp.name}</span>
+                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{emp.designation}</span>
+                                                </div>
+                                            </td>
+                                            <td colSpan={30} style={{ padding: '8px 12px' }}>
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', padding: '4px 12px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700 }}>
+                                                    ⚠ NO CONTRACT ASSIGNED — Payroll calculation skipped. Go to Employee Profile → Employment tab to assign a contract.
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                }
                                 return (
                                     <tr key={emp.id} style={{ borderBottom: '1px solid var(--border)', background: rowBg }}>
                                         <td style={{ position: 'sticky', left: 0, zIndex: 3, background: rowBg, padding: '6px 8px', width: '36px' }}>

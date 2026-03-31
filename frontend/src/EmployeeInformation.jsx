@@ -29,7 +29,7 @@ const parseSalary = (s) => parseFloat(String(s || '0').replace(/,/g, '')) || 0;
 
 const EMPTY_FORM = {
     id: '', bu: '', active: 'Yes', client: '', clientBU: '', dept: '', designation: '',
-    location: '', province: '', contractName: '',
+    location: '', province: '', contractName: '', contractId: '',
     name: '', fatherName: '', motherName: '',
     cnic: '', cnicIssue: '', cnicExpiry: '', placeOfBirth: '', eobiNo: '', religion: 'Islam',
     salary: '', maritalStatus: 'Single',
@@ -94,11 +94,15 @@ export default function EmployeeInformation({ user }) {
     const [bulkSmsMsg, setBulkSmsMsg] = useState('Dear {name}, this is a message from ASIL HR.');
     const [bulkSmsSending, setBulkSmsSending] = useState(false);
 
-    // ── Load employees from DB on mount ─────────────────────────────────────
+    // ── Load employees + contracts from DB on mount ────────────────────────────
+    const [contractsList, setContractsList] = useState([]);
     useEffect(() => {
         api.getEmployees()
             .then(data => { setEmps(data.employees); setLoading(false); })
             .catch(() => setLoading(false));
+        api.getContracts()
+            .then(data => setContractsList(data.contracts || []))
+            .catch(() => {});
     }, []);
 
     const secIdx = SECTIONS.indexOf(sec);
@@ -621,7 +625,32 @@ export default function EmployeeInformation({ user }) {
                                 {sec === 'Employment' && <>
                                     <F label="ASIL Employee Code" field="id" opts={{ ph: 'ASIL/SPL-XXX/25' }} />
                                     <F label="ASIL BU" field="bu" opts={{ ph: 'e.g. WafiBPO' }} />
-                                    <div style={{ gridColumn: '1/-1' }}><F label="Contract Name *" field="contractName" opts={{ ph: 'Exact contract name as per Client Service Order (e.g. LSC Security Services)' }} /></div>
+                                    <div style={{ gridColumn: '1/-1' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Contract *</label>
+                                            <select value={form.contractId || ''}
+                                                onChange={e => {
+                                                    const ct = contractsList.find(c => c.id === e.target.value);
+                                                    setForm(p => ({ ...p,
+                                                        contractId: ct?.id || '',
+                                                        contractName: ct?.contractName || '',
+                                                        client: ct?.clientName || p.client,
+                                                        location: ct?.location || p.location,
+                                                        province: ct?.province || p.province,
+                                                    }));
+                                                }}
+                                                style={{ background: 'var(--bg-dark)', border: `1px solid ${form.contractId ? '#22c55e' : '#f59e0b'}`, borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%' }}>
+                                                <option value="">⚠ -- Select Contract (Required) --</option>
+                                                {contractsList.filter(ct => ct.status === 'Active' || !ct.status).map(ct => (
+                                                    <option key={ct.id} value={ct.id}>
+                                                        {ct.contractName} ({ct.clientName || ct.id})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {form.contractId && <div style={{ fontSize: '0.75rem', color: '#22c55e', marginTop: '2px' }}>✓ ID: {form.contractId} · Client auto-filled: {form.client}</div>}
+                                            {!form.contractId && <div style={{ fontSize: '0.75rem', color: '#f59e0b', marginTop: '2px' }}>⚠ Without a contract, EOSB, service charge, and invoice calculations will be skipped in payroll.</div>}
+                                        </div>
+                                    </div>
                                     <F label="Client Name" field="client" opts={{ ph: 'Client organisation name' }} />
                                     <F label="Client Business Unit" field="clientBU" opts={{ ph: 'e.g. Trading & Supply' }} />
                                     <F label="Department" field="dept" opts={{ ph: 'e.g. Security Services' }} />
