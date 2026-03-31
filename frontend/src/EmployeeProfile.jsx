@@ -156,6 +156,14 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
         setEditSaving(false);
     };
 
+    // ── Contracts list (for assignment dropdown in edit mode) ────────────────
+    const [contractsList, setContractsList] = useState([]);
+    useEffect(() => {
+        api.getContracts()
+            .then(d => setContractsList(d.contracts || []))
+            .catch(() => {});
+    }, []);
+
     // Salary History state
     const [showAddSalary, setShowAddSalary] = useState(false);
     const [newSalary, setNewSalary] = useState({ date: '', basic: '', hra: '', conveyance: '', medical_allowance: '', other_allowances: '', note: '' });
@@ -521,6 +529,21 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                 {!isEditing && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                     <Card><STitle>Employment</STitle>
                         {[['Employee Code', emp.id], ['ASIL BU', emp.bu], ['Client', emp.client], ['Client BU', emp.clientBU], ['Department', emp.dept], ['Designation', emp.designation], ['Location', emp.location + ', ' + (emp.province || '')], ['Date of Joining', emp.doj], ['Status', emp.active === 'Yes' ? 'Active' : 'Inactive']].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
+                        {/* ── CONTRACT ASSIGNMENT ── */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Contract</span>
+                            <span style={{ textAlign: 'right', maxWidth: '55%' }}>
+                                {emp.contractName
+                                    ? <span style={{ fontWeight: 600, color: 'var(--primary)' }}>{emp.contractName}</span>
+                                    : <span style={{ color: '#f59e0b', fontWeight: 600 }}>⚠ Not Assigned</span>}
+                            </span>
+                        </div>
+                        {emp.contractId && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0', fontSize: '0.8rem', borderBottom: '1px solid var(--border)' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Contract ID</span>
+                                <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: '0.76rem' }}>{emp.contractId}</span>
+                            </div>
+                        )}
                     </Card>
                     <Card><STitle>Personal</STitle>
                         {[["Father's Name", emp.fatherName], ["Mother's Name", emp.motherName], ['CNIC', emp.cnic], ['CNIC Issue', emp.cnicIssue], ['CNIC Expiry', emp.cnicExpiry], ['Date of Birth', emp.dob], ['Place of Birth', emp.placeOfBirth], ['Religion', emp.religion], ['Marital Status', emp.maritalStatus]].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
@@ -545,6 +568,31 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                     <Card><STitle>Employment</STitle>
                         <ERow label="Employee Code" field="id" disabled />
                         <ERow label="ASIL BU" field="bu" />
+                        {/* ── Assign Contract dropdown ── */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
+                            <span style={{ color: editForm.contractId ? 'var(--text-muted)' : '#f59e0b', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Contract *</span>
+                            <div style={{ flex: 1 }}>
+                                <select value={editForm.contractId || ''}
+                                    onChange={e => {
+                                        const ct = contractsList.find(c => c.id === e.target.value);
+                                        setEditForm(p => ({
+                                            ...p,
+                                            contractId:   ct?.id           || '',
+                                            contractName: ct?.contractName || '',
+                                            client:       ct?.clientName   || p.client,
+                                        }));
+                                    }}
+                                    style={{ background: 'var(--bg-dark)', border: `1px solid ${editForm.contractId ? 'var(--primary)' : '#f59e0b'}`, borderRadius: '6px', padding: '4px 8px', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}>
+                                    <option value="">⚠ -- Select Contract --</option>
+                                    {contractsList.filter(ct => ct.status === 'Active' || !ct.status).map(ct => (
+                                        <option key={ct.id} value={ct.id}>
+                                            {ct.contractName} ({ct.clientName || ct.id})
+                                        </option>
+                                    ))}
+                                </select>
+                                {editForm.contractId && <div style={{ fontSize: '0.72rem', color: '#22c55e', marginTop: '2px' }}>✓ ID: {editForm.contractId}</div>}
+                            </div>
+                        </div>
                         <ERow label="Client Name" field="client" />
                         <ERow label="Client BU" field="clientBU" />
                         <ERow label="Department" field="dept" />
