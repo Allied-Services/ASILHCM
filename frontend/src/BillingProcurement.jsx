@@ -3,23 +3,17 @@ import { FileText, Upload, Edit3, CheckCircle, Loader, Eye, AlertTriangle } from
 import { api } from './api';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const CLIENTS = ['Wafi Energy Pakistan Limited', 'Bank Al Habib', 'Pakistan State Oil Company', 'Gul Ahmed Textile'];
-const CONTRACTS = {
-    'Wafi Energy Pakistan Limited': ['CTR-2024-WFI-001 — Terminal Ops Bhakkar'],
-    'Bank Al Habib': ['CTR-2026-BAHL-A1 — Security Services', 'CTR-2026-BAHL-A2 — Janitorial'],
-    'Pakistan State Oil Company': ['CTR-2025-PSO-X9 — General Workers'],
-    'Gul Ahmed Textile': ['CTR-2025-GT-01 — Facilities Management'],
-};
-const SITES = ['Bhakkar Terminal', 'KHI-Clifton Branch', 'KHI-IIG Campus', 'ISB-F7 Branch', 'LHR-Gulberg'];
 const BILL_TYPES = ['Company Expense', 'Client Debit Note', 'Imprest'];
 const PURPOSES = ['Office Supplies', 'Maintenance & Repair', 'Fuel & Transport', 'Safety Equipment', 'Procurement — Fixed Supply', 'Catering', 'Utilities', 'Other'];
 
 const STATUS_COLORS = {
-    'Draft': { bg: 'rgba(100,116,139,0.15)', color: '#94a3b8' },
-    'Pending': { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b' },
-    'Approved': { bg: 'rgba(34,197,94,0.12)', color: '#22c55e' },
-    'Rejected': { bg: 'rgba(239,68,68,0.12)', color: '#ef4444' },
-    'Posted': { bg: 'rgba(99,102,241,0.12)', color: '#818cf8' },
+    'Draft':           { bg: 'rgba(100,116,139,0.15)', color: '#94a3b8' },
+    'Pending Approval':{ bg: 'rgba(245,158,11,0.12)',  color: '#f59e0b' },
+    'Pending':         { bg: 'rgba(245,158,11,0.12)',  color: '#f59e0b' },
+    'Approved':        { bg: 'rgba(34,197,94,0.12)',   color: '#22c55e' },
+    'Rejected':        { bg: 'rgba(239,68,68,0.12)',   color: '#ef4444' },
+    'Pushed to Xero':  { bg: 'rgba(99,102,241,0.15)', color: '#818cf8' },
+    'Posted':          { bg: 'rgba(99,102,241,0.12)',  color: '#818cf8' },
 };
 
 const Badge = ({ status }) => {
@@ -48,18 +42,32 @@ const FL = ({ label, children, span }) => (
 );
 
 // ─── OCR Modal ────────────────────────────────────────────────────────────────
-function OCRModal({ onSave, onClose }) {
+function OCRModal({ onSave, onClose, clientsList = [], contractsList = [] }) {
     const fileRef = useRef();
     const [phase, setPhase] = useState('upload'); // upload | scanning | review
+    const [manualMode, setManualMode] = useState(false);
     const [scanStatus, setScanStatus] = useState('');
-    const [pages, setPages] = useState([]); // [{ img, extracted }]
+    const [pages, setPages] = useState([]);
     const [pageIdx, setPageIdx] = useState(0);
     const [client, setClient] = useState('');
-    const [contract, setContract] = useState('');
+    const [contractId, setContractId] = useState('');
+    const [bu, setBu] = useState('');
     const [site, setSite] = useState('');
     const [billType, setBillType] = useState('Client Debit Note');
     const [purpose, setPurpose] = useState('');
     const [note, setNote] = useState('');
+    // Manual-mode fields
+    const [manualVendor, setManualVendor] = useState('');
+    const [manualAmount, setManualAmount] = useState('');
+    const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
+    const [manualInvoiceNo, setManualInvoiceNo] = useState('');
+    const [manualNote, setManualNote] = useState('');
+    const manualFileRef = useRef();
+
+    // Derived — contracts filtered by selected client
+    const filteredContracts = contractsList.filter(ct => !client || ct.clientName === client);
+    const selectedCt = contractsList.find(ct => ct.id === contractId);
+    const clientBUs = [...new Set(clientsList.flatMap(c => c.businessUnits || []).filter(Boolean))];
 
     const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -163,14 +171,23 @@ function OCRModal({ onSave, onClose }) {
     const saveCurrent = () => {
         if (!cur) return;
         const ex = cur.extracted;
-        onSave({ id: `BILL-${Date.now()}-${pageIdx}`, type: 'OCR / Katcha', client, contract, site, vendor: ex.vendor, date: ex.date, items: ex.items, amount: ex.subtotal, gst: ex.gst, total: ex.grandTotal, purpose, billType, status: 'Draft', note });
+        const ct = contractsList.find(c => c.id === contractId);
+        onSave({ id: `BILL-${Date.now()}-${pageIdx}`, type: 'OCR / Katcha', client, contract: ct?.contractName || '', contractId, bu, site, vendor: ex.vendor, date: ex.date, items: ex.items, amount: ex.subtotal, gst: ex.gst, total: ex.grandTotal, purpose, billType, status: 'Draft', note });
     };
 
     const saveAllAndClose = () => {
+        const ct = contractsList.find(c => c.id === contractId);
         pages.forEach((pg, i) => {
             const ex = pg.extracted;
-            onSave({ id: `BILL-${Date.now()}-${i}`, type: 'OCR / Katcha', client, contract, site, vendor: ex.vendor, date: ex.date, items: ex.items, amount: ex.subtotal, gst: ex.gst, total: ex.grandTotal, purpose, billType, status: 'Draft', note });
+            onSave({ id: `BILL-${Date.now()}-${i}`, type: 'OCR / Katcha', client, contract: ct?.contractName || '', contractId, bu, site, vendor: ex.vendor, date: ex.date, items: ex.items, amount: ex.subtotal, gst: ex.gst, total: ex.grandTotal, purpose, billType, status: 'Draft', note });
         });
+        onClose();
+    };
+
+    const saveManual = () => {
+        const ct = contractsList.find(c => c.id === contractId);
+        const amt = parseFloat(manualAmount) || 0;
+        onSave({ id: `BILL-${Date.now()}`, type: 'Manual (Katcha)', client, contract: ct?.contractName || '', contractId, bu, site, vendor: manualVendor, date: manualDate, invoiceNo: manualInvoiceNo, items: [{ desc: manualNote || 'Manual entry', qty: 1, unit: amt, total: amt }], amount: amt, gst: 0, total: amt, purpose, billType, status: 'Draft', note: manualNote });
         onClose();
     };
 
@@ -182,11 +199,53 @@ function OCRModal({ onSave, onClose }) {
                         <h3 style={{ margin: 0 }}>Katcha Bill / OCR Upload</h3>
                         <p style={{ margin: '3px 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>Upload a photo or PDF of a bill • English &amp; Urdu supported • Multi-page PDF = multiple bills</p>
                     </div>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.4rem' }}>×</button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <button onClick={() => setManualMode(m => !m)}
+                            style={{ padding: '5px 14px', borderRadius: '7px', border: `1px solid ${manualMode ? '#22c55e' : 'var(--border)'}`, background: manualMode ? 'rgba(34,197,94,0.12)' : 'var(--bg-dark)', color: manualMode ? '#22c55e' : 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                            {manualMode ? '✓ Manual Entry' : 'Manual Entry (Skip OCR)'}
+                        </button>
+                        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.4rem' }}>×</button>
+                    </div>
                 </div>
-                <div style={{ padding: '1.75rem 2rem', display: 'grid', gridTemplateColumns: phase === 'upload' || phase === 'scanning' ? '1fr' : '1fr 1fr', gap: '1.5rem' }}>
+                <div style={{ padding: '1.75rem 2rem', display: 'grid', gridTemplateColumns: (phase === 'upload' || phase === 'scanning' || manualMode) ? '1fr' : '1fr 1fr', gap: '1.5rem' }}>
 
-                    {phase === 'upload' && (
+                    {manualMode && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.25rem' }}>Manual Bill Entry — attach file optionally</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem 1rem' }}>
+                                <FL label="Vendor / Supplier" span="span 2"><SI value={manualVendor} onChange={e => setManualVendor(e.target.value)} placeholder="Vendor name" /></FL>
+                                <FL label="Amount (PKR)"><SI type="number" value={manualAmount} onChange={e => setManualAmount(e.target.value)} placeholder="0" /></FL>
+                                <FL label="Date"><SI type="date" value={manualDate} onChange={e => setManualDate(e.target.value)} /></FL>
+                                <FL label="Invoice No."><SI value={manualInvoiceNo} onChange={e => setManualInvoiceNo(e.target.value)} placeholder="Optional" /></FL>
+                                <FL label="Client">
+                                    <select value={client} onChange={e => { setClient(e.target.value); setContractId(''); setBu(''); }} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
+                                        <option value="">— Select Client —</option>
+                                        {clientsList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                    </select>
+                                </FL>
+                                <FL label="Contract">
+                                    <select value={contractId} onChange={e => setContractId(e.target.value)} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
+                                        <option value="">— Select Contract —</option>
+                                        {filteredContracts.map(ct => <option key={ct.id} value={ct.id}>{ct.contractName}</option>)}
+                                    </select>
+                                </FL>
+                                <FL label="Purpose"><SS value={purpose} onChange={e => setPurpose(e.target.value)} opts={PURPOSES} /></FL>
+                                <FL label="Bill Type"><SS value={billType} onChange={e => setBillType(e.target.value)} opts={BILL_TYPES} /></FL>
+                                <FL label="Internal Note" span="span 2"><SI value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="Optional" /></FL>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                                <button onClick={() => manualFileRef.current?.click()} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '6px 14px', borderRadius: '7px', cursor: 'pointer', fontSize: '0.82rem' }}>📎 Attach File (optional)</button>
+                                <input ref={manualFileRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }} />
+                                <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>PDF or image attachment (stored for reference)</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                                <button onClick={onClose} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '9px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                                <button onClick={saveManual} disabled={!manualVendor || !manualAmount} style={{ flex: 3, background: manualVendor && manualAmount ? '#22c55e' : '#334155', border: 'none', color: 'white', padding: '9px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>Save Bill (Draft)</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {!manualMode && phase === 'upload' && (
                         <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', border: '2px dashed var(--border)', borderRadius: '12px', padding: '3rem', cursor: 'pointer', background: 'rgba(56,189,248,0.03)' }}>
                             <Upload size={36} color="var(--primary)" />
                             <div style={{ textAlign: 'center' }}>
@@ -259,9 +318,19 @@ function OCRModal({ onSave, onClose }) {
 
                             <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
                                 <div style={{ fontWeight: 700, marginBottom: '0.6rem', fontSize: '0.85rem' }}>Classify This Bill</div>
-                                <FL label="Client"><SS value={client} onChange={e => { setClient(e.target.value); setContract(''); }} opts={CLIENTS} /></FL>
-                                <FL label="Contract"><SS value={contract} onChange={e => setContract(e.target.value)} opts={CONTRACTS[client] || []} /></FL>
-                                <FL label="Site"><SS value={site} onChange={e => setSite(e.target.value)} opts={SITES} /></FL>
+                                <FL label="Client">
+                                    <select value={client} onChange={e => { setClient(e.target.value); setContractId(''); setBu(''); }} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
+                                        <option value="">— Select Client —</option>
+                                        {clientsList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                    </select>
+                                </FL>
+                                <FL label="Contract">
+                                    <select value={contractId} onChange={e => setContractId(e.target.value)} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
+                                        <option value="">— Select Contract —</option>
+                                        {filteredContracts.map(ct => <option key={ct.id} value={ct.id}>{ct.contractName}</option>)}
+                                    </select>
+                                </FL>
+                                <FL label="Site / Location"><SI value={site} onChange={e => setSite(e.target.value)} placeholder="e.g. Karachi Office" /></FL>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
                                     <FL label="Bill Type"><SS value={billType} onChange={e => setBillType(e.target.value)} opts={BILL_TYPES} /></FL>
                                     <FL label="Purpose"><SS value={purpose} onChange={e => setPurpose(e.target.value)} opts={PURPOSES} /></FL>
@@ -289,11 +358,12 @@ function OCRModal({ onSave, onClose }) {
 
 
 // ─── Manual Bill Modal — with line items ──────────────────────────────────────
-function ManualBillModal({ onSave, onClose }) {
+function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = [] }) {
     const emptyItem = () => ({ desc: '', qty: 1, unit: '', total: 0 });
-    const [form, setForm] = useState({ vendor: '', date: new Date().toISOString().split('T')[0], gstPct: '17', client: '', contract: '', site: '', billType: 'Client Debit Note', purpose: '', note: '' });
+    const [form, setForm] = useState({ vendor: '', date: new Date().toISOString().split('T')[0], invoiceNo: '', gstPct: '17', client: '', contractId: '', bu: '', site: '', billType: 'Client Debit Note', purpose: '', note: '' });
     const [items, setItems] = useState([emptyItem()]);
     const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+    const filteredContracts = contractsList.filter(ct => !form.client || ct.clientName === form.client);
 
     const setItem = (i, k, v) => setItems(p => {
         const next = [...p]; next[i] = { ...next[i], [k]: v };
@@ -306,7 +376,8 @@ function ManualBillModal({ onSave, onClose }) {
     const grandTotal = subtotal + gstAmount;
 
     const save = () => {
-        onSave({ id: `BILL-${Date.now()}`, type: 'Manual', ...form, items, amount: subtotal, gst: gstAmount, total: grandTotal, status: 'Draft' });
+        const ct = contractsList.find(c => c.id === form.contractId);
+        onSave({ id: `BILL-${Date.now()}`, type: 'Manual', ...form, contract: ct?.contractName || '', items, amount: subtotal, gst: gstAmount, total: grandTotal, status: 'Draft' });
         onClose();
     };
 
@@ -322,13 +393,20 @@ function ManualBillModal({ onSave, onClose }) {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1rem' }}>
                         <FL label="Vendor / Supplier" span="span 2"><SI value={form.vendor} onChange={e => set('vendor', e.target.value)} placeholder="Vendor or supplier name" /></FL>
                         <FL label="Bill Date"><SI type="date" value={form.date} onChange={e => set('date', e.target.value)} /></FL>
+                        <FL label="Invoice No." span="span 1"><SI value={form.invoiceNo} onChange={e => set('invoiceNo', e.target.value)} placeholder="Optional" /></FL>
                         <FL label="Client">
-                            <SS value={form.client} onChange={e => { set('client', e.target.value); set('contract', ''); }} opts={CLIENTS} />
+                            <select value={form.client} onChange={e => { set('client', e.target.value); set('contractId', ''); set('bu',''); }} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
+                                <option value="">— Select Client —</option>
+                                {clientsList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                            </select>
                         </FL>
                         <FL label="Contract">
-                            <SS value={form.contract} onChange={e => set('contract', e.target.value)} opts={CONTRACTS[form.client] || []} />
+                            <select value={form.contractId} onChange={e => set('contractId', e.target.value)} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
+                                <option value="">— Select Contract —</option>
+                                {filteredContracts.map(ct => <option key={ct.id} value={ct.id}>{ct.contractName}</option>)}
+                            </select>
                         </FL>
-                        <FL label="Site"><SS value={form.site} onChange={e => set('site', e.target.value)} opts={SITES} /></FL>
+                        <FL label="Site / Location"><SI value={form.site} onChange={e => set('site', e.target.value)} placeholder="e.g. Karachi" /></FL>
                         <FL label="Purpose" span="span 2"><SS value={form.purpose} onChange={e => set('purpose', e.target.value)} opts={PURPOSES} /></FL>
                         <FL label="GST %"><SI type="number" value={form.gstPct} onChange={e => set('gstPct', e.target.value)} placeholder="17" /></FL>
                     </div>
@@ -515,7 +593,6 @@ function ImportQuotationModal({ onSave, onClose }) {
                                     </tbody>
                                 </table>
                             </div>
-
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '2rem', background: 'rgba(56,189,248,0.06)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem' }}>
                                 {[['Subtotal', Rs(parsed.subtotal)], ['GST (17%)', Rs(parsed.gst)], ['GRAND TOTAL', Rs(parsed.grandTotal)]].map(([l, v]) => (
                                     <div key={l} style={{ textAlign: 'right' }}><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>{l}</div><div style={{ fontWeight: 800, color: 'var(--primary)' }}>{v}</div></div>
@@ -534,10 +611,24 @@ function ImportQuotationModal({ onSave, onClose }) {
     );
 }
 
-// ─── Bill Detail Modal ────────────────────────────────────────────────────────
-function BillDetailModal({ bill, onAction, onClose }) {
-    const flow = { 'Draft': ['Submit for Approval'], 'Pending': ['Approve', 'Reject'], 'Approved': ['Post to Ledger'], 'Posted': [], 'Rejected': ['Archive'] };
+// ─── Bill Detail Modal ─────────────────────────────────────────────────
+function BillDetailModal({ bill, onAction, onXero, onClose, isApprover }) {
+    const flow = {
+        'Draft':            ['Submit for Approval'],
+        'Pending Approval': ['Approve', 'Reject'],
+        'Pending':          ['Approve', 'Reject'],
+        'Approved':         ['Post to Ledger'],
+        'Posted':           [],
+        'Pushed to Xero':   [],
+        'Rejected':         ['Archive'],
+    };
     const actions = flow[bill.status] || [];
+
+    const xeroStub = () => {
+        console.log('[Xero Stub] Syncing bill to Xero:', bill);
+        onXero(bill.id, 'Pushed to Xero');
+        onClose();
+    };
 
     return (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -553,7 +644,7 @@ function BillDetailModal({ bill, onAction, onClose }) {
                 </div>
                 <div style={{ padding: '1.5rem 2rem' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 2rem', marginBottom: '1.25rem' }}>
-                        {[['Vendor', bill.vendor], ['Client', bill.client], ['Contract', bill.contract], ['Site', bill.site], ['Purpose', bill.purpose], ['Bill Type', bill.billType], ['Amount (excl. GST)', Rs(bill.amount)], ['GST', Rs(bill.gst)], ['Note', bill.note || '—']].map(([l, v]) => (
+                        {[['Vendor', bill.vendor], ['Client', bill.client], ['Contract', bill.contract], ['Site', bill.site], ['Purpose', bill.purpose], ['Bill Type', bill.billType], ['Invoice No', bill.invoiceNo || '—'], ['Amount (excl. GST)', Rs(bill.amount)], ['GST', Rs(bill.gst)], ['Note', bill.note || '—']].map(([l, v]) => (
                             <div key={l}><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>{l}</div><div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{v}</div></div>
                         ))}
                     </div>
@@ -584,12 +675,23 @@ function BillDetailModal({ bill, onAction, onClose }) {
 
                     {bill.billType === 'Client Debit Note' && (
                         <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.84rem' }}>
-                            <strong style={{ color: '#818cf8' }}>→ Debit Note:</strong> When approved & posted, this will be available in a Client Invoice to {bill.client}.
+                            <strong style={{ color: '#818cf8' }}>→ Debit Note:</strong> When approved &amp; posted, this will be available in a Client Invoice to {bill.client}.
                         </div>
                     )}
                     {bill.billType === 'Imprest' && (
                         <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.84rem' }}>
                             <strong style={{ color: '#f59e0b' }}>→ Imprest:</strong> This will be deducted from the Imprest pool for {bill.client}.
+                        </div>
+                    )}
+
+                    {/* Xero stub — visible to approvers when Approved */}
+                    {isApprover && bill.status === 'Approved' && (
+                        <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ fontSize: '0.83rem' }}>
+                                <div style={{ fontWeight: 700, color: '#818cf8', marginBottom: '2px' }}>📊 Xero Integration (Stub)</div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Click to mark as synced. Full Xero OAuth is pending implementation.</div>
+                            </div>
+                            <button onClick={xeroStub} style={{ background: '#6366f1', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Approve &amp; Sync to Xero →</button>
                         </div>
                     )}
 
@@ -622,12 +724,20 @@ export default function BillingProcurement({ user }) {
     const [filterClient, setFilterClient] = useState('All');
     const [filterStatus, setFilterStatus] = useState('All');
 
-    // Load bills from DB on mount — shared across all users
+    // Load bills + clients + contracts from DB on mount
+    const [clientsList, setClientsList]     = useState([]);
+    const [contractsList, setContractsList] = useState([]);
     useEffect(() => {
         api.getBills()
             .then(data => setBills(Array.isArray(data) ? data : []))
             .catch(err => console.error('Bills load error:', err.message))
             .finally(() => setLoading(false));
+        api.getClients()
+            .then(d => setClientsList(d.clients || []))
+            .catch(() => {});
+        api.getContracts()
+            .then(d => setContractsList(d.contracts || []))
+            .catch(() => {});
     }, []);
 
     const filtered = bills.filter(b =>
@@ -645,7 +755,13 @@ export default function BillingProcurement({ user }) {
     };
 
     const doAction = async (id, action) => {
-        const map = { 'Submit for Approval': 'Pending', 'Approve': 'Approved', 'Post to Ledger': 'Posted', 'Reject': 'Rejected', 'Archive': 'Archived' };
+        const map = {
+            'Submit for Approval': 'Pending Approval',
+            'Approve': 'Approved',
+            'Post to Ledger': 'Posted',
+            'Reject': 'Rejected',
+            'Archive': 'Rejected',
+        };
         const newStatus = map[action];
         if (!newStatus) return;
         try {
@@ -784,10 +900,10 @@ export default function BillingProcurement({ user }) {
                 </div>
             )}
 
-            {showOCR && <OCRModal onSave={addBill} onClose={() => setShowOCR(false)} />}
-            {showManual && <ManualBillModal onSave={addBill} onClose={() => setShowManual(false)} />}
-            {showQuote && <ImportQuotationModal onSave={addBill} onClose={() => setShowQuote(false)} />}
-            {detailBill && <BillDetailModal bill={detailBill} onAction={doAction} onClose={() => setDetailBill(null)} />}
+            {showOCR    && <OCRModal    onSave={addBill} onClose={() => setShowOCR(false)}    clientsList={clientsList} contractsList={contractsList} />}
+            {showManual && <ManualBillModal onSave={addBill} onClose={() => setShowManual(false)} clientsList={clientsList} contractsList={contractsList} />}
+            {showQuote  && <ImportQuotationModal onSave={addBill} onClose={() => setShowQuote(false)} />}
+            {detailBill && <BillDetailModal bill={detailBill} onAction={doAction} onXero={doAction} isApprover={['finance_approver','procurement_approver','superadmin'].includes(user?.role)} onClose={() => setDetailBill(null)} />}
         </div>
     );
 }

@@ -649,7 +649,7 @@ Verify: items totals should sum to subtotal. grandTotal = subtotal + gst.`;
     }
 });
 
-// Auto-create table if missing
+// Auto-create bills table + idempotent column migrations
 pool.query(`
     CREATE TABLE IF NOT EXISTS bills (
         id          TEXT PRIMARY KEY,
@@ -658,6 +658,8 @@ pool.query(`
         date        TEXT,
         client      TEXT,
         contract    TEXT,
+        contract_id TEXT,
+        bu          TEXT,
         site        TEXT,
         bill_type   TEXT,
         purpose     TEXT,
@@ -667,54 +669,69 @@ pool.query(`
         gst         NUMERIC(12,2) DEFAULT 0,
         total       NUMERIC(12,2) DEFAULT 0,
         status      TEXT DEFAULT 'Draft',
+        invoice_no  TEXT,
         created_by  TEXT,
         created_at  TIMESTAMPTZ DEFAULT NOW(),
         updated_at  TIMESTAMPTZ DEFAULT NOW()
     )
 `).catch(e => console.error('bills table init error:', e.message));
 
+// Idempotent migrations — add columns that may not exist on older live tables
+[
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS contract     TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS contract_id  TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS bu           TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS invoice_no   TEXT`,
+].forEach(sql => pool.query(sql).catch(e => console.error('bills migration:', e.message)));
+
 app.get('/api/bills', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query('SELECT * FROM bills ORDER BY created_at DESC');
         res.json(rows.map(r => ({
             id: r.id, type: r.type, vendor: r.vendor, date: r.date,
-            client: r.client, contract: r.contract, site: r.site,
+            client: r.client, contract: r.contract, contractId: r.contract_id,
+            bu: r.bu, site: r.site,
             billType: r.bill_type, purpose: r.purpose, note: r.note,
+            invoiceNo: r.invoice_no,
             items: r.items || [], amount: parseFloat(r.amount) || 0,
             gst: parseFloat(r.gst) || 0, total: parseFloat(r.total) || 0,
-            status: r.status, createdBy: r.created_by,
+            status: r.status || 'Draft', createdBy: r.created_by,
             createdAt: r.created_at,
         })));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/bills', requireAuth, requireRole('procurement_proposer','finance_proposer'), async (req, res) => {
+app.post('/api/bills', requireAuth, requireRole('procurement_proposer','finance_proposer','finance_approver','superadmin'), async (req, res) => {
     const b = req.body;
     try {
         const { rows } = await pool.query(
-            `INSERT INTO bills (id,type,vendor,date,client,contract,site,bill_type,purpose,note,items,amount,gst,total,status,created_by)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            `INSERT INTO bills (id,type,vendor,date,client,contract,contract_id,bu,site,bill_type,purpose,note,invoice_no,items,amount,gst,total,status,created_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
              ON CONFLICT (id) DO UPDATE SET
                vendor=EXCLUDED.vendor, date=EXCLUDED.date, client=EXCLUDED.client,
-               contract=EXCLUDED.contract, site=EXCLUDED.site, bill_type=EXCLUDED.bill_type,
-               purpose=EXCLUDED.purpose, note=EXCLUDED.note, items=EXCLUDED.items,
-               amount=EXCLUDED.amount, gst=EXCLUDED.gst, total=EXCLUDED.total,
-               status=EXCLUDED.status, updated_at=NOW()
+               contract=EXCLUDED.contract, contract_id=EXCLUDED.contract_id,
+               bu=EXCLUDED.bu, site=EXCLUDED.site, bill_type=EXCLUDED.bill_type,
+               purpose=EXCLUDED.purpose, note=EXCLUDED.note, invoice_no=EXCLUDED.invoice_no,
+               items=EXCLUDED.items, amount=EXCLUDED.amount, gst=EXCLUDED.gst,
+               total=EXCLUDED.total, status=EXCLUDED.status, updated_at=NOW()
              RETURNING *`,
-            [b.id, b.type, b.vendor, b.date, b.client, b.contract, b.site,
-             b.billType, b.purpose, b.note, JSON.stringify(b.items || []),
-             b.amount || 0, b.gst || 0, b.total || 0, b.status || 'Draft', req.user.email]
+            [b.id, b.type, b.vendor, b.date, b.client, b.contract, b.contractId || null,
+             b.bu || null, b.site, b.billType, b.purpose, b.note, b.invoiceNo || null,
+             JSON.stringify(b.items || []), b.amount || 0, b.gst || 0, b.total || 0,
+             b.status || 'Draft', req.user.email]
         );
         const r = rows[0];
-        res.json({ ok: true, bill: { id: r.id, type: r.type, vendor: r.vendor, date: r.date, client: r.client, contract: r.contract, site: r.site, billType: r.bill_type, purpose: r.purpose, note: r.note, items: r.items || [], amount: parseFloat(r.amount) || 0, gst: parseFloat(r.gst) || 0, total: parseFloat(r.total) || 0, status: r.status, createdBy: r.created_by } });
+        res.json({ ok: true, bill: { id: r.id, type: r.type, vendor: r.vendor, date: r.date, client: r.client, contract: r.contract, contractId: r.contract_id, bu: r.bu, site: r.site, billType: r.bill_type, purpose: r.purpose, note: r.note, invoiceNo: r.invoice_no, items: r.items || [], amount: parseFloat(r.amount) || 0, gst: parseFloat(r.gst) || 0, total: parseFloat(r.total) || 0, status: r.status || 'Draft', createdBy: r.created_by } });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approver','finance_approver'), async (req, res) => {
+app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approver','finance_approver','superadmin'), async (req, res) => {
     const { status } = req.body;
+    const VALID = ['Draft','Pending Approval','Approved','Rejected','Pushed to Xero','Posted'];
+    if (!VALID.includes(status)) return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID.join(', ')}` });
     try {
         await pool.query('UPDATE bills SET status=$1, updated_at=NOW() WHERE id=$2', [status, req.params.id]);
-        res.json({ ok: true });
+        res.json({ ok: true, status });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

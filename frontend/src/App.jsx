@@ -21,21 +21,21 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // ── Role-based nav access ─────────────────────────────────────────────────────
 const ROLE_NAV = {
     superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','client','vendor','inventory','annexure','config','users'],
-    operations:           ['employee','documents'],
+    operations:           ['employee','documents','client'],
     procurement_proposer: ['billing','vendor','inventory'],
-    procurement_approver: ['billing'],
-    finance_proposer:     ['payroll','invoices'],
-    finance_approver:     ['payroll','invoices'],
+    procurement_approver: ['billing','vendor','inventory'],
+    finance_proposer:     ['billing','invoices','annexure'],
+    finance_approver:     ['payroll','billing','invoices','client','annexure','config','users'],
     pending:              [],
 };
 
 const ROLE_BADGE = {
     superadmin:           { label: 'Super Admin',           color: '#f59e0b' },
     operations:           { label: 'Operations',            color: '#3b82f6' },
-    procurement_proposer: { label: 'Proc. Proposer',        color: '#8b5cf6' },
-    procurement_approver: { label: 'Proc. Approver',        color: '#6366f1' },
-    finance_proposer:     { label: 'Finance Proposer',      color: '#10b981' },
-    finance_approver:     { label: 'Finance Approver',      color: '#14b8a6' },
+    procurement_proposer: { label: 'Proc. Officer',         color: '#8b5cf6' },
+    procurement_approver: { label: 'Proc. Manager',         color: '#6366f1' },
+    finance_proposer:     { label: 'Finance Officer',       color: '#10b981' },
+    finance_approver:     { label: 'Finance Manager',       color: '#14b8a6' },
     pending:              { label: 'Access Pending',         color: '#94a3b8' },
 };
 
