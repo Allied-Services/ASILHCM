@@ -827,7 +827,7 @@ export default function BillingProcurement({ user }) {
 
             {/* Filters */}
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                {[['Type', filterType, setFilterType, TYPES], ['Client', filterClient, setFilterClient, ['All', ...CLIENTS]], ['Status', filterStatus, setFilterStatus, STATUSES]].map(([label, val, setter, opts]) => (
+                {[['Type', filterType, setFilterType, TYPES], ['Client', filterClient, setFilterClient, ['All', ...clientsList.map(c => c.name)]], ['Status', filterStatus, setFilterStatus, STATUSES]].map(([label, val, setter, opts]) => (
                     <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{label}:</span>
                         <select value={val} onChange={e => setter(e.target.value)}
