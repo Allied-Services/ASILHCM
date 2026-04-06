@@ -111,10 +111,17 @@ export const api = {
     returnAsset:         (id, aid) => apiFetch(`/api/employees/${id}/assets/${aid}/return`, { method: 'PATCH' }),
     deleteAsset:         (id, aid) => apiFetch(`/api/employees/${id}/assets/${aid}`, { method: 'DELETE' }),
 
-    // ── Invoices ──────────────────────────────────────────────────────────────
+    // ── Invoices (legacy — kept for backwards compat) ─────────────────────────
     getInvoices:         ()        => apiFetch('/api/invoices'),
     createInvoice:       (d)       => apiFetch('/api/invoices', { method: 'POST', body: JSON.stringify(d) }),
     updateInvoiceStatus: (id, status) => apiFetch(`/api/invoices/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+
+    // ── Client Invoices (AR — new engine) ────────────────────────────────────
+    getClientInvoices:      (q = {}) => apiFetch('/api/client-invoices?' + new URLSearchParams(Object.fromEntries(Object.entries(q).filter(([,v])=>v))).toString()),
+    createClientInvoice:    (d)      => apiFetch('/api/client-invoices', { method: 'POST', body: JSON.stringify(d) }),
+    updateClientInvoice:    (id, d)  => apiFetch(`/api/client-invoices/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+    pushClientInvoiceXero:  (id)     => apiFetch(`/api/client-invoices/${id}/push-xero`, { method: 'POST' }),
+    getBanks:               ()       => apiFetch('/api/banks'),
 
     // ── Payroll Persistence ───────────────────────────────────────────────────
     getPayroll:    (year, month)        => apiFetch(`/api/payroll/${year}/${month}`),

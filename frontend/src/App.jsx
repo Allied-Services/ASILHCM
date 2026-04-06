@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock } from 'lucide-react';
+import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard } from 'lucide-react';
 import Dashboard from './Dashboard';
 import AnnexureDashboard from './AnnexureDashboard';
 import MockOCR from './MockOCR';
@@ -10,6 +10,7 @@ import PayrollSheet from './PayrollSheet';
 import DocumentGenerator from './DocumentGenerator';
 import BillingProcurement from './BillingProcurement';
 import InvoiceSection from './InvoiceSection';
+import AccountsPayable from './AccountsPayable';
 import EmployeePortal from './EmployeePortal';
 import LoginScreen from './LoginScreen';
 import InventoryManagement from './InventoryManagement';
@@ -20,12 +21,17 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
 // ── Role-based nav access ─────────────────────────────────────────────────────
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','client','vendor','inventory','annexure','config','users'],
+    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','ap','client','vendor','inventory','annexure','config','users'],
     operations:           ['employee','documents','client'],
     procurement_proposer: ['billing','vendor','inventory'],
     procurement_approver: ['billing','vendor','inventory'],
+    procurement_manager:  ['billing','vendor','inventory','ap'],
     finance_proposer:     ['billing','invoices','annexure'],
     finance_approver:     ['payroll','billing','invoices','client','annexure','config','users'],
+    finance_manager:      ['payroll','billing','invoices','ap','client','vendor','annexure','config','users'],
+    ap_team:              ['ap','billing'],
+    ar_team:              ['invoices','billing'],
+    payroll_initiator:    ['payroll','employee'],
     pending:              [],
 };
 
@@ -34,8 +40,13 @@ const ROLE_BADGE = {
     operations:           { label: 'Operations',            color: '#3b82f6' },
     procurement_proposer: { label: 'Proc. Officer',         color: '#8b5cf6' },
     procurement_approver: { label: 'Proc. Manager',         color: '#6366f1' },
+    procurement_manager:  { label: 'Procurement Mgr',      color: '#7c3aed' },
     finance_proposer:     { label: 'Finance Officer',       color: '#10b981' },
-    finance_approver:     { label: 'Finance Manager',       color: '#14b8a6' },
+    finance_approver:     { label: 'Finance Approver',      color: '#14b8a6' },
+    finance_manager:      { label: 'Finance Manager',       color: '#0ea5e9' },
+    ap_team:              { label: 'AP Team',               color: '#22c55e' },
+    ar_team:              { label: 'AR Team',               color: '#38bdf8' },
+    payroll_initiator:    { label: 'Payroll Initiator',     color: '#f43f5e' },
     pending:              { label: 'Access Pending',         color: '#94a3b8' },
 };
 
@@ -118,7 +129,8 @@ function App() {
     { key: 'payroll',   label: 'Payroll Sheet',          icon: <Calculator size={20} /> },
     { key: 'documents', label: 'Document Generator',     icon: <FilePlus size={20} /> },
     { key: 'billing',   label: 'Bills & Procurement',    icon: <Receipt size={20} /> },
-    { key: 'invoices',  label: 'Invoices',               icon: <FileText size={20} /> },
+    { key: 'invoices',  label: 'Invoices (AR)',          icon: <FileText size={20} /> },
+    { key: 'ap',        label: 'Accounts Payable',       icon: <CreditCard size={20} /> },
     { key: 'client',    label: 'Client Information',     icon: <Building size={20} /> },
     { key: 'vendor',    label: 'Vendor Supplier Master', icon: <Truck size={20} /> },
     { key: 'inventory', label: 'Inventory & Equipment',  icon: <Package size={20} /> },
@@ -191,6 +203,7 @@ function App() {
           {effectiveTab === 'documents'  && <DocumentGenerator />}
           {effectiveTab === 'billing'    && <BillingProcurement user={user} />}
           {effectiveTab === 'invoices'   && <InvoiceSection user={user} />}
+          {effectiveTab === 'ap'         && <AccountsPayable user={user} />}
           {effectiveTab === 'client'     && <ClientInformation />}
           {effectiveTab === 'vendor'     && <VendorMaster />}
           {effectiveTab === 'inventory'  && <InventoryManagement />}

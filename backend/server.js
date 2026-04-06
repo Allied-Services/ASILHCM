@@ -121,7 +121,9 @@ app.post('/api/users', requireAuth, requireRole('superadmin'), async (req, res) 
         if (!email || !email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`)) {
             return res.status(400).json({ error: `Email must be @${ALLOWED_DOMAIN}` });
         }
-        const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver','finance_proposer','finance_approver','pending'];
+        const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver',
+            'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
+            'procurement_manager','finance_manager','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
         // Insert with placeholder google_id — will be filled on first Google login
         const { rows } = await pool.query(`
@@ -137,7 +139,9 @@ app.post('/api/users', requireAuth, requireRole('superadmin'), async (req, res) 
 app.patch('/api/users/:id/role', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         const { role } = req.body;
-        const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver','finance_proposer','finance_approver','pending'];
+        const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver',
+            'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
+            'procurement_manager','finance_manager','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
         const { rows } = await pool.query(
             'UPDATE hcm_users SET role = $1 WHERE id = $2 RETURNING id, email, name, role',
@@ -1944,8 +1948,8 @@ app.delete('/api/payroll/:year/:month/:employeeId', requireAuth, requireRole('su
             'DELETE FROM payroll_transactions WHERE employee_id=$1 AND year=$2 AND month=$3 RETURNING employee_id',
             [employeeId, parseInt(year), parseInt(month)]
         );
-        if (!result.rows.length) return res.status(404).json({ error: 'Payroll row not found' });
-        res.json({ ok: true });
+        // If 0 rows deleted the employee simply never had a saved override — treat as success
+        res.json({ ok: true, deleted: result.rows.length });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1955,7 +1959,7 @@ app.delete('/api/payroll/:year/:month/:employeeId', requireAuth, requireRole('su
 app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
     try {
         const { year, month } = req.params;
-        const { type = 'payroll' } = req.query;
+        const { type = 'payroll', client: filterClient, contract: filterContract, location: filterLoc } = req.query;
         const yrInt = parseInt(year), moInt = parseInt(month);
 
         const [empRes, payRes] = await Promise.all([
@@ -1965,6 +1969,21 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
 
         const payMap = {};
         payRes.rows.forEach(p => { payMap[p.employee_id] = p; });
+
+        // ── Apply active UI filters to restrict export scope ─────────────────────
+        let filteredEmps = empRes.rows;
+        if (filterClient && filterClient !== 'All') {
+            filteredEmps = filteredEmps.filter(e => e.client === filterClient || e.client_bu === filterClient);
+        }
+        if (filterContract && filterContract !== 'All') {
+            filteredEmps = filteredEmps.filter(e =>
+                e.contract_name === filterContract || e.client_bu === filterContract ||
+                (e.contract_name || '').toLowerCase().includes(filterContract.toLowerCase())
+            );
+        }
+        if (filterLoc && filterLoc !== 'All') {
+            filteredEmps = filteredEmps.filter(e => e.location === filterLoc);
+        }
 
         const monthLabel = new Date(2000, moInt-1, 1).toLocaleString('en-PK', { month: 'long' }) + ' ' + year;
         const WD = 26;
@@ -2044,11 +2063,11 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         // For exports: only use rows that are locked, so bank files are always final
         const isSuperAdmin = req.user.role === 'superadmin';
         const lockedIds = new Set(payRes.rows.filter(p => p.locked).map(p => p.employee_id));
-        // Payroll full export uses all; bank files use locked-only rows
-        const bankEmps = empRes.rows.filter(e => lockedIds.has(e.id));
+        // Payroll full export uses filtered employees; bank files use locked-only rows from filtered set
+        const bankEmps = filteredEmps.filter(e => lockedIds.has(e.id));
 
         if (type === 'payroll') {
-            const sourceEmps = isSuperAdmin ? empRes.rows : bankEmps;
+            const sourceEmps = isSuperAdmin ? filteredEmps : bankEmps;
             rows = sourceEmps.map(emp => {
                 const c = calcRow(emp, payMap[emp.id]);
                 return { 'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
@@ -2294,13 +2313,14 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
 //   XERO_REDIRECT_URI  — e.g. https://asilhcm.onrender.com/api/xero/callback
 //
 // Flow: Admin visits /api/xero/connect → Xero login → /api/xero/callback
-//       → stores refresh_token in system_config table → all future POSTs
-//       use that token automatically.
+//       → stores refresh_token + expires_at in system_config → all future POSTs
+//       use refresh_token only when access_token is near expiry (< 5 min).
 
 const XERO_CLIENT_ID     = process.env.XERO_CLIENT_ID     || '';
 const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET || '';
 const XERO_REDIRECT_URI  = process.env.XERO_REDIRECT_URI  || 'https://asilhcm.onrender.com/api/xero/callback';
-const XERO_SCOPES = 'offline_access accounting.invoices accounting.contacts';
+// Includes accounting.transactions for Bills + read:chart-of-accounts for CoA sync
+const XERO_SCOPES = 'offline_access openid profile email accounting.invoices accounting.contacts accounting.transactions accounting.settings';
 
 // Helper: exchange code or refresh token for access token
 async function xeroGetToken(params) {
@@ -2317,40 +2337,61 @@ async function xeroGetToken(params) {
     return r.json();
 }
 
-// Helper: get a valid access token (refresh if needed) + tenantId
+// Helper: get a valid access token (refresh ONLY if stale) + tenantId
+// Stores expires_at so we avoid burning refresh token rotations on every call.
 async function xeroGetAccessToken() {
     const cfg = await pool.query(`SELECT value FROM system_config WHERE key = 'xero_tokens'`);
     if (!cfg.rows.length) throw new Error('Xero is not connected. Please visit /api/xero/connect first.');
-    const tokens = JSON.parse(cfg.rows[0].value);
+    let tokens = JSON.parse(cfg.rows[0].value);
 
-    // Refresh token
-    const resp = await xeroGetToken({
-        grant_type:    'refresh_token',
-        refresh_token: tokens.refresh_token,
-    });
-    // Persist new tokens
-    const newTokens = { ...tokens, ...resp };
-    await pool.query(
-        `INSERT INTO system_config (key, value) VALUES ('xero_tokens', $1)
-         ON CONFLICT (key) DO UPDATE SET value = $1`,
-        [JSON.stringify(newTokens)]
-    );
+    const now = Date.now();
+    const expiresAt = tokens.expires_at || 0; // unix ms
+    const FIVE_MINUTES = 5 * 60 * 1000;
 
-    // Get tenantId
-    const tenantsResp = await fetch('https://api.xero.com/connections', {
-        headers: { 'Authorization': `Bearer ${resp.access_token}`, 'Content-Type': 'application/json' },
-    });
-    const tenants = await tenantsResp.json();
-    if (!tenants.length) throw new Error('No Xero organisations connected.');
-    const tenantId = tokens.tenant_id || tenants[0].tenantId;
-    if (!newTokens.tenant_id) {
-        newTokens.tenant_id = tenantId;
+    let accessToken = tokens.access_token;
+
+    // Only refresh if token is missing or within 5 minutes of expiry
+    if (!accessToken || now >= expiresAt - FIVE_MINUTES) {
+        if (!tokens.refresh_token) throw new Error('Xero refresh token missing. Please reconnect.');
+        const resp = await xeroGetToken({
+            grant_type:    'refresh_token',
+            refresh_token: tokens.refresh_token,
+        });
+        // Merge and persist new tokens with expires_at
+        tokens = {
+            ...tokens,
+            ...resp,
+            access_token:  resp.access_token,
+            refresh_token: resp.refresh_token || tokens.refresh_token, // some flows don't rotate
+            expires_at:    now + ((resp.expires_in || 1800) * 1000),   // store absolute unix ms
+        };
         await pool.query(
-            `INSERT INTO system_config(key, value) VALUES('xero_tokens', $1) ON CONFLICT(key) DO UPDATE SET value=$1`,
-            [JSON.stringify(newTokens)]
+            `INSERT INTO system_config (key, value) VALUES ('xero_tokens', $1)
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+            [JSON.stringify(tokens)]
+        );
+        accessToken = tokens.access_token;
+    }
+
+    // Get tenantId — use cached value if stored, otherwise fetch once
+    let tenantId = tokens.tenant_id;
+    if (!tenantId) {
+        const tenantsResp = await fetch('https://api.xero.com/connections', {
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        });
+        if (!tenantsResp.ok) throw new Error(`Failed to fetch Xero tenants: ${tenantsResp.status}`);
+        const tenants = await tenantsResp.json();
+        if (!tenants.length) throw new Error('No Xero organisations connected.');
+        tenantId = tenants[0].tenantId;
+        tokens.tenant_id = tenantId;
+        await pool.query(
+            `INSERT INTO system_config (key, value) VALUES ('xero_tokens', $1)
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+            [JSON.stringify(tokens)]
         );
     }
-    return { accessToken: resp.access_token, tenantId };
+
+    return { accessToken, tenantId, expiresAt: tokens.expires_at };
 }
 
 // ── 0. Xero Status Check ─────────────────────────────────────────────────────
@@ -2359,14 +2400,34 @@ app.get('/api/xero/status', requireAuth, async (req, res) => {
         const cfg = await pool.query(`SELECT value FROM system_config WHERE key = 'xero_tokens'`);
         if (!cfg.rows.length) return res.json({ connected: false, message: 'Not connected. Visit /api/xero/connect to authorise.' });
         const tokens = JSON.parse(cfg.rows[0].value);
-        // Attempt a quick token refresh to test validity
+        const now = Date.now();
+        const expiresAt = tokens.expires_at || 0;
+        const expiresIn = Math.max(0, Math.round((expiresAt - now) / 1000 / 60)); // minutes
+        // If we have a recent access_token (not expired) report connected without doing a refresh
+        if (tokens.access_token && expiresAt > now + 60_000) {
+            return res.json({
+                connected: true,
+                tenant_id: tokens.tenant_id || null,
+                expires_in_minutes: expiresIn,
+                message: `Connected ✓ — token valid for ~${expiresIn} more minutes`,
+            });
+        }
+        // Otherwise attempt a refresh to test validity
         try {
             const resp = await xeroGetToken({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token });
-            const newTokens = { ...tokens, ...resp };
-            await pool.query(`INSERT INTO system_config(key,value) VALUES('xero_tokens',$1) ON CONFLICT(key) DO UPDATE SET value=$1`, [JSON.stringify(newTokens)]);
-            res.json({ connected: true, tenant_id: tokens.tenant_id || null, message: 'Connected ✓' });
-        } catch {
-            res.json({ connected: false, message: 'Token expired. Please reconnect at /api/xero/connect' });
+            const newTokens = {
+                ...tokens, ...resp,
+                expires_at: now + ((resp.expires_in || 1800) * 1000),
+            };
+            await pool.query(`INSERT INTO system_config(key,value) VALUES('xero_tokens',$1) ON CONFLICT(key) DO UPDATE SET value=$1, updated_at=NOW()`, [JSON.stringify(newTokens)]);
+            res.json({
+                connected: true,
+                tenant_id: newTokens.tenant_id || null,
+                expires_in_minutes: Math.round((resp.expires_in || 1800) / 60),
+                message: 'Connected ✓ — token refreshed',
+            });
+        } catch(e) {
+            res.json({ connected: false, message: 'Token expired or revoked. Please reconnect at /api/xero/connect. Reason: ' + e.message });
         }
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2395,9 +2456,13 @@ app.get('/api/xero/callback', async (req, res) => {
             code,
             redirect_uri: XERO_REDIRECT_URI,
         });
+        const tokensToStore = {
+            ...tokens,
+            expires_at: Date.now() + ((tokens.expires_in || 1800) * 1000), // store absolute expiry ms
+        };
         await pool.query(
-            `INSERT INTO system_config(key, value) VALUES('xero_tokens', $1) ON CONFLICT(key) DO UPDATE SET value=$1`,
-            [JSON.stringify(tokens)]
+            `INSERT INTO system_config(key, value) VALUES('xero_tokens', $1) ON CONFLICT(key) DO UPDATE SET value=$1, updated_at=NOW()`,
+            [JSON.stringify(tokensToStore)]
         );
         res.send(`<h2 style="font-family:sans-serif;color:#00B5C8">✓ Xero Connected Successfully!</h2>
             <p>Your Xero account is now linked to ASIL HCM. You can close this window.</p>
@@ -2407,13 +2472,53 @@ app.get('/api/xero/callback', async (req, res) => {
     }
 });
 
-// ── 3. Check Xero connection status ────────────────────────────────────────
-app.get('/api/xero/status', requireAuth, async (req, res) => {
+// ── 3. Check Xero connection status (duplicate route removed — see route 0 above) ─
+// Kept for backward compatibility as a redirect
+app.get('/api/xero/check', requireAuth, async (req, res) => {
     try {
         const cfg = await pool.query(`SELECT value FROM system_config WHERE key = 'xero_tokens'`);
         if (!cfg.rows.length) return res.json({ connected: false });
         const tokens = JSON.parse(cfg.rows[0].value);
-        res.json({ connected: true, tenantId: tokens.tenant_id || null });
+        const now = Date.now();
+        const expiresAt = tokens.expires_at || 0;
+        res.json({ connected: !!tokens.access_token, tenantId: tokens.tenant_id || null, expires_in_minutes: Math.max(0, Math.round((expiresAt - now) / 60_000)) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── 3b. Sync Xero Chart of Accounts (for account code mapping) ─────────────
+app.get('/api/xero/chart-of-accounts', requireAuth, async (req, res) => {
+    try {
+        const { accessToken, tenantId } = await xeroGetAccessToken();
+        const xeroResp = await fetch('https://api.xero.com/api.xro/2.0/Accounts', {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Xero-Tenant-Id': tenantId,
+                'Accept': 'application/json',
+            },
+        });
+        if (!xeroResp.ok) return res.status(502).json({ error: 'Xero API error: ' + xeroResp.status });
+        const data = await xeroResp.json();
+        const accounts = (data.Accounts || []).map(a => ({
+            code: a.Code, name: a.Name,
+            type: a.Type, status: a.Status,
+            description: a.Description || '',
+        })).filter(a => a.status === 'ACTIVE');
+        // Cache in system_config for offline use
+        await pool.query(
+            `INSERT INTO system_config (key, value) VALUES ('xero_chart_of_accounts', $1)
+             ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
+            [JSON.stringify(accounts)]
+        ).catch(() => {});
+        res.json({ ok: true, count: accounts.length, accounts });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── 3c. Get cached Chart of Accounts (no Xero call needed) ─────────────────
+app.get('/api/xero/chart-of-accounts/cached', requireAuth, async (req, res) => {
+    try {
+        const cfg = await pool.query(`SELECT value, updated_at FROM system_config WHERE key = 'xero_chart_of_accounts'`);
+        if (!cfg.rows.length) return res.json({ accounts: [], cached: false, message: 'No cache yet. Call /api/xero/chart-of-accounts to sync.' });
+        res.json({ accounts: cfg.rows[0].value, cached: true, last_synced: cfg.rows[0].updated_at });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2493,8 +2598,472 @@ app.post('/api/xero/invoices', requireAuth, async (req, res) => {
     }
 });
 
+// ════════════════════════════════════════════════════════════════════════════════
+// BANKS MASTER
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/banks', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM banks ORDER BY is_hbl DESC, name ASC');
+        res.json({ banks: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/banks', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const { name, short_name, swift_code, is_hbl = false } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO banks (name, short_name, swift_code, is_hbl)
+             VALUES ($1,$2,$3,$4) ON CONFLICT (name) DO UPDATE SET short_name=$2, swift_code=$3, is_hbl=$4 RETURNING *`,
+            [name, short_name || null, swift_code || null, is_hbl]
+        );
+        res.json({ bank: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// AP PAYMENT QUEUE — Accounts Payable
+// ════════════════════════════════════════════════════════════════════════════════
+
+// GET /api/ap/payroll-queue — locked payroll months awaiting AP processing
+app.get('/api/ap/payroll-queue', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT
+                year, month,
+                COUNT(*) AS employee_count,
+                SUM(net) AS total_net_pay,
+                SUM(gross) AS total_gross,
+                SUM(total_invoice) AS total_invoice,
+                MAX(locked_at) AS locked_at,
+                MAX(locked_by) AS locked_by,
+                -- Check if already processed
+                (SELECT COUNT(*) FROM payment_batches pb
+                 WHERE pb.year=pt.year AND pb.month=pt.month AND pb.batch_type='PAYROLL') AS batch_count
+            FROM payroll_transactions pt
+            WHERE locked=TRUE
+            GROUP BY year, month
+            ORDER BY year DESC, month DESC
+        `);
+        res.json({ queue: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/ap/payroll-queue/:year/:month — employee details for a specific month
+app.get('/api/ap/payroll-queue/:year/:month', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
+    try {
+        const { year, month } = req.params;
+        const { rows } = await pool.query(`
+            SELECT pt.*, e.name, e.bank_name, e.bank_account, e.account_title,
+                   e.client, e.contract_name, e.location
+            FROM payroll_transactions pt
+            JOIN employees e ON e.id = pt.employee_id
+            WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
+            ORDER BY e.name ASC
+        `, [parseInt(year), parseInt(month)]);
+        // Also get existing payment batch if any
+        const batch = await pool.query(
+            'SELECT * FROM payment_batches WHERE year=$1 AND month=$2 AND batch_type=$3',
+            [parseInt(year), parseInt(month), 'PAYROLL']
+        );
+        res.json({ employees: rows, batch: batch.rows[0] || null });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/ap/payroll-queue/:year/:month/confirm — AP team confirms payment + selects bank
+app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
+    try {
+        const { year, month } = req.params;
+        const { bank_id, bank_name, payment_date, reference_no, notes, push_to_xero = false } = req.body;
+        const yr = parseInt(year), mo = parseInt(month);
+
+        // Total amounts
+        const totals = await pool.query(`
+            SELECT SUM(net) AS total_net, SUM(gross) AS total_gross, SUM(total_invoice) AS total_invoice,
+                   COUNT(*) AS employee_count
+            FROM payroll_transactions WHERE year=$1 AND month=$2 AND locked=TRUE
+        `, [yr, mo]);
+        const t = totals.rows[0];
+
+        // Create payment batch
+        const batchId = `PB-${yr}-${String(mo).padStart(2,'0')}-${Date.now()}`;
+        const { rows: batchRows } = await pool.query(`
+            INSERT INTO payment_batches
+                (id, batch_type, year, month, bank_id, bank_name, payment_date, reference_no,
+                 total_amount, employee_count, notes, status, created_by)
+            VALUES ($1,'PAYROLL',$2,$3,$4,$5,$6,$7,$8,$9,$10,'Confirmed',$11)
+            ON CONFLICT (batch_type, year, month) DO UPDATE SET
+                bank_id=$4, bank_name=$5, payment_date=$6, reference_no=$7,
+                total_amount=$8, employee_count=$9, notes=$10, status='Confirmed',
+                updated_at=NOW()
+            RETURNING *
+        `, [batchId, yr, mo, bank_id||null, bank_name||null, payment_date||null, reference_no||null,
+            parseFloat(t.total_net)||0, parseInt(t.employee_count)||0, notes||null, req.user.email]);
+
+        // Create payment ledger entries for each employee
+        const empRows = await pool.query(`
+            SELECT pt.*, e.name, e.client, e.contract_name, e.location, e.bank_name, e.bank_account
+            FROM payroll_transactions pt
+            JOIN employees e ON e.id=pt.employee_id
+            WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
+        `, [yr, mo]);
+
+        const monthName = new Date(2000, mo-1, 1).toLocaleString('en-US', { month: 'short' });
+        const yr2 = String(yr).slice(-2);
+
+        for (const emp of empRows.rows) {
+            await pool.query(`
+                INSERT INTO payment_ledger
+                    (batch_id, employee_id, employee_name, payment_type, amount, reference,
+                     bank_name, bank_account, billable, xero_account_code, status)
+                VALUES ($1,$2,$3,'SALARY',$4,$5,$6,$7,TRUE,'200','Paid')
+                ON CONFLICT (batch_id, employee_id) DO NOTHING
+            `, [batchRows[0].id, emp.employee_id, emp.name,
+                parseFloat(emp.net)||0,
+                `PR${monthName}${yr2}-${emp.employee_id}`,
+                emp.bank_name||bank_name||'', emp.bank_account||'']);
+        }
+
+        // Optional Xero push
+        let xeroResult = null;
+        if (push_to_xero) {
+            try {
+                const { accessToken, tenantId } = await xeroGetAccessToken();
+                const mLabel = new Date(2000, mo-1, 1).toLocaleString('en-PK', { month: 'long' }) + ' ' + yr;
+                // Group by client for Xero invoice lines
+                const byClient = {};
+                empRows.rows.forEach(emp => {
+                    const key = emp.client || 'Internal';
+                    if (!byClient[key]) byClient[key] = { total: 0, count: 0, contract: emp.contract_name };
+                    byClient[key].total += parseFloat(emp.total_invoice)||0;
+                    byClient[key].count++;
+                });
+                // Push one Xero bill per client group
+                for (const [client, data] of Object.entries(byClient)) {
+                    const xeroPayload = {
+                        Type: 'ACCREC',
+                        InvoiceNumber: `PR-${yr}-${String(mo).padStart(2,'0')}-${client.slice(0,6).replace(/\s/g,'')}`,
+                        CurrencyCode: 'PKR',
+                        Status: 'AUTHORISED',
+                        Contact: { Name: client },
+                        LineAmountTypes: 'Exclusive',
+                        LineItems: [{
+                            Description: `Manpower Services \u2014 ${data.contract||client} (${mLabel}, ${data.count} employees)`,
+                            Quantity: 1, UnitAmount: data.total, AccountCode: '200',
+                        }],
+                    };
+                    await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ Invoices: [xeroPayload] }),
+                    });
+                }
+                xeroResult = { pushed: true };
+            } catch (xe) { xeroResult = { pushed: false, error: xe.message }; }
+        }
+
+        res.json({ ok: true, batch: batchRows[0], xero: xeroResult });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/ap/bills-queue — bills pending AP confirmation
+app.get('/api/ap/bills-queue', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT b.*, pb.id AS batch_id
+            FROM bills b
+            LEFT JOIN payment_batches pb ON pb.source_bill_id=b.id
+            WHERE b.status IN ('Approved','Pending Approval')
+            ORDER BY b.created_at DESC
+        `);
+        res.json({ bills: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/ap/bills/:id/confirm — AP team confirms bill payment
+app.post('/api/ap/bills/:id/confirm', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
+    try {
+        const { bank_id, bank_name, payment_date, reference_no, billable, notes, push_to_xero = false } = req.body;
+        const bill = await pool.query('SELECT * FROM bills WHERE id=$1', [req.params.id]);
+        if (!bill.rows.length) return res.status(404).json({ error: 'Bill not found' });
+        const b = bill.rows[0];
+
+        const batchId = `BB-${b.id}-${Date.now()}`;
+        const { rows: batchRows } = await pool.query(`
+            INSERT INTO payment_batches
+                (id, batch_type, source_bill_id, bank_id, bank_name, payment_date, reference_no,
+                 total_amount, notes, status, created_by)
+            VALUES ($1,'BILL',$2,$3,$4,$5,$6,$7,$8,'Confirmed',$9)
+            RETURNING *
+        `, [batchId, b.id, bank_id||null, bank_name||null, payment_date||null, reference_no||null,
+            parseFloat(b.total)||0, notes||null, req.user.email]);
+
+        // Add to payment ledger
+        await pool.query(`
+            INSERT INTO payment_ledger
+                (batch_id, employee_id, employee_name, payment_type, amount, reference,
+                 bank_name, bank_account, billable, xero_account_code, status)
+            VALUES ($1,NULL,$2,'BILL',$3,$4,$5,'',$6,'623','Paid')
+        `, [batchId, b.vendor, parseFloat(b.total)||0, reference_no||b.id,
+            bank_name||'', billable !== false]);
+
+        // Mark bill as Posted
+        await pool.query(`UPDATE bills SET status='Posted', updated_at=NOW() WHERE id=$1`, [b.id]);
+
+        // Optional Xero push
+        let xeroResult = null;
+        if (push_to_xero) {
+            try {
+                const { accessToken, tenantId } = await xeroGetAccessToken();
+                const xeroPayload = {
+                    Type: 'ACCPAY',
+                    Reference: reference_no || b.id,
+                    CurrencyCode: 'PKR',
+                    Status: 'AUTHORISED',
+                    Contact: { Name: b.vendor },
+                    LineAmountTypes: 'Exclusive',
+                    LineItems: (b.items||[]).length > 0
+                        ? b.items.map(it => ({ Description: it.desc||it.description, Quantity: it.qty||1, UnitAmount: it.unit||it.total, AccountCode: '623' }))
+                        : [{ Description: b.purpose||b.bill_type||'Bill', Quantity: 1, UnitAmount: parseFloat(b.amount)||parseFloat(b.total)||0, AccountCode: '623' }],
+                };
+                const xeroResp = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ Invoices: [xeroPayload] }),
+                });
+                const xd = await xeroResp.json();
+                xeroResult = { pushed: xeroResp.ok, xeroId: xd.Invoices?.[0]?.InvoiceID };
+            } catch (xe) { xeroResult = { pushed: false, error: xe.message }; }
+        }
+
+        res.json({ ok: true, batch: batchRows[0], xero: xeroResult });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/payment-ledger — full payment ledger view
+app.get('/api/payment-ledger', requireAuth, requireRole('ap_team','ar_team','finance_manager','finance_approver','superadmin'), async (req, res) => {
+    try {
+        const { batch_id, billable, payment_type } = req.query;
+        const conds = []; const params = [];
+        if (batch_id) { conds.push(`pl.batch_id=$${params.length+1}`); params.push(batch_id); }
+        if (billable !== undefined) { conds.push(`pl.billable=$${params.length+1}`); params.push(billable==='true'); }
+        if (payment_type) { conds.push(`pl.payment_type=$${params.length+1}`); params.push(payment_type); }
+        const where = conds.length ? 'WHERE '+conds.join(' AND ') : '';
+        const { rows } = await pool.query(`
+            SELECT pl.*, pb.year, pb.month, pb.payment_date, pb.bank_name AS batch_bank,
+                   pb.reference_no AS batch_ref, pb.batch_type
+            FROM payment_ledger pl
+            JOIN payment_batches pb ON pb.id=pl.batch_id
+            ${where}
+            ORDER BY pb.payment_date DESC, pl.created_at DESC
+        `, params);
+        res.json({ ledger: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// AR / CLIENT INVOICES
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Helper: generate next invoice number for a given month+year
+async function generateInvoiceNumber(year, month) {
+    const monthAbbr = new Date(2000, parseInt(month)-1, 1).toLocaleString('en-US', { month: 'short' }).toUpperCase();
+    const yr2 = String(year).slice(-2);
+    const prefix = `INV-${monthAbbr}${yr2}`;
+    // Count how many invoices already exist with this prefix
+    const { rows } = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM client_invoices WHERE invoice_number LIKE $1`,
+        [`${prefix}-%`]
+    );
+    const seq = parseInt(rows[0].cnt) + 1;
+    return `${prefix}-${String(seq).padStart(3,'0')}`;
+}
+
+// GET /api/client-invoices — all client invoices (AR queue)
+app.get('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','finance_approver','superadmin'), async (req, res) => {
+    try {
+        const { status, client } = req.query;
+        const conds = []; const params = [];
+        if (status) { conds.push(`status=$${params.length+1}`); params.push(status); }
+        if (client) { conds.push(`client=$${params.length+1}`); params.push(client); }
+        const where = conds.length ? 'WHERE '+conds.join(' AND ') : '';
+        const { rows } = await pool.query(`SELECT * FROM client_invoices ${where} ORDER BY created_at DESC`, params);
+        res.json({ invoices: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/client-invoices — AR team raises an invoice
+app.post('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','superadmin'), async (req, res) => {
+    try {
+        const { client, contract, period_month, period_year, po_number, due_date,
+                line_items, subtotal, service_charges, sales_tax, wht, grand_total,
+                invoice_number, notes } = req.body;
+        // System-generate invoice number if not provided (historical override allowed)
+        const invNo = invoice_number || await generateInvoiceNumber(period_year, period_month);
+        const { rows } = await pool.query(`
+            INSERT INTO client_invoices
+                (invoice_number, client, contract, period_month, period_year, po_number, due_date,
+                 line_items, subtotal, service_charges, sales_tax, wht, grand_total, notes, status, created_by)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'Draft',$15)
+            RETURNING *
+        `, [invNo, client, contract||null, parseInt(period_month)||null, parseInt(period_year)||null,
+            po_number||null, due_date||null, JSON.stringify(line_items||[]),
+            parseFloat(subtotal)||0, parseFloat(service_charges)||0, parseFloat(sales_tax)||0,
+            parseFloat(wht)||0, parseFloat(grand_total)||0, notes||null, req.user.email]);
+        res.json({ ok: true, invoice: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /api/client-invoices/:id — update invoice (AR can override number, change status)
+app.patch('/api/client-invoices/:id', requireAuth, requireRole('ar_team','finance_manager','finance_approver','superadmin'), async (req, res) => {
+    try {
+        const { invoice_number, status, po_number, due_date, notes, xero_invoice_id, xero_url } = req.body;
+        const VALID_STATUSES = ['Draft','Raised','Sent','Paid','Voided'];
+        if (status && !VALID_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+        const { rows } = await pool.query(`
+            UPDATE client_invoices SET
+                invoice_number = COALESCE($1, invoice_number),
+                status = COALESCE($2, status),
+                po_number = COALESCE($3, po_number),
+                due_date = COALESCE($4, due_date),
+                notes = COALESCE($5, notes),
+                xero_invoice_id = COALESCE($6, xero_invoice_id),
+                xero_url = COALESCE($7, xero_url),
+                updated_at = NOW()
+            WHERE id=$8 RETURNING *
+        `, [invoice_number||null, status||null, po_number||null, due_date||null,
+            notes||null, xero_invoice_id||null, xero_url||null, req.params.id]);
+        if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
+        res.json({ ok: true, invoice: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/client-invoices/:id/push-xero — push to Xero as AR invoice
+app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team','finance_manager','superadmin'), async (req, res) => {
+    try {
+        const inv = await pool.query('SELECT * FROM client_invoices WHERE id=$1', [req.params.id]);
+        if (!inv.rows.length) return res.status(404).json({ error: 'Invoice not found' });
+        const ci = inv.rows[0];
+        const { accessToken, tenantId } = await xeroGetAccessToken();
+        const lineItems = (ci.line_items||[]).length > 0
+            ? ci.line_items.map(li => ({ Description: li.description||li.desc, Quantity: li.qty||1, UnitAmount: li.amount||li.unit_amount||0, AccountCode: li.account_code||'200' }))
+            : [{ Description: `Services \u2014 ${ci.contract||ci.client}`, Quantity: 1, UnitAmount: parseFloat(ci.grand_total)||0, AccountCode: '200' }];
+        const xeroPayload = {
+            Type: 'ACCREC',
+            InvoiceNumber: ci.invoice_number,
+            Reference: ci.po_number||'',
+            CurrencyCode: 'PKR',
+            Status: 'AUTHORISED',
+            Contact: { Name: ci.client },
+            LineAmountTypes: 'Exclusive',
+            LineItems: lineItems,
+        };
+        const xeroResp = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ Invoices: [xeroPayload] }),
+        });
+        const xd = await xeroResp.json();
+        if (!xeroResp.ok) return res.status(502).json({ error: 'Xero error', detail: xd });
+        const xeroId = xd.Invoices?.[0]?.InvoiceID;
+        const xeroUrl = xeroId ? `https://go.xero.com/AccountsReceivable/Edit.aspx?InvoiceID=${xeroId}` : null;
+        // Update invoice with Xero refs
+        await pool.query(`UPDATE client_invoices SET xero_invoice_id=$1, xero_url=$2, status='Raised', updated_at=NOW() WHERE id=$3`,
+            [xeroId, xeroUrl, req.params.id]);
+        res.json({ ok: true, xeroId, xeroUrl });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// CONTRACT BID TRACKING
+// ════════════════════════════════════════════════════════════════════════════════
+
+app.get('/api/contracts/:id/bid-items', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM contract_bid_items WHERE contract_id=$1 ORDER BY category, name',
+            [req.params.id]
+        );
+        res.json({ items: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/contracts/:id/bid-items', requireAuth, async (req, res) => {
+    try {
+        const { name, category, unit, bid_qty, bid_unit_price, frequency } = req.body;
+        const { rows } = await pool.query(`
+            INSERT INTO contract_bid_items (contract_id, name, category, unit, bid_qty, bid_unit_price, bid_total, frequency)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *
+        `, [req.params.id, name, category||'Consumable', unit||'unit',
+            parseFloat(bid_qty)||0, parseFloat(bid_unit_price)||0,
+            (parseFloat(bid_qty)||0)*(parseFloat(bid_unit_price)||0),
+            frequency||'Monthly']);
+        res.json({ item: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/contracts/:id/bid-items/:itemId', requireAuth, async (req, res) => {
+    try {
+        const { name, category, unit, bid_qty, bid_unit_price, frequency } = req.body;
+        const { rows } = await pool.query(`
+            UPDATE contract_bid_items SET
+                name=$1, category=$2, unit=$3, bid_qty=$4, bid_unit_price=$5,
+                bid_total=$6, frequency=$7, updated_at=NOW()
+            WHERE id=$8 AND contract_id=$9 RETURNING *
+        `, [name, category||'Consumable', unit||'unit',
+            parseFloat(bid_qty)||0, parseFloat(bid_unit_price)||0,
+            (parseFloat(bid_qty)||0)*(parseFloat(bid_unit_price)||0),
+            frequency||'Monthly', req.params.itemId, req.params.id]);
+        if (!rows.length) return res.status(404).json({ error: 'Not found' });
+        res.json({ item: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/contracts/:id/bid-items/:itemId', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        await pool.query('DELETE FROM contract_bid_items WHERE id=$1 AND contract_id=$2', [req.params.itemId, req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Bid Actuals — record actual monthly spend vs budget
+app.get('/api/contracts/:id/bid-actuals', requireAuth, async (req, res) => {
+    try {
+        const { month, year } = req.query;
+        const conds = ['ba.contract_id=$1']; const params = [req.params.id];
+        if (month) { conds.push(`ba.month=$${params.length+1}`); params.push(parseInt(month)); }
+        if (year)  { conds.push(`ba.year=$${params.length+1}`);  params.push(parseInt(year)); }
+        const { rows } = await pool.query(`
+            SELECT ba.*, bi.name AS item_name, bi.category, bi.bid_unit_price, bi.bid_qty, bi.bid_total, bi.frequency
+            FROM contract_bid_actuals ba
+            JOIN contract_bid_items bi ON bi.id=ba.bid_item_id
+            WHERE ${conds.join(' AND ')}
+            ORDER BY ba.year DESC, ba.month DESC, bi.category, bi.name
+        `, params);
+        res.json({ actuals: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/contracts/:id/bid-actuals', requireAuth, async (req, res) => {
+    try {
+        const { bid_item_id, month, year, actual_qty, actual_unit_price, notes } = req.body;
+        const actual_total = (parseFloat(actual_qty)||0) * (parseFloat(actual_unit_price)||0);
+        const { rows } = await pool.query(`
+            INSERT INTO contract_bid_actuals
+                (contract_id, bid_item_id, month, year, actual_qty, actual_unit_price, actual_total, notes)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            ON CONFLICT (contract_id, bid_item_id, month, year)
+            DO UPDATE SET actual_qty=$5, actual_unit_price=$6, actual_total=$7, notes=$8, updated_at=NOW()
+            RETURNING *
+        `, [req.params.id, bid_item_id, parseInt(month), parseInt(year),
+            parseFloat(actual_qty)||0, parseFloat(actual_unit_price)||0, actual_total, notes||null]);
+        res.json({ actual: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 app.listen(PORT, async () => {
+
     console.log(`ASIL HCM Backend running on port ${PORT}`);
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
     // ── One-time migrations (safe to run every restart, IF NOT EXISTS guards) ──
@@ -2885,6 +3454,160 @@ app.listen(PORT, async () => {
         // ─── placeholder so existing closing brace still works ───────────────
         const _dummy = true; if (!_dummy) {
         }
+
+        // ─── Banks Master ─────────────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS banks (
+                id         SERIAL PRIMARY KEY,
+                name       TEXT NOT NULL UNIQUE,
+                short_name TEXT,
+                swift_code TEXT,
+                is_hbl     BOOLEAN DEFAULT FALSE,
+                is_active  BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        const { rows: bankChk } = await pool.query('SELECT COUNT(*) AS cnt FROM banks');
+        if (parseInt(bankChk[0].cnt) === 0) {
+            await pool.query(`
+                INSERT INTO banks (name, short_name, swift_code, is_hbl) VALUES
+                ('Habib Bank Limited', 'HBL', 'HABBPKKA', TRUE),
+                ('MCB Bank Limited', 'MCB', 'MUCBPKKA', FALSE),
+                ('United Bank Limited', 'UBL', 'UNILPKKA', FALSE),
+                ('National Bank of Pakistan', 'NBP', 'NBPAPKKA', FALSE),
+                ('Allied Bank Limited', 'ABL', 'ABPAPKKA', FALSE),
+                ('Meezan Bank Limited', 'MBL', 'MEZNPKKA', FALSE),
+                ('Bank Alfalah Limited', 'BAFL', 'ALFHPKKA', FALSE),
+                ('Askari Bank Limited', 'AKBL', 'ASCMPKKA', FALSE),
+                ('Faysal Bank Limited', 'FBL', 'FAYSPKKA', FALSE),
+                ('Bank Al Habib Limited', 'BAHL', 'BKALHKKA', FALSE),
+                ('Standard Chartered Bank', 'SCB', 'SCBLPKKX', FALSE),
+                ('Silk Bank Limited', 'SILK', 'SILKPKKA', FALSE),
+                ('Summit Bank Limited', 'SMBL', 'SMBKPKKA', FALSE),
+                ('Soneri Bank Limited', 'SNBL', 'SONEPKKA', FALSE),
+                ('JS Bank Limited', 'JSB', 'JSBLPKKA', FALSE),
+                ('Habib Metropolitan Bank', 'HMB', 'MPBLPKKA', FALSE),
+                ('Zarai Taraqiati Bank', 'ZTBL', '', FALSE),
+                ('First Women Bank', 'FWB', '', FALSE),
+                ('Emirates NBD Pakistan', 'ENBD', 'EBILADKK', FALSE),
+                ('Dubai Islamic Bank Pakistan', 'DIBP', 'DUIBPKKA', FALSE)
+                ON CONFLICT (name) DO NOTHING;
+            `);
+            console.log('Seeded 20 default Pakistan banks');
+        }
+        console.log('Migration OK: banks table ready');
+
+        // ─── Payment Batches ──────────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS payment_batches (
+                id             TEXT PRIMARY KEY,
+                batch_type     TEXT NOT NULL,
+                year           INT,
+                month          INT,
+                source_bill_id TEXT,
+                bank_id        INT,
+                bank_name      TEXT,
+                payment_date   DATE,
+                reference_no   TEXT,
+                total_amount   NUMERIC(14,2) DEFAULT 0,
+                employee_count INT DEFAULT 0,
+                notes          TEXT,
+                status         TEXT DEFAULT 'Pending',
+                xero_ref       TEXT,
+                created_by     TEXT,
+                created_at     TIMESTAMPTZ DEFAULT NOW(),
+                updated_at     TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(batch_type, year, month)
+            );
+        `);
+        console.log('Migration OK: payment_batches');
+
+        // ─── Payment Ledger ───────────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS payment_ledger (
+                id               SERIAL PRIMARY KEY,
+                batch_id         TEXT NOT NULL,
+                employee_id      TEXT,
+                employee_name    TEXT,
+                payment_type     TEXT NOT NULL,
+                amount           NUMERIC(12,2) DEFAULT 0,
+                reference        TEXT,
+                bank_name        TEXT,
+                bank_account     TEXT,
+                billable         BOOLEAN DEFAULT TRUE,
+                xero_account_code TEXT DEFAULT '200',
+                xero_ref         TEXT,
+                status           TEXT DEFAULT 'Pending',
+                created_at       TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(batch_id, employee_id)
+            );
+        `);
+        console.log('Migration OK: payment_ledger');
+
+        // ─── Client Invoices (AR Queue) ───────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS client_invoices (
+                id              SERIAL PRIMARY KEY,
+                invoice_number  TEXT UNIQUE NOT NULL,
+                client          TEXT NOT NULL,
+                contract        TEXT,
+                period_month    INT,
+                period_year     INT,
+                po_number       TEXT,
+                due_date        DATE,
+                line_items      JSONB DEFAULT '[]',
+                subtotal        NUMERIC(14,2) DEFAULT 0,
+                service_charges NUMERIC(12,2) DEFAULT 0,
+                sales_tax       NUMERIC(12,2) DEFAULT 0,
+                wht             NUMERIC(12,2) DEFAULT 0,
+                grand_total     NUMERIC(14,2) DEFAULT 0,
+                notes           TEXT,
+                status          TEXT DEFAULT 'Draft',
+                xero_invoice_id TEXT,
+                xero_url        TEXT,
+                created_by      TEXT,
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        console.log('Migration OK: client_invoices');
+
+        // ─── Contract Bid Items ───────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS contract_bid_items (
+                id              SERIAL PRIMARY KEY,
+                contract_id     TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                category        TEXT DEFAULT 'Consumable',
+                unit            TEXT DEFAULT 'unit',
+                bid_qty         NUMERIC(10,2) DEFAULT 0,
+                bid_unit_price  NUMERIC(12,2) DEFAULT 0,
+                bid_total       NUMERIC(14,2) DEFAULT 0,
+                frequency       TEXT DEFAULT 'Monthly',
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        console.log('Migration OK: contract_bid_items');
+
+        // ─── Contract Bid Actuals ─────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS contract_bid_actuals (
+                id               SERIAL PRIMARY KEY,
+                contract_id      TEXT NOT NULL,
+                bid_item_id      INT NOT NULL REFERENCES contract_bid_items(id) ON DELETE CASCADE,
+                month            INT NOT NULL,
+                year             INT NOT NULL,
+                actual_qty       NUMERIC(10,2) DEFAULT 0,
+                actual_unit_price NUMERIC(12,2) DEFAULT 0,
+                actual_total     NUMERIC(14,2) DEFAULT 0,
+                notes            TEXT,
+                created_at       TIMESTAMPTZ DEFAULT NOW(),
+                updated_at       TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(contract_id, bid_item_id, month, year)
+            );
+        `);
+        console.log('Migration OK: contract_bid_actuals');
 
 
         // Bulk-fill contract_date for any employee whose contract_date is still null

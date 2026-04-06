@@ -275,7 +275,7 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
 }
 
 // ─── Export Dropdown ──────────────────────────────────────────────────────────
-function ExportMenu({ month, isLocked, onClose }) {
+function ExportMenu({ month, isLocked, filterClient, filterContract, filterLoc, onClose }) {
     const [yr, mo] = month.split('-');
     const dlExport = async (type) => {
         if (!isLocked && !['payroll'].includes(type)) {
@@ -284,8 +284,13 @@ function ExportMenu({ month, isLocked, onClose }) {
         }
         const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
         const token = localStorage.getItem('asil_hcm_token');
+        // Build query string with active filters so server respects them
+        const params = new URLSearchParams({ type });
+        if (filterClient && filterClient !== 'All') params.set('client', filterClient);
+        if (filterContract && filterContract !== 'All') params.set('contract', filterContract);
+        if (filterLoc && filterLoc !== 'All') params.set('location', filterLoc);
         try {
-            const res = await fetch(`${API_URL}/api/payroll/${yr}/${mo}/export?type=${type}`, {
+            const res = await fetch(`${API_URL}/api/payroll/${yr}/${mo}/export?${params.toString()}`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (!res.ok) { alert('Export failed: ' + res.status); return; }
@@ -307,17 +312,24 @@ function ExportMenu({ month, isLocked, onClose }) {
         } catch(e) { alert('Export error: ' + e.message); }
     };
     const opts = [
-        { label: '📊 Full Payroll CSV', sub: 'All columns — earnings, deductions, invoice', fn: () => dlExport('payroll') },
+        { label: '📊 Full Payroll CSV', sub: `All columns — ${filterClient !== 'All' ? filterClient : 'all clients'}${filterContract !== 'All' ? ` · ${filterContract}` : ''}`, fn: () => dlExport('payroll') },
         { label: '🏦 HBL → HBL Transfers', sub: 'Net Pay for HBL account holders (🔒 locked rows only)', fn: () => dlExport('hbl_same'), needsLock: true },
         { label: '🏦 HBL → Other Banks (IBFT)', sub: 'Net Pay for non-HBL accounts (🔒 locked rows only)', fn: () => dlExport('hbl_other'), needsLock: true },
         { label: '📋 WHT Returns (FBR)', sub: 'Taxable amount + tax per employee for FBR', fn: () => dlExport('wht') },
         { label: '📋 EOBI Contributions', sub: 'Employee & employer EOBI per head', fn: () => dlExport('eobi') },
         { label: '📋 SESSI Contributions', sub: 'Employer SESSI contribution per head', fn: () => dlExport('sessi') },
     ];
+    // Show active filter badge if any filter is set
+    const hasFilter = (filterClient && filterClient !== 'All') || (filterContract && filterContract !== 'All') || (filterLoc && filterLoc !== 'All');
     return (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1050 }} onClick={onClose}>
-            <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '140px', right: '2rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', minWidth: '340px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
+            <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '140px', right: '2rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', minWidth: '360px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
                 <div style={{ padding: '0.75rem 1.25rem', borderBottom: '1px solid var(--border)', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.06em' }}>Export Options — {month}</div>
+                {hasFilter && (
+                    <div style={{ padding: '0.6rem 1.25rem', background: 'rgba(56,189,248,0.08)', borderBottom: '1px solid rgba(56,189,248,0.2)', fontSize: '0.78rem', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        🔍 Filtered: {[filterClient !== 'All' && filterClient, filterContract !== 'All' && filterContract, filterLoc !== 'All' && filterLoc].filter(Boolean).join(' · ')}
+                    </div>
+                )}
                 {!isLocked && (
                     <div style={{ padding: '0.65rem 1.25rem', background: 'rgba(245,158,11,0.1)', borderBottom: '1px solid rgba(245,158,11,0.3)', fontSize: '0.78rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         ⚠️ Bank files are only available after payroll is <strong>locked</strong>.
@@ -808,9 +820,8 @@ export default function PayrollSheet({ user }) {
                         </button>
                     )}
                     <button onClick={() => setShowExport(v => !v)}
-                        disabled={!isLocked}
-                        title={!isLocked ? 'Lock payroll first to enable exports' : 'Export options'}
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? '#22c55e' : '#333', color: isLocked ? 'white' : '#666', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: isLocked ? 'pointer' : 'not-allowed', fontWeight: 600, opacity: isLocked ? 1 : 0.6 }}>
+                        title={isLocked ? 'Export options' : 'Export payroll CSV (lock first for bank files)'}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? '#22c55e' : 'var(--primary)', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                         <Download size={15} /> Export <ChevronDown size={14} />
                     </button>
                     {canManageLock && !isLocked && (
@@ -1121,7 +1132,7 @@ export default function PayrollSheet({ user }) {
             </div>
 
             {breakdown && <BreakdownPanel emp={breakdown.emp} calc={breakdown.calc} workDays={workDays} onClose={() => setBreakdown(null)} />}
-            {showExport && <ExportMenu month={month} isLocked={isLocked} onClose={() => setShowExport(false)} />}
+            {showExport && <ExportMenu month={month} isLocked={isLocked} filterClient={filterClient} filterContract={filterContract} filterLoc={filterLoc} onClose={() => setShowExport(false)} />}
             {showImport && <ImportModal onApply={applyImport} onClose={() => setShowImport(false)} employees={EMPLOYEES} workDays={workDays} />}
         </div>
     );
