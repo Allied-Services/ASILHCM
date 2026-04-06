@@ -686,6 +686,12 @@ pool.query(`
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS contract_id  TEXT`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS bu           TEXT`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS invoice_no   TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS site         TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS bill_type    TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS purpose      TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS note         TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS created_by   TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS updated_at   TIMESTAMPTZ DEFAULT NOW()`,
 ].forEach(sql => pool.query(sql).catch(e => console.error('bills migration:', e.message)));
 
 app.get('/api/bills', requireAuth, async (req, res) => {
