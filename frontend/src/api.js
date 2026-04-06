@@ -43,6 +43,14 @@ export const api = {
     deleteContract: (id) => apiFetch(`/api/contracts/${id}`, { method: 'DELETE' }),
     reassignContract: (id, clientId) => apiFetch(`/api/contracts/${id}/reassign`, { method: 'PATCH', body: JSON.stringify({ client_id: clientId }) }),
 
+    // ── Contract Bid Tracking ─────────────────────────────────────────────────
+    getBidItems:    (contractId)           => apiFetch(`/api/contracts/${contractId}/bid-items`),
+    createBidItem:  (contractId, d)        => apiFetch(`/api/contracts/${contractId}/bid-items`, { method: 'POST', body: JSON.stringify(d) }),
+    updateBidItem:  (contractId, itemId, d)=> apiFetch(`/api/contracts/${contractId}/bid-items/${itemId}`, { method: 'PUT', body: JSON.stringify(d) }),
+    deleteBidItem:  (contractId, itemId)   => apiFetch(`/api/contracts/${contractId}/bid-items/${itemId}`, { method: 'DELETE' }),
+    getBidActuals:  (contractId, year)     => apiFetch(`/api/contracts/${contractId}/bid-actuals?year=${year}`),
+    upsertBidActual:(contractId, d)        => apiFetch(`/api/contracts/${contractId}/bid-actuals`, { method: 'POST', body: JSON.stringify(d) }),
+
     // ── Inventory ─────────────────────────────────────────────────────────────
     getInventoryItems:     ()        => apiFetch('/api/inventory/items'),
     createInventoryItem:   (data)    => apiFetch('/api/inventory/items', { method: 'POST', body: JSON.stringify(data) }),

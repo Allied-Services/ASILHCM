@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Building, Search, Plus, MapPin, Users, X, Phone, Mail, FileText, ChevronLeft, Edit2, Trash2, CheckCircle, AlertCircle, Save } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Building, Search, Plus, MapPin, Users, X, Phone, Mail, FileText, ChevronLeft, Edit2, Trash2, CheckCircle, AlertCircle, Save, BarChart2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from './api';
 
 // ── Sample Data ──────────────────────────────────────────────────────────────
@@ -253,11 +253,417 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
     );
 }
 
+const MONTH_NAMES_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_NAMES_FULL  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const fmt = n => Math.round(parseFloat(n)||0).toLocaleString('en-PK');
+const Rs  = n => `Rs. ${fmt(n)}`;
+
+// ── Contract Bid Tracking Panel ──────────────────────────────────────────────
+function ContractBidPanel({ contract }) {
+    const [bidItems,    setBidItems]    = useState([]);
+    const [actuals,     setActuals]     = useState([]);    // flat array from API
+    const [loading,     setLoading]     = useState(true);
+    const [year,        setYear]        = useState(new Date().getFullYear());
+    const [showAddItem, setShowAddItem] = useState(false);
+    const [editItem,    setEditItem]    = useState(null);
+    const [newItem,     setNewItem]     = useState({ item_name: '', unit: 'Nos', bid_qty: '', bid_unit_price: '', notes: '' });
+    // Monthly actual entry
+    const [actualModal, setActualModal] = useState(null); // { month, existing }
+    const [actualForm,  setActualForm]  = useState({ total_amount: '', notes: '', is_itemized: false, items: [] });
+    const [saving,      setSaving]      = useState(false);
+    const [error,       setError]       = useState(null);
+
+    const loadData = useCallback(async () => {
+        if (!contract?.id) return;
+        setLoading(true);
+        try {
+            const [bi, ac] = await Promise.all([
+                api.getBidItems(contract.id),
+                api.getBidActuals(contract.id, year),
+            ]);
+            setBidItems(bi.items || []);
+            setActuals(ac.actuals || []);
+        } catch (e) { setError(e.message); }
+        setLoading(false);
+    }, [contract?.id, year]);
+
+    useEffect(() => { loadData(); }, [loadData]);
+
+    // Group actuals by month
+    const actualByMonth = {};
+    actuals.forEach(a => { actualByMonth[a.month] = a; });
+
+    // Budget totals
+    const totalBidValue = bidItems.reduce((s, i) => s + (parseFloat(i.bid_qty)||0) * (parseFloat(i.bid_unit_price)||0), 0);
+    const totalActualYTD = actuals.reduce((s, a) => s + (parseFloat(a.total_amount)||0), 0);
+    const variance = totalBidValue - totalActualYTD;
+
+    const saveItem = async () => {
+        if (!newItem.item_name) { setError('Item name required'); return; }
+        setSaving(true); setError(null);
+        try {
+            if (editItem) {
+                await api.updateBidItem(contract.id, editItem.id, newItem);
+            } else {
+                await api.createBidItem(contract.id, newItem);
+            }
+            await loadData();
+            setShowAddItem(false); setEditItem(null);
+            setNewItem({ item_name: '', unit: 'Nos', bid_qty: '', bid_unit_price: '', notes: '' });
+        } catch (e) { setError(e.message); }
+        setSaving(false);
+    };
+
+    const deleteItem = async (id) => {
+        if (!window.confirm('Delete this bid item?')) return;
+        try { await api.deleteBidItem(contract.id, id); await loadData(); }
+        catch (e) { alert(e.message); }
+    };
+
+    const openActualModal = (monthIdx) => {
+        const existing = actualByMonth[monthIdx + 1];
+        setActualForm({
+            total_amount: existing?.total_amount || '',
+            notes: existing?.notes || '',
+            is_itemized: !!existing?.line_items?.length,
+            items: existing?.line_items?.length
+                ? existing.line_items
+                : bidItems.map(bi => ({ bid_item_id: bi.id, item_name: bi.item_name, unit: bi.unit, qty: '', unit_price: bi.bid_unit_price || '', amount: '' })),
+        });
+        setActualModal({ month: monthIdx + 1, monthName: MONTH_NAMES_FULL[monthIdx], existing });
+    };
+
+    const saveActual = async () => {
+        setSaving(true); setError(null);
+        try {
+            let total = parseFloat(actualForm.total_amount) || 0;
+            let lineItems = null;
+            if (actualForm.is_itemized) {
+                lineItems = actualForm.items.filter(i => parseFloat(i.amount) > 0);
+                total = lineItems.reduce((s, i) => s + (parseFloat(i.amount)||0), 0);
+            }
+            await api.upsertBidActual(contract.id, {
+                month: actualModal.month,
+                year,
+                total_amount: total,
+                notes: actualForm.notes,
+                line_items: lineItems,
+            });
+            await loadData();
+            setActualModal(null);
+        } catch (e) { setError(e.message); }
+        setSaving(false);
+    };
+
+    const updateActualItem = (i, k, v) => {
+        setActualForm(p => {
+            const items = [...p.items];
+            items[i] = { ...items[i], [k]: v };
+            if (k === 'qty' || k === 'unit_price') {
+                items[i].amount = String((parseFloat(items[i].qty)||0) * (parseFloat(items[i].unit_price)||0));
+            }
+            return { ...p, items };
+        });
+    };
+
+    const inpStyle = { background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '7px 10px', color: 'var(--text)', fontSize: '0.85rem', outline: 'none', width: '100%', boxSizing: 'border-box' };
+
+    if (!contract?.id) return <div style={{ color: 'var(--text-muted)', padding: '2rem', textAlign: 'center' }}>Select a contract to view bid tracking.</div>;
+
+    return (
+        <div>
+            {error && (
+                <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', color: '#f87171', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
+                    {error} <button onClick={() => setError(null)} style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer' }}><X size={14} /></button>
+                </div>
+            )}
+
+            {/* ── Summary Cards ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+                {[
+                    { l: 'Total Bid Value',    v: Rs(totalBidValue),   c: 'var(--primary)' },
+                    { l: `Actual YTD (${year})`, v: Rs(totalActualYTD), c: '#f59e0b' },
+                    { l: 'Remaining Budget',   v: Rs(Math.max(0, variance)), c: variance >= 0 ? '#22c55e' : '#ef4444' },
+                    { l: 'Bid Line Items',     v: bidItems.length,     c: '#a78bfa' },
+                ].map(card => (
+                    <div key={card.l} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '0.9rem 1.1rem' }}>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{card.l}</div>
+                        <div style={{ fontWeight: 800, fontSize: '0.95rem', color: card.c }}>{card.v}</div>
+                    </div>
+                ))}
+            </div>
+
+            {/* ── Section 1: Bid Items Master ── */}
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', marginBottom: '1.5rem', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', background: 'var(--bg-dark)' }}>
+                    <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f0f4f8' }}>📋 Bid Items — Contract Schedule of Rates</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>Items, quantities and unit prices as per the original bid / tender</div>
+                    </div>
+                    <button onClick={() => { setShowAddItem(true); setEditItem(null); setNewItem({ item_name: '', unit: 'Nos', bid_qty: '', bid_unit_price: '', notes: '' }); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', border: 'none', color: 'white', padding: '6px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 700, fontSize: '0.82rem' }}>
+                        <Plus size={14} /> Add Item
+                    </button>
+                </div>
+
+                {loading ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading bid items…</div>
+                ) : bidItems.length === 0 ? (
+                    <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        <BarChart2 size={36} style={{ opacity: 0.25, marginBottom: '0.75rem', display: 'block', margin: '0 auto 0.75rem' }} />
+                        <div style={{ fontWeight: 600, marginBottom: '0.3rem' }}>No bid items yet</div>
+                        <div style={{ fontSize: '0.82rem' }}>Add the items, quantities and prices from your contract bid / Schedule of Rates.</div>
+                    </div>
+                ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                        <thead style={{ background: 'rgba(255,255,255,0.03)' }}>
+                            <tr>{['Item / Description','Unit','Bid Qty','Unit Price (Rs.)','Total Bid Value','Notes',''].map(h => (
+                                <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Bid Qty' || h === 'Unit Price (Rs.)' || h === 'Total Bid Value' ? 'right' : 'left', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}</tr>
+                        </thead>
+                        <tbody>
+                            {bidItems.map((item, i) => {
+                                const lineVal = (parseFloat(item.bid_qty)||0) * (parseFloat(item.bid_unit_price)||0);
+                                return (
+                                    <tr key={item.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 ? 'rgba(255,255,255,0.015)' : 'transparent' }}>
+                                        <td style={{ padding: '8px 12px', fontWeight: 600, color: '#f0f4f8' }}>{item.item_name}</td>
+                                        <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{item.unit}</td>
+                                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>{fmt(item.bid_qty)}</td>
+                                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>{fmt(item.bid_unit_price)}</td>
+                                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--primary)' }}>{Rs(lineVal)}</td>
+                                        <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.78rem', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.notes || '—'}</td>
+                                        <td style={{ padding: '8px 12px' }}>
+                                            <div style={{ display: 'flex', gap: '5px' }}>
+                                                <button onClick={() => { setEditItem(item); setNewItem({ item_name: item.item_name, unit: item.unit, bid_qty: item.bid_qty, bid_unit_price: item.bid_unit_price, notes: item.notes || '' }); setShowAddItem(true); }}
+                                                    style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem' }}><Edit2 size={11} /></button>
+                                                <button onClick={() => deleteItem(item.id)}
+                                                    style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem' }}><Trash2 size={11} /></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                        <tfoot style={{ background: 'var(--bg-dark)', borderTop: '2px solid var(--border)' }}>
+                            <tr>
+                                <td colSpan={4} style={{ padding: '8px 12px', fontWeight: 700, fontSize: '0.82rem', color: 'var(--text-muted)' }}>TOTAL BID VALUE</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 900, color: 'var(--primary)', fontSize: '0.95rem' }}>{Rs(totalBidValue)}</td>
+                                <td colSpan={2} />
+                            </tr>
+                        </tfoot>
+                    </table>
+                )}
+            </div>
+
+            {/* ── Section 2: Monthly Actuals ── */}
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', background: 'var(--bg-dark)' }}>
+                    <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f0f4f8' }}>📅 Monthly Delivery Actuals — Procurement Entries</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>Procurement team logs actual items/costs delivered each month</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <select value={year} onChange={e => setYear(parseInt(e.target.value))}
+                            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 10px', borderRadius: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                            {[2024,2025,2026,2027].map(y => <option key={y}>{y}</option>)}
+                        </select>
+                        <button onClick={loadData} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.82rem' }}>
+                            <RefreshCw size={12} /> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                        <thead style={{ background: 'rgba(255,255,255,0.03)' }}>
+                            <tr>{['Month','Actual Amount (Rs.)','vs Budget','Status','Notes','Action'].map(h => (
+                                <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Actual Amount (Rs.)' || h === 'vs Budget' ? 'right' : 'left', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}</tr>
+                        </thead>
+                        <tbody>
+                            {MONTH_NAMES_SHORT.map((mo, idx) => {
+                                const actual = actualByMonth[idx + 1];
+                                const amt = parseFloat(actual?.total_amount) || 0;
+                                const monthBudget = totalBidValue / 12;
+                                const diff = monthBudget - amt;
+                                const pct = monthBudget > 0 ? (amt / monthBudget * 100).toFixed(0) : null;
+                                return (
+                                    <tr key={mo} style={{ borderBottom: '1px solid var(--border)' }}>
+                                        <td style={{ padding: '9px 12px', fontWeight: 600, color: '#f0f4f8' }}>{MONTH_NAMES_FULL[idx]} {year}</td>
+                                        <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: actual ? 700 : 400, color: actual ? '#22c55e' : 'var(--text-muted)' }}>
+                                            {actual ? Rs(amt) : '—'}
+                                        </td>
+                                        <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                                            {actual && pct ? (
+                                                <span style={{ color: diff >= 0 ? '#22c55e' : '#f87171', fontSize: '0.78rem', fontWeight: 700 }}>
+                                                    {diff >= 0 ? `▼ ${Rs(diff)} under` : `▲ ${Rs(Math.abs(diff))} over`} ({pct}%)
+                                                </span>
+                                            ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                                        </td>
+                                        <td style={{ padding: '9px 12px' }}>
+                                            {actual?.line_items?.length > 0 && (
+                                                <span style={{ fontSize: '0.72rem', background: 'rgba(56,189,248,0.1)', color: '#38bdf8', padding: '2px 7px', borderRadius: '10px', fontWeight: 700 }}>Itemized</span>
+                                            )}
+                                            {actual && !actual?.line_items?.length && (
+                                                <span style={{ fontSize: '0.72rem', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', padding: '2px 7px', borderRadius: '10px', fontWeight: 700 }}>Lump Sum</span>
+                                            )}
+                                            {!actual && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Not entered</span>}
+                                        </td>
+                                        <td style={{ padding: '9px 12px', color: 'var(--text-muted)', fontSize: '0.78rem', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{actual?.notes || '—'}</td>
+                                        <td style={{ padding: '9px 12px' }}>
+                                            <button onClick={() => openActualModal(idx)}
+                                                style={{ background: actual ? 'rgba(245,158,11,0.1)' : 'rgba(56,189,248,0.1)', border: `1px solid ${actual ? 'rgba(245,158,11,0.3)' : 'rgba(56,189,248,0.3)'}`, color: actual ? '#f59e0b' : '#38bdf8', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                                                {actual ? '✏ Edit' : '+ Enter'}
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                        <tfoot style={{ background: 'var(--bg-dark)', borderTop: '2px solid var(--border)' }}>
+                            <tr>
+                                <td style={{ padding: '8px 12px', fontWeight: 700, fontSize: '0.82rem', color: 'var(--text-muted)' }}>YTD TOTAL {year}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 900, color: '#f59e0b', fontSize: '0.95rem' }}>{Rs(totalActualYTD)}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                                    <span style={{ color: variance >= 0 ? '#22c55e' : '#f87171', fontWeight: 700, fontSize: '0.82rem' }}>
+                                        {variance >= 0 ? `▼ ${Rs(variance)} under budget` : `▲ ${Rs(Math.abs(variance))} over budget`}
+                                    </span>
+                                </td>
+                                <td colSpan={3} />
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+
+            {/* ── Add/Edit Bid Item Modal ── */}
+            {showAddItem && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '2rem' }}>
+                    <div style={{ background: '#0f1823', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', width: '100%', maxWidth: '520px' }}>
+                        <div style={{ padding: '1.25rem 1.75rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ margin: 0, fontSize: '1rem', color: '#f0f4f8' }}>{editItem ? 'Edit Bid Item' : 'Add Bid Item'}</h3>
+                            <button onClick={() => { setShowAddItem(false); setEditItem(null); }} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer' }}><X size={18} /></button>
+                        </div>
+                        <div style={{ padding: '1.5rem 1.75rem', display: 'grid', gap: '0.85rem' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Item / Description *</label>
+                                <input value={newItem.item_name} onChange={e => setNewItem(p => ({ ...p, item_name: e.target.value }))} placeholder="e.g. Cleaning Chemical (Floor Cleaner)" style={inpStyle} />
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Unit</label>
+                                    <select value={newItem.unit} onChange={e => setNewItem(p => ({ ...p, unit: e.target.value }))} style={inpStyle}>
+                                        {['Nos','Kg','Litre','Box','Pack','Set','Roll','Month','Lump Sum'].map(u => <option key={u}>{u}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Bid Qty</label>
+                                    <input type="number" value={newItem.bid_qty} onChange={e => setNewItem(p => ({ ...p, bid_qty: e.target.value }))} placeholder="0" style={inpStyle} />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Unit Price (Rs.)</label>
+                                    <input type="number" value={newItem.bid_unit_price} onChange={e => setNewItem(p => ({ ...p, bid_unit_price: e.target.value }))} placeholder="0" style={inpStyle} />
+                                </div>
+                            </div>
+                            {newItem.bid_qty && newItem.bid_unit_price && (
+                                <div style={{ background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '8px', padding: '0.6rem 1rem', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--text-muted)' }}>Total Bid Line Value</span>
+                                    <strong style={{ color: 'var(--primary)' }}>{Rs((parseFloat(newItem.bid_qty)||0)*(parseFloat(newItem.bid_unit_price)||0))}</strong>
+                                </div>
+                            )}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Notes (optional)</label>
+                                <input value={newItem.notes} onChange={e => setNewItem(p => ({ ...p, notes: e.target.value }))} placeholder="Any notes on this item..." style={inpStyle} />
+                            </div>
+                            {error && <div style={{ color: '#f87171', fontSize: '0.82rem' }}>{error}</div>}
+                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                                <button onClick={() => { setShowAddItem(false); setEditItem(null); }} style={{ flex: 1, background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', padding: '9px', borderRadius: '7px', cursor: 'pointer' }}>Cancel</button>
+                                <button onClick={saveItem} disabled={saving} style={{ flex: 2, background: saving ? '#334155' : 'var(--primary)', border: 'none', color: 'white', padding: '9px', borderRadius: '7px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
+                                    {saving ? 'Saving…' : editItem ? 'Save Changes' : 'Add Item'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Monthly Actual Entry Modal ── */}
+            {actualModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '2rem', overflowY: 'auto' }}>
+                    <div style={{ background: '#0f1823', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', width: '100%', maxWidth: '680px', maxHeight: '90vh', overflowY: 'auto' }}>
+                        <div style={{ padding: '1.25rem 1.75rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#0f1823', zIndex: 2 }}>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '1rem', color: '#f0f4f8' }}>Procurement Entry — {actualModal.monthName} {year}</h3>
+                                <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: '#64748b' }}>Log supplies delivered/purchased this month against this contract</p>
+                            </div>
+                            <button onClick={() => setActualModal(null)} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer' }}><X size={18} /></button>
+                        </div>
+                        <div style={{ padding: '1.5rem 1.75rem' }}>
+                            {/* Toggle: lump sum vs itemized */}
+                            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                                <button onClick={() => setActualForm(p => ({ ...p, is_itemized: false }))}
+                                    style={{ flex: 1, padding: '8px', borderRadius: '7px', border: `1px solid ${!actualForm.is_itemized ? 'var(--primary)' : 'rgba(255,255,255,0.1)'}`, background: !actualForm.is_itemized ? 'rgba(56,189,248,0.1)' : 'transparent', color: !actualForm.is_itemized ? 'var(--primary)' : '#64748b', cursor: 'pointer', fontWeight: 700, fontSize: '0.83rem' }}>
+                                    💰 Lump Sum Total
+                                </button>
+                                <button onClick={() => setActualForm(p => ({
+                                    ...p, is_itemized: true,
+                                    items: p.items.length ? p.items : bidItems.map(bi => ({ bid_item_id: bi.id, item_name: bi.item_name, unit: bi.unit, qty: '', unit_price: bi.bid_unit_price || '', amount: '' }))
+                                }))}
+                                    style={{ flex: 1, padding: '8px', borderRadius: '7px', border: `1px solid ${actualForm.is_itemized ? '#22c55e' : 'rgba(255,255,255,0.1)'}`, background: actualForm.is_itemized ? 'rgba(34,197,94,0.1)' : 'transparent', color: actualForm.is_itemized ? '#22c55e' : '#64748b', cursor: 'pointer', fontWeight: 700, fontSize: '0.83rem' }}>
+                                    📋 Itemized Breakdown
+                                </button>
+                            </div>
+
+                            {!actualForm.is_itemized ? (
+                                <div style={{ marginBottom: '1rem' }}>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '5px' }}>Total Amount (Rs.) *</label>
+                                    <input type="number" value={actualForm.total_amount} onChange={e => setActualForm(p => ({ ...p, total_amount: e.target.value }))} placeholder="Total amount for this month" style={{ ...inpStyle, fontSize: '1.1rem', fontWeight: 700 }} />
+                                </div>
+                            ) : (
+                                <div style={{ marginBottom: '1rem' }}>
+                                    <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Item-wise Deliveries</div>
+                                    {actualForm.items.map((li, i) => (
+                                        <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 100px 100px', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                                            <div style={{ fontSize: '0.82rem', color: '#94a3b8', padding: '6px 0' }}>{li.item_name}</div>
+                                            <input type="number" value={li.qty} onChange={e => updateActualItem(i, 'qty', e.target.value)} placeholder="Qty" style={{ ...inpStyle, padding: '6px 8px', textAlign: 'right' }} />
+                                            <input type="number" value={li.unit_price} onChange={e => updateActualItem(i, 'unit_price', e.target.value)} placeholder="Unit Price" style={{ ...inpStyle, padding: '6px 8px', textAlign: 'right' }} />
+                                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', textAlign: 'right', padding: '6px 0' }}>{Rs(li.amount || 0)}</div>
+                                        </div>
+                                    ))}
+                                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.5rem', marginTop: '0.25rem', display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>TOTAL</span>
+                                        <span style={{ color: '#22c55e', fontSize: '0.95rem' }}>{Rs(actualForm.items.reduce((s,li) => s + (parseFloat(li.amount)||0), 0))}</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div style={{ marginBottom: '1.25rem' }}>
+                                <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '5px' }}>Notes (optional)</label>
+                                <textarea value={actualForm.notes} onChange={e => setActualForm(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Any notes about this month's delivery or purchase…" style={{ ...inpStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+                            </div>
+
+                            {error && <div style={{ color: '#f87171', fontSize: '0.82rem', marginBottom: '0.75rem' }}>{error}</div>}
+
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button onClick={() => setActualModal(null)} style={{ flex: 1, background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', padding: '10px', borderRadius: '7px', cursor: 'pointer' }}>Cancel</button>
+                                <button onClick={saveActual} disabled={saving} style={{ flex: 2, background: saving ? '#334155' : '#22c55e', border: 'none', color: 'white', padding: '10px', borderRadius: '7px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
+                                    <CheckCircle size={15} style={{ marginRight: '6px', verticalAlign: 'middle' }} />{saving ? 'Saving…' : 'Save Procurement Entry'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ── Client Profile View ──────────────────────────────────────────────────────
 function ClientProfile({ client, onChange, onBack, allClients = [], onContractReassigned }) {
     const [tab, setTab] = useState('overview');
     const [editContract, setEditContract] = useState(null);
     const [viewContract, setViewContract] = useState(null);
+    const [bidContract,  setBidContract]  = useState(null); // which contract is open in bid tab
     const [showAddContact, setShowAddContact] = useState(false);
     const [newContact, setNewContact] = useState(EMPTY_CONTACT);
 
@@ -298,7 +704,7 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
         setNewContact(EMPTY_CONTACT); setShowAddContact(false);
     };
 
-    const TABS = ['overview', 'contacts', 'contracts'];
+    const TABS = ['overview', 'contacts', 'contracts', 'bid tracking'];
 
     return (
         <div className="dashboard">
@@ -329,10 +735,10 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
             </div>
 
             {/* Tabs */}
-            <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid var(--border)', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid var(--border)', marginBottom: '2rem', overflowX: 'auto' }}>
                 {TABS.map(t => (
-                    <button key={t} onClick={() => setTab(t)} style={{ padding: '0.85rem 1.75rem', background: 'transparent', border: 'none', borderBottom: `2px solid ${tab === t ? 'var(--primary)' : 'transparent'}`, color: tab === t ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: tab === t ? 700 : 400, fontSize: '0.95rem', textTransform: 'capitalize' }}>
-                        {t}
+                    <button key={t} onClick={() => setTab(t)} style={{ padding: '0.85rem 1.75rem', background: 'transparent', border: 'none', borderBottom: `2px solid ${tab === t ? 'var(--primary)' : 'transparent'}`, color: tab === t ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: tab === t ? 700 : 400, fontSize: '0.9rem', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
+                        {t === 'bid tracking' ? '📊 Bid Tracking' : t.charAt(0).toUpperCase() + t.slice(1)}
                     </button>
                 ))}
             </div>
@@ -490,6 +896,51 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
 
             {/* Contract Editor Modal */}
             {editContract && <ContractEditor contract={editContract} onSave={saveContract} onCancel={() => setEditContract(null)} allClients={allClients} currentClientId={client.id} />}
+
+            {/* Bid Tracking Tab */}
+            {tab === 'bid tracking' && (
+                <div>
+                    {!bidContract && (
+                        <div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>Select a contract to view and manage bid tracking:</div>
+                            {client.contracts.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No contracts for this client yet.</p>}
+                            <div style={{ display: 'grid', gap: '0.75rem' }}>
+                                {client.contracts.map(ct => (
+                                    <button key={ct.id} onClick={() => setBidContract(ct)}
+                                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1rem 1.25rem', cursor: 'pointer', textAlign: 'left', transition: 'border-color 0.15s' }}
+                                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+                                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+                                        <div>
+                                            <div style={{ fontWeight: 700, color: '#f0f4f8', marginBottom: '3px' }}>{ct.contractName || ct.id}</div>
+                                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{ct.id} · {ct.serviceType} · {ct.location}</div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span style={{ fontSize: '0.75rem', background: (ST_CLR[ct.status]||'#94a3b8') + '20', color: ST_CLR[ct.status]||'#94a3b8', padding: '3px 8px', borderRadius: '8px', fontWeight: 700 }}>{ct.status}</span>
+                                            <ChevronRight size={16} color="var(--text-muted)" />
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    {bidContract && (
+                        <div>
+                            <button onClick={() => setBidContract(null)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', marginBottom: '1.25rem', fontSize: '0.88rem', padding: 0 }}>
+                                <ChevronLeft size={16} /> Back to contract list
+                            </button>
+                            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1rem 1.25rem', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <div style={{ fontWeight: 700, color: '#f0f4f8' }}>{bidContract.contractName || bidContract.id}</div>
+                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>{bidContract.id} · {bidContract.serviceType} · {bidContract.location}</div>
+                                </div>
+                                <span style={{ fontSize: '0.75rem', background: (ST_CLR[bidContract.status]||'#94a3b8') + '20', color: ST_CLR[bidContract.status]||'#94a3b8', padding: '3px 10px', borderRadius: '10px', fontWeight: 700 }}>{bidContract.status}</span>
+                            </div>
+                            <ContractBidPanel contract={bidContract} />
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
