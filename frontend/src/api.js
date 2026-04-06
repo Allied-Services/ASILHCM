@@ -135,7 +135,7 @@ export const api = {
     getPayroll:    (year, month)        => apiFetch(`/api/payroll/${year}/${month}`),
     savePayroll:   (year, month, rows)  => apiFetch(`/api/payroll/${year}/${month}`, { method: 'POST', body: JSON.stringify({ rows }) }),
     lockPayroll:   (year, month, employeeIds) => apiFetch(`/api/payroll/${year}/${month}/lock`,   { method: 'PATCH', body: JSON.stringify({ employee_ids: employeeIds || [] }) }),
-    unlockPayroll: (year, month)              => apiFetch(`/api/payroll/${year}/${month}/unlock`, { method: 'PATCH' }),
+    unlockPayroll: (year, month, employeeIds) => apiFetch(`/api/payroll/${year}/${month}/unlock`, { method: 'PATCH', body: JSON.stringify({ employee_ids: employeeIds || [] }) }),
     xeroStatus:    ()                         => apiFetch('/api/xero/status'),
 
     // ── Payslips ──────────────────────────────────────────────────────────────

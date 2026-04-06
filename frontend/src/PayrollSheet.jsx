@@ -362,6 +362,7 @@ export default function PayrollSheet({ user }) {
     const [filterClient, setFilterClient] = useState('All');
     const [filterContract, setFilterContract] = useState('All');
     const [filterLoc, setFilterLoc] = useState('All');
+    const [filterLockStatus, setFilterLockStatus] = useState('All'); // 'All' | 'Locked' | 'Unlocked'
     const [overrides, setOverrides] = useState({});
     const [breakdown, setBreakdown] = useState(null);
     const [approvalSent, setApprovalSent] = useState({});
@@ -370,7 +371,6 @@ export default function PayrollSheet({ user }) {
     const [EMPLOYEES, setEMPLOYEES] = useState([]);
     const [CONTRACT_MAP, setCONTRACT_MAP] = useState({});
     // ── Lock / DB state ─────────────────────────────────────────────────────────
-    const [isLocked, setIsLocked] = useState(false);
     const [lockedIds, setLockedIds] = useState(new Set()); // per-employee lock status
     const [lockedBy, setLockedBy] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
@@ -450,7 +450,7 @@ export default function PayrollSheet({ user }) {
     useEffect(() => {
         const [yr, mo] = month.split('-');
         setOverrides({});
-        setIsLocked(false);
+        setLockedIds(new Set());
         setLockedBy(null);
         api.getPayroll(yr, mo).then(data => {
             if (!data.rows || !data.rows.length) return;
@@ -478,14 +478,15 @@ export default function PayrollSheet({ user }) {
             setOverrides(ov);
             const lockedRowIds = data.rows.filter(r => r.locked).map(r => r.employee_id);
             setLockedIds(new Set(lockedRowIds));
-            setIsLocked(data.locked || false);
-            setLockedBy(data.lockedBy || null);
+            // Derive lockedBy from first locked row
+            const firstLocked = data.rows.find(r => r.locked);
+            if (firstLocked?.locked_by) setLockedBy(firstLocked.locked_by);
         }).catch(() => {}); // silently ignore if table not yet created
     }, [month]);
 
     // ── Save rows to DB (debounced) ─────────────────────────────────────────────
     const saveToDb = useCallback((ovState, rowsData) => {
-        if (isLocked) return;
+        if (rowsData.some(r => lockedIds.has(r.emp?.id))) return;
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(async () => {
             try {
@@ -505,13 +506,13 @@ export default function PayrollSheet({ user }) {
     const rowsRef = useRef([]);
 
     const setOv = (id, field, val) => {
-        if (isLocked) return;
+        if (lockedIds.has(id)) return;
         setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
         // Trigger debounced save after user edits
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(async () => {
             const currentRows = rowsRef.current;
-            if (!currentRows.length || isLocked) return;
+            if (!currentRows.length) return;
             try {
                 setIsSaving(true);
                 const [yr, mo] = month.split('-');
@@ -602,8 +603,16 @@ export default function PayrollSheet({ user }) {
     const filtered = EMPLOYEES.filter(e =>
         (filterClient === 'All' || e.client === filterClient) &&
         (filterContract === 'All' || e.contract === filterContract) &&
-        (filterLoc === 'All' || e.location === filterLoc)
+        (filterLoc === 'All' || e.location === filterLoc) &&
+        (filterLockStatus === 'All' ||
+         (filterLockStatus === 'Locked'   &&  lockedIds.has(e.id)) ||
+         (filterLockStatus === 'Unlocked' && !lockedIds.has(e.id)))
     );
+
+    // isLocked = true only when ALL currently visible filtered rows are locked (and there are some)
+    const isLocked = filtered.length > 0 && filtered.every(e => lockedIds.has(e.id));
+    // Partial lock = some but not all locked in current view
+    const isPartiallyLocked = !isLocked && filtered.some(e => lockedIds.has(e.id));
 
     // Contract cfg lookup: ID first (exact), then name, then client fuzzy fallback
     const rows = filtered.map(emp => {
@@ -720,34 +729,49 @@ export default function PayrollSheet({ user }) {
     const canManageLock = isSuperAdmin || user?.role === 'finance_approver';
 
     const handleLock = async () => {
-        const filteredIds = rows.map(r => r.emp.id);
-        const lockCount = filteredIds.length;
-        if (!window.confirm(`Lock payroll for ${lockCount} employee(s) currently showing?\n\nOnly these ${lockCount} records will be locked. Exports (bank files) will only include locked records.`)) return;
+        // Only lock the IDs that are currently VISIBLE (filtered) and NOT yet locked
+        const toLock = rows.filter(r => !lockedIds.has(r.emp.id)).map(r => r.emp.id);
+        const scopeLabel = filterClient !== 'All'
+            ? `${filterClient}${filterContract !== 'All' ? ' / ' + filterContract : ''}`
+            : 'all visible';
+        if (!toLoad) {
+            // nothing to do
+        }
+        if (!toLock.length) { alert('All visible employees are already locked.'); return; }
+        if (!window.confirm(
+            `Lock payroll for ${toLock.length} employee(s) under "${scopeLabel}"?\n\n` +
+            `Only these ${toLock.length} records will be locked.\n` +
+            `Other clients/contracts remain editable.\n\n` +
+            `Exports will only include locked records.`
+        )) return;
         try {
             const [yr, mo] = month.split('-');
-            await api.lockPayroll(yr, mo, filteredIds);
-            setLockedIds(prev => new Set([...prev, ...filteredIds]));
-            setIsLocked(true);
+            await api.lockPayroll(yr, mo, toLock);
+            setLockedIds(prev => new Set([...prev, ...toLock]));
             setLockedBy('You');
         } catch (e) { alert('Lock failed: ' + e.message); }
     };
 
     const handleUnlock = async () => {
-        if (!window.confirm('Unlock this payroll? This means the bank has NOT processed it yet.')) return;
+        // Only unlock the IDs that are currently VISIBLE (filtered) and are locked
+        const toUnlock = rows.filter(r => lockedIds.has(r.emp.id)).map(r => r.emp.id);
+        const scopeLabel = filterClient !== 'All'
+            ? `${filterClient}${filterContract !== 'All' ? ' / ' + filterContract : ''}`
+            : 'all visible';
+        if (!toUnlock.length) { alert('No locked employees in current view.'); return; }
+        if (!window.confirm(`Unlock payroll for ${toUnlock.length} employee(s) under "${scopeLabel}"?\n\nThis means the bank has NOT yet processed this batch.`)) return;
         try {
             const [yr, mo] = month.split('-');
-            await api.unlockPayroll(yr, mo);
-            setLockedIds(new Set());
-            setIsLocked(false);
-            setLockedBy(null);
+            await api.unlockPayroll(yr, mo, toUnlock);
+            setLockedIds(prev => { const next = new Set(prev); toUnlock.forEach(id => next.delete(id)); return next; });
         } catch (e) { alert('Unlock failed: ' + e.message); }
     };
 
     const needsApproval = rows.some(r => r.cfg.client_approval);
 
-    // Editable cell — disabled when payroll is locked
+    // Editable cell — disabled when this employee is locked
     const EC = ({ empId, field, def = 0, w = '68px' }) => {
-        const cellLocked = isLocked || lockedIds.has(empId);
+        const cellLocked = lockedIds.has(empId);
         return (
             <input type="number" min={0} step="any" value={getOv(empId, field, def)}
                 disabled={cellLocked}
@@ -803,8 +827,21 @@ export default function PayrollSheet({ user }) {
                     <FD label="Client" val={filterClient} set={setFilterClient} opts={allClients} />
                     <FD label="Contract" val={filterContract} set={setFilterContract} opts={allContracts} />
                     <FD label="Location" val={filterLoc} set={setFilterLoc} opts={allLocs} />
-                    {(filterClient !== 'All' || filterContract !== 'All' || filterLoc !== 'All') &&
-                        <button onClick={() => { setFilterClient('All'); setFilterContract('All'); setFilterLoc('All'); }}
+                    {/* Lock status filter */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Lock:</span>
+                        {['All','Locked','Unlocked'].map(opt => (
+                            <button key={opt} onClick={() => setFilterLockStatus(opt)}
+                                style={{ fontSize: '0.72rem', padding: '3px 9px', borderRadius: '6px', cursor: 'pointer', fontWeight: filterLockStatus === opt ? 700 : 400,
+                                    background: filterLockStatus === opt ? (opt==='Locked' ? 'rgba(239,68,68,0.15)' : opt==='Unlocked' ? 'rgba(34,197,94,0.12)' : 'var(--primary)') : 'transparent',
+                                    border: filterLockStatus === opt ? (opt==='Locked' ? '1px solid rgba(239,68,68,0.4)' : opt==='Unlocked' ? '1px solid rgba(34,197,94,0.3)' : '1px solid var(--primary)') : '1px solid var(--border)',
+                                    color: filterLockStatus === opt ? (opt==='Locked' ? '#f87171' : opt==='Unlocked' ? '#22c55e' : 'white') : 'var(--text-muted)' }}>
+                                {opt === 'Locked' ? '🔒' : opt === 'Unlocked' ? '🔓' : ''} {opt}
+                            </button>
+                        ))}
+                    </div>
+                    {(filterClient !== 'All' || filterContract !== 'All' || filterLoc !== 'All' || filterLockStatus !== 'All') &&
+                        <button onClick={() => { setFilterClient('All'); setFilterContract('All'); setFilterLoc('All'); setFilterLockStatus('All'); }}
                             style={{ fontSize: '0.75rem', color: '#ef4444', background: 'transparent', border: '1px solid #ef444440', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>Clear</button>}
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
@@ -912,14 +949,22 @@ export default function PayrollSheet({ user }) {
                 </div>
             )}
 
-            {/* Lock Banner */}
+            {/* Lock Banner — scoped to current filter view */}
             {isLocked && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '10px', padding: '0.85rem 1.25rem', marginBottom: '1.25rem' }}>
                     <Lock size={16} color="#f87171" />
                     <span style={{ fontSize: '0.9rem', color: '#f87171' }}>
-                        <strong>Payroll Locked</strong> — This payroll has been sent to the bank for processing.
+                        <strong>Payroll Locked</strong> — All {filtered.length} employees in this view have been sent to the bank.
                         {lockedBy && <span style={{ opacity: 0.8 }}> Locked by {lockedBy}.</span>}
-                        {' '}No edits allowed. Click <strong>Unlock</strong> to re-open.
+                        {' '}No edits allowed. Click <strong>Unlock</strong> to re-open this batch.
+                    </span>
+                </div>
+            )}
+            {isPartiallyLocked && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '10px', padding: '0.75rem 1.25rem', marginBottom: '1.25rem' }}>
+                    <Lock size={16} color="#f59e0b" />
+                    <span style={{ fontSize: '0.88rem', color: '#f59e0b' }}>
+                        <strong>Partial Lock</strong> — {filtered.filter(e => lockedIds.has(e.id)).length} of {filtered.length} employees in this view are locked. Use <strong>Lock:</strong> filter to see only locked or unlocked rows.
                     </span>
                 </div>
             )}
@@ -995,7 +1040,8 @@ export default function PayrollSheet({ user }) {
                         </thead>
                         <tbody>
                             {rows.map(({ emp, cfg, calc }, i) => {
-                                const rowBg = selectedIds.has(emp.id) ? 'rgba(56,189,248,0.07)' : (i % 2 === 0 ? 'var(--bg-card)' : '#171c28');
+                                const isEmpLocked = lockedIds.has(emp.id);
+                                const rowBg = selectedIds.has(emp.id) ? 'rgba(56,189,248,0.07)' : isEmpLocked ? 'rgba(239,68,68,0.04)' : (i % 2 === 0 ? 'var(--bg-card)' : '#171c28');
                                 // ── NO CONTRACT WARNING ROW ──────────────────────────────────────────
                                 if (cfg._noContract) {
                                     return (
@@ -1022,6 +1068,11 @@ export default function PayrollSheet({ user }) {
                                         </td>
                                         <td style={{ position: 'sticky', left: 36, zIndex: 2, background: rowBg, padding: '6px 10px', minWidth: '180px' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                {isEmpLocked && (
+                                                    <span title="This employee's payroll is locked" style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '4px', padding: '1px 5px', fontSize: '0.67rem', color: '#f87171', fontWeight: 700, whiteSpace: 'nowrap', gap: '3px' }}>
+                                                        <Lock size={9} /> LOCKED
+                                                    </span>
+                                                )}
                                                 <button onClick={() => setBreakdown({ emp, calc })} title="Verify calculation"
                                                     style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '4px', padding: '2px 6px', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                                     Verify

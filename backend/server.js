@@ -1927,15 +1927,27 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PATCH /api/payroll/:year/:month/unlock — unlock a payroll month
+// PATCH /api/payroll/:year/:month/unlock — unlock a payroll month (scoped to employee_ids if provided)
 app.patch('/api/payroll/:year/:month/unlock', requireAuth, requireRole('finance_approver'), async (req, res) => {
     try {
         const { year, month } = req.params;
-        await pool.query(
-            `UPDATE payroll_transactions SET locked=FALSE, locked_by=NULL, locked_at=NULL
-             WHERE year=$1 AND month=$2`,
-            [parseInt(year), parseInt(month)]
-        );
+        const { employee_ids } = req.body || {};
+        const yr = parseInt(year), mo = parseInt(month);
+        if (employee_ids && employee_ids.length > 0) {
+            // Scoped unlock — only the specified employees
+            await pool.query(
+                `UPDATE payroll_transactions SET locked=FALSE, locked_by=NULL, locked_at=NULL
+                 WHERE year=$1 AND month=$2 AND employee_id = ANY($3)`,
+                [yr, mo, employee_ids]
+            );
+        } else {
+            // Full unlock (backward compat / superadmin use)
+            await pool.query(
+                `UPDATE payroll_transactions SET locked=FALSE, locked_by=NULL, locked_at=NULL
+                 WHERE year=$1 AND month=$2`,
+                [yr, mo]
+            );
+        }
         res.json({ ok: true, locked: false });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
