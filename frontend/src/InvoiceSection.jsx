@@ -162,12 +162,13 @@ function InvoiceFormModal({ existing = null, clients = [], contracts = [], onSav
         setSuggestedNum(`INV-${moAbbr}${yr2}-???`);
     }, [periodMonth, periodYear, isEdit]);
 
-    // Clients from DB
+    // Clients from DB — API returns camelCase: clientName, contractName
     const clientList  = clients.map(c => c.name || c);
     const contractMap = {};
     contracts.forEach(c => {
-        if (!contractMap[c.client_name || c.clientName]) contractMap[c.client_name || c.clientName] = [];
-        contractMap[c.client_name || c.clientName].push(c.name || c.reference || c);
+        const key = c.clientName || c.client_name || '';
+        if (!contractMap[key]) contractMap[key] = [];
+        contractMap[key].push({ name: c.contractName || c.name || c.reference || '', id: c.id });
     });
     const contractsForClient = contractMap[client] || [];
 
@@ -253,7 +254,7 @@ function InvoiceFormModal({ existing = null, clients = [], contracts = [], onSav
                         <F label="Contract">
                             <select value={contract} onChange={e => setContract(e.target.value)} style={inp}>
                                 <option value="">— Select Contract (optional) —</option>
-                                {contractsForClient.map(c => <option key={c}>{c}</option>)}
+                                {contractsForClient.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
                             </select>
                         </F>
 

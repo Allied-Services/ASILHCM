@@ -692,7 +692,28 @@ pool.query(`
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS note         TEXT`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS created_by   TEXT`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS updated_at   TIMESTAMPTZ DEFAULT NOW()`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS billable     BOOLEAN DEFAULT TRUE`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS period_month INT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS period_year  INT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS paid_at      TIMESTAMPTZ`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS paid_by      TEXT`,
+    `CREATE TABLE IF NOT EXISTS delivery_challans (
+        id          TEXT PRIMARY KEY,
+        bill_id     TEXT NOT NULL,
+        challan_no  TEXT UNIQUE,
+        client      TEXT,
+        vendor      TEXT,
+        contract    TEXT,
+        site        TEXT,
+        items       JSONB DEFAULT '[]',
+        total       NUMERIC(12,2) DEFAULT 0,
+        delivery_date DATE,
+        notes       TEXT,
+        printed_by  TEXT,
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
 ].forEach(sql => pool.query(sql).catch(e => console.error('bills migration:', e.message)));
+
 
 app.get('/api/bills', requireAuth, async (req, res) => {
     try {
@@ -737,13 +758,73 @@ app.post('/api/bills', requireAuth, requireRole('procurement_proposer','finance_
 
 app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approver','finance_approver','superadmin'), async (req, res) => {
     const { status } = req.body;
-    const VALID = ['Draft','Pending Approval','Approved','Rejected','Pushed to Xero','Posted'];
+    const VALID = ['Draft','Pending Approval','Approved','Rejected','Pushed to Xero','Posted','Paid'];
     if (!VALID.includes(status)) return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID.join(', ')}` });
     try {
-        await pool.query('UPDATE bills SET status=$1, updated_at=NOW() WHERE id=$2', [status, req.params.id]);
+        const extra = status === 'Paid'
+            ? ', paid_at=NOW(), paid_by=$3'
+            : '';
+        const params = status === 'Paid'
+            ? [status, req.params.id, req.user.email]
+            : [status, req.params.id];
+        await pool.query(`UPDATE bills SET status=$1, updated_at=NOW()${extra} WHERE id=$2`, params);
         res.json({ ok: true, status });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// POST /api/bills/:id/unlock — password-protected unlock for paid bills
+app.post('/api/bills/:id/unlock', requireAuth, async (req, res) => {
+    const { password } = req.body;
+    const correctPwd = process.env.BILLS_UNLOCK_PASSWORD;
+    if (!correctPwd) return res.status(503).json({ error: 'BILLS_UNLOCK_PASSWORD not set in environment. Please contact your system administrator.' });
+    if (password !== correctPwd) return res.status(403).json({ error: 'Incorrect password. Access denied.' });
+    try {
+        await pool.query(`UPDATE bills SET status='Approved', paid_at=NULL, paid_by=NULL, updated_at=NOW() WHERE id=$1`, [req.params.id]);
+        res.json({ ok: true, message: 'Bill unlocked and reset to Approved status.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/bills/:id/challan — generate or retrieve a delivery challan
+app.post('/api/bills/:id/challan', requireAuth, async (req, res) => {
+    try {
+        const { delivery_date, notes } = req.body;
+        // Check if bill exists
+        const { rows: billRows } = await pool.query('SELECT * FROM bills WHERE id=$1', [req.params.id]);
+        if (!billRows.length) return res.status(404).json({ error: 'Bill not found' });
+        const bill = billRows[0];
+        // Get count to build challan number
+        const { rows: countRows } = await pool.query('SELECT COUNT(*) AS cnt FROM delivery_challans');
+        const seq = String(parseInt(countRows[0].cnt) + 1).padStart(3, '0');
+        const now = new Date();
+        const monthAbbr = now.toLocaleString('en-US', { month: 'short' }).toUpperCase();
+        const yr2 = String(now.getFullYear()).slice(-2);
+        const challanNo = `DC-${monthAbbr}${yr2}-${seq}`;
+        const challanId = `CHAL-${Date.now()}`;
+        const { rows } = await pool.query(
+            `INSERT INTO delivery_challans (id, bill_id, challan_no, client, vendor, contract, site, items, total, delivery_date, notes, printed_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+             ON CONFLICT (bill_id) DO UPDATE SET delivery_date=$10, notes=$11, printed_by=$12, challan_no=delivery_challans.challan_no
+             RETURNING *`,
+            [challanId, bill.id, challanNo, bill.client, bill.vendor, bill.contract, bill.site,
+             JSON.stringify(bill.items || []), parseFloat(bill.total) || 0,
+             delivery_date || new Date().toISOString().split('T')[0],
+             notes || null, req.user.email]
+        ).catch(async () => {
+            // Conflict on bill_id — retrieve existing
+            return pool.query('SELECT * FROM delivery_challans WHERE bill_id=$1', [req.params.id]);
+        });
+        res.json({ ok: true, challan: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/bills/:id/challan — retrieve existing challan for a bill
+app.get('/api/bills/:id/challan', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM delivery_challans WHERE bill_id=$1', [req.params.id]);
+        res.json({ challan: rows[0] || null });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 app.delete('/api/bills/:id', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {

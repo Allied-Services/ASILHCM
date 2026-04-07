@@ -2,9 +2,52 @@ import React, { useState, useRef, useEffect } from 'react';
 import { FileText, Upload, Edit3, CheckCircle, Loader, Eye, AlertTriangle } from 'lucide-react';
 import { api } from './api';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const BILL_TYPES = ['Company Expense', 'Client Debit Note', 'Imprest'];
-const PURPOSES = ['Office Supplies', 'Maintenance & Repair', 'Fuel & Transport', 'Safety Equipment', 'Procurement — Fixed Supply', 'Catering', 'Utilities', 'Other'];
+// ─── Bill Type Definitions ───────────────────────────────────────────────────
+const BILL_TYPE_DEFS = [
+    {
+        id: 'Debit Note / Imprest',
+        icon: '💼',
+        desc: 'Cash advance, imprest top-up, or debit note — always billed back to client',
+        billable: true,
+        billableLocked: true,
+        requiresClient: true,
+        requiresContract: false,
+        color: '#a78bfa',
+    },
+    {
+        id: 'Client Procurement',
+        icon: '🏭',
+        desc: 'Supply purchase for a specific client contract — always billable',
+        billable: true,
+        billableLocked: true,
+        requiresClient: true,
+        requiresContract: true,
+        color: '#38bdf8',
+    },
+    {
+        id: 'Contractual Purchasing',
+        icon: '📦',
+        desc: 'Monthly consumables per Bid Tracking contract — references contract + period',
+        billable: null, // user chooses
+        billableLocked: false,
+        requiresClient: true,
+        requiresContract: true,
+        requiresPeriod: true,
+        color: '#22c55e',
+    },
+    {
+        id: 'Internal Expense',
+        icon: '🏢',
+        desc: 'Internal company cost — admin, travel, utilities, office supplies',
+        billable: false,
+        billableLocked: false,
+        requiresClient: false,
+        requiresContract: false,
+        color: '#f59e0b',
+    },
+];
+const BILL_TYPES = BILL_TYPE_DEFS.map(t => t.id);
+const PURPOSES = ['Office Supplies', 'Maintenance & Repair', 'Fuel & Transport', 'Safety Equipment', 'Monthly Consumables', 'Equipment', 'Catering', 'Utilities', 'Other'];
 
 const STATUS_COLORS = {
     'Draft':           { bg: 'rgba(100,116,139,0.15)', color: '#94a3b8' },
@@ -14,6 +57,7 @@ const STATUS_COLORS = {
     'Rejected':        { bg: 'rgba(239,68,68,0.12)',   color: '#ef4444' },
     'Pushed to Xero':  { bg: 'rgba(99,102,241,0.15)', color: '#818cf8' },
     'Posted':          { bg: 'rgba(99,102,241,0.12)',  color: '#818cf8' },
+    'Paid':            { bg: 'rgba(16,185,129,0.15)',  color: '#10b981' },
 };
 
 const Badge = ({ status }) => {
@@ -358,12 +402,19 @@ function OCRModal({ onSave, onClose, clientsList = [], contractsList = [] }) {
 
 
 // ─── Manual Bill Modal — with line items ──────────────────────────────────────
-function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = [] }) {
+function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = [], vendorsList = [] }) {
     const emptyItem = () => ({ desc: '', qty: 1, unit: '', total: 0 });
-    const [form, setForm] = useState({ vendor: '', date: new Date().toISOString().split('T')[0], invoiceNo: '', gstPct: '17', client: '', contractId: '', bu: '', site: '', billType: 'Client Debit Note', purpose: '', note: '' });
+    const [form, setForm] = useState({
+        vendorId: '', vendor: '', date: new Date().toISOString().split('T')[0],
+        invoiceNo: '', gstPct: '17', client: '', contractId: '', bu: '', site: '',
+        billType: 'Debit Note / Imprest', purpose: '', note: '',
+        billable: true, periodMonth: new Date().getMonth() + 1, periodYear: new Date().getFullYear(),
+    });
     const [items, setItems] = useState([emptyItem()]);
     const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+    const billTypeDef = BILL_TYPE_DEFS.find(t => t.id === form.billType) || BILL_TYPE_DEFS[0];
     const filteredContracts = contractsList.filter(ct => !form.client || ct.clientName === form.client);
+    const vendorName = vendorsList.find(v => v.id === parseInt(form.vendorId))?.name || form.vendor || '';
 
     const setItem = (i, k, v) => setItems(p => {
         const next = [...p]; next[i] = { ...next[i], [k]: v };
@@ -377,7 +428,12 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
 
     const save = () => {
         const ct = contractsList.find(c => c.id === form.contractId);
-        onSave({ id: `BILL-${Date.now()}`, type: 'Manual', ...form, contract: ct?.contractName || '', items, amount: subtotal, gst: gstAmount, total: grandTotal, status: 'Draft' });
+        const resolvedVendor = vendorsList.find(v => v.id === parseInt(form.vendorId))?.name || form.vendor;
+        onSave({ id: `BILL-${Date.now()}`, type: 'Manual', ...form,
+            vendor: resolvedVendor,
+            contract: ct?.contractName || '', items, amount: subtotal, gst: gstAmount, total: grandTotal, status: 'Draft',
+            billable: billTypeDef.billableLocked ? billTypeDef.billable : form.billable,
+        });
         onClose();
     };
 
@@ -391,36 +447,81 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
                 <div style={{ padding: '1.5rem 2rem', maxHeight: '78vh', overflowY: 'auto' }}>
                     {/* Header fields */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1rem' }}>
-                        <FL label="Vendor / Supplier" span="span 2"><SI value={form.vendor} onChange={e => set('vendor', e.target.value)} placeholder="Vendor or supplier name" /></FL>
+
+                        {/* Bill Type — first choice determines all other logic */}
+                        <div style={{ gridColumn: 'span 3', marginBottom: '1rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>Bill Type — select one</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.5rem' }}>
+                                {BILL_TYPE_DEFS.map(t => (
+                                    <button key={t.id} onClick={() => {
+                                        set('billType', t.id);
+                                        if (t.billableLocked) set('billable', t.billable);
+                                        if (!t.requiresClient) { set('client', ''); set('contractId', ''); }
+                                    }}
+                                        style={{ padding: '10px 8px', borderRadius: '10px', border: `2px solid ${form.billType === t.id ? t.color : 'var(--border)'}`, background: form.billType === t.id ? `${t.color}18` : 'transparent', cursor: 'pointer', textAlign: 'center' }}>
+                                        <div style={{ fontSize: '1.2rem', marginBottom: '3px' }}>{t.icon}</div>
+                                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: form.billType === t.id ? t.color : 'var(--text-muted)' }}>{t.id}</div>
+                                    </button>
+                                ))}
+                            </div>
+                            {billTypeDef && (
+                                <div style={{ marginTop: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', padding: '6px 10px', background: `${billTypeDef.color}10`, borderRadius: '6px', border: `1px solid ${billTypeDef.color}30` }}>
+                                    {billTypeDef.icon} {billTypeDef.desc}
+                                    {billTypeDef.billableLocked && <strong style={{ color: billTypeDef.color }}> · Billable to client (locked ON)</strong>}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Vendor Dropdown */}
+                        <FL label="Vendor / Supplier" span="span 2">
+                            <select value={form.vendorId} onChange={e => {
+                                const v = vendorsList.find(v => v.id === parseInt(e.target.value));
+                                set('vendorId', e.target.value);
+                                set('vendor', v?.name || '');
+                            }} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
+                                <option value="">— Select Registered Vendor —</option>
+                                {vendorsList.map(v => <option key={v.id} value={v.id}>{v.name}{v.category ? ` (${v.category})` : ''}</option>)}
+                            </select>
+                            {!form.vendorId && <input value={form.vendor} onChange={e => set('vendor', e.target.value)} placeholder="Or type vendor name if not registered" style={{ marginTop: '4px', width:'100%', background:'rgba(245,158,11,0.04)', border:'1px dashed rgba(245,158,11,0.4)', borderRadius:'6px', padding:'5px 9px', color:'#f59e0b', fontSize:'0.8rem' }} />}
+                        </FL>
                         <FL label="Bill Date"><SI type="date" value={form.date} onChange={e => set('date', e.target.value)} /></FL>
                         <FL label="Invoice No." span="span 1"><SI value={form.invoiceNo} onChange={e => set('invoiceNo', e.target.value)} placeholder="Optional" /></FL>
-                        <FL label="Client">
-                            <select value={form.client} onChange={e => { set('client', e.target.value); set('contractId', ''); set('bu',''); }} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
-                                <option value="">— Select Client —</option>
-                                {clientsList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                            </select>
-                        </FL>
-                        <FL label="Contract">
-                            <select value={form.contractId} onChange={e => set('contractId', e.target.value)} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
-                                <option value="">— Select Contract —</option>
-                                {filteredContracts.map(ct => <option key={ct.id} value={ct.id}>{ct.contractName}</option>)}
-                            </select>
-                        </FL>
+                        {billTypeDef.requiresClient && (
+                            <FL label="Client">
+                                <select value={form.client} onChange={e => { set('client', e.target.value); set('contractId', ''); set('bu',''); }} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
+                                    <option value="">— Select Client —</option>
+                                    {clientsList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                </select>
+                            </FL>
+                        )}
+                        {billTypeDef.requiresContract && (
+                            <FL label="Contract">
+                                <select value={form.contractId} onChange={e => set('contractId', e.target.value)} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
+                                    <option value="">— Select Contract —</option>
+                                    {filteredContracts.map(ct => <option key={ct.id} value={ct.id}>{ct.contractName}</option>)}
+                                </select>
+                            </FL>
+                        )}
+                        {billTypeDef.requiresPeriod && (
+                            <FL label="Period Month">
+                                <select value={form.periodMonth} onChange={e => set('periodMonth', e.target.value)} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
+                                    {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i) => <option key={i} value={i+1}>{m}</option>)}
+                                </select>
+                            </FL>
+                        )}
                         <FL label="Site / Location"><SI value={form.site} onChange={e => set('site', e.target.value)} placeholder="e.g. Karachi" /></FL>
                         <FL label="Purpose" span="span 2"><SS value={form.purpose} onChange={e => set('purpose', e.target.value)} opts={PURPOSES} /></FL>
                         <FL label="GST %"><SI type="number" value={form.gstPct} onChange={e => set('gstPct', e.target.value)} placeholder="17" /></FL>
-                    </div>
 
-                    {/* Bill Type */}
-                    <div style={{ marginBottom: '1rem' }}>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '6px' }}>Bill Type — who bears this cost?</div>
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            {BILL_TYPES.map(t => (
-                                <button key={t} onClick={() => set('billType', t)}
-                                    style={{ flex: 1, padding: '8px', borderRadius: '8px', border: `2px solid ${form.billType === t ? 'var(--primary)' : 'var(--border)'}`, background: form.billType === t ? 'rgba(56,189,248,0.1)' : 'transparent', color: form.billType === t ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-                                    {t}
-                                </button>
-                            ))}
+                        {/* Billable toggle — locked for types 1 & 2 */}
+                        <div style={{ gridColumn: 'span 3', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderRadius: '8px', background: form.billable ? 'rgba(34,197,94,0.07)' : 'rgba(245,158,11,0.07)', border: `1px solid ${form.billable ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.3)'}` }}>
+                            <input type="checkbox" checked={!!form.billable} disabled={billTypeDef.billableLocked}
+                                onChange={e => !billTypeDef.billableLocked && set('billable', e.target.checked)}
+                                style={{ width: '16px', height: '16px', accentColor: '#22c55e', cursor: billTypeDef.billableLocked ? 'not-allowed' : 'pointer' }} />
+                            <span style={{ fontSize: '0.85rem', color: form.billable ? '#22c55e' : '#f59e0b', fontWeight: 600 }}>
+                                {form.billable ? '✅ Billable to Client' : '🏢 Internal (Non-Billable)'}
+                                {billTypeDef.billableLocked && <span style={{ fontSize: '0.75rem', marginLeft: '8px', opacity: 0.7 }}>(locked for this bill type)</span>}
+                            </span>
                         </div>
                     </div>
 
@@ -612,15 +713,16 @@ function ImportQuotationModal({ onSave, onClose }) {
 }
 
 // ─── Bill Detail Modal ─────────────────────────────────────────────────
-function BillDetailModal({ bill, onAction, onXero, onClose, isApprover }) {
+function BillDetailModal({ bill, onAction, onXero, onClose, isApprover, generateChallan }) {
     const flow = {
         'Draft':            ['Submit for Approval'],
         'Pending Approval': ['Approve', 'Reject'],
         'Pending':          ['Approve', 'Reject'],
-        'Approved':         ['Post to Ledger'],
-        'Posted':           [],
-        'Pushed to Xero':   [],
+        'Approved':         ['Post to Ledger', 'Mark as Paid'],
+        'Posted':           ['Mark as Paid'],
+        'Pushed to Xero':   ['Mark as Paid'],
         'Rejected':         ['Archive'],
+        'Paid':             [],
     };
     const actions = flow[bill.status] || [];
 
@@ -673,14 +775,18 @@ function BillDetailModal({ bill, onAction, onXero, onClose, isApprover }) {
                         <span style={{ fontWeight: 900, fontSize: '1.2rem', color: 'var(--primary)' }}>{Rs(bill.total)}</span>
                     </div>
 
-                    {bill.billType === 'Client Debit Note' && (
-                        <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.84rem' }}>
-                            <strong style={{ color: '#818cf8' }}>→ Debit Note:</strong> When approved &amp; posted, this will be available in a Client Invoice to {bill.client}.
-                        </div>
-                    )}
-                    {bill.billType === 'Imprest' && (
-                        <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.84rem' }}>
-                            <strong style={{ color: '#f59e0b' }}>→ Imprest:</strong> This will be deducted from the Imprest pool for {bill.client}.
+                    {/* Bill type contextual info */}
+                    {(() => {
+                        const btDef = BILL_TYPE_DEFS.find(t => t.id === bill.billType);
+                        if (!btDef) return null;
+                        return <div style={{ background: `${btDef.color}10`, border: `1px solid ${btDef.color}30`, borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.84rem' }}>
+                            <strong style={{ color: btDef.color }}>{btDef.icon} {btDef.id}:</strong> {btDef.desc}
+                        </div>;
+                    })()}
+
+                    {bill.status === 'Paid' && (
+                        <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.84rem', color: '#10b981' }}>
+                            🔒 <strong>This bill is PAID and locked.</strong> Use “Unlock” from the bill list to make changes.
                         </div>
                     )}
 
@@ -691,12 +797,16 @@ function BillDetailModal({ bill, onAction, onXero, onClose, isApprover }) {
                                 <div style={{ fontWeight: 700, color: '#818cf8', marginBottom: '2px' }}>📊 Xero Integration (Stub)</div>
                                 <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Click to mark as synced. Full Xero OAuth is pending implementation.</div>
                             </div>
-                            <button onClick={xeroStub} style={{ background: '#6366f1', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Approve &amp; Sync to Xero →</button>
+                            <button onClick={() => { onXero(bill.id, 'Pushed to Xero'); onClose(); }} style={{ background: '#6366f1', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Approve &amp; Sync to Xero →</button>
                         </div>
                     )}
 
-                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                         <button onClick={onClose} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>Close</button>
+                        <button onClick={() => generateChallan && generateChallan(bill)}
+                            style={{ flex: 1, background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.3)', color: '#a78bfa', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                            📄 Delivery Challan
+                        </button>
                         {actions.map(a => (
                             <button key={a} onClick={() => { onAction(bill.id, a); onClose(); }}
                                 style={{ flex: 2, background: a === 'Approve' || a === 'Post to Ledger' ? '#22c55e' : a === 'Reject' ? '#ef4444' : 'var(--primary)', border: 'none', color: 'white', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
@@ -724,20 +834,22 @@ export default function BillingProcurement({ user }) {
     const [filterClient, setFilterClient] = useState('All');
     const [filterStatus, setFilterStatus] = useState('All');
 
-    // Load bills + clients + contracts from DB on mount
     const [clientsList, setClientsList]     = useState([]);
     const [contractsList, setContractsList] = useState([]);
+    const [vendorsList, setVendorsList]     = useState([]);
+    const [activeTab, setActiveTab]         = useState('active'); // 'active' | 'paid'
+    const [unlockTarget, setUnlockTarget]   = useState(null); // bill to unlock
+    const [unlockPwd, setUnlockPwd]         = useState('');
+    const [unlockError, setUnlockError]     = useState(null);
+    const [unlockLoading, setUnlockLoading] = useState(false);
     useEffect(() => {
         api.getBills()
             .then(data => setBills(Array.isArray(data) ? data : []))
             .catch(err => console.error('Bills load error:', err.message))
             .finally(() => setLoading(false));
-        api.getClients()
-            .then(d => setClientsList(d.clients || []))
-            .catch(() => {});
-        api.getContracts()
-            .then(d => setContractsList(d.contracts || []))
-            .catch(() => {});
+        api.getClients().then(d => setClientsList(d.clients || [])).catch(() => {});
+        api.getContracts().then(d => setContractsList(d.contracts || [])).catch(() => {});
+        api.getVendors().then(d => setVendorsList(d.vendors || [])).catch(() => {});
     }, []);
 
     const filtered = bills.filter(b =>
@@ -758,6 +870,7 @@ export default function BillingProcurement({ user }) {
         const map = {
             'Submit for Approval': 'Pending Approval',
             'Approve': 'Approved',
+            'Mark as Paid': 'Paid',
             'Post to Ledger': 'Posted',
             'Reject': 'Rejected',
             'Archive': 'Rejected',
@@ -768,6 +881,66 @@ export default function BillingProcurement({ user }) {
             await api.updateBillStatus(id, newStatus);
             setBills(p => p.map(b => b.id === id ? { ...b, status: newStatus } : b));
         } catch (err) { alert('Status update failed: ' + err.message); }
+    };
+
+    const generateChallan = async (bill) => {
+        const delivDate = window.prompt('Delivery date (YYYY-MM-DD):', new Date().toISOString().split('T')[0]);
+        if (!delivDate) return;
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+            const r = await fetch(`${API}/api/bills/${bill.id}/challan`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ delivery_date: delivDate }),
+            });
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error);
+            const ch = data.challan;
+            // Open print window
+            const html = `<!DOCTYPE html><html><head><title>Delivery Challan ${ch.challan_no}</title>
+<style>body{font-family:Arial,sans-serif;padding:30px;max-width:700px;margin:0 auto}
+h1{color:#1e293b}table{width:100%;border-collapse:collapse}td,th{border:1px solid #cbd5e1;padding:8px 10px}th{background:#f1f5f9}@media print{button{display:none}}</style></head>
+<body>
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
+  <div><h1 style="margin:0">Delivery Challan</h1><div style="color:#64748b">${ch.challan_no}</div></div>
+  <div style="text-align:right"><strong>ASIL</strong><br>Allied Services International Ltd<br>Date: ${ch.delivery_date || new Date().toISOString().split('T')[0]}</div>
+</div>
+<table style="margin-bottom:20px"><tr><td><strong>Client</strong></td><td>${ch.client || '—'}</td><td><strong>Vendor</strong></td><td>${ch.vendor || '—'}</td></tr>
+<tr><td><strong>Contract</strong></td><td>${ch.contract || '—'}</td><td><strong>Site</strong></td><td>${ch.site || '—'}</td></tr></table>
+<h3>Items</h3>
+<table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead><tbody>
+${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PKR ${(it.unit||0).toLocaleString()}</td><td>PKR ${(it.total||0).toLocaleString()}</td></tr>`).join('')}
+</tbody><tfoot><tr><td colspan="3" style="text-align:right"><strong>Grand Total</strong></td><td><strong>PKR ${(ch.total||0).toLocaleString()}</strong></td></tr></tfoot></table>
+<div style="margin-top:60px;display:grid;grid-template-columns:1fr 1fr;gap:40px">
+  <div style="border-top:1px solid #000;padding-top:8px">Prepared By</div>
+  <div style="border-top:1px solid #000;padding-top:8px">Received By &amp; Signature</div>
+</div>
+<button onclick="window.print()" style="margin-top:20px;padding:10px 24px;background:#1e40af;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ Print Challan</button>
+</body></html>`;
+            const w = window.open('', '_blank');
+            w.document.write(html);
+            w.document.close();
+        } catch (e) { alert('Challan error: ' + e.message); }
+    };
+
+    const doUnlock = async () => {
+        if (!unlockTarget) return;
+        setUnlockLoading(true); setUnlockError(null);
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+            const r = await fetch(`${API}/api/bills/${unlockTarget.id}/unlock`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: unlockPwd }),
+            });
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error);
+            setBills(p => p.map(b => b.id === unlockTarget.id ? { ...b, status: 'Approved' } : b));
+            setUnlockTarget(null); setUnlockPwd('');
+        } catch (e) { setUnlockError(e.message); }
+        setUnlockLoading(false);
     };
 
     const deleteBill = async (bill) => {
@@ -813,15 +986,29 @@ export default function BillingProcurement({ user }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
                 {[
                     { l: 'Total Bills', v: bills.length, c: 'var(--primary)' },
-                    { l: 'Pending Approval', v: bills.filter(b => b.status === 'Pending').length, c: '#f59e0b' },
+                    { l: 'Pending Approval', v: bills.filter(b => b.status === 'Pending Approval' || b.status === 'Pending').length, c: '#f59e0b' },
                     { l: 'Approved', v: bills.filter(b => b.status === 'Approved').length, c: '#22c55e' },
+                    { l: 'Paid', v: bills.filter(b => b.status === 'Paid').length, c: '#10b981' },
                     { l: 'Total Value', v: Rs(bills.reduce((a, b) => a + b.total, 0)), c: 'var(--text)' },
-                    { l: 'As Debit Notes', v: Rs(bills.filter(b => b.billType === 'Client Debit Note').reduce((a, b) => a + b.total, 0)), c: '#818cf8' },
                 ].map(card => (
                     <div key={card.l} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1rem 1.25rem' }}>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '5px' }}>{card.l}</div>
                         <div style={{ fontWeight: 800, fontSize: '1rem', color: card.c }}>{card.v}</div>
                     </div>
+                ))}
+            </div>
+
+            {/* Active / Paid Tabs */}
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '1rem', background: 'var(--bg-dark)', borderRadius: '10px', padding: '4px', width: 'fit-content' }}>
+                {[['active', '📋 Active Bills'], ['paid', '✅ Paid / Archived']].map(([id, label]) => (
+                    <button key={id} onClick={() => setActiveTab(id)}
+                        style={{ padding: '7px 18px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.83rem',
+                            background: activeTab === id ? 'var(--primary)' : 'transparent',
+                            color: activeTab === id ? 'white' : 'var(--text-muted)' }}>
+                        {label} <span style={{ marginLeft: '4px', fontSize: '0.75rem', opacity: 0.75 }}>({activeTab === id
+                            ? (id === 'paid' ? bills.filter(b => b.status === 'Paid').length : bills.filter(b => b.status !== 'Paid').length)
+                            : (id === 'paid' ? bills.filter(b => b.status === 'Paid').length : bills.filter(b => b.status !== 'Paid').length)})</span>
+                    </button>
                 ))}
             </div>
 
@@ -839,7 +1026,14 @@ export default function BillingProcurement({ user }) {
                 <span style={{ marginLeft: 'auto', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{filtered.length} bills · Total: <strong style={{ color: 'var(--text)' }}>{Rs(totals.total)}</strong></span>
             </div>
 
-            {/* Bill Table — or empty state */}
+            {/* Paid bills notice */}
+            {activeTab === 'paid' && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', fontSize: '0.83rem', color: '#10b981', marginBottom: '1rem' }}>
+                    🔒 <strong>Paid bills are locked.</strong> To edit or delete a paid bill, click <strong>Unlock</strong> and enter the secure password. Contact your Finance Manager for the password.
+                </div>
+            )}
+
+            {/* Bill Table */}
             {bills.length === 0 ? (
                 <div style={{ background: 'var(--bg-card)', border: '2px dashed var(--border)', borderRadius: '16px', padding: '4rem', textAlign: 'center' }}>
                     <FileText size={48} color="var(--text-muted)" style={{ marginBottom: '1rem' }} />
@@ -851,48 +1045,70 @@ export default function BillingProcurement({ user }) {
                     <div style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
                             <thead><tr style={{ background: 'var(--bg-dark)' }}>
-                                {['Bill ID', 'Type', 'Vendor', 'Client / Contract', 'Site', 'Purpose', 'Bill Type', 'Amount', 'Status', 'Actions'].map(h => (
+                                {['Bill ID', 'Type', 'Vendor', 'Client / Contract', 'Bill Type', 'Amount', 'Billable', 'Status', 'Actions'].map(h => (
                                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border)' }}>{h}</th>
                                 ))}
                             </tr></thead>
                             <tbody>
-                                {filtered.map((b, i) => (
-                                    <tr key={b.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                                        <td style={{ padding: '9px 12px', fontWeight: 700, color: 'var(--primary)', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>{b.id.slice(0, 16)}</td>
+                                {filtered
+                                    .filter(b => activeTab === 'paid' ? b.status === 'Paid' : b.status !== 'Paid')
+                                    .map((b, i) => {
+                                    const btDef = BILL_TYPE_DEFS.find(t => t.id === b.billType);
+                                    const isPaid = b.status === 'Paid';
+                                    return (
+                                    <tr key={b.id} style={{ borderBottom: '1px solid var(--border)', background: isPaid ? 'rgba(16,185,129,0.03)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                                        <td style={{ padding: '9px 12px', fontWeight: 700, color: 'var(--primary)', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                                            {isPaid && <span title="Paid & Locked" style={{ marginRight: '4px' }}>🔒</span>}
+                                            {b.id.slice(0, 16)}
+                                        </td>
                                         <td style={{ padding: '9px 12px', fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{b.type}</td>
                                         <td style={{ padding: '9px 12px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{b.vendor}</td>
                                         <td style={{ padding: '9px 12px', fontSize: '0.8rem' }}>
                                             <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '0.83rem' }}>{b.client || '—'}</div>
                                             <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>{b.contract}</div>
                                         </td>
-                                        <td style={{ padding: '9px 12px', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>{b.site || '—'}</td>
-                                        <td style={{ padding: '9px 12px', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{b.purpose || '—'}</td>
                                         <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>
-                                            <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700, background: b.billType === 'Client Debit Note' ? 'rgba(99,102,241,0.12)' : b.billType === 'Imprest' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)', color: b.billType === 'Client Debit Note' ? '#818cf8' : b.billType === 'Imprest' ? '#f59e0b' : '#22c55e' }}>
-                                                {b.billType}
+                                            <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700,
+                                                background: `${btDef?.color || '#94a3b8'}18`, color: btDef?.color || '#94a3b8' }}>
+                                                {btDef?.icon} {b.billType || '—'}
                                             </span>
                                         </td>
                                         <td style={{ padding: '9px 12px', fontWeight: 700, whiteSpace: 'nowrap', textAlign: 'right', fontSize: '0.88rem' }}>{Rs(b.total)}</td>
+                                        <td style={{ padding: '9px 12px', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                                            {b.billable !== false
+                                                ? <span style={{ color: '#22c55e', fontWeight: 700 }}>✅ Billable</span>
+                                                : <span style={{ color: '#f59e0b', fontWeight: 700 }}>🏢 Internal</span>}
+                                        </td>
                                         <td style={{ padding: '9px 12px' }}><Badge status={b.status} /></td>
                                         <td style={{ padding: '9px 12px' }}>
-                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                            <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexWrap: 'wrap' }}>
                                                 <button onClick={() => setDetailBill(b)}
-                                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-                                                    <Eye size={13} /> View
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>
+                                                    <Eye size={12} /> View
                                                 </button>
-                                                {isSuperAdmin && (
-                                                    <button onClick={() => deleteBill(b)}
-                                                        title="Delete (SuperAdmin only)"
-                                                        style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-                                                        🗑
+                                                <button onClick={() => generateChallan(b)} title="Generate Delivery Challan"
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>
+                                                    📄 Challan
+                                                </button>
+                                                {isPaid && (
+                                                    <button onClick={() => { setUnlockTarget(b); setUnlockPwd(''); setUnlockError(null); }}
+                                                        style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>
+                                                        🔓 Unlock
                                                     </button>
+                                                )}
+                                                {isSuperAdmin && !isPaid && (
+                                                    <button onClick={() => deleteBill(b)} title="Delete"
+                                                        style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', padding: '5px 7px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem' }}>🗑</button>
                                                 )}
                                             </div>
                                         </td>
                                     </tr>
-                                ))}
-                                {filtered.length === 0 && bills.length > 0 && (
-                                    <tr><td colSpan={10} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>No bills match the current filters.</td></tr>
+                                    );
+                                })}
+                                {filtered.filter(b => activeTab === 'paid' ? b.status === 'Paid' : b.status !== 'Paid').length === 0 && (
+                                    <tr><td colSpan={9} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                        {activeTab === 'paid' ? 'No paid bills yet.' : 'No bills match the current filters.'}
+                                    </td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -900,10 +1116,39 @@ export default function BillingProcurement({ user }) {
                 </div>
             )}
 
-            {showOCR    && <OCRModal    onSave={addBill} onClose={() => setShowOCR(false)}    clientsList={clientsList} contractsList={contractsList} />}
-            {showManual && <ManualBillModal onSave={addBill} onClose={() => setShowManual(false)} clientsList={clientsList} contractsList={contractsList} />}
+            {/* Password Unlock Modal */}
+            {unlockTarget && (
+                <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setUnlockTarget(null)}>
+                    <div className="modal-box" style={{ maxWidth: '420px' }}>
+                        <div style={{ padding: '1.5rem 2rem' }}>
+                            <h3 style={{ margin: '0 0 0.5rem' }}>🔓 Unlock Paid Bill</h3>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+                                Bill <strong style={{ color: 'var(--primary)' }}>{unlockTarget.id.slice(0,16)}</strong> is marked as Paid and locked.
+                                Enter the secure password to unlock it for editing.
+                            </p>
+                            <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Unlock Password</label>
+                            <input type="password" value={unlockPwd} onChange={e => setUnlockPwd(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && doUnlock()}
+                                placeholder="Enter secure password"
+                                style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '9px 12px', color: 'var(--text)', fontSize: '0.9rem', marginBottom: '0.75rem', boxSizing: 'border-box' }} />
+                            {unlockError && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginBottom: '0.75rem' }}>⚠️ {unlockError}</div>}
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button onClick={() => setUnlockTarget(null)}
+                                    style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '9px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                                <button onClick={doUnlock} disabled={!unlockPwd || unlockLoading}
+                                    style={{ flex: 2, background: unlockPwd ? '#f59e0b' : '#334155', border: 'none', color: 'white', padding: '9px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                                    {unlockLoading ? 'Checking…' : '🔓 Unlock Bill'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showOCR    && <OCRModal    onSave={addBill} onClose={() => setShowOCR(false)}    clientsList={clientsList} contractsList={contractsList} vendorsList={vendorsList} />}
+            {showManual && <ManualBillModal onSave={addBill} onClose={() => setShowManual(false)} clientsList={clientsList} contractsList={contractsList} vendorsList={vendorsList} />}
             {showQuote  && <ImportQuotationModal onSave={addBill} onClose={() => setShowQuote(false)} />}
-            {detailBill && <BillDetailModal bill={detailBill} onAction={doAction} onXero={doAction} isApprover={['finance_approver','procurement_approver','superadmin'].includes(user?.role)} onClose={() => setDetailBill(null)} />}
+            {detailBill && <BillDetailModal bill={detailBill} onAction={doAction} onXero={doAction} isApprover={['finance_approver','procurement_approver','superadmin'].includes(user?.role)} onClose={() => setDetailBill(null)} generateChallan={generateChallan} />}
         </div>
     );
 }
