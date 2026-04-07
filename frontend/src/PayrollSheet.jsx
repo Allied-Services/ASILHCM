@@ -501,7 +501,7 @@ export default function PayrollSheet({ user }) {
             } catch (e) { console.warn('Payroll save failed:', e.message); }
             finally { setIsSaving(false); }
         }, 800);
-    }, [month, isLocked]);
+    }, [month, lockedIds]);
 
     const rowsRef = useRef([]);
 
@@ -734,9 +734,6 @@ export default function PayrollSheet({ user }) {
         const scopeLabel = filterClient !== 'All'
             ? `${filterClient}${filterContract !== 'All' ? ' / ' + filterContract : ''}`
             : 'all visible';
-        if (!toLoad) {
-            // nothing to do
-        }
         if (!toLock.length) { alert('All visible employees are already locked.'); return; }
         if (!window.confirm(
             `Lock payroll for ${toLock.length} employee(s) under "${scopeLabel}"?\n\n` +
