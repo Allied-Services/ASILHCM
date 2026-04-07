@@ -26,9 +26,13 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 
 // ─── Confirm Payment Modal ────────────────────────────────────────────────────
 function ConfirmPaymentModal({ title, totalAmount, employeeCount, onConfirm, onClose }) {
-    const [banks, setBanks] = useState([]);
-    const [bankId, setBankId] = useState('');
-    const [bankName, setBankName] = useState('');
+    // Only HBL and NBP for payroll payments
+    const BANK_OPTIONS = [
+        { id: 'hbl', name: 'Habib Bank Limited (HBL)', is_hbl: true },
+        { id: 'nbp', name: 'National Bank of Pakistan (NBP)', is_hbl: false },
+    ];
+    const [bankId, setBankId] = useState('hbl');
+    const [bankName, setBankName] = useState('Habib Bank Limited (HBL)');
     const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
     const [referenceNo, setReferenceNo] = useState('');
     const [notes, setNotes] = useState('');
@@ -36,18 +40,10 @@ function ConfirmPaymentModal({ title, totalAmount, employeeCount, onConfirm, onC
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState(null);
 
-    useEffect(() => {
-        apiFetch('/api/banks').then(d => {
-            setBanks(d.banks || []);
-            const hbl = (d.banks || []).find(b => b.is_hbl);
-            if (hbl) { setBankId(String(hbl.id)); setBankName(hbl.name); }
-        }).catch(() => {});
-    }, []);
-
     const handleBankChange = (e) => {
         const id = e.target.value;
         setBankId(id);
-        const b = banks.find(b => String(b.id) === id);
+        const b = BANK_OPTIONS.find(b => b.id === id);
         setBankName(b ? b.name : id);
     };
 
@@ -90,8 +86,7 @@ function ConfirmPaymentModal({ title, totalAmount, employeeCount, onConfirm, onC
                             <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '6px' }}>Bank Account</label>
                             <select value={bankId} onChange={handleBankChange}
                                 style={{ width: '100%', background: '#1a2535', border: '1px solid rgba(255,255,255,0.1)', color: '#f0f4f8', padding: '9px 12px', borderRadius: '8px', fontSize: '0.9rem' }}>
-                                <option value="">— Select Bank —</option>
-                                {banks.map(b => <option key={b.id} value={b.id}>{b.name}{b.is_hbl ? ' (HBL — Primary)' : ''}</option>)}
+                                {BANK_OPTIONS.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                             </select>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -159,23 +154,28 @@ function PayrollQueuePanel() {
 
     useEffect(() => { loadQueue(); }, [loadQueue]);
 
-    const expandMonth = async (yr, mo) => {
-        const key = `${yr}-${mo}`;
+    const expandMonth = async (yr, mo, client, contract) => {
+        const key = `${yr}-${mo}-${client||''}-${contract||''}`;
         if (expandedMonth === key) { setExpandedMonth(null); return; }
         setExpandedMonth(key);
         if (monthDetail[key]) return;
         try {
-            const d = await apiFetch(`/api/ap/payroll-queue/${yr}/${mo}`);
+            const params = new URLSearchParams();
+            if (client) params.set('client', client);
+            if (contract) params.set('contract', contract);
+            const d = await apiFetch(`/api/ap/payroll-queue/${yr}/${mo}?${params.toString()}`);
             setMonthDetail(prev => ({ ...prev, [key]: d }));
         } catch (e) { console.error(e); }
     };
 
     const handleConfirm = async (item, formData) => {
+        formData.client_filter = item.client || null;
+        formData.contract_filter = item.contract_name || null;
         await apiFetch(`/api/ap/payroll-queue/${item.year}/${item.month}/confirm`, {
             method: 'POST',
             body: JSON.stringify(formData),
         });
-        setSuccessMsg(`Payment for ${MONTH_NAMES[item.month - 1]} ${item.year} confirmed successfully!`);
+        setSuccessMsg(`Payment for ${item.contract_name || item.client || ''} — ${MONTH_NAMES[item.month - 1]} ${item.year} confirmed!`);
         loadQueue();
     };
 
@@ -214,7 +214,7 @@ function PayrollQueuePanel() {
             ) : (
                 <div style={{ display: 'grid', gap: '0.75rem' }}>
                     {queue.map(item => {
-                        const key = `${item.year}-${item.month}`;
+                        const key = `${item.year}-${item.month}-${item.client||''}-${item.contract_name||''}`;
                         const isExpanded = expandedMonth === key;
                         const badge = statusBadge(item.batch_count);
                         const detail = monthDetail[key];
@@ -223,13 +223,15 @@ function PayrollQueuePanel() {
                             <div key={key} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
                                 {/* Header row */}
                                 <div style={{ display: 'flex', alignItems: 'center', padding: '1rem 1.25rem', gap: '1rem', cursor: 'pointer' }}
-                                    onClick={() => expandMonth(item.year, item.month)}>
+                                    onClick={() => expandMonth(item.year, item.month, item.client, item.contract_name)}>
                                     {isExpanded ? <ChevronDown size={16} color="#64748b" /> : <ChevronRight size={16} color="#64748b" />}
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: 700, color: '#f0f4f8', fontSize: '0.95rem' }}>
                                             {MONTH_NAMES[item.month - 1]} {item.year}
+                                            {item.contract_name && <span style={{ marginLeft: '8px', fontSize: '0.82rem', color: 'var(--primary)', fontWeight: 600 }}>· {item.contract_name}</span>}
                                         </div>
                                         <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                                            {item.client && <span style={{ marginRight: '8px', color: '#94a3b8' }}>{item.client}</span>}
                                             {item.employee_count} employees · Locked by {item.locked_by || '—'}
                                         </div>
                                     </div>
