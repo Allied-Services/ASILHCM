@@ -817,11 +817,36 @@ app.post('/api/bills/:id/unlock', requireAuth, async (req, res) => {
 app.post('/api/bills/:id/challan', requireAuth, async (req, res) => {
     try {
         const { delivery_date, notes } = req.body;
-        // Check if bill exists
-        const { rows: billRows } = await pool.query('SELECT * FROM bills WHERE id=$1', [req.params.id]);
+        const billId = req.params.id;
+
+        // Get bill
+        const { rows: billRows } = await pool.query('SELECT * FROM bills WHERE id=$1', [billId]);
         if (!billRows.length) return res.status(404).json({ error: 'Bill not found' });
         const bill = billRows[0];
-        // Get count to build challan number
+
+        // Check if challan already exists for this bill
+        const { rows: existingRows } = await pool.query(
+            'SELECT * FROM delivery_challans WHERE bill_id=$1', [billId]);
+
+        if (existingRows.length > 0) {
+            // Update and return existing
+            const { rows: updated } = await pool.query(
+                `UPDATE delivery_challans SET delivery_date=$1, notes=$2, printed_by=$3, updated_at=NOW()
+                 WHERE bill_id=$4 RETURNING *`,
+                [delivery_date || existingRows[0].delivery_date,
+                 notes ?? existingRows[0].notes,
+                 req.user.email, billId]
+            ).catch(async () => {
+                // If updated_at column doesn't exist yet, do without it
+                return pool.query(
+                    'UPDATE delivery_challans SET delivery_date=$1, notes=$2, printed_by=$3 WHERE bill_id=$4 RETURNING *',
+                    [delivery_date || existingRows[0].delivery_date, notes ?? existingRows[0].notes, req.user.email, billId]
+                );
+            });
+            return res.json({ ok: true, challan: updated[0] || existingRows[0] });
+        }
+
+        // Create new challan with sequential number
         const { rows: countRows } = await pool.query('SELECT COUNT(*) AS cnt FROM delivery_challans');
         const seq = String(parseInt(countRows[0].cnt) + 1).padStart(3, '0');
         const now = new Date();
@@ -829,20 +854,19 @@ app.post('/api/bills/:id/challan', requireAuth, async (req, res) => {
         const yr2 = String(now.getFullYear()).slice(-2);
         const challanNo = `DC-${monthAbbr}${yr2}-${seq}`;
         const challanId = `CHAL-${Date.now()}`;
-        const { rows } = await pool.query(
-            `INSERT INTO delivery_challans (id, bill_id, challan_no, client, vendor, contract, site, items, total, delivery_date, notes, printed_by)
+
+        const { rows: newRows } = await pool.query(
+            `INSERT INTO delivery_challans
+                (id, bill_id, challan_no, client, vendor, contract, site, items, total, delivery_date, notes, printed_by)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-             ON CONFLICT (bill_id) DO UPDATE SET delivery_date=$10, notes=$11, printed_by=$12, challan_no=delivery_challans.challan_no
              RETURNING *`,
-            [challanId, bill.id, challanNo, bill.client, bill.vendor, bill.contract, bill.site,
+            [challanId, billId, challanNo,
+             bill.client, bill.vendor, bill.contract, bill.site,
              JSON.stringify(bill.items || []), parseFloat(bill.total) || 0,
              delivery_date || new Date().toISOString().split('T')[0],
              notes || null, req.user.email]
-        ).catch(async () => {
-            // Conflict on bill_id — retrieve existing
-            return pool.query('SELECT * FROM delivery_challans WHERE bill_id=$1', [req.params.id]);
-        });
-        res.json({ ok: true, challan: rows[0] });
+        );
+        res.json({ ok: true, challan: newRows[0] });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2199,15 +2223,16 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         };
 
         const calcRow = (emp, pay) => {
-            const gross = parseFloat(emp.salary) || 0;
+            const gross = parseFloat(emp.salary) || parseFloat(emp.gross) || 0;
             const pd = parseFloat(pay?.paid_days ?? WD);
             const ratio = pd / WD;
-            const basic    = Math.round(gross * 0.60 * ratio);
-            const hra      = Math.round(gross * 0.20 * ratio);
-            const conv     = Math.round(gross * 0.10 * ratio);
-            const med      = Math.round(gross * 0.07 * ratio);
-            const other    = Math.round(gross * 0.03 * ratio);
-            // OT hourly rate = FULL gross / (26 working days × 8 hours)
+            // Gross components — employee record stores breakdown if available
+            // Fallback to standard ASIL split: 60/20/10/7/3
+            const basic    = parseFloat(emp.basic)  || Math.round(gross * 0.60 * ratio);
+            const hra      = parseFloat(emp.hra)    || Math.round(gross * 0.20 * ratio);
+            const conv     = parseFloat(emp.conveyance) || Math.round(gross * 0.10 * ratio);
+            const medAll   = parseFloat(emp.medical_allowance) || Math.round(gross * 0.07 * ratio);
+            const other    = parseFloat(emp.other_allowances)  || Math.round(gross * 0.03 * ratio);
             const hrly     = gross / (WD * 8);
             const ot2hrs   = parseFloat(pay?.ot2_hrs||0);
             const ot3hrs   = parseFloat(pay?.ot3_hrs||0);
@@ -2218,42 +2243,46 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const spl      = Math.round(parseFloat(pay?.special_allowance||0));
             const fuel     = Math.round(parseFloat(pay?.fuel_mobile||0));
             const bonus    = Math.round(parseFloat(pay?.bonus_amount||0));
-            const grossM   = basic + hra + conv + med + other + otAmt + opd + reimb + arr + spl + fuel + bonus;
-            const wht      = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
+            // grossM: use stored gross if available, else compute from components
+            const grossM   = pay?.gross && parseFloat(pay.gross) > 0
+                ? Math.round(parseFloat(pay.gross))
+                : Math.round(basic + hra + conv + medAll + other + otAmt + opd + reimb + arr + spl + fuel + bonus);
+            // WHT: prefer stored value, else compute from FBR slabs
+            const wht = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
             const eobi_ee  = 400, eobi_er = 2000;
-            // SESSI: 6% of actual wages, capped at 6% of min wage (Rs.40,000) = Rs.2,400
             const sessi    = Math.min(2400, Math.round(grossM * 0.06));
-            // PF: 1/24 of basic — use emp.basic if stored, else 60% of gross
-            const actualBasic = parseFloat(emp.basic || 0) || Math.round(gross * 0.60);
-            const pfDed    = emp.pf_enrolled ? Math.round(actualBasic / 24) : 0;
-            const pfER     = pfDed; // employer matches employee PF contribution 1:1
+            // ── PF: gross/24 (matches frontend formula — both EE and ER) ────────
+            const isPF = emp.pf_enrolled || false;
+            const pfDed    = isPF ? Math.round(gross / 24) : 0;
+            const pfER     = pfDed;
             const advDed   = Math.round(parseFloat(pay?.advance_deduction||0));
             const loanDed  = Math.round(parseFloat(pay?.loan_deduction||0));
             const otherDed = Math.round(parseFloat(pay?.other_deduction||0));
             const totalDed = wht + eobi_ee + pfDed + advDed + loanDed + otherDed;
             const netPay   = grossM - totalDed;
-            // Gratuity: 1 month salary per year, accrued monthly = gross/12 months
+            // Gratuity: gross/12 per month (8.33%) — matches frontend calcGratuityMonthly
             const gratuity = Math.round(gross / 12);
-            // Medical contribution from contract financials (employer cost)
-            // Stored in contract.financials as: { medicalEmp, medicalSpouse, medicalChild }
-            // We pass these in emp via JOIN or from payroll_transactions override
-            const medEmp    = Math.round(parseFloat(pay?.medical_emp   || emp.medical_emp   || 0));
-            const medSpouse = Math.round(parseFloat(pay?.medical_spouse || emp.medical_spouse || 0));
-            const medChild  = Math.round(parseFloat(pay?.medical_child  || emp.medical_child  || 0));
-            const medTotal  = medEmp + medSpouse + medChild;
-            // Bonus: monthly accrual = annual bonus / 12 (from contract, not pay row)
-            // bonus_annual on emp comes from contract.financials.bonusAnnual
-            const bonusAnnual = parseFloat(emp.bonus_annual || pay?.bonus_annual || 0);
-            const bonusAccrual = Math.round(bonusAnnual / 12); // 1/12 per month added to invoice
-            const costBase = grossM + eobi_er + sessi + pfER + gratuity + medTotal + bonusAccrual;
+            // ── Medical: read from payroll_transactions columns (medical_ee/sp/ch1/ch2) ──
+            // These are set per-employee per-month in the payroll sheet
+            const medEE   = Math.round(parseFloat(pay?.medical_ee  || emp.medical_ee  || 0));
+            const medSP   = Math.round(parseFloat(pay?.medical_sp  || emp.medical_sp  || 0));
+            const medCh1  = Math.round(parseFloat(pay?.medical_ch1 || emp.medical_ch1 || 0));
+            const medCh2  = Math.round(parseFloat(pay?.medical_ch2 || emp.medical_ch2 || 0));
+            const medTotal = medEE + medSP + medCh1 + medCh2;
+            // Life Insurance (if stored on emp)
+            const lifeIns  = Math.round(parseFloat(emp.life_insurance || 0));
+            // Bonus annual accrual
+            const bonusAnnual  = parseFloat(emp.bonus_annual || 0);
+            const bonusAccrual = Math.round(bonusAnnual / 12);
+            // Total employer cost = gross + all employer obligations
+            const costBase = grossM + eobi_er + sessi + pfER + gratuity + lifeIns + medTotal + bonusAccrual;
             const sc       = pay?.service_charges ? Math.round(parseFloat(pay.service_charges)) : 0;
-            // Province-based sales tax (replaces contract-level hard-coded rate)
             const stRate   = provinceTaxRate(emp.province);
             const st       = pay?.sales_tax ? Math.round(parseFloat(pay.sales_tax)) : Math.round(sc * stRate);
             const inv      = pay?.total_invoice ? Math.round(parseFloat(pay.total_invoice)) : costBase+sc+st;
             return { grossM, wht, eobi_ee, eobi_er, sessi, pfDed, pfER, advDed, loanDed, otherDed, totalDed, netPay,
                      gratuity, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus,
-                     pd, ot2hrs, ot3hrs, medEmp, medSpouse, medChild, medTotal, bonusAccrual };
+                     pd, ot2hrs, ot3hrs, medEE, medSP, medCh1, medCh2, medTotal, bonusAccrual, lifeIns };
         };
 
         let rows = [], filename = 'export.csv';
@@ -2275,21 +2304,38 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             // Payroll CSV always locked+filtered — never all 514
             rows = bankEmps.map(emp => {
                 const c = calcRow(emp, payMap[emp.id]);
-                return { 'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
-                    'CNIC': cnic(emp), 'Contract': emp.contract_name || bu(emp), 'Location': emp.location||'', 'Province': emp.province||'',
-                    'Salary': parseFloat(emp.salary)||0, 'Paid Days': c.pd,
-                    'OT @2X': c.ot2hrs, 'OT @3X': c.ot3hrs, 'OT Amount': c.otAmt,
-                    'OPD': c.opd, 'Reimb': c.reimb, 'Arrears': c.arr,
-                    'Spl Allow': c.spl, 'Fuel/Mob': c.fuel, 'Bonus (Cash)': c.bonus,
-                    'Gross Monthly': c.grossM, 'Income Tax (WHT)': c.wht, 'EOBI Employee (Rs.400)': c.eobi_ee,
-                    'PF Employee Deduction': c.pfDed, 'Advance Deduction': c.advDed, 'Loan Deduction': c.loanDed, 'Other Deduction': c.otherDed,
-                    'Total Deductions': c.totalDed, 'Net Pay to Employee': c.netPay,
-                    'EOBI Employer (Rs.2000)': c.eobi_er, 'PF Employer Contribution': c.pfER, 'SESSI': c.sessi,
+                return {
+                    'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
+                    'CNIC': cnic(emp), 'Contract': emp.contract_name || bu(emp),
+                    'Location': emp.location||'', 'Province': emp.province||'',
+                    'Gross Salary': parseFloat(emp.salary)||0, 'Paid Days': c.pd,
+                    'OT @2X Hrs': c.ot2hrs, 'OT @3X Hrs': c.ot3hrs, 'OT Amount': c.otAmt,
+                    'OPD Claim': c.opd, 'Reimbursement': c.reimb, 'Arrears': c.arr,
+                    'Spl Allowance': c.spl, 'Fuel/Mobile': c.fuel, 'Bonus (Cash)': c.bonus,
+                    'Gross Monthly': c.grossM,
+                    'Income Tax (WHT)': c.wht,
+                    'EOBI Employee (Rs.400)': c.eobi_ee,
+                    'PF Employee Deduction': c.pfDed,
+                    'Advance Deduction': c.advDed,
+                    'Loan Deduction': c.loanDed,
+                    'Other Deduction': c.otherDed,
+                    'Total Deductions': c.totalDed,
+                    'Net Pay to Employee': c.netPay,
+                    'EOBI Employer (Rs.2000)': c.eobi_er,
+                    'PF Employer Contribution': c.pfER,
+                    'SESSI': c.sessi,
                     'Gratuity Accrual': c.gratuity,
-                    'Medical (Emp)': c.medEmp, 'Medical (Spouse)': c.medSpouse, 'Medical (Children)': c.medChild,
+                    'Life Insurance': c.lifeIns,
+                    'Medical (Employee)': c.medEE,
+                    'Medical (Spouse)': c.medSP,
+                    'Medical (Child 1)': c.medCh1,
+                    'Medical (Child 2)': c.medCh2,
                     'Bonus Accrual (Monthly)': c.bonusAccrual,
-                    'Total Employer Cost': c.costBase, 'Service Charges': c.sc,
-                    'Sales Tax': c.st, 'Total Invoice Amount': c.inv };
+                    'Total Employer Cost': c.costBase,
+                    'Service Charges': c.sc,
+                    'Sales Tax': c.st,
+                    'Total Invoice Amount': c.inv,
+                };
             });
             if (!rows.length) return res.status(200).json({ msg: 'No locked payroll records found for the selected filter. Lock a payroll batch in the Payroll Sheet first.' });
             filename = `Payroll_${year}-${String(month).padStart(2,'0')}${filterClient && filterClient !== 'All' ? '_' + filterClient.replace(/\s+/g,'_').slice(0,20) : ''}.csv`;

@@ -33,14 +33,9 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
             <span>{label}</span><span style={{ color: color || 'var(--text)' }}>{Rs(value)}</span>
         </div>
     );
-    const empKey = (emp.contract || emp.clientBU)?.toLowerCase()?.trim();
-    let cfg = CONTRACT_MAP[empKey] || CONTRACT_CFG[emp.contract];
-    if (!cfg && empKey) {
-        // Fuzzy: employee clientBU like "Janitorial Services" must match contract name "Janitorial Services LMT Korangi..."
-        const fuzzyKey = Object.keys(CONTRACT_MAP).find(k => k.startsWith(empKey) || k.includes(empKey));
-        if (fuzzyKey) cfg = CONTRACT_MAP[fuzzyKey];
-    }
-    cfg = cfg || {};
+    // cfg is only used for display labels (service_charges_pct, sales_tax_pct)
+    // calc already contains all computed values — use cfg={} as safe fallback
+    const cfg = {};
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1100, padding: '2rem', overflowY: 'auto' }}>
             <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '720px', marginBottom: '2rem' }}>
