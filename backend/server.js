@@ -1000,6 +1000,15 @@ app.post('/api/vendors', requireAuth, async (req, res) => {
         const { name, category, ntn, strn, cnic, address, contact_person, phone, email,
                 bank_name, bank_account, account_title, is_filer = true, is_active = true,
                 payment_terms, notes } = req.body;
+        // NTN duplicate check
+        if (ntn && ntn.trim()) {
+            const dup = await pool.query('SELECT id, name FROM vendors WHERE TRIM(ntn)=$1 LIMIT 1', [ntn.trim()]);
+            if (dup.rows.length) {
+                return res.status(409).json({
+                    error: `A vendor with NTN "${ntn}" already exists: "${dup.rows[0].name}" (ID: ${dup.rows[0].id}). Please edit the existing vendor instead.`
+                });
+            }
+        }
         const { rows } = await pool.query(
             `INSERT INTO vendors (name,category,ntn,strn,cnic,address,contact_person,phone,email,
              bank_name,bank_account,account_title,is_filer,is_active,payment_terms,notes)
@@ -2019,27 +2028,75 @@ app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PATCH /api/payroll/:year/:month/lock — lock a payroll month
+// PATCH /api/payroll/:year/:month/lock — lock a payroll month + auto-post PF/Gratuity
 app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_approver'), async (req, res) => {
     try {
         const { year, month } = req.params;
-        const { employee_ids } = req.body || {}; // optional: lock only specific employees
+        const { employee_ids } = req.body || {};
         const yr = parseInt(year), mo = parseInt(month);
+
+        let lockedEmpIds;
         if (employee_ids && employee_ids.length > 0) {
-            // Lock only the filtered employees
             await pool.query(
                 `UPDATE payroll_transactions SET locked=TRUE, locked_by=$1, locked_at=NOW()
                  WHERE year=$2 AND month=$3 AND employee_id = ANY($4)`,
                 [req.user.email, yr, mo, employee_ids]
             );
+            lockedEmpIds = employee_ids;
         } else {
             await pool.query(
                 `UPDATE payroll_transactions SET locked=TRUE, locked_by=$1, locked_at=NOW()
                  WHERE year=$2 AND month=$3`,
                 [req.user.email, yr, mo]
             );
+            // Fetch all locked employee IDs for auto-accrual
+            const { rows: lockedRows } = await pool.query(
+                `SELECT employee_id FROM payroll_transactions WHERE year=$1 AND month=$2 AND locked=TRUE`,
+                [yr, mo]
+            );
+            lockedEmpIds = lockedRows.map(r => r.employee_id);
         }
-        res.json({ ok: true, locked: true, lockedBy: req.user.email });
+
+        // ── Auto-post PF and Gratuity accrual for each newly locked employee ──
+        if (lockedEmpIds && lockedEmpIds.length > 0) {
+            const { rows: emps } = await pool.query(
+                `SELECT id, salary, pf_enrolled FROM employees WHERE id = ANY($1)`,
+                [lockedEmpIds]
+            );
+            for (const emp of emps) {
+                const gross = parseFloat(emp.salary) || 0;
+                const basicSalary = Math.round(gross * 0.60);
+                // PF: 1/24 of basic salary (4.17%) per month — both EE and ER
+                const pfContrib = emp.pf_enrolled ? Math.round(basicSalary / 24) : 0;
+                // Gratuity: 1 month salary per year → gross/12 per month
+                const gratuityAccrual = Math.round(gross / 12);
+
+                if (pfContrib > 0) {
+                    await pool.query(`
+                        INSERT INTO employee_pf_ledger (employee_id, month, year, ee_contribution, er_contribution)
+                        VALUES ($1,$2,$3,$4,$4)
+                        ON CONFLICT (employee_id, month, year)
+                        DO UPDATE SET ee_contribution=$4, er_contribution=$4
+                    `, [emp.id, mo, yr, pfContrib]).catch(() => {});
+                }
+                if (gratuityAccrual > 0) {
+                    // Get cumulative from previous month
+                    const prev = await pool.query(
+                        `SELECT COALESCE(MAX(cumulative),0) AS cum FROM employee_gratuity_ledger WHERE employee_id=$1 AND (year < $2 OR (year=$2 AND month < $3))`,
+                        [emp.id, yr, mo]
+                    );
+                    const prevCum = parseFloat(prev.rows[0].cum) || 0;
+                    await pool.query(`
+                        INSERT INTO employee_gratuity_ledger (employee_id, month, year, accrual, cumulative)
+                        VALUES ($1,$2,$3,$4,$5)
+                        ON CONFLICT (employee_id, month, year)
+                        DO UPDATE SET accrual=$4, cumulative=$5
+                    `, [emp.id, mo, yr, gratuityAccrual, prevCum + gratuityAccrual]).catch(() => {});
+                }
+            }
+        }
+
+        res.json({ ok: true, locked: true, lockedBy: req.user.email, accruals_posted: lockedEmpIds?.length || 0 });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
