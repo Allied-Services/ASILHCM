@@ -1,26 +1,46 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const session = require('express-session');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratuity } = require('./taxEngine');
+
+// ─── Startup Guard — refuse to start if critical secrets are missing ──────────
+const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
+const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missingEnv.length > 0) {
+    console.error('FATAL: Missing required environment variables:', missingEnv.join(', '));
+    console.error('Set these in Render → Environment before starting the server.');
+    // In production, exit so Render marks the deploy as failed
+    if (process.env.NODE_ENV === 'production') process.exit(1);
+    else console.warn('Running in dev mode with missing vars — continuing anyway');
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret';
+const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_' + Math.random().toString(36);
 const ALLOWED_DOMAIN = process.env.ALLOWED_DOMAIN || 'asil.com.pk';
+
+// ─── Resend Email Client ──────────────────────────────────────────────────────
+const resend = new Resend(process.env.RESEND_API_KEY || '');
+const EMAIL_FROM = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
 
 // ─── DB Pool ──────────────────────────────────────────────────────────────────
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
 });
+
+// ─── Security Headers (helmet) ───────────────────────────────────────────────
+app.use(helmet({ contentSecurityPolicy: false })); // CSP off — frontend served separately
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
 app.use(cors({
@@ -30,9 +50,15 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
+// ─── Rate Limiters ────────────────────────────────────────────────────────────
+const globalLimiter = rateLimit({ windowMs: 60*1000, max: 200, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests, slow down.' } });
+const strictLimiter = rateLimit({ windowMs: 60*1000, max: 10, message: { error: 'Too many attempts. Try again in a minute.' } });
+app.use(globalLimiter);
+// Strict limits on sensitive endpoints applied inline below
+
 // ─── Session + Passport ───────────────────────────────────────────────────────
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'session-secret',
+    secret: process.env.SESSION_SECRET || JWT_SECRET,
     resave: false, saveUninitialized: false,
     cookie: { secure: process.env.NODE_ENV === 'production', httpOnly: true, maxAge: 60000 },
 }));
@@ -152,8 +178,8 @@ app.patch('/api/users/:id/role', requireAuth, requireRole('superadmin'), async (
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
-app.get('/health/ip', (req, res) => {
-    // Returns this server's outbound public IP (for Jazz CMT whitelisting)
+app.get('/health/ip', requireAuth, requireRole('superadmin'), (req, res) => {
+    // Returns this server's outbound public IP (for Jazz CMT whitelisting) — SuperAdmin only
     const https = require('https');
     https.get('https://api.ipify.org?format=json', (r) => {
         let d = ''; r.on('data', c => d += c);
@@ -407,9 +433,9 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
     res.json({ saved: saved.length, errors, employees: saved });
 });
 
-// ─── Admin: diagnostics + cleanup ────────────────────────────────────────────
+// ─── Admin: diagnostics + cleanup (SuperAdmin only) ─────────────────────────
 // Find duplicate employees by CNIC
-app.get('/api/admin/employee-duplicates', requireAuth, async (req, res) => {
+app.get('/api/admin/employee-duplicates', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         const { rows } = await pool.query(`
             SELECT cnic, COUNT(*) AS cnt,
@@ -427,7 +453,7 @@ app.get('/api/admin/employee-duplicates', requireAuth, async (req, res) => {
 });
 
 // Deduplicate: per CNIC, keep the row with highest salary, delete the rest
-app.post('/api/admin/dedup-employees', requireAuth, async (req, res) => {
+app.post('/api/admin/dedup-employees', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         const { rows: dups } = await pool.query(`
             SELECT cnic, array_agg(id ORDER BY
@@ -452,7 +478,7 @@ app.post('/api/admin/dedup-employees', requireAuth, async (req, res) => {
 });
 
 // Delete all employees whose client name contains a substring (case-insensitive)
-app.delete('/api/admin/delete-by-client', requireAuth, async (req, res) => {
+app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin'), async (req, res) => {
     const { client_contains } = req.body;
     if (!client_contains) return res.status(400).json({ error: 'client_contains is required' });
     try {
@@ -485,9 +511,12 @@ const normalisePhone = (raw = '') => {
 };
 
 const sendJazzSMS = (to, message) => new Promise(async (resolve, reject) => {
-    const SMS_USER = process.env.JAZZ_SMS_USER || '03268366056';
-    const SMS_PASS = process.env.JAZZ_SMS_PASS || 'Jazz@123';
+    const SMS_USER = process.env.JAZZ_SMS_USER;
+    const SMS_PASS = process.env.JAZZ_SMS_PASS;
     const SMS_MASK = process.env.JAZZ_SMS_MASK || 'ALLIED SERV';
+    if (!SMS_USER || !SMS_PASS) {
+        return reject(new Error('JAZZ_SMS_USER / JAZZ_SMS_PASS not set in environment. SMS not configured.'));
+    }
     const phone    = normalisePhone(to);
 
     // Call Jazz CMT API directly (Render server IP is whitelisted)
@@ -2140,21 +2169,34 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             // PF: 1/24 of basic — use emp.basic if stored, else 60% of gross
             const actualBasic = parseFloat(emp.basic || 0) || Math.round(gross * 0.60);
             const pfDed    = emp.pf_enrolled ? Math.round(actualBasic / 24) : 0;
-            const pfER     = pfDed; // employer matches employee PF contribution
+            const pfER     = pfDed; // employer matches employee PF contribution 1:1
             const advDed   = Math.round(parseFloat(pay?.advance_deduction||0));
             const loanDed  = Math.round(parseFloat(pay?.loan_deduction||0));
             const otherDed = Math.round(parseFloat(pay?.other_deduction||0));
             const totalDed = wht + eobi_ee + pfDed + advDed + loanDed + otherDed;
             const netPay   = grossM - totalDed;
-            const gratuity = Math.round((gross / WD) * 30 / 12);
-            const costBase = grossM + eobi_er + sessi + pfER + bonus + gratuity;
+            // Gratuity: 1 month salary per year, accrued monthly = gross/12 months
+            const gratuity = Math.round(gross / 12);
+            // Medical contribution from contract financials (employer cost)
+            // Stored in contract.financials as: { medicalEmp, medicalSpouse, medicalChild }
+            // We pass these in emp via JOIN or from payroll_transactions override
+            const medEmp    = Math.round(parseFloat(pay?.medical_emp   || emp.medical_emp   || 0));
+            const medSpouse = Math.round(parseFloat(pay?.medical_spouse || emp.medical_spouse || 0));
+            const medChild  = Math.round(parseFloat(pay?.medical_child  || emp.medical_child  || 0));
+            const medTotal  = medEmp + medSpouse + medChild;
+            // Bonus: monthly accrual = annual bonus / 12 (from contract, not pay row)
+            // bonus_annual on emp comes from contract.financials.bonusAnnual
+            const bonusAnnual = parseFloat(emp.bonus_annual || pay?.bonus_annual || 0);
+            const bonusAccrual = Math.round(bonusAnnual / 12); // 1/12 per month added to invoice
+            const costBase = grossM + eobi_er + sessi + pfER + gratuity + medTotal + bonusAccrual;
             const sc       = pay?.service_charges ? Math.round(parseFloat(pay.service_charges)) : 0;
             // Province-based sales tax (replaces contract-level hard-coded rate)
             const stRate   = provinceTaxRate(emp.province);
             const st       = pay?.sales_tax ? Math.round(parseFloat(pay.sales_tax)) : Math.round(sc * stRate);
             const inv      = pay?.total_invoice ? Math.round(parseFloat(pay.total_invoice)) : costBase+sc+st;
             return { grossM, wht, eobi_ee, eobi_er, sessi, pfDed, pfER, advDed, loanDed, otherDed, totalDed, netPay,
-                     gratuity, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus, pd, ot2hrs, ot3hrs };
+                     gratuity, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus,
+                     pd, ot2hrs, ot3hrs, medEmp, medSpouse, medChild, medTotal, bonusAccrual };
         };
 
         let rows = [], filename = 'export.csv';
@@ -2181,13 +2223,16 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Salary': parseFloat(emp.salary)||0, 'Paid Days': c.pd,
                     'OT @2X': c.ot2hrs, 'OT @3X': c.ot3hrs, 'OT Amount': c.otAmt,
                     'OPD': c.opd, 'Reimb': c.reimb, 'Arrears': c.arr,
-                    'Spl Allow': c.spl, 'Fuel/Mob': c.fuel, 'Bonus': c.bonus,
-                    'Gross Monthly': c.grossM, 'Income Tax': c.wht, 'EOBI EE': c.eobi_ee,
-                    'PF EE': c.pfDed, 'Advance': c.advDed, 'Loan': c.loanDed, 'Other Deduction': c.otherDed,
-                    'Total Deductions': c.totalDed, 'Net Pay': c.netPay,
-                    'EOBI ER': c.eobi_er, 'PF ER': c.pfER, 'SESSI': c.sessi, 'Gratuity': c.gratuity,
-                    'Total Payroll Cost': c.costBase, 'Service Charges': c.sc,
-                    'Sales Tax': c.st, 'Total Invoice': c.inv };
+                    'Spl Allow': c.spl, 'Fuel/Mob': c.fuel, 'Bonus (Cash)': c.bonus,
+                    'Gross Monthly': c.grossM, 'Income Tax (WHT)': c.wht, 'EOBI Employee (Rs.400)': c.eobi_ee,
+                    'PF Employee Deduction': c.pfDed, 'Advance Deduction': c.advDed, 'Loan Deduction': c.loanDed, 'Other Deduction': c.otherDed,
+                    'Total Deductions': c.totalDed, 'Net Pay to Employee': c.netPay,
+                    'EOBI Employer (Rs.2000)': c.eobi_er, 'PF Employer Contribution': c.pfER, 'SESSI': c.sessi,
+                    'Gratuity Accrual': c.gratuity,
+                    'Medical (Emp)': c.medEmp, 'Medical (Spouse)': c.medSpouse, 'Medical (Children)': c.medChild,
+                    'Bonus Accrual (Monthly)': c.bonusAccrual,
+                    'Total Employer Cost': c.costBase, 'Service Charges': c.sc,
+                    'Sales Tax': c.st, 'Total Invoice Amount': c.inv };
             });
             if (!rows.length) return res.status(200).json({ msg: 'No locked payroll records found for the selected filter. Lock a payroll batch in the Payroll Sheet first.' });
             filename = `Payroll_${year}-${String(month).padStart(2,'0')}${filterClient && filterClient !== 'All' ? '_' + filterClient.replace(/\s+/g,'_').slice(0,20) : ''}.csv`;
@@ -2292,14 +2337,9 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
         const yrInt = parseInt(year), moInt = parseInt(month);
         const monthName = new Date(2000, moInt-1, 1).toLocaleString('en-PK', { month: 'long' });
 
-        if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
-            return res.status(503).json({ error: 'Email not configured. Set EMAIL_USER and EMAIL_APP_PASSWORD env vars.' });
+        if (!process.env.RESEND_API_KEY) {
+            return res.status(503).json({ error: 'RESEND_API_KEY not configured in Render environment.' });
         }
-
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_APP_PASSWORD }
-        });
 
         let empQuery = "SELECT * FROM employees WHERE email IS NOT NULL AND email != ''";
         const params = [];
@@ -2336,8 +2376,8 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
             const eobi = 400;
             const adv  = Math.round(parseFloat(pay?.advance_deduction||0));
             const loan = Math.round(parseFloat(pay?.loan_deduction||0));
-            const netPay = grossM - wht - eobi - adv - loan;
-
+            const pfDedEmail = emp.pf_enrolled ? Math.round((parseFloat(emp.salary)||0) * 0.60 / 24) : 0;
+            // netPay computed after pfDedEmail is known
             const html = `
 <!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>
@@ -2397,14 +2437,21 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
 </div>
 </body></html>`;
 
+            const netPayFinal = grossM - wht - eobi - pfDedEmail - adv - loan;
+
+            const emailHtml = html
+                .replace('${fmt(netPay)}', fmt(netPayFinal))
+                .replace('${fmt(wht+eobi+adv+loan)}', fmt(wht+eobi+pfDedEmail+adv+loan));
+
             try {
-                await transporter.sendMail({
-                    from: `"ASIL HR" <${process.env.EMAIL_USER}>`,
+                await resend.emails.send({
+                    from: EMAIL_FROM,
                     to: emp.email,
                     subject: `Salary Slip — ${monthName} ${year} | Allied Services International`,
-                    html,
+                    html: emailHtml,
                 });
                 sent++;
+
             } catch (e) { failed.push({ id: emp.id, name: emp.name, err: e.message }); }
         }
         res.json({ ok: true, sent, failed, total: empRes.rows.length });
@@ -3195,8 +3242,341 @@ app.post('/api/contracts/:id/bid-actuals', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIT LOG
+// ═══════════════════════════════════════════════════════════════════════════
+app.get('/api/audit-log', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const { limit = 200, action, user_email } = req.query;
+        let sql = 'SELECT * FROM audit_log';
+        const conds = [], params = [];
+        if (action) { params.push(action); conds.push(`action_type=$${params.length}`); }
+        if (user_email) { params.push(user_email); conds.push(`user_email=$${params.length}`); }
+        if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
+        sql += ` ORDER BY created_at DESC LIMIT $${params.length+1}`;
+        params.push(parseInt(limit));
+        const { rows } = await pool.query(sql, params);
+        res.json({ logs: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DASHBOARD — Live KPIs (MD View)
+// ═══════════════════════════════════════════════════════════════════════════
+app.get('/api/dashboard/summary', requireAuth, async (req, res) => {
+    try {
+        const now = new Date();
+        const curMonth = now.getMonth() + 1;
+        const curYear  = now.getFullYear();
+
+        const [empCount, contractData, invoiceData, billData, payrollData, expiring30, expiring60, recentLogs] = await Promise.all([
+            // Headcount
+            pool.query(`SELECT COUNT(*) AS total, COUNT(DISTINCT client) AS clients, COUNT(DISTINCT contract_name) AS contracts FROM employees WHERE active='Yes' OR active='Active' OR active IS NULL`),
+            // Contracts by status
+            pool.query(`SELECT status, COUNT(*) AS cnt FROM contracts GROUP BY status`),
+            // Outstanding invoices
+            pool.query(`SELECT COUNT(*) AS cnt, COALESCE(SUM(grand_total),0) AS value FROM client_invoices WHERE status NOT IN ('Paid','Void')`),
+            // Pending bills
+            pool.query(`SELECT COUNT(*) AS pending, COALESCE(SUM(CASE WHEN status='Paid' THEN total ELSE 0 END),0) AS paid_this_month FROM bills WHERE (status NOT IN ('Paid','Rejected') OR (status='Paid' AND EXTRACT(MONTH FROM paid_at)=$1 AND EXTRACT(YEAR FROM paid_at)=$2))`, [curMonth, curYear]),
+            // Payroll cost locked this month
+            pool.query(`SELECT COALESCE(SUM(total_invoice),0) AS monthly_cost, COUNT(*) AS locked_count FROM payroll_transactions WHERE year=$1 AND month=$2 AND locked=TRUE`, [curYear, curMonth]),
+            // Contracts expiring in 30 days
+            pool.query(`SELECT contract_name, client_id, end_date FROM contracts WHERE end_date BETWEEN NOW() AND NOW() + INTERVAL '30 days' ORDER BY end_date ASC`),
+            // Contracts expiring in 31-60 days
+            pool.query(`SELECT contract_name, client_id, end_date FROM contracts WHERE end_date BETWEEN NOW() + INTERVAL '31 days' AND NOW() + INTERVAL '60 days' ORDER BY end_date ASC`),
+            // Recent audit activity
+            pool.query(`SELECT user_email, action_type, entity_type, entity_id, created_at FROM audit_log ORDER BY created_at DESC LIMIT 10`).catch(() => ({ rows: [] })),
+        ]);
+
+        // Headcount breakdown by client
+        const { rows: byClient } = await pool.query(
+            `SELECT client, COUNT(*) AS cnt FROM employees WHERE active='Yes' OR active='Active' OR active IS NULL GROUP BY client ORDER BY cnt DESC LIMIT 8`
+        );
+
+        res.json({
+            headcount: { total: parseInt(empCount.rows[0].total), clients: parseInt(empCount.rows[0].clients), contracts: parseInt(empCount.rows[0].contracts) },
+            contracts: contractData.rows,
+            invoices: { pending_count: parseInt(invoiceData.rows[0].cnt), pending_value: parseFloat(invoiceData.rows[0].value) },
+            bills: { pending_count: parseInt(billData.rows[0].pending), paid_this_month: parseFloat(billData.rows[0].paid_this_month) },
+            payroll: { monthly_cost: parseFloat(payrollData.rows[0].monthly_cost), locked_count: parseInt(payrollData.rows[0].locked_count), month: curMonth, year: curYear },
+            alerts: {
+                expiring_30: expiring30.rows,
+                expiring_60: expiring60.rows,
+            },
+            top_clients: byClient,
+            recent_activity: recentLogs.rows,
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEAVE MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Get leave history for an employee
+app.get('/api/employees/:id/leaves', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM employee_leaves WHERE employee_id=$1 ORDER BY from_date DESC', [req.params.id]);
+        res.json({ leaves: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Apply for leave (HR applies on behalf of employee)
+app.post('/api/employees/:id/leaves', requireAuth, async (req, res) => {
+    try {
+        const { leave_type, from_date, to_date, reason, status = 'Pending' } = req.body;
+        if (!leave_type || !from_date || !to_date) return res.status(400).json({ error: 'leave_type, from_date, to_date required' });
+        const from = new Date(from_date), to = new Date(to_date);
+        const days = Math.max(1, Math.ceil((to - from) / (1000*60*60*24)) + 1);
+        const { rows } = await pool.query(
+            `INSERT INTO employee_leaves (employee_id, leave_type, from_date, to_date, days, reason, status, created_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+            [req.params.id, leave_type, from_date, to_date, days, reason||null, status, req.user.email]
+        );
+        // Auto-update balance if approved
+        if (status === 'Approved') {
+            const yr = from.getFullYear();
+            await pool.query(`
+                INSERT INTO employee_leave_balances (employee_id, year, leave_type, entitled, used)
+                VALUES ($1,$2,$3,
+                    CASE $3 WHEN 'CL' THEN 10 WHEN 'EL' THEN 14 WHEN 'ML' THEN 8 ELSE 5 END, $4)
+                ON CONFLICT (employee_id, year, leave_type)
+                DO UPDATE SET used = employee_leave_balances.used + $4
+            `, [req.params.id, yr, leave_type, days]);
+        }
+        res.json({ leave: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Approve / Reject leave
+app.patch('/api/employees/:id/leaves/:leaveId', requireAuth, requireRole('operations','superadmin','finance_manager'), async (req, res) => {
+    try {
+        const { status, reason } = req.body; // status: Approved | Rejected
+        if (!['Approved','Rejected'].includes(status)) return res.status(400).json({ error: 'status must be Approved or Rejected' });
+        const { rows } = await pool.query(
+            `UPDATE employee_leaves SET status=$1, approved_by=$2, approved_at=NOW(), reason=COALESCE($3,reason)
+             WHERE id=$4 AND employee_id=$5 RETURNING *`,
+            [status, req.user.email, reason||null, req.params.leaveId, req.params.id]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Leave record not found' });
+        const lv = rows[0];
+        if (status === 'Approved') {
+            const yr = new Date(lv.from_date).getFullYear();
+            await pool.query(`
+                INSERT INTO employee_leave_balances (employee_id, year, leave_type, entitled, used)
+                VALUES ($1,$2,$3, CASE $3 WHEN 'CL' THEN 10 WHEN 'EL' THEN 14 WHEN 'ML' THEN 8 ELSE 5 END, $4)
+                ON CONFLICT (employee_id, year, leave_type)
+                DO UPDATE SET used = employee_leave_balances.used + EXCLUDED.used
+            `, [req.params.id, yr, lv.leave_type, parseFloat(lv.days)||1]);
+        }
+        res.json({ leave: lv });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Get leave balance for employee for a year
+app.get('/api/employees/:id/leave-balance/:year', requireAuth, async (req, res) => {
+    try {
+        const yr = parseInt(req.params.year);
+        // Seed defaults if no record exists
+        const leaveTypes = ['CL', 'EL', 'ML'];
+        const entitlements = { CL: 10, EL: 14, ML: 8 };
+        const results = {};
+        for (const lt of leaveTypes) {
+            const { rows } = await pool.query(
+                `INSERT INTO employee_leave_balances (employee_id, year, leave_type, entitled, used)
+                 VALUES ($1,$2,$3,$4,0)
+                 ON CONFLICT (employee_id, year, leave_type) DO UPDATE SET entitled=EXCLUDED.entitled
+                 RETURNING *`,
+                [req.params.id, yr, lt, entitlements[lt]]
+            );
+            results[lt] = rows[0];
+        }
+        res.json({ balances: results, year: yr });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BILLS EXPORT (CSV + GST Summary)
+// ═══════════════════════════════════════════════════════════════════════════
+app.get('/api/bills/export', requireAuth, requireRole('finance_manager','finance_approver','superadmin'), async (req, res) => {
+    try {
+        const { month, year, client, status, type = 'csv' } = req.query;
+        let sql = 'SELECT * FROM bills WHERE 1=1';
+        const params = [];
+        if (month && year) {
+            params.push(parseInt(month)); sql += ` AND period_month=$${params.length}`;
+            params.push(parseInt(year));  sql += ` AND period_year=$${params.length}`;
+        }
+        if (client) { params.push(client); sql += ` AND client=$${params.length}`; }
+        if (status) { params.push(status); sql += ` AND status=$${params.length}`; }
+        sql += ' ORDER BY created_at DESC';
+        const { rows } = await pool.query(sql, params);
+
+        if (type === 'gst') {
+            // GST Summary by client
+            const summary = {};
+            rows.forEach(b => {
+                const k = b.client || 'Internal';
+                if (!summary[k]) summary[k] = { client: k, bills_count: 0, subtotal: 0, gst: 0, total: 0 };
+                summary[k].bills_count++;
+                summary[k].subtotal += parseFloat(b.amount)||0;
+                summary[k].gst += parseFloat(b.gst)||0;
+                summary[k].total += parseFloat(b.total)||0;
+            });
+            const gstRows = Object.values(summary);
+            const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+            const hdrs = ['Client','Bills Count','Subtotal','GST Amount','Total'];
+            const csv = [hdrs.map(esc).join(','), ...gstRows.map(r =>
+                [esc(r.client), esc(r.bills_count), esc(r.subtotal.toFixed(2)), esc(r.gst.toFixed(2)), esc(r.total.toFixed(2))].join(',')
+            )].join('\r\n');
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="GST_Summary_${year||'all'}_${month||'all'}.csv"`);
+            return res.send('\uFEFF' + csv);
+        }
+
+        // Full bills CSV
+        const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const csvRows = rows.map(b => ({
+            'Bill ID': b.id, 'Type': b.bill_type || b.type, 'Date': b.date, 'Vendor': b.vendor,
+            'Client': b.client||'', 'Contract': b.contract||'', 'Purpose': b.purpose||'',
+            'Amount': parseFloat(b.amount)||0, 'GST': parseFloat(b.gst)||0, 'Total': parseFloat(b.total)||0,
+            'Billable': b.billable ? 'Yes' : 'No', 'Status': b.status,
+            'Invoice No': b.invoice_no||'', 'Period': b.period_month ? `${b.period_month}/${b.period_year}` : '',
+            'Created By': b.created_by||'', 'Created At': b.created_at ? new Date(b.created_at).toISOString().slice(0,10) : '',
+        }));
+        const hdrs = Object.keys(csvRows[0] || {});
+        const csv = [hdrs.map(esc).join(','), ...csvRows.map(r => hdrs.map(h => esc(r[h])).join(','))].join('\r\n');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="Bills_${year||'all'}_${month||'all'}.csv"`);
+        res.send('\uFEFF' + csv);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FINANCE MANAGER TWO-STEP AP APPROVAL
+// ═══════════════════════════════════════════════════════════════════════════
+// FM approves a payment batch AFTER AP team confirms it
+app.patch('/api/ap/batches/:batchId/fm-approve', requireAuth, requireRole('finance_manager','superadmin'), async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `UPDATE payment_batches SET status='FM Approved', fm_approved_by=$1, fm_approved_at=NOW(), updated_at=NOW()
+             WHERE id=$2 AND status='Confirmed' RETURNING *`,
+            [req.user.email, req.params.batchId]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Batch not found or not in Confirmed state' });
+        res.json({ ok: true, batch: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Get all batches pending FM approval
+app.get('/api/ap/pending-fm-approval', requireAuth, requireRole('finance_manager','superadmin'), async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM payment_batches WHERE status='Confirmed' ORDER BY created_at DESC`);
+        res.json({ batches: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INVENTORY ↔ BILLS LINKAGE
+// ═══════════════════════════════════════════════════════════════════════════
+app.post('/api/bills/:id/add-to-inventory', requireAuth, requireRole('procurement_manager','procurement_approver','superadmin'), async (req, res) => {
+    try {
+        const { rows: billRows } = await pool.query('SELECT * FROM bills WHERE id=$1', [req.params.id]);
+        if (!billRows.length) return res.status(404).json({ error: 'Bill not found' });
+        const bill = billRows[0];
+        const items = bill.items || [];
+        const created = [];
+        for (const item of items) {
+            const desc = item.description || item.desc || item.item || 'Item';
+            const qty = parseInt(item.qty || item.quantity || 1);
+            const cost = parseFloat(item.unit_price || item.price || (item.total / (item.qty||1)) || 0);
+            const { rows } = await pool.query(
+                `INSERT INTO inventory (name, category, location, supplier, cost, quantity, status, bill_id, notes, added_by)
+                 VALUES ($1,'Procurement',$2,$3,$4,$5,'Active',$6,$7,$8) RETURNING id`,
+                [desc, bill.site||bill.contract||'', bill.vendor||'', cost, qty, bill.id,
+                 `From Bill ${bill.id} — ${bill.purpose||''}`.trim(), req.user.email]
+            ).catch(async () => {
+                // If inventory table doesn't have bill_id, add it
+                await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS bill_id TEXT`).catch(()=>{});
+                await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS added_by TEXT`).catch(()=>{});
+                return pool.query(
+                    `INSERT INTO inventory (name, category, quantity, status, notes, added_by)
+                     VALUES ($1,'Procurement',$2,'Active',$3,$4) RETURNING id`,
+                    [desc, qty, `Bill ${bill.id}: ${desc}`, req.user.email]
+                );
+            });
+            created.push({ desc, qty, id: rows[0]?.id });
+        }
+        res.json({ ok: true, added: created.length, items: created });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DOCUMENT VERSION HISTORY
+// ═══════════════════════════════════════════════════════════════════════════
+app.post('/api/employees/:id/document-history', requireAuth, async (req, res) => {
+    try {
+        const { doc_type, action = 'Generated', notes } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO document_history (employee_id, doc_type, action, generated_by, notes)
+             VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+            [req.params.id, doc_type, action, req.user.email, notes||null]
+        );
+        res.json({ entry: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/employees/:id/document-history', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM document_history WHERE employee_id=$1 ORDER BY generated_at DESC',
+            [req.params.id]);
+        res.json({ history: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SYSTEM CONFIG HISTORY (Tax Slab Versioning)
+// ═══════════════════════════════════════════════════════════════════════════
+app.get('/api/config/:key/history', requireAuth, requireRole('superadmin','finance_manager'), async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM system_config_history WHERE config_key=$1 ORDER BY changed_at DESC LIMIT 50`,
+            [req.params.key]);
+        res.json({ history: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Override PUT /api/config/:key to also log history
+app.put('/api/config/:key', requireAuth, requireRole('superadmin','finance_manager','finance_approver'), async (req, res) => {
+    try {
+        const { value } = req.body;
+        // Get old value first
+        const old = await pool.query('SELECT value FROM system_config WHERE key=$1', [req.params.key]);
+        const oldVal = old.rows[0]?.value;
+        // Update
+        const { rows } = await pool.query(
+            `INSERT INTO system_config (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=NOW() RETURNING *`,
+            [req.params.key, JSON.stringify(value)]
+        );
+        // Log history if value changed
+        if (oldVal && JSON.stringify(oldVal) !== JSON.stringify(value)) {
+            await pool.query(
+                `INSERT INTO system_config_history (config_key, old_value, new_value, changed_by) VALUES ($1,$2,$3,$4)`,
+                [req.params.key, oldVal, JSON.stringify(value), req.user.email]
+            ).catch(() => {});
+        }
+        res.json({ config: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 app.listen(PORT, async () => {
+
 
     console.log(`ASIL HCM Backend running on port ${PORT}`);
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
