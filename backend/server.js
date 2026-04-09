@@ -2024,22 +2024,6 @@ app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer
                     parseFloat(ov.ot2_hrs)           || 0,
                     parseFloat(ov.ot3_hrs)           || 0,
                     parseFloat(ov.opd_claim)         || 0,
-                    parseFloat(ov.reimbursement)     || 0,
-                    parseFloat(ov.arrears)           || 0,
-                    parseFloat(ov.bonus_amount)      || 0,
-                    parseFloat(ov.special_allowance) || 0,
-                    parseFloat(ov.fuel_mobile)       || 0,
-                    parseFloat(ov.other_deduction)   || 0,
-                    parseFloat(ov.advance_deduction) || 0,
-                    parseFloat(ov.loan_deduction)    || 0,
-                    ov.medical_ee  != null ? parseFloat(ov.medical_ee)  : null,
-                    ov.medical_sp  != null ? parseFloat(ov.medical_sp)  : null,
-                    ov.medical_ch1 != null ? parseFloat(ov.medical_ch1) : null,
-                    ov.medical_ch2 != null ? parseFloat(ov.medical_ch2) : null,
-                    parseFloat(calc.grossMonthly)    || 0,
-                    parseFloat(calc.netPay)          || 0,
-                    parseFloat(calc.incomeTax)       || 0,
-                    parseFloat(calc.eobi_ee)         || 0,
                     parseFloat(calc.serviceCharges)  || 0,
                     parseFloat(calc.salesTax)        || 0,
                     parseFloat(calc.totalInvoice)    || 0,
@@ -2171,10 +2155,35 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         const { type = 'payroll', client: filterClient, contract: filterContract, location: filterLoc } = req.query;
         const yrInt = parseInt(year), moInt = parseInt(month);
 
-        const [empRes, payRes] = await Promise.all([
+        const [empRes, payRes, contractRes] = await Promise.all([
             pool.query('SELECT * FROM employees ORDER BY name'),
-            pool.query('SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2', [yrInt, moInt])
+            pool.query('SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2', [yrInt, moInt]),
+            pool.query('SELECT id, contract_name, financials, costs FROM contracts'),
         ]);
+
+        // Build contract lookup by name (lowercase) → enrich employees with financials
+        const ctByName = {};
+        contractRes.rows.forEach(c => { if (c.contract_name) ctByName[c.contract_name.toLowerCase().trim()] = c; });
+
+        empRes.rows.forEach(emp => {
+            const key = (emp.contract_name || emp.client_bu || '').toLowerCase().trim();
+            const ct = ctByName[key] || null;
+            // ALL per-head cost data is in costs column (NOT financials)
+            const costs = ct?.costs || {};
+            const fin   = ct?.financials || {};
+            // These _prefixed properties are used by calcRow below
+            emp._isPF         = emp.pf_enrolled
+                || costs.eosb_type === 'Provident Fund';
+            emp._medical_ee   = parseFloat(costs.medical_ee   || 0);
+            emp._medical_sp   = parseFloat(costs.medical_sp   || 0);
+            emp._medical_ch   = parseFloat(costs.medical_child || 0);
+            emp._life_ins     = parseFloat(costs.life_insurance || 0);
+            // bonus_months × gross gives ANNUAL bonus; /12 = monthly accrual
+            // We store bonus_months in costs — gross comes from emp.salary in calcRow
+            emp._bonus_months = parseFloat(costs.bonus_months || 0);
+            emp._svc_pct      = parseFloat(fin.service_charges_pct || 0);
+            emp._sales_tax_pct= parseFloat(fin.wht_pct || 0);
+        });
 
         const payMap = {};
         payRes.rows.forEach(p => { payMap[p.employee_id] = p; });
@@ -2252,7 +2261,8 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const eobi_ee  = 400, eobi_er = 2000;
             const sessi    = Math.min(2400, Math.round(grossM * 0.06));
             // ── PF: gross/24 (matches frontend formula — both EE and ER) ────────
-            const isPF = emp.pf_enrolled || false;
+            // Use contract eosb_type or pf_enrolled flag from employee + contract financials
+            const isPF = emp._isPF || emp.pf_enrolled || false;
             const pfDed    = isPF ? Math.round(gross / 24) : 0;
             const pfER     = pfDed;
             const advDed   = Math.round(parseFloat(pay?.advance_deduction||0));
@@ -2262,18 +2272,18 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const netPay   = grossM - totalDed;
             // Gratuity: gross/12 per month (8.33%) — matches frontend calcGratuityMonthly
             const gratuity = Math.round(gross / 12);
-            // ── Medical: read from payroll_transactions columns (medical_ee/sp/ch1/ch2) ──
-            // These are set per-employee per-month in the payroll sheet
-            const medEE   = Math.round(parseFloat(pay?.medical_ee  || emp.medical_ee  || 0));
-            const medSP   = Math.round(parseFloat(pay?.medical_sp  || emp.medical_sp  || 0));
-            const medCh1  = Math.round(parseFloat(pay?.medical_ch1 || emp.medical_ch1 || 0));
-            const medCh2  = Math.round(parseFloat(pay?.medical_ch2 || emp.medical_ch2 || 0));
+            // ── Medical: priority: payroll_transactions override → contract costs → 0
+            const medEE  = Math.round(parseFloat(pay?.medical_ee  != null ? pay.medical_ee  : emp._medical_ee  || 0));
+            const medSP  = Math.round(parseFloat(pay?.medical_sp  != null ? pay.medical_sp  : emp._medical_sp  || 0));
+            const medCh1 = Math.round(parseFloat(pay?.medical_ch1 != null ? pay.medical_ch1 : emp._medical_ch  || 0));
+            const medCh2 = Math.round(parseFloat(pay?.medical_ch2 != null ? pay.medical_ch2 : 0));
             const medTotal = medEE + medSP + medCh1 + medCh2;
-            // Life Insurance (if stored on emp)
-            const lifeIns  = Math.round(parseFloat(emp.life_insurance || 0));
-            // Bonus annual accrual
-            const bonusAnnual  = parseFloat(emp.bonus_annual || 0);
-            const bonusAccrual = Math.round(bonusAnnual / 12);
+            // Life Insurance: from contract costs
+            const lifeIns = Math.round(parseFloat(emp._life_ins || emp.life_insurance || 0));
+            // Bonus accrual: bonus_months × gross / 12 per month
+            // e.g. bonus_months=1 → 1 month bonus → gross/12 per month accrual
+            const bonusMonths  = parseFloat(emp._bonus_months || emp.bonus_months || 0);
+            const bonusAccrual = Math.round(bonusMonths * gross / 12);
             // Total employer cost = gross + all employer obligations
             const costBase = grossM + eobi_er + sessi + pfER + gratuity + lifeIns + medTotal + bonusAccrual;
             const sc       = pay?.service_charges ? Math.round(parseFloat(pay.service_charges)) : 0;
