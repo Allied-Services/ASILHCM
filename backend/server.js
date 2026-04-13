@@ -2174,6 +2174,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             // These _prefixed properties are used by calcRow below
             emp._isPF         = emp.pf_enrolled
                 || costs.eosb_type === 'Provident Fund';
+            emp._eosb_type    = costs.eosb_type || null;
             emp._medical_ee   = parseFloat(costs.medical_ee   || 0);
             emp._medical_sp   = parseFloat(costs.medical_sp   || 0);
             emp._medical_ch   = parseFloat(costs.medical_child || 0);
@@ -2260,18 +2261,19 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const wht = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
             const eobi_ee  = 400, eobi_er = 2000;
             const sessi    = Math.min(2400, Math.round(grossM * 0.06));
-            // ── PF: gross/24 (matches frontend formula — both EE and ER) ────────
-            // Use contract eosb_type or pf_enrolled flag from employee + contract financials
-            const isPF = emp._isPF || emp.pf_enrolled || false;
-            const pfDed    = isPF ? Math.round(gross / 24) : 0;
-            const pfER     = pfDed;
+            // ── EOSB: PF and Gratuity are MUTUALLY EXCLUSIVE — mirrors frontend exactly ──
+            // Source of truth: contract costs.eosb_type ('Provident Fund' | 'Gratuity' | 'None')
+            const eosbType       = emp._eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
+            const isPF_scheme      = eosbType === 'Provident Fund';
+            const isGratuity_scheme = eosbType === 'Gratuity';
+            const pfDed    = isPF_scheme      ? Math.round(gross / 24) : 0;  // employee deduction
+            const pfER     = pfDed;                                            // employer: 1-for-1 match
+            const gratuity = isGratuity_scheme ? Math.round(gross / 12) : 0; // employer only
             const advDed   = Math.round(parseFloat(pay?.advance_deduction||0));
             const loanDed  = Math.round(parseFloat(pay?.loan_deduction||0));
             const otherDed = Math.round(parseFloat(pay?.other_deduction||0));
             const totalDed = wht + eobi_ee + pfDed + advDed + loanDed + otherDed;
             const netPay   = grossM - totalDed;
-            // Gratuity: gross/12 per month (8.33%) — matches frontend calcGratuityMonthly
-            const gratuity = Math.round(gross / 12);
             // ── Medical: priority: payroll_transactions override → contract costs → 0
             const medEE  = Math.round(parseFloat(pay?.medical_ee  != null ? pay.medical_ee  : emp._medical_ee  || 0));
             const medSP  = Math.round(parseFloat(pay?.medical_sp  != null ? pay.medical_sp  : emp._medical_sp  || 0));
@@ -2281,7 +2283,6 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             // Life Insurance: from contract costs
             const lifeIns = Math.round(parseFloat(emp._life_ins || emp.life_insurance || 0));
             // Bonus accrual: bonus_months × gross / 12 per month
-            // e.g. bonus_months=1 → 1 month bonus → gross/12 per month accrual
             const bonusMonths  = parseFloat(emp._bonus_months || emp.bonus_months || 0);
             const bonusAccrual = Math.round(bonusMonths * gross / 12);
             // Total employer cost = gross + all employer obligations
@@ -2291,7 +2292,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const st       = pay?.sales_tax ? Math.round(parseFloat(pay.sales_tax)) : Math.round(sc * stRate);
             const inv      = pay?.total_invoice ? Math.round(parseFloat(pay.total_invoice)) : costBase+sc+st;
             return { grossM, wht, eobi_ee, eobi_er, sessi, pfDed, pfER, advDed, loanDed, otherDed, totalDed, netPay,
-                     gratuity, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus,
+                     gratuity, eosbType, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus,
                      pd, ot2hrs, ot3hrs, medEE, medSP, medCh1, medCh2, medTotal, bonusAccrual, lifeIns };
         };
 
@@ -2332,9 +2333,11 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Total Deductions': c.totalDed,
                     'Net Pay to Employee': c.netPay,
                     'EOBI Employer (Rs.2000)': c.eobi_er,
+                    'PF Employee Deduction': c.pfDed,
                     'PF Employer Contribution': c.pfER,
-                    'SESSI': c.sessi,
                     'Gratuity Accrual': c.gratuity,
+                    'EOSB Scheme': c.eosbType || 'None',
+                    'SESSI': c.sessi,
                     'Life Insurance': c.lifeIns,
                     'Medical (Employee)': c.medEE,
                     'Medical (Spouse)': c.medSP,
