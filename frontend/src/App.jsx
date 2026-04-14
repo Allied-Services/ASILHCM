@@ -20,13 +20,15 @@ import UserManagement from './UserManagement';
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
 // ── Role-based nav access ─────────────────────────────────────────────────────
+// finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
+// Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
     superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','ap','client','vendor','inventory','annexure','config','users'],
     operations:           ['employee','documents','client'],
     procurement_proposer: ['billing','vendor','inventory'],
     procurement_approver: ['billing','vendor','inventory'],
     procurement_manager:  ['billing','vendor','inventory','ap'],
-    finance_proposer:     ['billing','invoices','annexure'],
+    finance_proposer:     ['billing','invoices','employee','ap','vendor','inventory','annexure'],
     finance_approver:     ['payroll','billing','invoices','client','annexure','config','users'],
     finance_manager:      ['payroll','billing','invoices','ap','client','vendor','annexure','config','users'],
     ap_team:              ['ap','billing'],
@@ -38,10 +40,10 @@ const ROLE_NAV = {
 const ROLE_BADGE = {
     superadmin:           { label: 'Super Admin',           color: '#f59e0b' },
     operations:           { label: 'Operations',            color: '#3b82f6' },
-    procurement_proposer: { label: 'Proc. Officer',         color: '#8b5cf6' },
-    procurement_approver: { label: 'Proc. Manager',         color: '#6366f1' },
-    procurement_manager:  { label: 'Procurement Mgr',      color: '#7c3aed' },
-    finance_proposer:     { label: 'Finance Officer',       color: '#10b981' },
+    procurement_proposer: { label: 'Proc. Proposer',        color: '#8b5cf6' },
+    procurement_approver: { label: 'Proc. Approver',        color: '#6366f1' },
+    procurement_manager:  { label: 'Procurement Mgr',       color: '#7c3aed' },
+    finance_proposer:     { label: 'Finance Proposer',      color: '#10b981' },
     finance_approver:     { label: 'Finance Approver',      color: '#14b8a6' },
     finance_manager:      { label: 'Finance Manager',       color: '#0ea5e9' },
     ap_team:              { label: 'AP Team',               color: '#22c55e' },

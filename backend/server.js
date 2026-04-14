@@ -1468,8 +1468,14 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const advanceDed   = Math.round(parseFloat(pay?.advance_deduction||0));
         const loanDed      = Math.round(parseFloat(pay?.loan_deduction||0));
         const otherDed     = Math.round(parseFloat(pay?.other_deduction||0));
-        // PF: 1/24 of Gross Salary (4.166%) — both EE and ER contribution
-        const pfEE         = emp.pf_enrolled ? Math.round(grossSalary / 24) : 0;
+        // PF: gross/24 — ONLY if contract eosb_type is 'Provident Fund'
+        // emp.pf_enrolled does NOT exist as a DB column — check contract via JOIN
+        const empContractRes = await pool.query(
+            `SELECT c.costs->>'eosb_type' AS eosb_type FROM contracts c WHERE c.contract_name=$1`,
+            [emp.contract_name || '']
+        );
+        const empEosbType = empContractRes.rows[0]?.eosb_type || 'None';
+        const pfEE = empEosbType === 'Provident Fund' ? Math.round(grossSalary / 24) : 0;
 
         const totalDeductions = incomeTax + eobiEE + pfEE + advanceDed + loanDed + otherDed;
         const netPay          = grossTotal - totalDeductions;
@@ -2067,17 +2073,27 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
 
         // ── Auto-post PF and Gratuity accrual for each newly locked employee ──
         if (lockedEmpIds && lockedEmpIds.length > 0) {
+            // Join contracts to get eosb_type from costs JSON
+            // pf_enrolled does NOT exist as a column — eosb_type lives in contracts.costs
             const { rows: emps } = await pool.query(
-                `SELECT id, salary, pf_enrolled FROM employees WHERE id = ANY($1)`,
+                `SELECT e.id, e.salary, e.contract_name,
+                        c.costs->>'eosb_type' AS eosb_type
+                 FROM employees e
+                 LEFT JOIN contracts c ON c.contract_name = e.contract_name
+                 WHERE e.id = ANY($1)`,
                 [lockedEmpIds]
             );
             for (const emp of emps) {
-                const gross = parseFloat(emp.salary) || 0;
-                const basicSalary = Math.round(gross * 0.60);
-                // PF: 1/24 of basic salary (4.17%) per month — both EE and ER
-                const pfContrib = emp.pf_enrolled ? Math.round(basicSalary / 24) : 0;
-                // Gratuity: 1 month salary per year → gross/12 per month
-                const gratuityAccrual = Math.round(gross / 12);
+                const gross      = parseFloat(emp.salary) || 0;
+                const eosbType   = emp.eosb_type || 'None';
+                const isPF       = eosbType === 'Provident Fund';
+                const isGratuity = eosbType === 'Gratuity';
+
+                // PF: gross/24 per month — ONLY when Provident Fund scheme
+                const pfContrib = isPF ? Math.round(gross / 24) : 0;
+
+                // Gratuity: gross/12 per month — ONLY when Gratuity scheme (mutually exclusive with PF)
+                const gratuityAccrual = isGratuity ? Math.round(gross / 12) : 0;
 
                 if (pfContrib > 0) {
                     await pool.query(`
@@ -2088,7 +2104,6 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
                     `, [emp.id, mo, yr, pfContrib]).catch(() => {});
                 }
                 if (gratuityAccrual > 0) {
-                    // Get cumulative from previous month
                     const prev = await pool.query(
                         `SELECT COALESCE(MAX(cumulative),0) AS cum FROM employee_gratuity_ledger WHERE employee_id=$1 AND (year < $2 OR (year=$2 AND month < $3))`,
                         [emp.id, yr, mo]
@@ -2492,7 +2507,9 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
             const eobi = 400;
             const adv  = Math.round(parseFloat(pay?.advance_deduction||0));
             const loan = Math.round(parseFloat(pay?.loan_deduction||0));
-            const pfDedEmail = emp.pf_enrolled ? Math.round((parseFloat(emp.salary)||0) * 0.60 / 24) : 0;
+            // PF: gross/24 — ONLY when Provident Fund scheme (eosb_type in contract costs)
+            // pf_enrolled is NOT a DB column on employees — use emp._eosb_type enriched above
+            const pfDedEmail = emp._isPF ? Math.round(gross / 24) : 0;
             // netPay computed after pfDedEmail is known
             const html = `
 <!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -3718,6 +3735,19 @@ app.listen(PORT, async () => {
         await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_id TEXT');
         console.log('Migration OK: contract_id column ready');
 
+        // ── Seed known users with correct roles (only if still pending) ──────────
+        // Safe to run every restart — only updates 'pending' users, never demotes
+        const roleSeed = [
+            { email: 'laiba.mughal@asil.com.pk',    role: 'finance_proposer' },
+            { email: 'huzaifa.rafaqat@asil.com.pk', role: 'finance_approver' },
+        ];
+        for (const u of roleSeed) {
+            await pool.query(
+                `UPDATE hcm_users SET role=$1 WHERE email=$2 AND role='pending'`,
+                [u.role, u.email]
+            );
+        }
+        console.log('Migration OK: known user roles seeded');
 
         // ── Inventory tables ──────────────────────────────────────────────────
         await pool.query(`

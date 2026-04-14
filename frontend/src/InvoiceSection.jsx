@@ -521,8 +521,9 @@ export default function InvoiceSection({ user }) {
     const [filterClient,setFilterClient]= useState('All');
     const [error,       setError]       = useState(null);
 
-    const isSuperAdmin = user?.role === 'superadmin';
-    const isAR         = ['ar_team','finance_manager','superadmin'].includes(user?.role);
+    const isSuperAdmin        = user?.role === 'superadmin';
+    const isFinanceProposer   = user?.role === 'finance_proposer';
+    const isAR                = ['ar_team','finance_manager','superadmin'].includes(user?.role);
 
     const loadInvoices = useCallback(async () => {
         setLoading(true); setError(null);
@@ -572,6 +573,22 @@ export default function InvoiceSection({ user }) {
                 <h1>Invoices (AR)</h1>
                 <p>Client invoice management — raise, track, and push to Xero. System-generated numbers with manual override for historical invoices.</p>
             </header>
+
+            {/* Forbidden role banner for Finance Proposer */}
+            {isFinanceProposer && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.28)', borderRadius: '12px', padding: '14px 20px', marginBottom: '1.5rem' }}>
+                    <div style={{ width: '38px', height: '38px', background: 'rgba(239,68,68,0.15)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <AlertCircle size={20} color="#ef4444" />
+                    </div>
+                    <div>
+                        <div style={{ fontWeight: 800, color: '#f87171', fontSize: '0.9rem', marginBottom: '3px' }}>🔒 Invoices — Forbidden: Insufficient Role</div>
+                        <div style={{ color: '#94a3b8', fontSize: '0.78rem', lineHeight: 1.6 }}>
+                            Your role <strong style={{ color: '#f87171' }}>Finance Proposer</strong> does not have permission to create, edit, or approve invoices.
+                            You have <strong style={{ color: '#94a3b8' }}>View Only</strong> access. Contact Finance Approver or Finance Manager to raise or update invoices.
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {error && (
                 <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '10px', padding: '0.85rem 1.25rem', marginBottom: '1.5rem', color: '#f87171', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
