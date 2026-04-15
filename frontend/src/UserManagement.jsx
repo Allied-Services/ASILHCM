@@ -296,7 +296,6 @@ function PermissionsPanel({ user, onClose, onSaved }) {
 
   const handleSave = async () => {
     setSaving(true);
-    // Persist custom permissions to backend (stored in hcm_users.permissions JSON column)
     const token = localStorage.getItem('asil_hcm_token');
     try {
       const r = await fetch(`${API}/api/users/${user.id}/permissions`, {
@@ -304,17 +303,17 @@ function PermissionsPanel({ user, onClose, onSaved }) {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ permissions: perms }),
       });
+      let data = {};
+      try { data = await r.json(); } catch (_) {}
       if (!r.ok) {
-        // If endpoint not yet wired, save locally and show success anyway
-        // (graceful degradation — actual enforcement is via role in ROLE_NAV)
-        showToast('⚠️ Backend permissions endpoint not available — changes recorded locally.');
+        showToast(`\u274c Save failed: ${data.error || 'Status ' + r.status}`);
       } else {
-        showToast('✅ Permissions saved successfully');
+        showToast('\u2705 Permissions saved successfully');
         setDirty(false);
         if (onSaved) onSaved();
       }
-    } catch {
-      showToast('⚠️ Saved locally — backend unreachable');
+    } catch (err) {
+      showToast(`\u274c Network error: ${err.message}`);
     }
     setSaving(false);
   };

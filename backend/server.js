@@ -169,13 +169,43 @@ app.patch('/api/users/:id/role', requireAuth, requireRole('superadmin'), async (
             'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
             'procurement_manager','finance_manager','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
+        // Match by integer id OR by google_id string — whichever finds the row
         const { rows } = await pool.query(
-            'UPDATE hcm_users SET role = $1 WHERE id = $2 RETURNING id, email, name, role',
-            [role, req.params.id]
+            `UPDATE hcm_users SET role = $1
+             WHERE id::text = $2 OR google_id = $2
+             RETURNING id, email, name, role`,
+            [role, String(req.params.id)]
         );
         if (!rows.length) return res.status(404).json({ error: 'User not found' });
         res.json({ ok: true, user: rows[0] });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /api/users/:id/permissions — save granular module permissions per user (superadmin only)
+// Stores a JSONB blob against the user record in hcm_users.permissions column
+app.patch('/api/users/:id/permissions', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const { permissions } = req.body;
+        if (!permissions || typeof permissions !== 'object') {
+            return res.status(400).json({ error: 'permissions object is required' });
+        }
+        // Ensure the permissions column exists (safe migration on every call)
+        await pool.query(
+            `ALTER TABLE hcm_users ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT NULL`
+        ).catch(() => {}); // Ignore if already exists
+
+        const { rows } = await pool.query(
+            `UPDATE hcm_users SET permissions = $1
+             WHERE id::text = $2 OR google_id = $2
+             RETURNING id, email, name, role, permissions`,
+            [JSON.stringify(permissions), String(req.params.id)]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'User not found' });
+        res.json({ ok: true, user: rows[0] });
+    } catch (err) {
+        console.error('permissions save error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 app.get('/health/ip', requireAuth, requireRole('superadmin'), (req, res) => {
