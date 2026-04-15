@@ -132,16 +132,19 @@ app.get('/auth/google/callback',
 app.get('/auth/me', requireAuth, (req, res) => res.json({ user: req.user }));
 app.post('/auth/logout', (req, res) => res.json({ ok: true }));
 
-// ─── User Management (superadmin only) ───────────────────────────────────────
-app.get('/api/users', requireAuth, requireRole('superadmin'), async (req, res) => {
+// ─── User Management ─────────────────────────────────────────────────────────
+// Blueprint: superadmin, finance_approver, finance_manager can all access User Management tab
+const USER_MGMT_ROLES = ['superadmin', 'finance_approver', 'finance_manager'];
+
+app.get('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req, res) => {
     try {
         const { rows } = await pool.query('SELECT id, google_id, email, name, avatar, role, created_at, last_login FROM hcm_users ORDER BY created_at ASC');
         res.json({ users: rows });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/users — pre-register a user by email (superadmin only)
-app.post('/api/users', requireAuth, requireRole('superadmin'), async (req, res) => {
+// POST /api/users — pre-register a user by email
+app.post('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req, res) => {
     try {
         const { email, role = 'pending' } = req.body;
         if (!email || !email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`)) {
@@ -151,7 +154,10 @@ app.post('/api/users', requireAuth, requireRole('superadmin'), async (req, res) 
             'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
             'procurement_manager','finance_manager','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
-        // Insert with placeholder google_id — will be filled on first Google login
+        // Non-superadmins cannot create superadmin accounts
+        if (role === 'superadmin' && req.user.role !== 'superadmin') {
+            return res.status(403).json({ error: 'Only Super Admin can assign the superadmin role' });
+        }
         const { rows } = await pool.query(`
             INSERT INTO hcm_users (google_id, email, name, role)
             VALUES ($1, $2, $3, $4)
@@ -162,14 +168,19 @@ app.post('/api/users', requireAuth, requireRole('superadmin'), async (req, res) 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.patch('/api/users/:id/role', requireAuth, requireRole('superadmin'), async (req, res) => {
+// PATCH /api/users/:id/role — change a user's role
+app.patch('/api/users/:id/role', requireAuth, requireRole(...USER_MGMT_ROLES), async (req, res) => {
     try {
         const { role } = req.body;
         const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver',
             'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
             'procurement_manager','finance_manager','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
-        // Match by integer id OR by google_id string — whichever finds the row
+        // Non-superadmins cannot assign or escalate to superadmin
+        if (role === 'superadmin' && req.user.role !== 'superadmin') {
+            return res.status(403).json({ error: 'Only Super Admin can assign the superadmin role' });
+        }
+        // Match by integer id::text OR by google_id string (handles pre-registered + active users)
         const { rows } = await pool.query(
             `UPDATE hcm_users SET role = $1
              WHERE id::text = $2 OR google_id = $2
@@ -181,18 +192,17 @@ app.patch('/api/users/:id/role', requireAuth, requireRole('superadmin'), async (
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PATCH /api/users/:id/permissions — save granular module permissions per user (superadmin only)
-// Stores a JSONB blob against the user record in hcm_users.permissions column
+// PATCH /api/users/:id/permissions — save granular sub-permissions (superadmin only)
 app.patch('/api/users/:id/permissions', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         const { permissions } = req.body;
         if (!permissions || typeof permissions !== 'object') {
             return res.status(400).json({ error: 'permissions object is required' });
         }
-        // Ensure the permissions column exists (safe migration on every call)
+        // Ensure the column exists on every call — safe no-op once it exists
         await pool.query(
             `ALTER TABLE hcm_users ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT NULL`
-        ).catch(() => {}); // Ignore if already exists
+        ).catch(() => {});
 
         const { rows } = await pool.query(
             `UPDATE hcm_users SET permissions = $1

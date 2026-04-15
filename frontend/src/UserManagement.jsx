@@ -531,7 +531,8 @@ function RoleMatrix() {
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
-export default function UserManagement() {
+export default function UserManagement({ user: currentUser }) {
+  const isSuperAdmin = currentUser?.role === 'superadmin';
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null);
@@ -751,6 +752,7 @@ export default function UserManagement() {
                   key={u.id}
                   user={u}
                   saving={saving === u.id}
+                  isSuperAdmin={isSuperAdmin}
                   onChangeRole={(newRole) => changeRole(u.id, newRole, u.name)}
                   onOpenPerms={() => setPermPanel(u)}
                 />
@@ -815,7 +817,7 @@ export default function UserManagement() {
 }
 
 // ─── User Row (expandable) ────────────────────────────────────────────────────
-function UserRow({ user, saving, onChangeRole, onOpenPerms }) {
+function UserRow({ user, saving, isSuperAdmin, onChangeRole, onOpenPerms }) {
   const hasRole = user.role && user.role !== 'pending';
   const { color, bg, label } = ROLE_META[user.role] || ROLE_META.pending;
   const allowedModules = ROLE_NAV_SET[user.role] || [];
@@ -863,27 +865,34 @@ function UserRow({ user, saving, onChangeRole, onOpenPerms }) {
               fontSize: '0.8rem', cursor: 'pointer', fontWeight: 700,
               outline: 'none', opacity: saving ? 0.6 : 1,
             }}>
-            {ROLE_OPTIONS.map(opt => (
+            {/* Only superadmin can assign superadmin role */}
+            {ROLE_OPTIONS.filter(opt => isSuperAdmin || opt.value !== 'superadmin').map(opt => (
               <option key={opt.value} value={opt.value} style={{ color: '#e2e8f0', background: '#0a1020' }}>{opt.label}</option>
             ))}
             <option value="pending" style={{ color: '#94a3b8', background: '#0a1020' }}>Access Pending</option>
           </select>
         </div>
 
-        {/* Configure Permissions button */}
-        <button onClick={onOpenPerms}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)',
-            color: '#818cf8', padding: '6px 14px', borderRadius: '8px',
-            cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700,
-            flexShrink: 0, transition: 'all 0.15s',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.2)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.1)'; }}
-        >
-          <Lock size={12} /> Configure
-        </button>
+        {/* Configure Permissions — superadmin only */}
+        {isSuperAdmin ? (
+          <button onClick={onOpenPerms}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)',
+              color: '#818cf8', padding: '6px 14px', borderRadius: '8px',
+              cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700,
+              flexShrink: 0, transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.2)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.1)'; }}
+          >
+            <Lock size={12} /> Configure
+          </button>
+        ) : (
+          <span style={{ fontSize: '0.7rem', color: '#334155', fontStyle: 'italic', flexShrink: 0 }}>
+            Role default
+          </span>
+        )}
       </div>
 
       {/* Module access pills */}
@@ -904,3 +913,4 @@ function UserRow({ user, saving, onChangeRole, onOpenPerms }) {
     </div>
   );
 }
+
