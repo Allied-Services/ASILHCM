@@ -98,9 +98,9 @@ function App() {
   const roleBadge = ROLE_BADGE[role] || ROLE_BADGE.pending;
 
   // Compute allowed tabs:
-  // 1. SuperAdmin → always full access (no custom perms can restrict this)
-  // 2. User has saved custom permissions (from User Management panel) → use those
-  // 3. Fallback → role-based ROLE_NAV defaults
+  // 1. SuperAdmin -> always full access (no custom perms can restrict this)
+  // 2. User has saved custom permissions (from User Management panel) -> use those
+  // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
     allowedTabs = ['dashboard','employee','payroll','documents','billing','invoices','ap','client','vendor','inventory','annexure','config','users'];

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
          Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare, Package, CreditCard, Clock } from 'lucide-react';
 import { api } from './api';
