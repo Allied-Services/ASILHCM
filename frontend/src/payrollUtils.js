@@ -107,6 +107,10 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const sessi = Math.min(2400, Math.round(grossMonthly * 0.06));
     const eduCess = parseFloat(cfg.edu_cess || 0);
     const bonusAmount = parseFloat(ov.bonus_amount || 0);
+    // Bonus accrual: contract defines bonus_months × gross / 12 as monthly employer provision
+    // e.g. 1 bonus month/yr → 1/12 of gross added to employer cost each month
+    const bonusMonths = parseFloat(cfg.bonus_months || 0);
+    const bonusAccrual = bonusMonths > 0 ? Math.round(bonusMonths * grossSalary / 12) : 0;
     // Gratuity monthly accrual (Employer cost only — no employee deduction):
     //   Gratuity  = Gross / 12  (1/12th = 8.33% of Gross — per EOB Ordinance 1968)
     //   PF        = 0 when Gratuity scheme active (pfER covers Provident Fund instead)
@@ -121,7 +125,8 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const totalMedical = medEE + medSP + medCh1 + medCh2;
     // Total employer payroll cost = gross + all employer obligations
     // pfER is employer's PF contribution (= employee's contribution when PF type)
-    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusAmount + gratuity + lifeIns + totalMedical + pfER;
+    // bonusAccrual is the monthly provision for annual bonus (from contract.bonus_months)
+    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusAmount + bonusAccrual + gratuity + lifeIns + totalMedical + pfER;
     const svcPct = parseFloat(cfg.service_charges_pct || 0);
     // Sales tax: province-based rate (replaces cfg.sales_tax_pct)
     const stRate = provinceSalesTaxRate(emp.province || emp.location || '');
@@ -133,7 +138,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
         otAmount, opdClaim, reimb, arrears, splAllow, fuelMob, absenceDeduction, absentDays,
         grossMonthly, taxableMonthly, annualIncome,
         incomeTax, eobi_ee: eobi.employee, pfEE, otherDed, advanceDed, loanDed,
-        totalDeductions, netPay, eobi_er: eobi.employer, sessi, eduCess, bonusAmount,
+        totalDeductions, netPay, eobi_er: eobi.employer, sessi, eduCess, bonusAmount, bonusAccrual,
         gratuity, pfER, lifeIns, medEE, medSP, medCh1, medCh2, totalMedical,
         totalPayrollCost, serviceCharges, salesTax, totalInvoice,
         hrlyGross, dailyGross,
@@ -162,12 +167,18 @@ export const buildPayrollCSV = (rows, month) => rows.map(({ emp, calc }) => ({
     'Gross Salary': emp.gross, 'Paid Days': calc.pd,
     'OT @2X Hrs': calc.ot2hrs, 'OT @3X Hrs': calc.ot3hrs, 'OT Amount': calc.otAmount,
     'OPD Claim': calc.opdClaim, 'Reimbursement': calc.reimb, 'Arrears': calc.arrears,
+    // Bug fix: Other Allowances (3% component) and Bonus were missing from export
+    'Other Allowances': calc.otherPaid,
     'Special Allowance': calc.splAllow, 'Fuel/Mobile Allow': calc.fuelMob,
+    'Bonus (Cash)': calc.bonusAmount,
     'Gross Monthly': calc.grossMonthly,
     'Income Tax': calc.incomeTax, 'EOBI EE': calc.eobi_ee, 'PF EE': calc.pfEE,
     'Advance': calc.advanceDed, 'Loan Installment': calc.loanDed,
+    'Other Deduction': calc.otherDed,
     'Total Deductions': calc.totalDeductions, 'Net Pay': calc.netPay,
     'EOBI ER': calc.eobi_er, 'SESSI': calc.sessi,
+    'PF Employer': calc.pfER,
+    'Bonus Accrual (Monthly)': calc.bonusAccrual,
     'Gratuity Provision': calc.gratuity, 'Life Insurance': calc.lifeIns,
     'Medical EE': calc.medEE, 'Medical SP': calc.medSP,
     'Medical Ch1': calc.medCh1, 'Medical Ch2': calc.medCh2,

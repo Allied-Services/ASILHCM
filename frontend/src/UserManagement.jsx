@@ -261,7 +261,18 @@ function PermPill({ label, color, active, onClick }) {
 
 // ─── Permission Editor Panel (per user) ──────────────────────────────────────
 function PermissionsPanel({ user, onClose, onSaved }) {
-  const [perms, setPerms] = useState(() => buildDefaultPerms(user.role));
+  // Use saved custom permissions from DB if they exist; fall back to role defaults
+  const [perms, setPerms] = useState(() => {
+    if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
+      // Merge saved perms with any newly-added modules (forward-compat)
+      const saved = user.permissions;
+      const defaults = buildDefaultPerms(user.role);
+      const merged = { ...defaults };
+      Object.keys(saved).forEach(k => { if (merged[k] !== undefined) merged[k] = saved[k]; });
+      return merged;
+    }
+    return buildDefaultPerms(user.role);
+  });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');

@@ -138,7 +138,10 @@ const USER_MGMT_ROLES = ['superadmin', 'finance_approver', 'finance_manager'];
 
 app.get('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req, res) => {
     try {
-        const { rows } = await pool.query('SELECT id, google_id, email, name, avatar, role, created_at, last_login FROM hcm_users ORDER BY created_at ASC');
+        // Include permissions so the frontend can restore saved custom access on panel open
+        const { rows } = await pool.query(
+            'SELECT id, google_id, email, name, avatar, role, permissions, created_at, last_login FROM hcm_users ORDER BY created_at ASC'
+        );
         res.json({ users: rows });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2347,7 +2350,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const st       = pay?.sales_tax ? Math.round(parseFloat(pay.sales_tax)) : Math.round(sc * stRate);
             const inv      = pay?.total_invoice ? Math.round(parseFloat(pay.total_invoice)) : costBase+sc+st;
             return { grossM, wht, eobi_ee, eobi_er, sessi, pfDed, pfER, advDed, loanDed, otherDed, totalDed, netPay,
-                     gratuity, eosbType, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus,
+                     gratuity, eosbType, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus, other,
                      pd, ot2hrs, ot3hrs, medEE, medSP, medCh1, medCh2, medTotal, bonusAccrual, lifeIns };
         };
 
@@ -2377,6 +2380,8 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Gross Salary': parseFloat(emp.salary)||0, 'Paid Days': c.pd,
                     'OT @2X Hrs': c.ot2hrs, 'OT @3X Hrs': c.ot3hrs, 'OT Amount': c.otAmt,
                     'OPD Claim': c.opd, 'Reimbursement': c.reimb, 'Arrears': c.arr,
+                    // Bug fix: Other Allowances was calculated but not exported
+                    'Other Allowances': c.other,
                     'Spl Allowance': c.spl, 'Fuel/Mobile': c.fuel, 'Bonus (Cash)': c.bonus,
                     'Gross Monthly': c.grossM,
                     'Income Tax (WHT)': c.wht,
@@ -2388,7 +2393,6 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Total Deductions': c.totalDed,
                     'Net Pay to Employee': c.netPay,
                     'EOBI Employer (Rs.2000)': c.eobi_er,
-                    'PF Employee Deduction': c.pfDed,
                     'PF Employer Contribution': c.pfER,
                     'Gratuity Accrual': c.gratuity,
                     'EOSB Scheme': c.eosbType || 'None',
