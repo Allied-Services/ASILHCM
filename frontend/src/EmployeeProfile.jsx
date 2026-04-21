@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
          Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare, Package, CreditCard, Clock } from 'lucide-react';
 import { api } from './api';
@@ -278,6 +278,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
         { key: 'medical', label: 'Medical & Insurance', icon: <Heart size={15} /> },
         { key: 'assets', label: 'Assets & Uniform', icon: <Package size={15} /> },
         { key: 'advances', label: 'Advances & Loans', icon: <CreditCard size={15} /> },
+        { key: 'pf_ledger', label: 'PF Ledger', icon: <Landmark size={15} /> },
         { key: 'settlement', label: 'Final Settlement', icon: <AlertTriangle size={15} /> },
     ];
 
@@ -286,6 +287,16 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
     const [assetsLoaded, setAssetsLoaded] = useState(false);
     const [showAddAsset, setShowAddAsset] = useState(false);
     const [assetForm, setAssetForm] = useState({ category: 'Uniform', item_desc: '', issue_date: '', cost: '' });
+
+    // ── PF Ledger state ────────────────────────────────────────────────────────
+    const [pfLedger, setPfLedger] = useState([]);
+    const [pfBalance, setPfBalance] = useState(0);
+    const [pfTotalCredit, setPfTotalCredit] = useState(0);
+    const [pfTotalDebit, setPfTotalDebit] = useState(0);
+    const [pfLoaded, setPfLoaded] = useState(false);
+    const [pfForm, setPfForm] = useState(null); // null | 'opening_balance' | 'withdrawal'
+    const [pfFormData, setPfFormData] = useState({ amount: '', reference_no: '', narration: '' });
+
 
     useEffect(() => {
         if (tab === 'assets' && !assetsLoaded) {
@@ -1241,8 +1252,160 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                 </div>
             )}
 
+
+            {/* PF Ledger Tab */}
+            {tab === 'pf_ledger' && (
+                <PFLedgerSection
+                    emp={emp}
+                    pfLedger={pfLedger} setPfLedger={setPfLedger}
+                    pfBalance={pfBalance} setPfBalance={setPfBalance}
+                    pfTotalCredit={pfTotalCredit} setPfTotalCredit={setPfTotalCredit}
+                    pfTotalDebit={pfTotalDebit} setPfTotalDebit={setPfTotalDebit}
+                    pfLoaded={pfLoaded} setPfLoaded={setPfLoaded}
+                    pfForm={pfForm} setPfForm={setPfForm}
+                    pfFormData={pfFormData} setPfFormData={setPfFormData}
+                />
+            )}
             {/* Payslip viewer */}
             {viewPayslip && <PayslipModal payslip={viewPayslip} employee={emp} onClose={() => setViewPayslip(null)} />}
+        </div>
+    );
+}
+
+// ─── PF Ledger Section ────────────────────────────────────────────────────────
+const MONTHS_SHORT = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const PF_ENTRY_TYPES = {
+    opening_balance: { label: 'Opening Balance (B/F)', color: '#6366f1' },
+    monthly:         { label: 'Monthly Contribution',   color: '#22c55e' },
+    withdrawal:      { label: 'Withdrawal',              color: '#ef4444' },
+    adjustment:      { label: 'Adjustment',              color: '#f59e0b' },
+};
+
+function PFLedgerSection({ emp, pfLedger, setPfLedger, pfBalance, setPfBalance,
+    pfTotalCredit, setPfTotalCredit, pfTotalDebit, setPfTotalDebit,
+    pfLoaded, setPfLoaded, pfForm, setPfForm, pfFormData, setPfFormData }) {
+
+    useEffect(() => {
+        if (!pfLoaded) {
+            api.getPFLedger(emp.id)
+                .then(d => {
+                    setPfLedger(d.ledger || []);
+                    setPfBalance(d.balance || 0);
+                    setPfTotalCredit(d.totalCredit || 0);
+                    setPfTotalDebit(d.totalDebit || 0);
+                    setPfLoaded(true);
+                }).catch(() => setPfLoaded(true));
+        }
+    }, [pfLoaded, emp.id]);
+
+    const reload = () => setPfLoaded(false);
+
+    const saveEntry = async (type) => {
+        try {
+            if (type === 'opening_balance') {
+                await api.pfOpeningBalance(emp.id, {
+                    amount: parseFloat(pfFormData.amount),
+                    narration: pfFormData.narration || 'Opening Balance / Balance B/F',
+                });
+            } else {
+                await api.pfWithdrawal(emp.id, {
+                    amount: parseFloat(pfFormData.amount),
+                    reference_no: pfFormData.reference_no || null,
+                    narration: pfFormData.narration || 'PF Withdrawal',
+                });
+            }
+            setPfForm(null);
+            setPfFormData({ amount: '', reference_no: '', narration: '' });
+            reload();
+        } catch (e) { alert('Error saving PF entry: ' + e.message); }
+    };
+
+    if (!pfLoaded) return <div style={{ padding: '2rem', color: 'var(--text-muted)' }}>Loading PF Ledger…</div>;
+
+    return (
+        <div style={{ padding: '1.5rem 2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                {[
+                    { label: 'Current PF Balance', v: pfBalance, clr: '#6366f1', bg: 'rgba(99,102,241,0.10)' },
+                    { label: 'Total Contributions', v: pfTotalCredit, clr: '#22c55e', bg: 'rgba(34,197,94,0.08)' },
+                    { label: 'Total Withdrawals', v: pfTotalDebit, clr: '#ef4444', bg: 'rgba(239,68,68,0.08)' },
+                ].map(c => (
+                    <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.clr}30`, borderRadius: '12px', padding: '1rem 1.25rem' }}>
+                        <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>{c.label}</div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 800, color: c.clr }}>Rs. {fmt(c.v)}</div>
+                    </div>
+                ))}
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                <button onClick={() => { setPfForm('opening_balance'); setPfFormData({ amount: '', reference_no: '', narration: 'Opening Balance / Balance Brought Forward' }); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.4)', color: '#818cf8', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                    <Plus size={15} /> Set / Update Opening Balance
+                </button>
+                <button onClick={() => { setPfForm('withdrawal'); setPfFormData({ amount: '', reference_no: '', narration: 'PF Withdrawal' }); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                    <Plus size={15} /> Record Withdrawal
+                </button>
+            </div>
+            {pfForm && (
+                <div style={{ background: 'var(--bg-dark)', border: `1px solid ${pfForm === 'withdrawal' ? 'rgba(239,68,68,0.35)' : 'rgba(99,102,241,0.4)'}`, borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+                    <div style={{ fontWeight: 700, marginBottom: '1rem', color: pfForm === 'withdrawal' ? '#f87171' : '#818cf8' }}>
+                        {pfForm === 'opening_balance' ? 'Set Opening Balance (Balance B/F)' : 'Record PF Withdrawal'}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <FField label="Amount (Rs.) *"><FInput type="number" value={pfFormData.amount} onChange={e => setPfFormData(p => ({ ...p, amount: e.target.value }))} ph="e.g. 50000" /></FField>
+                        {pfForm === 'withdrawal' && (
+                            <FField label="Cheque / Bank Transfer Reference *"><FInput value={pfFormData.reference_no} onChange={e => setPfFormData(p => ({ ...p, reference_no: e.target.value }))} ph="e.g. CHQ-001 or TRF-0045" /></FField>
+                        )}
+                        <div style={{ gridColumn: '1/-1' }}><FField label="Narration / Notes"><FInput value={pfFormData.narration} onChange={e => setPfFormData(p => ({ ...p, narration: e.target.value }))} ph="Description" /></FField></div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', justifyContent: 'flex-end' }}>
+                        <button onClick={() => setPfForm(null)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 18px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                        <button onClick={() => saveEntry(pfForm)} style={{ background: pfForm === 'withdrawal' ? '#ef4444' : '#6366f1', border: 'none', color: 'white', padding: '8px 22px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                            {pfForm === 'withdrawal' ? 'Record Withdrawal' : 'Save Opening Balance'}
+                        </button>
+                    </div>
+                </div>
+            )}
+            {pfLedger.length === 0
+                ? <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)', background: 'var(--bg-dark)', borderRadius: '12px' }}>No PF ledger entries yet. Set an Opening Balance or lock payroll for a PF-enrolled employee.</div>
+                : (
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                        <thead>
+                            <tr style={{ background: 'var(--bg-dark)', color: 'var(--text-muted)', fontSize: '0.71rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                {['Period','Type','Narration','Reference','Credit (EE+ER)','Debit (Withdrawal)','Running Balance'].map(h => (
+                                    <th key={h} style={{ padding: '8px 12px', textAlign: ['Credit (EE+ER)','Debit (Withdrawal)','Running Balance'].includes(h) ? 'right' : 'left', fontWeight: 600 }}>{h}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {pfLedger.map((row, i) => {
+                                const eType = PF_ENTRY_TYPES[row.entry_type] || { label: row.entry_type, color: '#94a3b8' };
+                                const period = (row.year === 0 && row.month === 0) ? 'B/F' : `${MONTHS_SHORT[row.month]||row.month} ${row.year}`;
+                                return (
+                                    <tr key={row.id} style={{ borderBottom: '1px solid var(--border)', background: i%2===0 ? 'transparent' : 'rgba(255,255,255,0.015)' }}>
+                                        <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{period}</td>
+                                        <td style={{ padding: '8px 12px' }}><span style={{ background: `${eType.color}20`, color: eType.color, padding: '2px 8px', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 700 }}>{eType.label}</span></td>
+                                        <td style={{ padding: '8px 12px', color: 'var(--text)', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.narration || '—'}</td>
+                                        <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '0.78rem' }}>{row.reference_no || '—'}</td>
+                                        <td style={{ padding: '8px 12px', textAlign: 'right', color: '#22c55e', fontWeight: 600 }}>{row.credit > 0 ? `Rs. ${fmt(row.credit)}` : '—'}</td>
+                                        <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ef4444', fontWeight: 600 }}>{row.debit > 0 ? `Rs. ${fmt(row.debit)}` : '—'}</td>
+                                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: row.running_balance >= 0 ? '#e2e8f0' : '#ef4444' }}>Rs. {fmt(row.running_balance)}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                        <tfoot>
+                            <tr style={{ background: 'rgba(99,102,241,0.12)', borderTop: '2px solid rgba(99,102,241,0.3)', fontWeight: 700 }}>
+                                <td colSpan={4} style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>TOTALS</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#22c55e' }}>Rs. {fmt(pfTotalCredit)}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#ef4444' }}>Rs. {fmt(pfTotalDebit)}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#818cf8', fontSize: '1rem' }}>Rs. {fmt(pfBalance)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            )}
         </div>
     );
 }

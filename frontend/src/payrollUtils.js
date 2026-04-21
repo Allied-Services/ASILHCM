@@ -126,7 +126,9 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     // Total employer payroll cost = gross + all employer obligations
     // pfER is employer's PF contribution (= employee's contribution when PF type)
     // bonusAccrual is the monthly provision for annual bonus (from contract.bonus_months)
-    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusAmount + bonusAccrual + gratuity + lifeIns + totalMedical + pfER;
+    // overhead is a fixed per-head charge from the contract
+    const overhead = parseFloat(cfg.overhead_per_employee || 0);
+    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusAmount + bonusAccrual + gratuity + lifeIns + totalMedical + pfER + overhead;
     const svcPct = parseFloat(cfg.service_charges_pct || 0);
     // Sales tax: province-based rate (replaces cfg.sales_tax_pct)
     const stRate = provinceSalesTaxRate(emp.province || emp.location || '');
@@ -139,7 +141,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
         grossMonthly, taxableMonthly, annualIncome,
         incomeTax, eobi_ee: eobi.employee, pfEE, otherDed, advanceDed, loanDed,
         totalDeductions, netPay, eobi_er: eobi.employer, sessi, eduCess, bonusAmount, bonusAccrual,
-        gratuity, pfER, lifeIns, medEE, medSP, medCh1, medCh2, totalMedical,
+        gratuity, pfER, lifeIns, medEE, medSP, medCh1, medCh2, totalMedical, overhead,
         totalPayrollCost, serviceCharges, salesTax, totalInvoice,
         hrlyGross, dailyGross,
     };
@@ -182,7 +184,9 @@ export const buildPayrollCSV = (rows, month) => rows.map(({ emp, calc }) => ({
     'Gratuity Provision': calc.gratuity, 'Life Insurance': calc.lifeIns,
     'Medical EE': calc.medEE, 'Medical SP': calc.medSP,
     'Medical Ch1': calc.medCh1, 'Medical Ch2': calc.medCh2,
-    'Total Medical': calc.totalMedical, 'Total Payroll Cost': calc.totalPayrollCost,
+    'Total Medical': calc.totalMedical,
+    'Overhead (Fixed)': calc.overhead,
+    'Total Payroll Cost': calc.totalPayrollCost,
     'Service Charges': calc.serviceCharges, 'Sales Tax': calc.salesTax,
     'Total Invoice': calc.totalInvoice,
 }));

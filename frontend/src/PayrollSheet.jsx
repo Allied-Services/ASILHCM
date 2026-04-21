@@ -85,6 +85,9 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
                         {calc.medCh1 > 0 && <R label="Medical — Child 1" value={calc.medCh1} />}
                         {calc.medCh2 > 0 && <R label="Medical — Child 2" value={calc.medCh2} />}
                         {(emp.pf_enrolled || calc.pfER > 0) && <R label="PF Employer Match (Gross ÷ 24)" formula={`Gross ÷ 24 ≈ 4.17%`} value={calc.pfER} />}
+                        {calc.bonusAccrual > 0 && <R label="Bonus Accrual (Contract: Gross ÷ 12)" formula="Gross × bonus_months ÷ 12" value={calc.bonusAccrual} />}
+                        {calc.bonusAmount > 0 && <R label="Bonus (Cash — this month)" value={calc.bonusAmount} />}
+                        {calc.overhead > 0 && <R label="Overhead (Fixed per Contract)" value={calc.overhead} />}
                         <D label="Total Payroll Cost" value={calc.totalPayrollCost} color="#a78bfa" />
                     </S>
                     <S title="Invoice" color="#f59e0b">
@@ -391,9 +394,10 @@ export default function PayrollSheet({ user }) {
                     medical_ee:          parseFloat(ct.costs?.medical_ee) || 0,
                     medical_sp:          parseFloat(ct.costs?.medical_sp) || 0,
                     medical_child:       parseFloat(ct.costs?.medical_child) || 0,
-                    bonus_months:        parseFloat(ct.costs?.bonus_months) || 0,
-                    bonus_min_months:    parseFloat(ct.costs?.bonus_min_months) || 12,
-                    eosb_type:           ct.costs?.eosb_type || 'None',
+                    bonus_months:           parseFloat(ct.costs?.bonus_months) || 0,
+                    bonus_min_months:        parseFloat(ct.costs?.bonus_min_months) || 12,
+                    eosb_type:               ct.costs?.eosb_type || 'None',
+                    overhead_per_employee:   parseFloat(ct.costs?.overhead_per_employee) || 0,
                     _isActive:           ct.status === 'Active',
                 };
                 // Primary index: contract ID (most specific — exact match)

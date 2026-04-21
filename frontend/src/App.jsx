@@ -95,8 +95,23 @@ function App() {
   if (!user) return <LoginScreen error={authError} />;
 
   const role = user.role || 'pending';
-  const allowedTabs = ROLE_NAV[role] || [];
   const roleBadge = ROLE_BADGE[role] || ROLE_BADGE.pending;
+
+  // Compute allowed tabs:
+  // 1. SuperAdmin → always full access (no custom perms can restrict this)
+  // 2. User has saved custom permissions (from User Management panel) → use those
+  // 3. Fallback → role-based ROLE_NAV defaults
+  let allowedTabs;
+  if (role === 'superadmin') {
+    allowedTabs = ['dashboard','employee','payroll','documents','billing','invoices','ap','client','vendor','inventory','annexure','config','users'];
+  } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
+    // Saved custom permissions: show all modules where access === true
+    allowedTabs = Object.entries(user.permissions)
+      .filter(([, p]) => p && p.access === true)
+      .map(([key]) => key);
+  } else {
+    allowedTabs = ROLE_NAV[role] || [];
+  }
 
   // Auto-redirect to first allowed tab if current tab not accessible
   const effectiveTab = allowedTabs.includes(activeTab) ? activeTab : (allowedTabs[0] || '');

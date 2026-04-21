@@ -32,6 +32,7 @@ const EMPTY_CONTRACT = {
         other1_name: '', other1_amount: 0, other2_name: '', other2_amount: 0,
         // End of Service Benefit type — drives monthly EOSB accrual in payroll
         eosb_type: 'None',   // 'None' | 'Gratuity' | 'Provident Fund'
+        overhead_per_employee: 0, // Fixed monthly overhead charged per employee (e.g. management fee)
     },
     financials: { wht_pct: 7, service_charges_pct: 15 }
 };
@@ -161,6 +162,15 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                             </FRow>
                         </div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>e.g. 1 month bonus. If min=12, must work full year. If min=0, pro-rated from day 1. Partial year = gross × months × service_months/12.</div>
+                    </div>
+
+                    {/* Overhead Per Employee */}
+                    <div style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', padding: '1rem', marginBottom: '1rem' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#ef4444', marginBottom: '0.75rem' }}>Fixed Overhead Per Employee (Rs./head/month)</div>
+                        <FRow label="Overhead Amount (added to every employee's cost)">
+                            <FInput type="number" value={c.costs.overhead_per_employee ?? 0} onChange={e => set('costs.overhead_per_employee', parseFloat(e.target.value) || 0)} ph="0" />
+                        </FRow>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Fixed monthly overhead per head billed to client (e.g. management fee, admin overhead). Added directly to Total Payroll Cost before service charges.</div>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>

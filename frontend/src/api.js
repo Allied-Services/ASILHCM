@@ -108,6 +108,9 @@ export const api = {
     // ── PF Ledger ─────────────────────────────────────────────────────────────
     getPFLedger:         (id)      => apiFetch(`/api/employees/${id}/pf-ledger`),
     upsertPFEntry:       (id, d)   => apiFetch(`/api/employees/${id}/pf-ledger`, { method: 'POST', body: JSON.stringify(d) }),
+    pfOpeningBalance:    (id, d)   => apiFetch(`/api/employees/${id}/pf-ledger/opening-balance`, { method: 'POST', body: JSON.stringify(d) }),
+    pfWithdrawal:        (id, d)   => apiFetch(`/api/employees/${id}/pf-ledger/withdrawal`, { method: 'POST', body: JSON.stringify(d) }),
+    deletePFEntry:       (id, eid) => apiFetch(`/api/employees/${id}/pf-ledger/${eid}`, { method: 'DELETE' }),
 
     // ── Gratuity Ledger ───────────────────────────────────────────────────────
     getGratuityLedger:   (id)      => apiFetch(`/api/employees/${id}/gratuity-ledger`),

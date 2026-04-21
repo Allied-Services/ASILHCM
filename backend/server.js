@@ -129,7 +129,27 @@ app.get('/auth/google/callback',
         res.redirect(`${FRONTEND_URL}?token=${token}`);
     }
 );
-app.get('/auth/me', requireAuth, (req, res) => res.json({ user: req.user }));
+app.get('/auth/me', requireAuth, async (req, res) => {
+    try {
+        // Always look up fresh from DB — catches role changes + saved custom permissions
+        // without requiring re-login. Falls back to JWT payload if user not found.
+        const userId = String(req.user.id || req.user.google_id || '');
+        const { rows } = await pool.query(
+            `SELECT id, email, name, role, avatar, permissions
+             FROM hcm_users WHERE id::text = $1 OR google_id = $1 LIMIT 1`,
+            [userId]
+        );
+        if (rows.length) {
+            const db = rows[0];
+            res.json({ user: { ...req.user, role: db.role, permissions: db.permissions || null } });
+        } else {
+            res.json({ user: req.user });
+        }
+    } catch (err) {
+        console.error('auth/me DB error:', err.message);
+        res.json({ user: req.user }); // safe fallback
+    }
+});
 app.post('/auth/logout', (req, res) => res.json({ ok: true }));
 
 // ─── User Management ─────────────────────────────────────────────────────────
@@ -1294,30 +1314,106 @@ app.get('/api/payroll/advance-deductions', requireAuth, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════════
-// PF LEDGER
+// PF LEDGER — full ledger with opening balance, contributions, withdrawals
 // ════════════════════════════════════════════════════════════════════════════════
 
+// Auto-migrate: add new columns if they don't exist yet
+const migratePFLedger = async () => {
+    await pool.query(`ALTER TABLE employee_pf_ledger ADD COLUMN IF NOT EXISTS entry_type TEXT DEFAULT 'monthly'`).catch(() => {});
+    await pool.query(`ALTER TABLE employee_pf_ledger ADD COLUMN IF NOT EXISTS narration TEXT`).catch(() => {});
+    await pool.query(`ALTER TABLE employee_pf_ledger ADD COLUMN IF NOT EXISTS reference_no TEXT`).catch(() => {});
+    await pool.query(`ALTER TABLE employee_pf_ledger ADD COLUMN IF NOT EXISTS withdrawal_amount NUMERIC(12,2) DEFAULT 0`).catch(() => {});
+};
+migratePFLedger();
+
+// GET — returns all entries sorted oldest first + computed running balance
 app.get('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(
-            'SELECT * FROM employee_pf_ledger WHERE employee_id=$1 ORDER BY year DESC, month DESC',
+            `SELECT * FROM employee_pf_ledger
+             WHERE employee_id=$1
+             ORDER BY year ASC, month ASC, entry_type ASC, id ASC`,
             [req.params.id]);
-        res.json({ ledger: rows });
+        // Compute running balance across entries
+        let runningBalance = 0;
+        const ledger = rows.map(r => {
+            const credit = parseFloat(r.ee_contribution || 0) + parseFloat(r.er_contribution || 0);
+            const debit  = parseFloat(r.withdrawal_amount || 0);
+            runningBalance += credit - debit;
+            return { ...r, credit, debit, running_balance: Math.round(runningBalance) };
+        });
+        const totalCredit = ledger.reduce((s, r) => s + r.credit, 0);
+        const totalDebit  = ledger.reduce((s, r) => s + r.debit, 0);
+        res.json({ ledger, balance: Math.round(runningBalance), totalCredit, totalDebit });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST monthly contribution (existing endpoint — keeps backward compat)
 app.post('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
     try {
-        const { month, year, ee_contribution, er_contribution } = req.body;
+        const { month, year, ee_contribution, er_contribution, narration } = req.body;
         const { rows } = await pool.query(
-            `INSERT INTO employee_pf_ledger (employee_id,month,year,ee_contribution,er_contribution)
-             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (employee_id,month,year)
-             DO UPDATE SET ee_contribution=$4, er_contribution=$5 RETURNING *`,
-            [req.params.id, month, year, parseFloat(ee_contribution)||0, parseFloat(er_contribution)||0]
+            `INSERT INTO employee_pf_ledger
+               (employee_id, month, year, ee_contribution, er_contribution, entry_type, narration)
+             VALUES ($1,$2,$3,$4,$5,'monthly',$6)
+             ON CONFLICT (employee_id,month,year)
+             DO UPDATE SET ee_contribution=$4, er_contribution=$5, narration=COALESCE($6, employee_pf_ledger.narration)
+             RETURNING *`,
+            [req.params.id, month, year,
+             parseFloat(ee_contribution)||0, parseFloat(er_contribution)||0,
+             narration || null]
         );
         res.json({ entry: rows[0] });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// POST opening balance — only one allowed per employee (upsert on year=0, month=0)
+app.post('/api/employees/:id/pf-ledger/opening-balance', requireAuth, async (req, res) => {
+    try {
+        const { amount, narration } = req.body;
+        const { rows } = await pool.query(
+            `INSERT INTO employee_pf_ledger
+               (employee_id, month, year, ee_contribution, er_contribution, entry_type, narration)
+             VALUES ($1, 0, 0, $2, 0, 'opening_balance', $3)
+             ON CONFLICT (employee_id, month, year)
+             DO UPDATE SET ee_contribution=$2, narration=COALESCE($3, 'Opening Balance')
+             RETURNING *`,
+            [req.params.id, parseFloat(amount) || 0, narration || 'Opening Balance / Balance Brought Forward']
+        );
+        res.json({ entry: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST withdrawal — records a debit with cheque/bank ref
+app.post('/api/employees/:id/pf-ledger/withdrawal', requireAuth, async (req, res) => {
+    try {
+        const { amount, reference_no, narration, month, year } = req.body;
+        if (!amount || parseFloat(amount) <= 0) return res.status(400).json({ error: 'Withdrawal amount must be > 0' });
+        const now = new Date();
+        const m = month || (now.getMonth() + 1);
+        const y = year || now.getFullYear();
+        const { rows } = await pool.query(
+            `INSERT INTO employee_pf_ledger
+               (employee_id, month, year, ee_contribution, er_contribution,
+                withdrawal_amount, entry_type, narration, reference_no)
+             VALUES ($1, $2, $3, 0, 0, $4, 'withdrawal', $5, $6)
+             RETURNING *`,
+            [req.params.id, m, y, parseFloat(amount),
+             narration || 'PF Withdrawal', reference_no || null]
+        );
+        res.json({ entry: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE a ledger entry (superadmin only — irreversible)
+app.delete('/api/employees/:id/pf-ledger/:entryId', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        await pool.query('DELETE FROM employee_pf_ledger WHERE id=$1 AND employee_id=$2',
+            [req.params.entryId, req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // ════════════════════════════════════════════════════════════════════════════════
 // GRATUITY LEDGER
@@ -2240,6 +2336,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             // bonus_months × gross gives ANNUAL bonus; /12 = monthly accrual
             // We store bonus_months in costs — gross comes from emp.salary in calcRow
             emp._bonus_months = parseFloat(costs.bonus_months || 0);
+            emp._overhead_per_employee = parseFloat(costs.overhead_per_employee || 0);
             emp._svc_pct      = parseFloat(fin.service_charges_pct || 0);
             emp._sales_tax_pct= parseFloat(fin.wht_pct || 0);
         });
@@ -2343,14 +2440,16 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             // Bonus accrual: bonus_months × gross / 12 per month
             const bonusMonths  = parseFloat(emp._bonus_months || emp.bonus_months || 0);
             const bonusAccrual = Math.round(bonusMonths * gross / 12);
+            // Overhead: fixed per-employee charge from contract
+            const overhead = Math.round(parseFloat(emp._overhead_per_employee || 0));
             // Total employer cost = gross + all employer obligations
-            const costBase = grossM + eobi_er + sessi + pfER + gratuity + lifeIns + medTotal + bonusAccrual;
+            const costBase = grossM + eobi_er + sessi + pfER + gratuity + lifeIns + medTotal + bonusAccrual + overhead;
             const sc       = pay?.service_charges ? Math.round(parseFloat(pay.service_charges)) : 0;
             const stRate   = provinceTaxRate(emp.province);
             const st       = pay?.sales_tax ? Math.round(parseFloat(pay.sales_tax)) : Math.round(sc * stRate);
             const inv      = pay?.total_invoice ? Math.round(parseFloat(pay.total_invoice)) : costBase+sc+st;
             return { grossM, wht, eobi_ee, eobi_er, sessi, pfDed, pfER, advDed, loanDed, otherDed, totalDed, netPay,
-                     gratuity, eosbType, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus, other,
+                     gratuity, eosbType, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus, other, overhead,
                      pd, ot2hrs, ot3hrs, medEE, medSP, medCh1, medCh2, medTotal, bonusAccrual, lifeIns };
         };
 
@@ -2403,6 +2502,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Medical (Child 1)': c.medCh1,
                     'Medical (Child 2)': c.medCh2,
                     'Bonus Accrual (Monthly)': c.bonusAccrual,
+                    'Overhead (Fixed per Contract)': c.overhead,
                     'Total Employer Cost': c.costBase,
                     'Service Charges': c.sc,
                     'Sales Tax': c.st,
