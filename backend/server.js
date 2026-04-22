@@ -251,6 +251,20 @@ app.get('/health/ip', requireAuth, requireRole('superadmin'), (req, res) => {
 });
 app.get('/', (req, res) => res.json({ name: 'ASIL HCM API', status: 'running', app: 'https://asil-hcm-frontend.onrender.com' }));
 
+// Temporary diagnostic — lists all contracts and their bonus_months (no auth needed, read-only)
+app.get('/api/debug/bonus-check', async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT id, contract_name,
+                costs->>'bonus_months' AS bonus_months,
+                costs->>'overhead_per_employee' AS overhead,
+                costs->>'eosb_type' AS eosb_type
+            FROM contracts ORDER BY contract_name
+        `);
+        res.json({ count: rows.length, contracts: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // ─── SMS Routes ──────────────────────────────────────────────────────────────
 
@@ -1336,6 +1350,7 @@ const migrateContractCostDefaults = async () => {
             UPDATE contracts
             SET costs = jsonb_set(COALESCE(costs, '{}')::jsonb, '{bonus_months}', '1'::jsonb, true)
             WHERE (costs->>'bonus_months') IS NULL
+               OR (costs->>'bonus_months')::numeric = 0
         `);
         if (r1.rowCount > 0) console.log(`[migration] Set bonus_months=1 for ${r1.rowCount} legacy contract(s)`);
 
