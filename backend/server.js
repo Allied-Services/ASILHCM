@@ -682,7 +682,11 @@ IMPORTANT RULES:
 4. Translate any Urdu item descriptions to English (best effort)
 5. If unit price is not shown, calculate it from total ÷ qty
 6. Do NOT invent data — if something is unclear, write "?" for text or 0 for numbers
-7. The confidence score must reflect actual legibility (blurry/old receipts = 0.5-0.7)
+7. The confidence score must reflect actual legibility (blurry/old receipts = 0.3-0.6)
+8. CRITICAL FOR HANDWRITTEN/URDU: Even if mostly unreadable, ALWAYS extract:
+   a) vendor: the largest text at the TOP of the receipt (usually shop/vendor name)
+   b) grandTotal: the largest or bottom-most number (usually the total)
+   Set confidence=0.2 if found vendor+total in unreadable bill; confidence=0.05 if completely blank
 
 Return ONLY valid JSON, no markdown, no explanation:
 {
@@ -819,6 +823,16 @@ pool.query(`
         created_at  TIMESTAMPTZ DEFAULT NOW()
     )`,
 ].forEach(sql => pool.query(sql).catch(e => console.error('bills migration:', e.message)));
+
+// Named-user role assignments — enforced on every startup
+[
+    ['laiba.mughal@asil.com.pk',    'finance_proposer'],
+    ['huzaifa.rafaqat@asil.com.pk', 'finance_approver'],
+].forEach(([email, role]) => {
+    pool.query('UPDATE hcm_users SET role=$1 WHERE email=$2', [role, email])
+        .then(r => { if (r.rowCount) console.log('Role enforced: ' + email + ' -> ' + role); })
+        .catch(e => console.error('Named role error:', e.message));
+});
 
 
 app.get('/api/bills', requireAuth, async (req, res) => {
@@ -3399,7 +3413,7 @@ async function generateInvoiceNumber(year, month) {
 }
 
 // GET /api/client-invoices — all client invoices (AR queue)
-app.get('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','finance_approver','superadmin'), async (req, res) => {
+app.get('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
     try {
         const { status, client } = req.query;
         const conds = []; const params = [];
@@ -3412,7 +3426,7 @@ app.get('/api/client-invoices', requireAuth, requireRole('ar_team','finance_mana
 });
 
 // POST /api/client-invoices — AR team raises an invoice
-app.post('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','superadmin'), async (req, res) => {
+app.post('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
     try {
         const { client, contract, period_month, period_year, po_number, due_date,
                 line_items, subtotal, service_charges, sales_tax, wht, grand_total,
@@ -3431,6 +3445,46 @@ app.post('/api/client-invoices', requireAuth, requireRole('ar_team','finance_man
             parseFloat(wht)||0, parseFloat(grand_total)||0, notes||null, req.user.email]);
         res.json({ ok: true, invoice: rows[0] });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/bills/:id/create-invoice — auto-create a draft client invoice from a billable bill
+app.post('/api/bills/:id/create-invoice', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const billRes = await pool.query('SELECT * FROM bills WHERE id=$1', [id]);
+        if (!billRes.rows.length) return res.status(404).json({ error: 'Bill not found' });
+        const b = billRes.rows[0];
+
+        const BILLABLE_TYPES = ['Debit Note / Imprest', 'Client Procurement', 'Contractual Purchasing'];
+        if (!BILLABLE_TYPES.includes(b.bill_type) || b.billable === false) {
+            return res.status(400).json({ error: 'Only billable bills can generate invoices (Debit Note/Imprest, Client Procurement, Contractual Purchasing)' });
+        }
+        if (!b.client) {
+            return res.status(400).json({ error: 'Bill must have a client assigned before creating an invoice' });
+        }
+
+        const now = new Date();
+        const periodMonth = b.period_month || (now.getMonth() + 1);
+        const periodYear  = b.period_year  || now.getFullYear();
+        const invNo = await generateInvoiceNumber(periodYear, periodMonth);
+
+        const items = (b.items && b.items.length > 0)
+            ? b.items.map(it => ({ description: (it.desc || 'Item'), amount: parseFloat(it.total) || 0 }))
+            : [{ description: (b.bill_type + ' — ' + (b.vendor || 'Vendor') + (b.purpose ? ' | ' + b.purpose : '')), amount: parseFloat(b.total) || 0 }];
+
+        const subtotal = parseFloat(b.total) || 0;
+        const { rows } = await pool.query(
+            'INSERT INTO client_invoices (invoice_number, client, contract, period_month, period_year, line_items, subtotal, service_charges, sales_tax, wht, grand_total, notes, status, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,0,0,0,$8,$9,' + "'Draft'" + ',$10) RETURNING *',
+            [invNo, b.client, b.contract || null, periodMonth, periodYear,
+             JSON.stringify(items), subtotal, subtotal,
+             'Auto-created from Bill ' + b.id + ' | Vendor: ' + (b.vendor || 'Unknown') + ' | Type: ' + (b.bill_type || 'Unknown'),
+             req.user.email]
+        );
+        res.json({ ok: true, invoice: rows[0], invoice_number: invNo });
+    } catch (err) {
+        console.error('create-invoice-from-bill error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // PATCH /api/client-invoices/:id — update invoice (AR can override number, change status)

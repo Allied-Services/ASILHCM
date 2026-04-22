@@ -323,7 +323,7 @@ function OCRModal({ onSave, onClose, clientsList = [], contractsList = [] }) {
                                     <button onClick={() => setPageIdx(p => Math.min(pages.length - 1, p + 1))} disabled={pageIdx === pages.length - 1} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer' }}>›</button>
                                 </div>
                             )}
-                            {cur.img && <img src={cur.img} alt="Bill" style={{ width: '100%', maxHeight: '220px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)' }} />}
+                            {cur.img && <img src={cur.img} alt="Bill" style={{ width: '100%', maxHeight: '420px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)' }} />}
                             <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '0.75rem', marginTop: '0.75rem', fontSize: '0.76rem', fontFamily: 'monospace', color: '#94a3b8', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: '140px', overflowY: 'auto' }}>{cur.extracted.raw}</div>
                             <div style={{ marginTop: '0.5rem', padding: '0.6rem 0.75rem', background: cur.extracted.confidence > 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.12)', border: `1px solid ${cur.extracted.confidence > 0 ? '#22c55e40' : '#ef444460'}`, borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                                 {cur.extracted.confidence > 0 ? <CheckCircle size={15} color="#22c55e" style={{ flexShrink: 0, marginTop: '1px' }} /> : <AlertTriangle size={15} color="#ef4444" style={{ flexShrink: 0, marginTop: '1px' }} />}
@@ -713,7 +713,7 @@ function ImportQuotationModal({ onSave, onClose }) {
 }
 
 // ─── Bill Detail Modal ─────────────────────────────────────────────────
-function BillDetailModal({ bill, onAction, onXero, onClose, isApprover, generateChallan }) {
+function BillDetailModal({ bill, onAction, onXero, onClose, isApprover, generateChallan, onCreateInvoice }) {
     const flow = {
         'Draft':            ['Submit for Approval'],
         'Pending Approval': ['Approve', 'Reject'],
@@ -790,6 +790,20 @@ function BillDetailModal({ bill, onAction, onXero, onClose, isApprover, generate
                         </div>
                     )}
 
+                    {/* Create Invoice — for billable bill types with a client assigned */}
+                    {['Debit Note / Imprest', 'Client Procurement', 'Contractual Purchasing'].includes(bill.billType) && bill.billable !== false && bill.client && (
+                        <div style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.28)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ fontSize: '0.83rem' }}>
+                                <div style={{ fontWeight: 700, color: '#22c55e', marginBottom: '2px' }}>🧾 Ready to Invoice</div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Billable {bill.billType} for <strong>{bill.client}</strong>. Auto-create a draft client invoice from this bill.</div>
+                            </div>
+                            <button onClick={() => { onCreateInvoice && onCreateInvoice(bill); onClose(); }}
+                                style={{ background: '#22c55e', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                                🧾 Create Invoice
+                            </button>
+                        </div>
+                    )}
+
                     {/* Xero stub — visible to approvers when Approved */}
                     {isApprover && bill.status === 'Approved' && (
                         <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -833,6 +847,8 @@ export default function BillingProcurement({ user }) {
     const [filterType, setFilterType] = useState('All');
     const [filterClient, setFilterClient] = useState('All');
     const [filterStatus, setFilterStatus] = useState('All');
+    const [filterBillType, setFilterBillType] = useState('All');
+    const [invCreated, setInvCreated] = useState(null); // { invoice_number, bill_id }
 
     const [clientsList, setClientsList]     = useState([]);
     const [contractsList, setContractsList] = useState([]);
@@ -855,7 +871,8 @@ export default function BillingProcurement({ user }) {
     const filtered = bills.filter(b =>
         (filterType === 'All' || b.type === filterType) &&
         (filterClient === 'All' || b.client === filterClient) &&
-        (filterStatus === 'All' || b.status === filterStatus)
+        (filterStatus === 'All' || b.status === filterStatus) &&
+        (filterBillType === 'All' || b.billType === filterBillType)
     );
     const totals = filtered.reduce((a, b) => ({ total: a.total + b.total, gst: a.gst + b.gst }), { total: 0, gst: 0 });
 
@@ -954,10 +971,34 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
         } catch (err) { alert('Delete failed: ' + err.message); }
     };
 
-    const isSuperAdmin = user?.role === 'superadmin';
+    const isSuperAdmin   = user?.role === 'superadmin';
+    const isFinanceApprover = ['finance_approver','superadmin','finance_manager'].includes(user?.role);
 
-    const TYPES = ['All', 'OCR / Katcha', 'Manual', 'Quotation'];
-    const STATUSES = ['All', 'Draft', 'Pending', 'Approved', 'Posted', 'Rejected'];
+    const createInvoiceFromBill = async (bill) => {
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+            const r = await fetch(`${API_URL}/api/bills/${bill.id}/create-invoice`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Failed to create invoice');
+            setInvCreated({ invoice_number: data.invoice_number, bill_id: bill.id });
+        } catch (err) { alert('Invoice creation failed: ' + err.message); }
+    };
+
+    const doQuickApprove = async (bill) => {
+        if (!window.confirm(`Approve bill from ${bill.vendor || bill.id}?`)) return;
+        try {
+            await api.updateBillStatus(bill.id, 'Approved');
+            setBills(p => p.map(b => b.id === bill.id ? { ...b, status: 'Approved' } : b));
+        } catch (err) { alert('Approve failed: ' + err.message); }
+    };
+
+    const TYPES     = ['All', 'OCR / Katcha', 'Manual', 'Quotation'];
+    const STATUSES  = ['All', 'Draft', 'Pending', 'Pending Approval', 'Approved', 'Posted', 'Rejected'];
+    const BILL_TYPES_FILTER = ['All', ...BILL_TYPES];
 
     return (
         <div className="dashboard">
@@ -1014,7 +1055,7 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
 
             {/* Filters */}
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                {[['Type', filterType, setFilterType, TYPES], ['Client', filterClient, setFilterClient, ['All', ...clientsList.map(c => c.name)]], ['Status', filterStatus, setFilterStatus, STATUSES]].map(([label, val, setter, opts]) => (
+                {[['Type', filterType, setFilterType, TYPES], ['Client', filterClient, setFilterClient, ['All', ...clientsList.map(c => c.name)]], ['Status', filterStatus, setFilterStatus, STATUSES], ['Bill Type', filterBillType, setFilterBillType, BILL_TYPES_FILTER]].map(([label, val, setter, opts]) => (
                     <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{label}:</span>
                         <select value={val} onChange={e => setter(e.target.value)}
@@ -1086,6 +1127,13 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
                                                     style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>
                                                     <Eye size={12} /> View
                                                 </button>
+                                                {/* Quick Approve for finance_approver on pending bills */}
+                                                {isFinanceApprover && ['Pending Approval','Pending','Draft'].includes(b.status) && (
+                                                    <button onClick={() => doQuickApprove(b)}
+                                                        style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700 }}>
+                                                        ✅ Approve
+                                                    </button>
+                                                )}
                                                 <button onClick={() => generateChallan(b)} title="Generate Delivery Challan"
                                                     style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>
                                                     📄 Challan
@@ -1148,7 +1196,21 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
             {showOCR    && <OCRModal    onSave={addBill} onClose={() => setShowOCR(false)}    clientsList={clientsList} contractsList={contractsList} vendorsList={vendorsList} />}
             {showManual && <ManualBillModal onSave={addBill} onClose={() => setShowManual(false)} clientsList={clientsList} contractsList={contractsList} vendorsList={vendorsList} />}
             {showQuote  && <ImportQuotationModal onSave={addBill} onClose={() => setShowQuote(false)} />}
-            {detailBill && <BillDetailModal bill={detailBill} onAction={doAction} onXero={doAction} isApprover={['finance_approver','procurement_approver','superadmin'].includes(user?.role)} onClose={() => setDetailBill(null)} generateChallan={generateChallan} />}
+            {detailBill && <BillDetailModal bill={detailBill} onAction={doAction} onXero={doAction} isApprover={['finance_approver','procurement_approver','superadmin'].includes(user?.role)} onClose={() => setDetailBill(null)} generateChallan={generateChallan} onCreateInvoice={createInvoiceFromBill} />}
+
+            {/* Create Invoice success toast */}
+            {invCreated && (
+                <div style={{ position: 'fixed', bottom: '2rem', right: '2rem', background: '#22c55e', color: 'white', padding: '1rem 1.5rem', borderRadius: '12px', boxShadow: '0 8px 30px rgba(34,197,94,0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', gap: '12px', maxWidth: '380px' }}>
+                    <span style={{ fontSize: '1.4rem' }}>🧧</span>
+                    <div>
+                        <div style={{ fontWeight: 800, fontSize: '0.9rem', marginBottom: '2px' }}>Invoice Created!</div>
+                        <div style={{ fontSize: '0.82rem', opacity: 0.9 }}>
+                            <strong>{invCreated.invoice_number}</strong> created as Draft. Go to <strong>Invoices (AR)</strong> tab to review and raise it.
+                        </div>
+                    </div>
+                    <button onClick={() => setInvCreated(null)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.3rem', marginLeft: 'auto' }}>×</button>
+                </div>
+            )}
         </div>
     );
 }
