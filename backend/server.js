@@ -1326,6 +1326,38 @@ const migratePFLedger = async () => {
 };
 migratePFLedger();
 
+// Auto-migrate: ensure all contracts have bonus_months and overhead_per_employee in their costs JSONB.
+// Old contracts (created before these fields were added to EMPTY_CONTRACT) have NULL for these keys.
+// bonus_months = 1  means 1 month of gross salary as annual bonus (= gross/12 per month accrual).
+// overhead_per_employee = 0 means no fixed overhead charge until user explicitly sets it per contract.
+const migrateContractCostDefaults = async () => {
+    try {
+        const r1 = await pool.query(`
+            UPDATE contracts
+            SET costs = jsonb_set(COALESCE(costs, '{}')::jsonb, '{bonus_months}', '1'::jsonb, true)
+            WHERE (costs->>'bonus_months') IS NULL
+        `);
+        if (r1.rowCount > 0) console.log(`[migration] Set bonus_months=1 for ${r1.rowCount} legacy contract(s)`);
+
+        const r2 = await pool.query(`
+            UPDATE contracts
+            SET costs = jsonb_set(COALESCE(costs, '{}')::jsonb, '{overhead_per_employee}', '0'::jsonb, true)
+            WHERE (costs->>'overhead_per_employee') IS NULL
+        `);
+        if (r2.rowCount > 0) console.log(`[migration] Set overhead_per_employee=0 for ${r2.rowCount} legacy contract(s)`);
+
+        const r3 = await pool.query(`
+            UPDATE contracts
+            SET costs = jsonb_set(COALESCE(costs, '{}')::jsonb, '{eosb_type}', '"None"'::jsonb, true)
+            WHERE (costs->>'eosb_type') IS NULL
+        `);
+        if (r3.rowCount > 0) console.log(`[migration] Set eosb_type=None for ${r3.rowCount} legacy contract(s)`);
+    } catch (err) {
+        console.error('[migration] migrateContractCostDefaults:', err.message);
+    }
+};
+migrateContractCostDefaults();
+
 // GET — returns all entries sorted oldest first + computed running balance
 app.get('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
     try {
