@@ -14,7 +14,7 @@ const fmt = v => Math.round(parseFloat(v) || 0).toLocaleString('en-PK');
 const Rs = v => `Rs. ${fmt(v)}`;
 
 // ─── Breakdown panel ─────────────────────────────────────────────────────────
-function BreakdownPanel({ emp, calc, workDays, onClose }) {
+function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
     const S = ({ title, color, children }) => (
         <div style={{ marginBottom: '1.25rem' }}>
             <div style={{ fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color, marginBottom: '0.6rem', paddingBottom: '0.4rem', borderBottom: `1px solid ${color}44` }}>{title}</div>
@@ -33,9 +33,7 @@ function BreakdownPanel({ emp, calc, workDays, onClose }) {
             <span>{label}</span><span style={{ color: color || 'var(--text)' }}>{Rs(value)}</span>
         </div>
     );
-    // cfg is only used for display labels (service_charges_pct, sales_tax_pct)
-    // calc already contains all computed values — use cfg={} as safe fallback
-    const cfg = {};
+    // cfg: contract config for this employee — provides bonus_months, overhead_per_employee, service_charges_pct etc.
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1100, padding: '2rem', overflowY: 'auto' }}>
             <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '720px', marginBottom: '2rem' }}>
@@ -1069,7 +1067,7 @@ export default function PayrollSheet({ user }) {
                                                         <Lock size={9} /> LOCKED
                                                     </span>
                                                 )}
-                                                <button onClick={() => setBreakdown({ emp, calc })} title="Verify calculation"
+                                                <button onClick={() => setBreakdown({ emp, calc, cfg })} title="Verify calculation"
                                                     style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '4px', padding: '2px 6px', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                                     Verify
                                                 </button>
@@ -1178,7 +1176,7 @@ export default function PayrollSheet({ user }) {
                 Service Charges on Total Payroll Cost | Sales Tax on Service Charges only. Click <strong>Verify</strong> on any row for full step-by-step breakdown.
             </div>
 
-            {breakdown && <BreakdownPanel emp={breakdown.emp} calc={breakdown.calc} workDays={workDays} onClose={() => setBreakdown(null)} />}
+            {breakdown && <BreakdownPanel emp={breakdown.emp} calc={breakdown.calc} cfg={breakdown.cfg || {}} workDays={workDays} onClose={() => setBreakdown(null)} />}
             {showExport && <ExportMenu month={month} isLocked={isLocked} filterClient={filterClient} filterContract={filterContract} filterLoc={filterLoc} onClose={() => setShowExport(false)} />}
             {showImport && <ImportModal onApply={applyImport} onClose={() => setShowImport(false)} employees={EMPLOYEES} workDays={workDays} />}
         </div>
