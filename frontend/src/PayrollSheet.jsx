@@ -380,10 +380,12 @@ export default function PayrollSheet({ user }) {
 
     const isSuperAdmin = user?.role === 'superadmin';
 
+    // ── Load contracts + employees in parallel — CONTRACT_MAP must be ready before rows render ──
     useEffect(() => {
-        api.getContracts().then(data => {
+        Promise.all([api.getContracts(), api.getEmployees()]).then(([ctData, empData]) => {
+            // 1. Build CONTRACT_MAP first
             const map = {};
-            (data.contracts || []).forEach(ct => {
+            (ctData.contracts || []).forEach(ct => {
                 const cfg = {
                     id:                  ct.id,
                     service_charges_pct: parseFloat(ct.financials?.service_charges_pct) || 0,
@@ -392,36 +394,30 @@ export default function PayrollSheet({ user }) {
                     medical_ee:          parseFloat(ct.costs?.medical_ee) || 0,
                     medical_sp:          parseFloat(ct.costs?.medical_sp) || 0,
                     medical_child:       parseFloat(ct.costs?.medical_child) || 0,
-                    bonus_months:           parseFloat(ct.costs?.bonus_months) || 0,
-                    bonus_min_months:        parseFloat(ct.costs?.bonus_min_months) || 12,
-                    eosb_type:               ct.costs?.eosb_type || 'None',
-                    overhead_per_employee:   parseFloat(ct.costs?.overhead_per_employee) || 0,
+                    bonus_months:        parseFloat(ct.costs?.bonus_months) || 0,
+                    bonus_min_months:    parseFloat(ct.costs?.bonus_min_months) || 12,
+                    eosb_type:           ct.costs?.eosb_type || 'None',
+                    overhead_per_employee: parseFloat(ct.costs?.overhead_per_employee) || 0,
                     _isActive:           ct.status === 'Active',
                 };
-                // Primary index: contract ID (most specific — exact match)
                 if (ct.id) map[ct.id] = cfg;
-                // Secondary: contract name (string match from employee.contractName)
                 const nameKey = ct.contractName?.toLowerCase()?.trim();
                 if (nameKey && (!map[nameKey] || cfg._isActive)) map[nameKey] = cfg;
-                // Tertiary: client name (group-level fallback)
                 const clientKey = ct.clientName?.toLowerCase()?.trim();
                 if (clientKey && (!map[clientKey] || cfg._isActive)) map[clientKey] = cfg;
             });
             setCONTRACT_MAP(map);
-        }).catch(() => {});
-    }, []);
 
-    useEffect(() => {
-        api.getEmployees().then(data => {
-            const mapped = (data.employees || []).map(e => {
+            // 2. Map employees — CONTRACT_MAP is already built above
+            const mapped = (empData.employees || []).map(e => {
                 const gross = parseFloat(e.salary) || 0;
                 const hasSpouse = !!(e.spouseName && String(e.spouseName).trim());
                 const numChildren = [e.child1Name, e.child2Name].filter(n => n && String(n).trim()).length;
                 return {
                     id: e.id, cnic: e.cnic, name: e.name,
                     designation: e.designation || '',
-                    contractId:   e.contractId   || '',   // primary FK link
-                    contractName: e.contractName || '',   // human label
+                    contractId:   e.contractId   || '',
+                    contractName: e.contractName || '',
                     contract: e.contractName || e.clientBU || 'Standard',
                     location: e.location || '', client: e.client || '',
                     province: e.province || '',
