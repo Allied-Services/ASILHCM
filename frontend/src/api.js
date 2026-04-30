@@ -165,5 +165,15 @@ export const api = {
         return fetch(`${API_URL}/api/portal/me`, { headers: { Authorization: `Bearer ${portalToken}` } })
             .then(r => r.json());
     },
+    // ── Purchase Orders (PO Tracking) ─────────────────────────────────────────
+    getPurchaseOrders:    (q = {}) => apiFetch('/api/purchase-orders?' + new URLSearchParams(Object.fromEntries(Object.entries(q).filter(([,v])=>v))).toString()),
+    suggestPO:            (clientName, contractId) => apiFetch(`/api/purchase-orders/suggest?client_name=${encodeURIComponent(clientName)}${contractId ? '&contract_id=' + contractId : ''}`),
+    createPurchaseOrder:  (d)       => apiFetch('/api/purchase-orders', { method: 'POST', body: JSON.stringify(d) }),
+    updatePurchaseOrder:  (id, d)   => apiFetch(`/api/purchase-orders/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+    deletePurchaseOrder:  (id)      => apiFetch(`/api/purchase-orders/${id}`, { method: 'DELETE' }),
+    linkPOToInvoice:      (poId, invoiceId) => apiFetch(`/api/purchase-orders/${poId}/link-invoice`, { method: 'PATCH', body: JSON.stringify({ invoice_id: invoiceId }) }),
+
+    // ── Payroll Invoice Status (for INV badge) ────────────────────────────────
+    getPayrollInvoiceStatus: (year, month) => apiFetch(`/api/payroll/${year}/${month}/invoice-status`),
 };
 

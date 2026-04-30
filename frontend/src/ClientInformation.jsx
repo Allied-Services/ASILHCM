@@ -34,7 +34,7 @@ const EMPTY_CONTRACT = {
         eosb_type: 'None',   // 'None' | 'Gratuity' | 'Provident Fund'
         overhead_per_employee: 0, // Fixed monthly overhead charged per employee (e.g. management fee)
     },
-    financials: { wht_pct: 7, service_charges_pct: 15 }
+    financials: { wht_pct: 7, service_charges_pct: 15, credit_cycle_days: 30, invoice_segregation: 'combined' }
 };
 
 // No sample data — loaded from Neon DB
@@ -230,6 +230,41 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                         🏛️ <strong>Sales Tax is province-based (auto).</strong> Rate is determined by each employee’s Province field:<br />
                         Punjab → PRA 16% &nbsp;&bull;&nbsp; Sindh → SRB 13% &nbsp;&bull;&nbsp; KPK → KPRA 15% &nbsp;&bull;&nbsp; Balochistan → BRA 15% &nbsp;&bull;&nbsp; Federal/Other → 13%
                     </div>
+                </div>
+
+                {/* Billing Settings — Credit Cycle + Invoice Segregation */}
+                <div style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+                    <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#818cf8' }}>Billing Settings</h3>
+                    <p style={{ margin: '0 0 1.25rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>Controls payment terms and how invoices are split for this client.</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+                        <FRow label="Credit / Payment Cycle (Days)">
+                            <FInput type="number" value={c.financials.credit_cycle_days ?? 30}
+                                onChange={e => set('financials.credit_cycle_days', parseInt(e.target.value) || 30)} ph="30" />
+                            <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '4px' }}>Invoice date + {c.financials.credit_cycle_days ?? 30} days = Payment Due Date (auto-calculated)</div>
+                        </FRow>
+                    </div>
+                    <FRow label="Invoice Segregation Preference">
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                            {[
+                                { value: 'combined',     label: 'All Payroll in One Invoice',                      hint: 'Single invoice per client/contract/month' },
+                                { value: 'opd_separate', label: 'OPD + Reimbursements Separate (rest together)',   hint: '2 invoices: Core payroll and OPD/Reimb' },
+                                { value: 'fully_split',  label: 'Fully Segregated: OPD | Reimb | Arrears | Core', hint: 'Up to 4 invoices with unique numbers per month' },
+                            ].map(opt => (
+                                <label key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 14px', borderRadius: '8px', cursor: 'pointer',
+                                    background: (c.financials.invoice_segregation || 'combined') === opt.value ? 'rgba(99,102,241,0.12)' : 'var(--bg-dark)',
+                                    border: `1px solid ${(c.financials.invoice_segregation || 'combined') === opt.value ? 'rgba(99,102,241,0.5)' : 'var(--border)'}` }}>
+                                    <input type="radio" name="inv_seg" value={opt.value}
+                                        checked={(c.financials.invoice_segregation || 'combined') === opt.value}
+                                        onChange={() => set('financials.invoice_segregation', opt.value)}
+                                        style={{ marginTop: '2px', accentColor: '#818cf8' }} />
+                                    <div>
+                                        <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{opt.label}</div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{opt.hint}</div>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    </FRow>
                 </div>
 
                 {/* Cost Summary */}

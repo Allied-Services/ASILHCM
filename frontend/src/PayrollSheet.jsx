@@ -380,6 +380,7 @@ export default function PayrollSheet({ user }) {
 
     const isSuperAdmin = user?.role === 'superadmin';
     const [PROVINCE_RATES, setPROVINCE_RATES] = useState([]); // from System Config Tax by Region
+    const [invoiceStatus, setInvoiceStatus] = useState({ invoicedClients: [], invoicedContracts: [] });
 
     // ── Load contracts + employees + province tax rates in parallel ──
     useEffect(() => {
@@ -483,6 +484,10 @@ export default function PayrollSheet({ user }) {
             const firstLocked = data.rows.find(r => r.locked);
             if (firstLocked?.locked_by) setLockedBy(firstLocked.locked_by);
         }).catch(() => {}); // silently ignore if table not yet created
+        // Also load invoice status for current month — drives INV ✓ badge
+        api.getPayrollInvoiceStatus(yr, mo)
+            .then(d => setInvoiceStatus(d || { invoicedClients: [], invoicedContracts: [] }))
+            .catch(() => {});
     }, [month]);
 
     // ── Save rows to DB (debounced) ─────────────────────────────────────────────
@@ -1094,7 +1099,20 @@ export default function PayrollSheet({ user }) {
                                                         🗑
                                                     </button>
                                                 )}
-                                                <div><div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{emp.name}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{emp.designation}</div></div>
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                                                        <span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{emp.name}</span>
+                                                        {(() => {
+                                                            const isInvoiced =
+                                                                invoiceStatus.invoicedClients.includes((emp.client || '').toLowerCase()) ||
+                                                                invoiceStatus.invoicedContracts.includes((emp.contract || '').toLowerCase());
+                                                            return isInvoiced ? (
+                                                                <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#22c55e', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '4px', padding: '1px 5px', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>INV ✓</span>
+                                                            ) : null;
+                                                        })()}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{emp.designation}</div>
+                                                </div>
                                             </div>
                                         </td>
                                         <td style={{ position: 'sticky', left: 216, zIndex: 2, background: rowBg, padding: '6px 7px', fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '140px' }}>{emp.contract}<br /><span style={{ fontSize: '0.68rem' }}>{emp.location}</span></td>

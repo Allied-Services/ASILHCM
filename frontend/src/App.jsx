@@ -16,6 +16,7 @@ import LoginScreen from './LoginScreen';
 import InventoryManagement from './InventoryManagement';
 import SystemConfig from './SystemConfig';
 import UserManagement from './UserManagement';
+import POTracking from './POTracking';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -23,16 +24,16 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','ap','client','vendor','inventory','annexure','config','users'],
+    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users'],
     operations:           ['employee','documents','client'],
     procurement_proposer: ['billing','vendor','inventory'],
     procurement_approver: ['billing','vendor','inventory'],
     procurement_manager:  ['billing','vendor','inventory','ap'],
-    finance_proposer:     ['billing','invoices','employee','ap','vendor','inventory','annexure'],
-    finance_approver:     ['payroll','billing','invoices','client','annexure','config','users'],
-    finance_manager:      ['payroll','billing','invoices','ap','client','vendor','annexure','config','users'],
+    finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure'],
+    finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users'],
+    finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users'],
     ap_team:              ['ap','billing'],
-    ar_team:              ['invoices','billing'],
+    ar_team:              ['invoices','po_tracking','billing'],
     payroll_initiator:    ['payroll','employee'],
     pending:              [],
 };
@@ -103,7 +104,7 @@ function App() {
   // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
-    allowedTabs = ['dashboard','employee','payroll','documents','billing','invoices','ap','client','vendor','inventory','annexure','config','users'];
+    allowedTabs = ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users'];
   } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
     // Saved custom permissions: show all modules where access === true
     allowedTabs = Object.entries(user.permissions)
@@ -146,8 +147,9 @@ function App() {
     { key: 'payroll',   label: 'Payroll Sheet',          icon: <Calculator size={20} /> },
     { key: 'documents', label: 'Document Generator',     icon: <FilePlus size={20} /> },
     { key: 'billing',   label: 'Bills & Procurement',    icon: <Receipt size={20} /> },
-    { key: 'invoices',  label: 'Invoices (AR)',          icon: <FileText size={20} /> },
-    { key: 'ap',        label: 'Accounts Payable',       icon: <CreditCard size={20} /> },
+    { key: 'invoices',    label: 'Invoices (AR)',          icon: <FileText size={20} /> },
+    { key: 'po_tracking', label: 'PO Tracking',             icon: <Receipt size={20} /> },
+    { key: 'ap',          label: 'Accounts Payable',       icon: <CreditCard size={20} /> },
     { key: 'client',    label: 'Client Information',     icon: <Building size={20} /> },
     { key: 'vendor',    label: 'Vendor Supplier Master', icon: <Truck size={20} /> },
     { key: 'inventory', label: 'Inventory & Equipment',  icon: <Package size={20} /> },
@@ -219,8 +221,9 @@ function App() {
           {effectiveTab === 'payroll'    && <PayrollSheet user={user} />}
           {effectiveTab === 'documents'  && <DocumentGenerator />}
           {effectiveTab === 'billing'    && <BillingProcurement user={user} />}
-          {effectiveTab === 'invoices'   && <InvoiceSection user={user} />}
-          {effectiveTab === 'ap'         && <AccountsPayable user={user} />}
+          {effectiveTab === 'invoices'    && <InvoiceSection user={user} />}
+          {effectiveTab === 'po_tracking' && <POTracking user={user} />}
+          {effectiveTab === 'ap'          && <AccountsPayable user={user} />}
           {effectiveTab === 'client'     && <ClientInformation />}
           {effectiveTab === 'vendor'     && <VendorMaster />}
           {effectiveTab === 'inventory'  && <InventoryManagement />}
