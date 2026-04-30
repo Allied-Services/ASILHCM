@@ -41,17 +41,27 @@ export const calcGratuityMonthly = (gross) => Math.round(parseFloat(gross || 0) 
 
 // ─── Province → Provincial Service Tax Rate ──────────────────────────────────
 // Punjab: PRA 16%, Sindh: SRB 13%, KPK: KPRA 15%, Balochistan: BRA 15%, Federal/Other: 13%
-export const provinceSalesTaxRate = (province) => {
+// provinceSalesTaxRate: looks up the rate from System Config "Tax by Region" (DB-driven).
+// Falls back to statutory defaults if the province isn't found in the rates array.
+// rates = array of { province: string, salesTaxPct: number } from system_config key 'region_tax'
+export const provinceSalesTaxRate = (province, rates = []) => {
     const p = (province || '').toLowerCase();
-    if (p.includes('sindh') || p.includes('karachi') || p.includes('hyderabad') || p.includes('sukkur')) return 0.13;
+    // 1. Try DB-driven rates from System Config (Tax by Region tab)
+    if (rates && rates.length > 0) {
+        const match = rates.find(r => p.includes((r.province || '').toLowerCase().split('/')[0].trim()));
+        if (match) return (parseFloat(match.salesTaxPct) || 0) / 100;
+    }
+    // 2. Fallback: statutory defaults aligned with System Config defaults
+    if (p.includes('sindh') || p.includes('karachi') || p.includes('hyderabad') || p.includes('sukkur')) return 0.15;
     if (p.includes('punjab') || p.includes('lahore') || p.includes('faisalabad') || p.includes('rawalpindi') || p.includes('islamabad') || p.includes('multan') || p.includes('gujranwala')) return 0.16;
     if (p.includes('kpk') || p.includes('khyber') || p.includes('peshawar') || p.includes('abbottabad') || p.includes('kohat')) return 0.15;
     if (p.includes('balochistan') || p.includes('quetta')) return 0.15;
-    if (p.includes('ajk') || p.includes('azad kashmir')) return 0.13;
-    return 0.13; // default: federal/ICT
+    if (p.includes('ict') || p.includes('federal') || p.includes('islamabad')) return 0.17;
+    return 0.15; // default: apply Sindh rate (most common region for ASIL)
 };
 
-export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
+// provinceRates: optional array of { province, salesTaxPct } from System Config
+export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const pd = parseFloat(ov.paid_days ?? workDays) || 0;
     // FIXED FORMULAS (per user spec):
     // - OT Hourly Rate  = Gross Salary / (26 × 8) — always 208 hours/month
@@ -130,10 +140,11 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays) => {
     const overhead = parseFloat(cfg.overhead_per_employee || 0);
     const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusAmount + bonusAccrual + gratuity + lifeIns + totalMedical + pfER + overhead;
     const svcPct = parseFloat(cfg.service_charges_pct || 0);
-    // Sales tax: province-based rate (replaces cfg.sales_tax_pct)
-    const stRate = provinceSalesTaxRate(emp.province || emp.location || '');
+    // Sales tax: rate from System Config "Tax by Region" (DB-driven via provinceRates param)
+    // Base: Total Payroll Cost + Service Charges (full invoice value, per MD instruction)
+    const stRate = provinceSalesTaxRate(emp.province || emp.location || '', provinceRates);
     const serviceCharges = Math.round(totalPayrollCost * svcPct / 100);
-    const salesTax = Math.round(serviceCharges * stRate);
+    const salesTax = Math.round((totalPayrollCost + serviceCharges) * stRate);
     const totalInvoice = totalPayrollCost + serviceCharges + salesTax;
     return {
         pd, ot2hrs, ot3hrs, ot2Amount, ot3Amount, basicPaid, hraPaid, convPaid, medPaid, otherPaid,

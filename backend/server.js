@@ -2370,11 +2370,14 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         const { type = 'payroll', client: filterClient, contract: filterContract, location: filterLoc } = req.query;
         const yrInt = parseInt(year), moInt = parseInt(month);
 
-        const [empRes, payRes, contractRes] = await Promise.all([
+        const [empRes, payRes, contractRes, regionTaxRes] = await Promise.all([
             pool.query('SELECT * FROM employees ORDER BY name'),
             pool.query('SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2', [yrInt, moInt]),
             pool.query('SELECT id, contract_name, financials, costs FROM contracts'),
+            pool.query("SELECT value FROM system_config WHERE key='region_tax'").catch(() => ({ rows: [] })),
         ]);
+        // Province tax rates from System Config (Tax by Region), falls back to statutory defaults
+        const _dbRates = regionTaxRes.rows[0]?.value || [];
 
         // Build contract lookup by name (lowercase) → enrich employees with financials
         const ctByName = {};
@@ -2438,14 +2441,18 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             return Math.round((700000+(a-4100000)*0.35)/12);
         };
 
-        // Province → provincial service tax rate
+        // Province → provincial service tax rate (DB-driven from System Config Tax by Region)
         const provinceTaxRate = (province) => {
             const p = (province || '').toLowerCase();
-            if (p.includes('sindh') || p.includes('karachi') || p.includes('hyderabad')) return 0.13;
+            if (_dbRates && _dbRates.length > 0) {
+                const match = _dbRates.find(r => p.includes((r.province || '').toLowerCase().split('/')[0].trim()));
+                if (match) return (parseFloat(match.salesTaxPct) || 0) / 100;
+            }
+            if (p.includes('sindh') || p.includes('karachi') || p.includes('hyderabad')) return 0.15;
             if (p.includes('punjab') || p.includes('lahore') || p.includes('faisalabad') || p.includes('rawalpindi') || p.includes('islamabad')) return 0.16;
             if (p.includes('kpk') || p.includes('khyber') || p.includes('peshawar') || p.includes('abbottabad')) return 0.15;
             if (p.includes('balochistan') || p.includes('quetta')) return 0.15;
-            return 0.13; // default federal/other
+            return 0.15;
         };
 
         const calcRow = (emp, pay) => {
@@ -2507,7 +2514,8 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const costBase = grossM + eobi_er + sessi + pfER + gratuity + lifeIns + medTotal + bonusAccrual + overhead;
             const sc       = pay?.service_charges ? Math.round(parseFloat(pay.service_charges)) : 0;
             const stRate   = provinceTaxRate(emp.province);
-            const st       = pay?.sales_tax ? Math.round(parseFloat(pay.sales_tax)) : Math.round(sc * stRate);
+            // Sales tax base: Total Payroll Cost + Service Charges (per MD instruction)
+            const st       = pay?.sales_tax ? Math.round(parseFloat(pay.sales_tax)) : Math.round((costBase + sc) * stRate);
             const inv      = pay?.total_invoice ? Math.round(parseFloat(pay.total_invoice)) : costBase+sc+st;
             return { grossM, wht, eobi_ee, eobi_er, sessi, pfDed, pfER, advDed, loanDed, otherDed, totalDed, netPay,
                      gratuity, eosbType, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus, other, overhead,

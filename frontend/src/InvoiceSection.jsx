@@ -137,7 +137,19 @@ function InvoiceFormModal({ existing = null, clients = [], contracts = [], onSav
     const [periodMonth,    setPeriodMonth]    = useState(existing?.period_month  || now.getMonth() + 1);
     const [periodYear,     setPeriodYear]     = useState(existing?.period_year   || now.getFullYear());
     const [poNumber,       setPoNumber]       = useState(existing?.po_number     || '');
-    const [dueDate,        setDueDate]        = useState(existing?.due_date      || '');
+    // Payment Due Date stored as YYYY-MM-DD; edited via 3 separate dropdowns to avoid browser year-spin bug
+    const _parseDue = (s) => {
+        if (!s) return { dd: '', mm: '', yyyy: new Date().getFullYear() };
+        const [yyyy, mm, dd] = (s || '').split('-');
+        return { dd: parseInt(dd)||'', mm: parseInt(mm)||'', yyyy: parseInt(yyyy)||new Date().getFullYear() };
+    };
+    const _initDue = _parseDue(existing?.due_date || '');
+    const [dueDateDay,   setDueDateDay]   = useState(_initDue.dd);
+    const [dueDateMonth, setDueDateMonth] = useState(_initDue.mm);
+    const [dueDateYear,  setDueDateYear]  = useState(_initDue.yyyy);
+    const dueDate = (dueDateDay && dueDateMonth && dueDateYear)
+        ? `${dueDateYear}-${String(dueDateMonth).padStart(2,'0')}-${String(dueDateDay).padStart(2,'0')}`
+        : '';
     const [subtotal,       setSubtotal]       = useState(parseFloat(existing?.subtotal)        || '');
     const [svcCharges,     setSvcCharges]     = useState(parseFloat(existing?.service_charges) || '');
     const [salesTax,       setSalesTax]       = useState(parseFloat(existing?.sales_tax)       || '');
@@ -276,7 +288,19 @@ function InvoiceFormModal({ existing = null, clients = [], contracts = [], onSav
                         </F>
 
                         <F label="Payment Due Date">
-                            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={inp} />
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '6px' }}>
+                                <select value={dueDateDay} onChange={e => setDueDateDay(e.target.value)} style={inp}>
+                                    <option value="">Day</option>
+                                    {Array.from({length:31},(_,i)=>i+1).map(d=><option key={d} value={d}>{d}</option>)}
+                                </select>
+                                <select value={dueDateMonth} onChange={e => setDueDateMonth(e.target.value)} style={inp}>
+                                    <option value="">Month</option>
+                                    {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
+                                </select>
+                                <select value={dueDateYear} onChange={e => setDueDateYear(e.target.value)} style={inp}>
+                                    {[2024,2025,2026,2027,2028,2029,2030].map(y=><option key={y} value={y}>{y}</option>)}
+                                </select>
+                            </div>
                         </F>
 
                         {/* Invoice Number — editable override */}

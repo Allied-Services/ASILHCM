@@ -379,10 +379,18 @@ export default function PayrollSheet({ user }) {
     const [bulkSMSResult, setBulkSMSResult] = useState(null);
 
     const isSuperAdmin = user?.role === 'superadmin';
+    const [PROVINCE_RATES, setPROVINCE_RATES] = useState([]); // from System Config Tax by Region
 
-    // ── Load contracts + employees in parallel — CONTRACT_MAP must be ready before rows render ──
+    // ── Load contracts + employees + province tax rates in parallel ──
     useEffect(() => {
-        Promise.all([api.getContracts(), api.getEmployees()]).then(([ctData, empData]) => {
+        Promise.all([
+            api.getContracts(),
+            api.getEmployees(),
+            api.getConfig('region_tax').catch(() => null),
+        ]).then(([ctData, empData, regRes]) => {
+            // Load province tax rates from System Config
+            if (regRes?.config?.value) setPROVINCE_RATES(regRes.config.value);
+
             // 1. Build CONTRACT_MAP first
             const map = {};
             (ctData.contracts || []).forEach(ct => {
@@ -650,7 +658,7 @@ export default function PayrollSheet({ user }) {
             medical_ch1:      getOv(emp.id, 'medical_ch1', defMedCh1),
             medical_ch2:      getOv(emp.id, 'medical_ch2', defMedCh2),
         };
-        return { emp, cfg, calc: calcEmployeeRow(emp, ov, cfg, workDays), ov };
+        return { emp, cfg, calc: calcEmployeeRow(emp, ov, cfg, workDays, PROVINCE_RATES), ov };
     });
     // Keep ref in sync so the debounced setOv save always uses current calculations
     rowsRef.current = rows;
@@ -664,7 +672,8 @@ export default function PayrollSheet({ user }) {
         // Calculated fields
         ['grossMonthly','incomeTax','eobi_ee','pfEE','totalDeductions','netPay',
             'eobi_er','sessi','gratuity','lifeIns','totalMedical','totalPayrollCost',
-            'serviceCharges','salesTax','totalInvoice','otAmount','otherPaid','pfER'].forEach(k => {
+            'serviceCharges','salesTax','totalInvoice','otAmount','otherPaid','pfER',
+            'bonusAccrual','overhead'].forEach(k => {
             acc[k] = (acc[k] || 0) + (calc[k] || 0);
         });
         // Override / editable fields
@@ -1023,7 +1032,7 @@ export default function PayrollSheet({ user }) {
                                 <TH label="EOBI ER" sub="5%" /><TH label="SESSI" /><TH label="Gratuity" sub="Auto" />
                                 <TH label="Life Ins" /><TH label="Med EE" sub="Edit" /><TH label="Med SP" sub="Edit" />
                                 <TH label="Med Ch1" sub="Edit" /><TH label="Med Ch2" sub="Edit" />
-                                <TH label="Bonus" sub="Edit" /><TH label="PF ER" sub="8.33%" />
+                                <TH label="Bonus" sub="Edit" /><TH label="Bns Accr" sub="Auto" color="#f59e0b" /><TH label="Overhead" sub="Fixed" color="#f59e0b" /><TH label="PF ER" sub="8.33%" />
                                 <TH label="Tot Cost" color="#a78bfa" />
                                 <TH label="Svc Chg" color="#f59e0b" /><TH label="Sales Tax" /><TH label="INVOICE" color="#f59e0b" />
                             </tr>
@@ -1114,6 +1123,8 @@ export default function PayrollSheet({ user }) {
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="medical_ch1" def={calc.medCh1} /></td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="medical_ch2" def={calc.medCh2} /></td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="bonus_amount" def={0} /></td>
+                                        <RC val={calc.bonusAccrual} muted={!calc.bonusAccrual} style={{ color: '#f59e0b' }} />
+                                        <RC val={calc.overhead} muted={!calc.overhead} style={{ color: '#f59e0b' }} />
                                         <RC val={calc.pfER} muted={!calc.pfER} />
                                         <RC val={calc.totalPayrollCost} bold style={{ color: '#a78bfa' }} />
                                         <RC val={calc.serviceCharges} /><RC val={calc.salesTax} />
@@ -1153,6 +1164,8 @@ export default function PayrollSheet({ user }) {
                                 {/* Med Ch1 */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.medical_ch1 > 0 ? fmt(T.medical_ch1) : '—'}</td>
                                 {/* Med Ch2 */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.medical_ch2 > 0 ? fmt(T.medical_ch2) : '—'}</td>
                                 {/* Bonus */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.bonus_amount > 0 ? fmt(T.bonus_amount) : '—'}</td>
+                                {/* Bns Accr */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#f59e0b' }}>{T.bonusAccrual > 0 ? fmt(T.bonusAccrual) : '—'}</td>
+                                {/* Overhead */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#f59e0b' }}>{T.overhead > 0 ? fmt(T.overhead) : '—'}</td>
                                 {/* PF ER */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{T.pfER > 0 ? fmt(T.pfER) : '—'}</td>
                                 {/* Tot Cost */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#a78bfa', fontWeight: 900 }}>{fmt(T.totalPayrollCost)}</td>
                                 {/* Svc Chg */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{fmt(T.serviceCharges)}</td>
