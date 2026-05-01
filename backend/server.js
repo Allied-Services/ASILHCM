@@ -3598,14 +3598,14 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
         if (contract_id) {
             query = `SELECT pt.*, e.name, e.designation
                      FROM payroll_transactions pt
-                     JOIN employees e ON e.employee_id = pt.employee_id
+                     JOIN employees e ON e.id = pt.employee_id
                      WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
-                       AND LOWER(e.client) = LOWER($3) AND e.contract_id = $4`;
-            params = [yr, mo, client, parseInt(contract_id)];
+                       AND LOWER(e.client) = LOWER($3) AND e.contract_id::text = $4::text`;
+            params = [yr, mo, client, contract_id];
         } else {
             query = `SELECT pt.*, e.name, e.designation
                      FROM payroll_transactions pt
-                     JOIN employees e ON e.employee_id = pt.employee_id
+                     JOIN employees e ON e.id = pt.employee_id
                      WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
                        AND LOWER(e.client) = LOWER($3)`;
             params = [yr, mo, client];
@@ -3669,27 +3669,33 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
 // ═══════════════════════════════════════════════════════════════════════
 // PURCHASE ORDER (PO) TRACKING
 // ═══════════════════════════════════════════════════════════════════════
-pool.query(`CREATE TABLE IF NOT EXISTS purchase_orders (
-    id               SERIAL PRIMARY KEY,
-    po_number        VARCHAR(120) NOT NULL,
-    client_name      VARCHAR(200) NOT NULL,
-    contract_id      INT REFERENCES contracts(id) ON DELETE SET NULL,
-    contract_name    VARCHAR(200),
-    bu_name          VARCHAR(200),
-    po_value         NUMERIC(18,2) NOT NULL DEFAULT 0,
-    po_date          DATE,
-    po_expiry        DATE,
-    allocation_method VARCHAR(20) DEFAULT 'fifo',
-    priority         INT DEFAULT 100,
-    notes            TEXT,
-    status           VARCHAR(30) DEFAULT 'active',
-    created_by       VARCHAR(120),
-    created_at       TIMESTAMPTZ DEFAULT NOW(),
-    updated_at       TIMESTAMPTZ DEFAULT NOW()
-)`).catch(e => console.warn('PO table init:', e.message));
-
-pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL`)
-    .catch(e => console.warn('po_id col init:', e.message));
+// Proper async init — ensures table exists before any API call hits it
+(async () => {
+    try {
+        await pool.query(`CREATE TABLE IF NOT EXISTS purchase_orders (
+            id               SERIAL PRIMARY KEY,
+            po_number        VARCHAR(120) NOT NULL,
+            client_name      VARCHAR(200) NOT NULL,
+            contract_id      INT REFERENCES contracts(id) ON DELETE SET NULL,
+            contract_name    VARCHAR(200),
+            bu_name          VARCHAR(200),
+            po_value         NUMERIC(18,2) NOT NULL DEFAULT 0,
+            po_date          DATE,
+            po_expiry        DATE,
+            allocation_method VARCHAR(20) DEFAULT 'fifo',
+            priority         INT DEFAULT 100,
+            notes            TEXT,
+            status           VARCHAR(30) DEFAULT 'active',
+            created_by       VARCHAR(120),
+            created_at       TIMESTAMPTZ DEFAULT NOW(),
+            updated_at       TIMESTAMPTZ DEFAULT NOW()
+        )`);
+        await pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL`);
+        console.log('✅ purchase_orders table ready');
+    } catch (e) {
+        console.warn('PO table init warning:', e.message);
+    }
+})();
 
 async function getPOUtilization(poIds) {
     if (!poIds || !poIds.length) return {};
