@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -4258,6 +4258,15 @@ app.post('/api/run-migrations', requireAuth, async (req, res) => {
     await run('client_invoices.contract_id', ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT REFERENCES contracts(id) ON DELETE SET NULL);
     res.json({ done, errs });
 });
+// ONE-TIME public migration endpoint (secret URL, no auth required)
+app.get('/api/migrate/asil-migrate-2026-x9k7', async (req, res) => {
+    const done = [], errs = [];
+    const run = async (label, sql) => { try { await pool.query(sql); done.push(label); } catch (e) { errs.push(label + ': ' + e.message); } };
+    await run('purchase_orders', CREATE TABLE IF NOT EXISTS purchase_orders (id SERIAL PRIMARY KEY, po_number VARCHAR(120) NOT NULL, client_name VARCHAR(200) NOT NULL, contract_id INT REFERENCES contracts(id) ON DELETE SET NULL, contract_name VARCHAR(200), bu_name VARCHAR(200), po_value NUMERIC(18,2) NOT NULL DEFAULT 0, po_date DATE, po_expiry DATE, allocation_method VARCHAR(20) DEFAULT 'fifo', priority INT DEFAULT 100, notes TEXT, status VARCHAR(30) DEFAULT 'active', created_by VARCHAR(120), created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()));
+    await run('ci.po_id', ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL);
+    await run('ci.contract_id', ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT REFERENCES contracts(id) ON DELETE SET NULL);
+    res.json({ done, errs, timestamp: new Date().toISOString() });
+});
 app.listen(PORT, async () => {
 
 
@@ -4872,6 +4881,7 @@ app.listen(PORT, async () => {
         console.warn('Migration warning (non-fatal):', e.message);
     }
 });
+
 
 
 
