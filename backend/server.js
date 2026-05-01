@@ -3590,18 +3590,20 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
         const creditDays = contractRow?.financials?.credit_cycle_days || 30;
 
         // Locked payroll rows for this client/contract
+        // employees.id is the PK; employees uses contract_name (text) not contract_id (int FK)
         let query, params;
-        if (contract_id) {
-            query = `SELECT pt.*, e.name, e.designation
+        if (contract_id && contractRow) {
+            query = `SELECT pt.*, e.name AS emp_name, e.designation AS emp_designation
                      FROM payroll_transactions pt
-                     JOIN employees e ON e.employee_id = pt.employee_id
+                     JOIN employees e ON e.id = pt.employee_id
                      WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
-                       AND LOWER(e.client) = LOWER($3) AND e.contract_id = $4`;
-            params = [yr, mo, client, parseInt(contract_id)];
+                       AND LOWER(e.client) = LOWER($3)
+                       AND COALESCE(LOWER(e.contract_name),'') = COALESCE(LOWER($4),'')`;
+            params = [yr, mo, client, contractRow.contract_name];
         } else {
-            query = `SELECT pt.*, e.name, e.designation
+            query = `SELECT pt.*, e.name AS emp_name, e.designation AS emp_designation
                      FROM payroll_transactions pt
-                     JOIN employees e ON e.employee_id = pt.employee_id
+                     JOIN employees e ON e.id = pt.employee_id
                      WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
                        AND LOWER(e.client) = LOWER($3)`;
             params = [yr, mo, client];
@@ -4311,6 +4313,33 @@ app.get('/api/migrate/asil-migrate-2026-x9k7', async (req, res) => {
             done.push('dummy_po_DUMMY1: already exists');
         }
     } catch (e) { errs.push('dummy_po: ' + e.message); }
+
+    // Seed DUMMY1 invoice
+    try {
+        const existInv = await pool.query(`SELECT id FROM client_invoices WHERE invoice_number='DUMMY1' LIMIT 1`);
+        if (existInv.rows.length === 0) {
+            const firstClient = await pool.query(`SELECT name FROM clients ORDER BY id ASC LIMIT 1`);
+            const clientName = firstClient.rows[0]?.name || 'ASIL Test Client';
+            const payrollTotals = await pool.query(
+                `SELECT COALESCE(SUM(total_invoice),0) AS total, MAX(year) AS yr, MAX(month) AS mo
+                 FROM payroll_transactions WHERE locked=TRUE AND employee_id IN (
+                     SELECT id FROM employees WHERE LOWER(client)=LOWER()
+                 )`, [clientName]
+            );
+            const pt = payrollTotals.rows[0] || {};
+            const total = parseFloat(pt.total) || 0;
+            const yr = parseInt(pt.yr) || new Date().getFullYear();
+            const mo = parseInt(pt.mo) || (new Date().getMonth() + 1);
+            const due = new Date(); due.setDate(due.getDate() + 30);
+            await pool.query(
+                `INSERT INTO client_invoices
+                 (invoice_number, client, period_year, period_month, total_amount, status, due_date, notes, created_by)
+                 VALUES ('DUMMY1', \, \, \, \, 'Draft', \, 'DUMMY INVOICE - delete or replace', 'system.seed')`,
+                [clientName, yr, mo, total, due.toISOString().split('T')[0]]
+            );
+            done.push(`dummy_invoice_DUMMY1 seeded (client: \, total: Rs.\)`);
+        } else { done.push('dummy_invoice_DUMMY1: already exists'); }
+    } catch (e) { errs.push('dummy_invoice: ' + e.message); }
 
     res.json({ done, errs, timestamp: new Date().toISOString() });
 });
