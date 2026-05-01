@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -3716,6 +3716,18 @@ async function getPOUtilization(poIds) {
 
 app.get('/api/purchase-orders', requireAuth, async (req, res) => {
     try {
+        // Self-healing: create table if it doesn't exist yet (Render cold-start timing issue)
+        await pool.query(`CREATE TABLE IF NOT EXISTS purchase_orders (
+            id SERIAL PRIMARY KEY, po_number VARCHAR(120) NOT NULL, client_name VARCHAR(200) NOT NULL,
+            contract_id INT REFERENCES contracts(id) ON DELETE SET NULL, contract_name VARCHAR(200),
+            bu_name VARCHAR(200), po_value NUMERIC(18,2) NOT NULL DEFAULT 0, po_date DATE, po_expiry DATE,
+            allocation_method VARCHAR(20) DEFAULT 'fifo', priority INT DEFAULT 100, notes TEXT,
+            status VARCHAR(30) DEFAULT 'active', created_by VARCHAR(120),
+            created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+        )`).catch(() => {});
+        await pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL`).catch(() => {});
+        await pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT REFERENCES contracts(id) ON DELETE SET NULL`).catch(() => {});
+
         const { client, contract_id, status } = req.query;
         let where = 'WHERE 1=1', params = [];
         if (client)      { params.push(client);      where += ` AND LOWER(po.client_name) = LOWER($${params.length})`; }
@@ -3762,6 +3774,14 @@ app.get('/api/purchase-orders/suggest', requireAuth, async (req, res) => {
 
 app.post('/api/purchase-orders', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
     try {
+        await pool.query(`CREATE TABLE IF NOT EXISTS purchase_orders (
+            id SERIAL PRIMARY KEY, po_number VARCHAR(120) NOT NULL, client_name VARCHAR(200) NOT NULL,
+            contract_id INT REFERENCES contracts(id) ON DELETE SET NULL, contract_name VARCHAR(200),
+            bu_name VARCHAR(200), po_value NUMERIC(18,2) NOT NULL DEFAULT 0, po_date DATE, po_expiry DATE,
+            allocation_method VARCHAR(20) DEFAULT 'fifo', priority INT DEFAULT 100, notes TEXT,
+            status VARCHAR(30) DEFAULT 'active', created_by VARCHAR(120),
+            created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+        )`).catch(() => {});
         const { po_number, client_name, contract_id, contract_name, bu_name, po_value, po_date, po_expiry, allocation_method, priority, notes, status } = req.body;
         if (!po_number || !client_name || !po_value) return res.status(400).json({ error: 'po_number, client_name, po_value are required' });
         const { rows } = await pool.query(
