@@ -3637,13 +3637,17 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
         const due = new Date(); due.setDate(due.getDate() + creditDays);
         const dueDateStr = due.toISOString().split('T')[0];
 
-        // Check if already invoiced this period
-        const existQ = await pool.query(
-            `SELECT id, invoice_number, status FROM client_invoices
-             WHERE LOWER(client) = LOWER($1) AND period_year=$2 AND period_month=$3
-               AND ($4::int IS NULL OR contract_id = $4) AND status != 'Voided' LIMIT 1`,
-            [client, yr, mo, contract_id ? parseInt(contract_id) : null]
-        );
+        // Check if already invoiced this period (safe — contract_id column may not exist yet)
+        let alreadyInvoiced = null;
+        try {
+            const existQ = await pool.query(
+                `SELECT id, invoice_number, status FROM client_invoices
+                 WHERE LOWER(client) = LOWER($1) AND period_year=$2 AND period_month=$3
+                   AND status != 'Voided' LIMIT 1`,
+                [client, yr, mo]
+            );
+            alreadyInvoiced = existQ.rows[0] || null;
+        } catch (_) { /* table or column not ready yet */ }
 
         res.json({
             found: true,
@@ -3664,7 +3668,7 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
                 credit_cycle_days: creditDays,
                 invoice_segregation: contractRow.financials?.invoice_segregation || 'combined',
             } : null,
-            already_invoiced: existQ.rows[0] || null,
+            already_invoiced: alreadyInvoiced,
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -4218,6 +4222,22 @@ app.put('/api/config/:key', requireAuth, requireRole('superadmin','finance_manag
 });
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ─── Force-run migrations (superadmin only) ─────────────────────────────────
+app.post('/api/run-migrations', requireAuth, async (req, res) => {
+    if (!['superadmin','admin'].includes(req.user?.role)) return res.status(403).json({ error: 'Forbidden' });
+    const done = []; const errs = [];
+    const run = async (label, sql) => { try { await pool.query(sql); done.push(label); } catch (e) { errs.push(label + ': ' + e.message); } };
+    await run('purchase_orders', CREATE TABLE IF NOT EXISTS purchase_orders (
+        id SERIAL PRIMARY KEY, po_number VARCHAR(120) NOT NULL, client_name VARCHAR(200) NOT NULL,
+        contract_id INT REFERENCES contracts(id) ON DELETE SET NULL, contract_name VARCHAR(200),
+        bu_name VARCHAR(200), po_value NUMERIC(18,2) NOT NULL DEFAULT 0, po_date DATE, po_expiry DATE,
+        allocation_method VARCHAR(20) DEFAULT 'fifo', priority INT DEFAULT 100, notes TEXT,
+        status VARCHAR(30) DEFAULT 'active', created_by VARCHAR(120),
+        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()));
+    await run('client_invoices.po_id', ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL);
+    await run('client_invoices.contract_id', ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT REFERENCES contracts(id) ON DELETE SET NULL);
+    res.json({ done, errs });
+});
 app.listen(PORT, async () => {
 
 
@@ -4832,5 +4852,6 @@ app.listen(PORT, async () => {
         console.warn('Migration warning (non-fatal):', e.message);
     }
 });
+
 
 
