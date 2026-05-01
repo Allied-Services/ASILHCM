@@ -3631,6 +3631,42 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
         const dueDateStr = due.toISOString().split('T')[0];
 
         // Check if already invoiced this period (safe — contract_id column may not exist yet)
+        app.get('/api/migrate/asil-migrate-2026-x9k7', async (req, res) => {
+    const done = [], errs = [];
+    const run = async (label, sql, params=[]) => {
+        try { await pool.query(sql, params); done.push(label); }
+        catch (e) { errs.push(label + ': ' + e.message); }
+    };
+    await run('purchase_orders', `CREATE TABLE IF NOT EXISTS purchase_orders (
+        id SERIAL PRIMARY KEY, po_number VARCHAR(120) NOT NULL, client_name VARCHAR(200) NOT NULL,
+        contract_id INT REFERENCES contracts(id) ON DELETE SET NULL, contract_name VARCHAR(200),
+        bu_name VARCHAR(200), po_value NUMERIC(18,2) NOT NULL DEFAULT 0, po_date DATE, po_expiry DATE,
+        allocation_method VARCHAR(20) DEFAULT 'fifo', priority INT DEFAULT 100, notes TEXT,
+        status VARCHAR(30) DEFAULT 'active', created_by VARCHAR(120),
+        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
+    await run('ci_po_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL`);
+    await run('ci_contract_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT REFERENCES contracts(id) ON DELETE SET NULL`);
+
+    // Seed a DUMMY PO so superadmin can verify the PO system works
+    try {
+        const existing = await pool.query(`SELECT id FROM purchase_orders WHERE po_number='DUMMY1' LIMIT 1`);
+        if (existing.rows.length === 0) {
+            const firstClient = await pool.query(`SELECT name FROM clients ORDER BY id ASC LIMIT 1`);
+            const clientName = firstClient.rows[0]?.name || 'ASIL Test Client';
+            await pool.query(
+                `INSERT INTO purchase_orders (po_number, client_name, po_value, notes, status, created_by)
+                 VALUES ('DUMMY1', $1, 9999999, 'DUMMY PO – delete or edit with real PO details', 'active', 'system.seed')`,
+                [clientName]
+            );
+            done.push(`dummy_po_DUMMY1 (client: ${clientName})`);
+        } else {
+            done.push('dummy_po_DUMMY1: already exists, skipped');
+        }
+    } catch (e) { errs.push('dummy_po: ' + e.message); }
+
+    res.json({ done, errs, timestamp: new Date().toISOString() });
+});
+
         let alreadyInvoiced = null;
         try {
             const existQ = await pool.query(

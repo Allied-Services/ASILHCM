@@ -86,15 +86,16 @@ function POFormModal({ existing = null, onSave, onClose }) {
     // When contract changes, auto-fill contract_name
     const handleContractChange = (cid) => {
         setContractId(cid);
+        // API returns camelCase: contractName, clientName
         const ct = contracts.find(c => String(c.id) === String(cid));
-        if (ct) setContractName(ct.contract_name || ct.name || '');
+        if (ct) setContractName(ct.contract_name || ct.contractName || ct.name || '');
     };
 
     // Filter contracts for the selected client
+    // /api/contracts returns camelCase: { clientName, contractName, ... }
     const filteredContracts = contracts.filter(c => {
         if (!client_name) return true;
-        // Contracts may store client name in different fields
-        const cClient = c.client_name || c.client || '';
+        const cClient = c.clientName || c.client_name || c.client || '';
         return cClient.toLowerCase() === client_name.toLowerCase();
     });
 
@@ -162,7 +163,10 @@ function POFormModal({ existing = null, onSave, onClose }) {
                                 disabled={loadingData || !client_name}>
                                 <option value="">{!client_name ? '— Select client first —' : '— All contracts for client —'}</option>
                                 {filteredContracts.map(c => (
-                                    <option key={c.id} value={c.id}>{c.contract_name || c.name}</option>
+                                    <option key={c.id} value={c.id}>
+                                        {(c.contractName || c.contract_name || c.name)}
+                                        {(c.location || c.regionProvince) ? ` — ${c.location || ''}${c.regionProvince ? ` (${c.regionProvince})` : ''}` : ''}
+                                    </option>
                                 ))}
                             </select>
                             {client_name && filteredContracts.length === 0 && !loadingData && (
