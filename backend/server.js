@@ -4316,28 +4316,29 @@ app.get('/api/migrate/asil-migrate-2026-x9k7', async (req, res) => {
 
     // Seed DUMMY1 invoice
     try {
-        const existInv = await pool.query(`SELECT id FROM client_invoices WHERE invoice_number='DUMMY1' LIMIT 1`);
+        const existInv = await pool.query('SELECT id FROM client_invoices WHERE invoice_number=\ LIMIT 1', ['DUMMY1']);
         if (existInv.rows.length === 0) {
-            const firstClient = await pool.query(`SELECT name FROM clients ORDER BY id ASC LIMIT 1`);
-            const clientName = firstClient.rows[0]?.name || 'ASIL Test Client';
-            const payrollTotals = await pool.query(
-                `SELECT COALESCE(SUM(total_invoice),0) AS total, MAX(year) AS yr, MAX(month) AS mo
-                 FROM payroll_transactions WHERE locked=TRUE AND employee_id IN (
-                     SELECT id FROM employees WHERE LOWER(client)=LOWER()
-                 )`, [clientName]
+            const firstClient = await pool.query('SELECT name FROM clients ORDER BY id ASC LIMIT 1');
+            const clientName = firstClient.rows[0] ? firstClient.rows[0].name : 'ASIL Test Client';
+            const payrollQ = await pool.query(
+                'SELECT COALESCE(SUM(total_invoice),0) AS total, MAX(year) AS yr, MAX(month) AS mo' +
+                ' FROM payroll_transactions WHERE locked=TRUE AND employee_id IN' +
+                ' (SELECT id FROM employees WHERE LOWER(client)=LOWER(\))',
+                [clientName]
             );
-            const pt = payrollTotals.rows[0] || {};
+            const pt = payrollQ.rows[0] || {};
             const total = parseFloat(pt.total) || 0;
             const yr = parseInt(pt.yr) || new Date().getFullYear();
             const mo = parseInt(pt.mo) || (new Date().getMonth() + 1);
             const due = new Date(); due.setDate(due.getDate() + 30);
+            const dueStr = due.toISOString().split('T')[0];
             await pool.query(
-                `INSERT INTO client_invoices
-                 (invoice_number, client, period_year, period_month, total_amount, status, due_date, notes, created_by)
-                 VALUES ('DUMMY1', \, \, \, \, 'Draft', \, 'DUMMY INVOICE - delete or replace', 'system.seed')`,
-                [clientName, yr, mo, total, due.toISOString().split('T')[0]]
+                'INSERT INTO client_invoices' +
+                ' (invoice_number, client, period_year, period_month, total_amount, status, due_date, notes, created_by)' +
+                " VALUES ('DUMMY1', \, \, \, \, 'Draft', \, 'DUMMY INVOICE - delete or replace', 'system.seed')",
+                [clientName, yr, mo, total, dueStr]
             );
-            done.push(`dummy_invoice_DUMMY1 seeded (client: \, total: Rs.\)`);
+            done.push('dummy_invoice_DUMMY1 seeded (client: ' + clientName + ')');
         } else { done.push('dummy_invoice_DUMMY1: already exists'); }
     } catch (e) { errs.push('dummy_invoice: ' + e.message); }
 
