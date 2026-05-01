@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -3595,15 +3595,18 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
 
         // Locked payroll rows for this client/contract
         let query, params;
-        if (contract_id) {
-            query = `SELECT pt.*, e.name, e.designation
+        if (contract_id && contractRow) {
+            // Filter by client AND contract_name (employees use contract_name text, not FK)
+            query = `SELECT pt.*, e.name AS emp_name, e.designation AS emp_designation
                      FROM payroll_transactions pt
                      JOIN employees e ON e.id = pt.employee_id
                      WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
-                       AND LOWER(e.client) = LOWER($3) AND e.contract_id::text = $4::text`;
-            params = [yr, mo, client, contract_id];
+                       AND LOWER(e.client) = LOWER($3)
+                       AND COALESCE(LOWER(e.contract_name),'') = COALESCE(LOWER($4),'')`;
+            params = [yr, mo, client, contractRow.contract_name];
         } else {
-            query = `SELECT pt.*, e.name, e.designation
+            // All locked payroll for this client regardless of contract
+            query = `SELECT pt.*, e.name AS emp_name, e.designation AS emp_designation
                      FROM payroll_transactions pt
                      JOIN employees e ON e.id = pt.employee_id
                      WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
@@ -3646,7 +3649,7 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
             found: true,
             employee_count: rows.length,
             employees: rows.map(r => ({
-                id: r.employee_id, name: r.name, designation: r.designation,
+                id: r.employee_id, name: r.emp_name, designation: r.emp_designation,
                 gross: parseFloat(r.gross)||0, net: parseFloat(r.net)||0,
                 total_invoice: parseFloat(r.total_invoice)||0,
             })),
@@ -4804,8 +4807,30 @@ app.listen(PORT, async () => {
             WHERE e.id = sub.id
         `);
         console.log('Bulk contract_date update: ' + bulkResult.rowCount + ' employees updated');
+        // --- Purchase Orders (PO Tracking) ---
+        await pool.query(CREATE TABLE IF NOT EXISTS purchase_orders (
+            id               SERIAL PRIMARY KEY,
+            po_number        VARCHAR(120) NOT NULL,
+            client_name      VARCHAR(200) NOT NULL,
+            contract_id      INT REFERENCES contracts(id) ON DELETE SET NULL,
+            contract_name    VARCHAR(200),
+            bu_name          VARCHAR(200),
+            po_value         NUMERIC(18,2) NOT NULL DEFAULT 0,
+            po_date          DATE, po_expiry DATE,
+            allocation_method VARCHAR(20) DEFAULT 'fifo',
+            priority         INT DEFAULT 100,
+            notes            TEXT,
+            status           VARCHAR(30) DEFAULT 'active',
+            created_by       VARCHAR(120),
+            created_at       TIMESTAMPTZ DEFAULT NOW(),
+            updated_at       TIMESTAMPTZ DEFAULT NOW()
+        ));
+        await pool.query(ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL).catch(()=>{});
+        await pool.query(ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT REFERENCES contracts(id) ON DELETE SET NULL).catch(()=>{});
+        console.log('Migration OK: purchase_orders + client_invoices extended');
     } catch (e) {
         console.warn('Migration warning (non-fatal):', e.message);
     }
 });
+
 
