@@ -37,29 +37,66 @@ function UtilBar({ pct, balance, value }) {
 }
 
 // ── PO Form Modal ─────────────────────────────────────────────────────────────
-function POFormModal({ existing = null, clients = [], contracts = [], onSave, onClose }) {
+function POFormModal({ existing = null, onSave, onClose }) {
     const isEdit = !!existing;
-    const [po_number,        setPONumber]       = useState(existing?.po_number        || '');
-    const [client_name,      setClientName]     = useState(existing?.client_name      || '');
-    const [contract_id,      setContractId]     = useState(existing?.contract_id      || '');
-    const [contract_name,    setContractName]   = useState(existing?.contract_name    || '');
-    const [bu_name,          setBuName]         = useState(existing?.bu_name          || '');
-    const [po_value,         setPOValue]        = useState(existing?.po_value         || '');
-    const [po_date,          setPODate]         = useState(existing?.po_date          ? existing.po_date.split('T')[0] : '');
-    const [po_expiry,        setPOExpiry]       = useState(existing?.po_expiry        ? existing.po_expiry.split('T')[0] : '');
-    const [allocation_method,setAllocMethod]    = useState(existing?.allocation_method|| 'fifo');
-    const [priority,         setPriority]       = useState(existing?.priority         ?? 100);
-    const [notes,            setNotes]          = useState(existing?.notes            || '');
-    const [status,           setStatus]         = useState(existing?.status           || 'active');
+
+    // Form state
+    const [po_number,         setPONumber]      = useState(existing?.po_number         || '');
+    const [client_name,       setClientName]    = useState(existing?.client_name       || '');
+    const [contract_id,       setContractId]    = useState(existing?.contract_id       || '');
+    const [contract_name,     setContractName]  = useState(existing?.contract_name     || '');
+    const [bu_name,           setBuName]        = useState(existing?.bu_name           || '');
+    const [po_value,          setPOValue]       = useState(existing?.po_value          || '');
+    const [po_date,           setPODate]        = useState(existing?.po_date           ? existing.po_date.split('T')[0] : '');
+    const [po_expiry,         setPOExpiry]      = useState(existing?.po_expiry         ? existing.po_expiry.split('T')[0] : '');
+    const [allocation_method, setAllocMethod]   = useState(existing?.allocation_method || 'fifo');
+    const [priority,          setPriority]      = useState(existing?.priority          ?? 100);
+    const [notes,             setNotes]         = useState(existing?.notes             || '');
+    const [status,            setStatus]        = useState(existing?.status            || 'active');
+
+    // Load clients + contracts inside the modal — guarantees dropdown always has data
+    const [clients,    setClients]    = useState([]);
+    const [contracts,  setContracts]  = useState([]);
+    const [loadingData, setLoadingData] = useState(true);
+
     const [saving, setSaving] = useState(false);
     const [err,    setErr]    = useState('');
+
+    useEffect(() => {
+        setLoadingData(true);
+        Promise.all([api.getClients(), api.getContracts()])
+            .then(([cr, ctr]) => {
+                // Handle both { clients:[...] } and plain array responses
+                const cls = Array.isArray(cr) ? cr : (cr?.clients || cr?.data || []);
+                const cts = Array.isArray(ctr) ? ctr : (ctr?.contracts || ctr?.data || []);
+                setClients(cls);
+                setContracts(cts);
+            })
+            .catch(() => {})
+            .finally(() => setLoadingData(false));
+    }, []);
+
+    // When client changes, reset contract selection
+    const handleClientChange = (name) => {
+        setClientName(name);
+        setContractId('');
+        setContractName('');
+    };
 
     // When contract changes, auto-fill contract_name
     const handleContractChange = (cid) => {
         setContractId(cid);
         const ct = contracts.find(c => String(c.id) === String(cid));
-        if (ct) setContractName(ct.contract_name || '');
+        if (ct) setContractName(ct.contract_name || ct.name || '');
     };
+
+    // Filter contracts for the selected client
+    const filteredContracts = contracts.filter(c => {
+        if (!client_name) return true;
+        // Contracts may store client name in different fields
+        const cClient = c.client_name || c.client || '';
+        return cClient.toLowerCase() === client_name.toLowerCase();
+    });
 
     const handleSave = async () => {
         if (!po_number.trim()) return setErr('PO Number is required');
@@ -67,13 +104,26 @@ function POFormModal({ existing = null, clients = [], contracts = [], onSave, on
         if (!po_value || parseFloat(po_value) <= 0) return setErr('PO Value must be greater than 0');
         setSaving(true); setErr('');
         try {
-            const d = { po_number, client_name, contract_id: contract_id || null, contract_name, bu_name, po_value: parseFloat(po_value), po_date: po_date || null, po_expiry: po_expiry || null, allocation_method, priority: parseInt(priority) || 100, notes, status };
+            const d = {
+                po_number, client_name,
+                contract_id: contract_id || null,
+                contract_name,
+                bu_name,
+                po_value: parseFloat(po_value),
+                po_date: po_date || null,
+                po_expiry: po_expiry || null,
+                allocation_method,
+                priority: parseInt(priority) || 100,
+                notes, status
+            };
             if (isEdit) await api.updatePurchaseOrder(existing.id, d);
             else        await api.createPurchaseOrder(d);
             onSave();
         } catch (e) { setErr(e.message || 'Save failed'); }
         finally { setSaving(false); }
     };
+
+    const selStyle = { ...inp, appearance: 'auto' };
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1100, padding: '2rem', overflowY: 'auto' }}>
@@ -94,24 +144,32 @@ function POFormModal({ existing = null, clients = [], contracts = [], onSave, on
                                 <input style={inp} value={po_number} onChange={e => setPONumber(e.target.value)} placeholder="e.g. PO-WAFI-2026-001" />
                             </FL>
                         </div>
+
+                        {/* CLIENT — always a dropdown */}
                         <FL label="Client *">
-                            {clients.length > 0 ? (
-                                <select style={inp} value={client_name} onChange={e => setClientName(e.target.value)}>
-                                    <option value="">— Select Client —</option>
-                                    {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                                </select>
-                            ) : (
-                                <input style={inp} value={client_name} onChange={e => setClientName(e.target.value)} placeholder="Client name" />
-                            )}
-                        </FL>
-                        <FL label="Contract (optional)">
-                            <select style={inp} value={contract_id} onChange={e => handleContractChange(e.target.value)}>
-                                <option value="">— All contracts for client —</option>
-                                {contracts.filter(c => !client_name || (c.client_name || '').toLowerCase() === client_name.toLowerCase()).map(c => (
-                                    <option key={c.id} value={c.id}>{c.contract_name}</option>
+                            <select style={selStyle} value={client_name} onChange={e => handleClientChange(e.target.value)}
+                                disabled={loadingData}>
+                                <option value="">{loadingData ? 'Loading clients…' : '— Select Client —'}</option>
+                                {clients.map(c => (
+                                    <option key={c.id} value={c.name}>{c.name}</option>
                                 ))}
                             </select>
                         </FL>
+
+                        {/* CONTRACT — dropdown filtered by selected client */}
+                        <FL label="Contract (optional)">
+                            <select style={selStyle} value={contract_id} onChange={e => handleContractChange(e.target.value)}
+                                disabled={loadingData || !client_name}>
+                                <option value="">{!client_name ? '— Select client first —' : '— All contracts for client —'}</option>
+                                {filteredContracts.map(c => (
+                                    <option key={c.id} value={c.id}>{c.contract_name || c.name}</option>
+                                ))}
+                            </select>
+                            {client_name && filteredContracts.length === 0 && !loadingData && (
+                                <div style={{ fontSize: '0.73rem', color: '#f59e0b', marginTop: '4px' }}>No contracts found for this client — PO will apply to all contracts.</div>
+                            )}
+                        </FL>
+
                         <FL label="BU / Division (optional)">
                             <input style={inp} value={bu_name} onChange={e => setBuName(e.target.value)} placeholder="e.g. FM Division" />
                         </FL>
@@ -131,8 +189,8 @@ function POFormModal({ existing = null, clients = [], contracts = [], onSave, on
                         <div style={{ fontWeight: 700, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#818cf8', marginBottom: '0.75rem' }}>Invoice Allocation Method</div>
                         <div style={{ display: 'flex', gap: '10px' }}>
                             {[
-                                { value: 'fifo', label: 'FIFO (Default)', hint: 'System uses oldest active PO first' },
-                                { value: 'manual', label: 'Manual', hint: 'Team selects PO on each invoice' },
+                                { value: 'fifo',   label: 'FIFO (Default)', hint: 'System uses oldest active PO first' },
+                                { value: 'manual', label: 'Manual',         hint: 'Team selects PO on each invoice' },
                             ].map(opt => (
                                 <label key={opt.value} style={{ flex: 1, display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px', borderRadius: '8px', cursor: 'pointer',
                                     background: allocation_method === opt.value ? 'rgba(99,102,241,0.12)' : 'var(--bg-dark)',
@@ -148,7 +206,7 @@ function POFormModal({ existing = null, clients = [], contracts = [], onSave, on
                         </div>
                         {allocation_method === 'fifo' && (
                             <div style={{ marginTop: '8px', fontSize: '0.76rem', color: '#818cf8' }}>
-                                📌 FIFO priority order = {priority}. Lower number = used first. Adjust if client has multiple POs.
+                                📌 FIFO priority = {priority}. Lower number = used first. Adjust if client has multiple active POs.
                             </div>
                         )}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.75rem' }}>
@@ -156,7 +214,7 @@ function POFormModal({ existing = null, clients = [], contracts = [], onSave, on
                                 <input style={inp} type="number" value={priority} onChange={e => setPriority(e.target.value)} placeholder="100" />
                             </FL>
                             <FL label="Status">
-                                <select style={inp} value={status} onChange={e => setStatus(e.target.value)}>
+                                <select style={selStyle} value={status} onChange={e => setStatus(e.target.value)}>
                                     <option value="active">Active</option>
                                     <option value="exhausted">Exhausted</option>
                                     <option value="cancelled">Cancelled</option>
@@ -172,9 +230,9 @@ function POFormModal({ existing = null, clients = [], contracts = [], onSave, on
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '1.5rem' }}>
                         <button onClick={onClose} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
-                        <button onClick={handleSave} disabled={saving}
-                            style={{ background: 'linear-gradient(135deg,#6366f1,#818cf8)', border: 'none', color: '#fff', padding: '10px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', opacity: saving ? 0.7 : 1 }}>
-                            <Save size={16} />{saving ? 'Saving…' : isEdit ? 'Update PO' : 'Register PO'}
+                        <button onClick={handleSave} disabled={saving || loadingData}
+                            style={{ background: 'linear-gradient(135deg,#6366f1,#818cf8)', border: 'none', color: '#fff', padding: '10px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', opacity: (saving || loadingData) ? 0.7 : 1 }}>
+                            <Save size={16} />{saving ? 'Saving…' : loadingData ? 'Loading…' : isEdit ? 'Update PO' : 'Register PO'}
                         </button>
                     </div>
                 </div>
@@ -363,8 +421,6 @@ export default function POTracking({ user }) {
             {modal && (
                 <POFormModal
                     existing={modal.po}
-                    clients={clients}
-                    contracts={contracts}
                     onSave={() => { setModal(null); load(); }}
                     onClose={() => setModal(null)}
                 />
