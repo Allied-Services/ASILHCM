@@ -4264,31 +4264,54 @@ app.post('/api/run-migrations', requireAuth, async (req, res) => {
     if (!['superadmin','admin'].includes(req.user?.role)) return res.status(403).json({ error: 'Forbidden' });
     const done = []; const errs = [];
     const run = async (label, sql) => { try { await pool.query(sql); done.push(label); } catch (e) { errs.push(label + ': ' + e.message); } };
+    // No FK constraints in standalone migration — avoids ordering issues
     await run('purchase_orders', `CREATE TABLE IF NOT EXISTS purchase_orders (
         id SERIAL PRIMARY KEY, po_number VARCHAR(120) NOT NULL, client_name VARCHAR(200) NOT NULL,
-        contract_id INT REFERENCES contracts(id) ON DELETE SET NULL, contract_name VARCHAR(200),
+        contract_id INT, contract_name VARCHAR(200),
         bu_name VARCHAR(200), po_value NUMERIC(18,2) NOT NULL DEFAULT 0, po_date DATE, po_expiry DATE,
         allocation_method VARCHAR(20) DEFAULT 'fifo', priority INT DEFAULT 100, notes TEXT,
         status VARCHAR(30) DEFAULT 'active', created_by VARCHAR(120),
         created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
-    await run('ci_po_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL`);
-    await run('ci_contract_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT REFERENCES contracts(id) ON DELETE SET NULL`);
+    await run('ci_po_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT`);
+    await run('ci_contract_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT`);
     res.json({ done, errs });
 });
 
 // ONE-TIME public migration endpoint (secret URL, no auth required)
 app.get('/api/migrate/asil-migrate-2026-x9k7', async (req, res) => {
     const done = [], errs = [];
-    const run = async (label, sql) => { try { await pool.query(sql); done.push(label); } catch (e) { errs.push(label + ': ' + e.message); } };
+    const run = async (label, sql, params=[]) => {
+        try { await pool.query(sql, params); done.push(label); }
+        catch (e) { errs.push(label + ': ' + e.message); }
+    };
+    // No FK constraints — avoids ordering/type issues in standalone migration
     await run('purchase_orders', `CREATE TABLE IF NOT EXISTS purchase_orders (
         id SERIAL PRIMARY KEY, po_number VARCHAR(120) NOT NULL, client_name VARCHAR(200) NOT NULL,
-        contract_id INT REFERENCES contracts(id) ON DELETE SET NULL, contract_name VARCHAR(200),
+        contract_id INT, contract_name VARCHAR(200),
         bu_name VARCHAR(200), po_value NUMERIC(18,2) NOT NULL DEFAULT 0, po_date DATE, po_expiry DATE,
         allocation_method VARCHAR(20) DEFAULT 'fifo', priority INT DEFAULT 100, notes TEXT,
         status VARCHAR(30) DEFAULT 'active', created_by VARCHAR(120),
         created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
-    await run('ci_po_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL`);
-    await run('ci_contract_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT REFERENCES contracts(id) ON DELETE SET NULL`);
+    await run('ci_po_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT`);
+    await run('ci_contract_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT`);
+
+    // Seed DUMMY1 PO using first client in DB
+    try {
+        const existing = await pool.query(`SELECT id FROM purchase_orders WHERE po_number='DUMMY1' LIMIT 1`);
+        if (existing.rows.length === 0) {
+            const firstClient = await pool.query(`SELECT name FROM clients ORDER BY id ASC LIMIT 1`);
+            const clientName = firstClient.rows[0]?.name || 'ASIL Test Client';
+            await pool.query(
+                `INSERT INTO purchase_orders (po_number, client_name, po_value, notes, status, created_by)
+                 VALUES ('DUMMY1', $1, 9999999, 'DUMMY PO – delete or edit with real PO details', 'active', 'system.seed')`,
+                [clientName]
+            );
+            done.push(`dummy_po_DUMMY1 seeded (client: ${clientName})`);
+        } else {
+            done.push('dummy_po_DUMMY1: already exists');
+        }
+    } catch (e) { errs.push('dummy_po: ' + e.message); }
+
     res.json({ done, errs, timestamp: new Date().toISOString() });
 });
 
