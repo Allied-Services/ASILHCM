@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -3572,6 +3572,96 @@ app.get('/api/payroll/:year/:month/invoice-status', requireAuth, async (req, res
         res.json({
             invoicedClients:   [...new Set(rows.map(r => r.client).filter(Boolean))],
             invoicedContracts: [...new Set(rows.map(r => r.contract).filter(Boolean))],
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/payroll/:year/:month/preview-invoice — aggregate locked payroll for invoice wizard
+app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, res) => {
+    try {
+        const yr = parseInt(req.params.year), mo = parseInt(req.params.month);
+        const { client, contract_id } = req.query;
+        if (!client) return res.status(400).json({ error: 'client is required' });
+
+        // Pull contract for credit cycle and financial settings
+        let contractRow = null;
+        if (contract_id) {
+            const ctRes = await pool.query(
+                `SELECT c.*, cl.name AS client_name FROM contracts c
+                 LEFT JOIN clients cl ON c.client_id = cl.id WHERE c.id = $1`, [contract_id]);
+            contractRow = ctRes.rows[0] || null;
+        }
+        const creditDays = contractRow?.financials?.credit_cycle_days || 30;
+
+        // Locked payroll rows for this client/contract
+        let query, params;
+        if (contract_id) {
+            query = `SELECT pt.*, e.name, e.designation
+                     FROM payroll_transactions pt
+                     JOIN employees e ON e.employee_id = pt.employee_id
+                     WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
+                       AND LOWER(e.client) = LOWER($3) AND e.contract_id = $4`;
+            params = [yr, mo, client, parseInt(contract_id)];
+        } else {
+            query = `SELECT pt.*, e.name, e.designation
+                     FROM payroll_transactions pt
+                     JOIN employees e ON e.employee_id = pt.employee_id
+                     WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
+                       AND LOWER(e.client) = LOWER($3)`;
+            params = [yr, mo, client];
+        }
+        const { rows } = await pool.query(query, params);
+
+        if (rows.length === 0) {
+            return res.json({ found: false, message: 'No locked payroll found. Please lock the payroll for this month before generating an invoice.' });
+        }
+
+        // Aggregate totals
+        const totals = rows.reduce((a, r) => ({
+            gross:           a.gross           + (parseFloat(r.gross)           || 0),
+            net:             a.net             + (parseFloat(r.net)             || 0),
+            wht:             a.wht             + (parseFloat(r.wht)             || 0),
+            eobi_ee:         a.eobi_ee         + (parseFloat(r.eobi_ee)         || 0),
+            service_charges: a.service_charges + (parseFloat(r.service_charges) || 0),
+            sales_tax:       a.sales_tax       + (parseFloat(r.sales_tax)       || 0),
+            total_invoice:   a.total_invoice   + (parseFloat(r.total_invoice)   || 0),
+            opd_claim:       a.opd_claim       + (parseFloat(r.opd_claim)       || 0),
+            reimbursement:   a.reimbursement   + (parseFloat(r.reimbursement)   || 0),
+            arrears:         a.arrears         + (parseFloat(r.arrears)         || 0),
+        }), { gross:0,net:0,wht:0,eobi_ee:0,service_charges:0,sales_tax:0,total_invoice:0,opd_claim:0,reimbursement:0,arrears:0 });
+
+        // Auto payment due date
+        const due = new Date(); due.setDate(due.getDate() + creditDays);
+        const dueDateStr = due.toISOString().split('T')[0];
+
+        // Check if already invoiced this period
+        const existQ = await pool.query(
+            `SELECT id, invoice_number, status FROM client_invoices
+             WHERE LOWER(client) = LOWER($1) AND period_year=$2 AND period_month=$3
+               AND ($4::int IS NULL OR contract_id = $4) AND status != 'Voided' LIMIT 1`,
+            [client, yr, mo, contract_id ? parseInt(contract_id) : null]
+        );
+
+        res.json({
+            found: true,
+            employee_count: rows.length,
+            employees: rows.map(r => ({
+                id: r.employee_id, name: r.name, designation: r.designation,
+                gross: parseFloat(r.gross)||0, net: parseFloat(r.net)||0,
+                total_invoice: parseFloat(r.total_invoice)||0,
+            })),
+            totals,
+            credit_cycle_days: creditDays,
+            due_date: dueDateStr,
+            contract: contractRow ? {
+                id: contractRow.id,
+                name: contractRow.contract_name,
+                location: contractRow.location,
+                region_province: contractRow.region_province,
+                credit_cycle_days: creditDays,
+                invoice_segregation: contractRow.financials?.invoice_segregation || 'combined',
+            } : null,
+            already_invoiced: existQ.rows[0] || null,
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });

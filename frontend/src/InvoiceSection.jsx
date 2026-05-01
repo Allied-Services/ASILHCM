@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import {
     FilePlus, Eye, CheckCircle, Send, Printer, X, ExternalLink,
     RefreshCw, FileText, Edit3, AlertCircle, ChevronDown,
@@ -125,280 +125,323 @@ function printInvoice(inv) {
     setTimeout(() => win.print(), 500);
 }
 
-// ─── Create / Edit Invoice Modal ─────────────────────────────────────────────
-function InvoiceFormModal({ existing = null, clients = [], contracts = [], onSave, onClose }) {
-    const isEdit = !!existing;
+
+// ─── 3-Step Payroll Invoice Wizard ───────────────────────────────────────────
+function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose }) {
     const now = new Date();
+    const [step,        setStep]       = useState(1); // 1=select, 2=preview, 3=done
+    const [client,      setClient]     = useState('');
+    const [contractId,  setContractId] = useState('');
+    const [month,       setMonth]      = useState(now.getMonth() + 1);
+    const [year,        setYear]       = useState(now.getFullYear());
+    const [preview,     setPreview]    = useState(null);
+    const [loading,     setLoading]    = useState(false);
+    const [saving,      setSaving]     = useState(false);
+    const [error,       setError]      = useState('');
+    const [poNumber,    setPoNumber]   = useState('');
+    const [notes,       setNotes]      = useState('');
+    const [numberOverride, setNumberOverride] = useState('');
+    const [overrideMode,   setOverrideMode]   = useState(false);
 
-    const [client,         setClient]         = useState(existing?.client        || '');
-    const [contract,       setContract]       = useState(existing?.contract      || '');
-    const [invNumber,      setInvNumber]      = useState(existing?.invoice_number|| '');
-    const [numberLocked,   setNumberLocked]   = useState(isEdit);  // existing numbers locked by default
-    const [periodMonth,    setPeriodMonth]    = useState(existing?.period_month  || now.getMonth() + 1);
-    const [periodYear,     setPeriodYear]     = useState(existing?.period_year   || now.getFullYear());
-    const [poNumber,       setPoNumber]       = useState(existing?.po_number     || '');
-    // Payment Due Date stored as YYYY-MM-DD; edited via 3 separate dropdowns to avoid browser year-spin bug
-    const _parseDue = (s) => {
-        if (!s) return { dd: '', mm: '', yyyy: new Date().getFullYear() };
-        const [yyyy, mm, dd] = (s || '').split('-');
-        return { dd: parseInt(dd)||'', mm: parseInt(mm)||'', yyyy: parseInt(yyyy)||new Date().getFullYear() };
-    };
-    const _initDue = _parseDue(existing?.due_date || '');
-    const [dueDateDay,   setDueDateDay]   = useState(_initDue.dd);
-    const [dueDateMonth, setDueDateMonth] = useState(_initDue.mm);
-    const [dueDateYear,  setDueDateYear]  = useState(_initDue.yyyy);
-    const dueDate = (dueDateDay && dueDateMonth && dueDateYear)
-        ? `${dueDateYear}-${String(dueDateMonth).padStart(2,'0')}-${String(dueDateDay).padStart(2,'0')}`
-        : '';
-    const [subtotal,       setSubtotal]       = useState(parseFloat(existing?.subtotal)        || '');
-    const [svcCharges,     setSvcCharges]     = useState(parseFloat(existing?.service_charges) || '');
-    const [salesTax,       setSalesTax]       = useState(parseFloat(existing?.sales_tax)       || '');
-    const [wht,            setWht]            = useState(parseFloat(existing?.wht)             || '');
-    const [notes,          setNotes]          = useState(existing?.notes         || '');
-    const [lineItems,      setLineItems]      = useState(
-        (existing?.line_items || []).length > 0
-            ? existing.line_items
-            : [{ description: '', amount: '' }]
-    );
-    const [saving,         setSaving]         = useState(false);
-    const [error,          setError]          = useState(null);
-    const [suggestedNum,   setSuggestedNum]   = useState('');
-
-    // Fetch suggested invoice number when month/year changes
+    // self-load clients + contracts
+    const [cls,  setCls]  = useState(clients);
+    const [cts,  setCts]  = useState(contracts);
     useEffect(() => {
-        if (isEdit) return;
-        // We'll get the suggestion from the server after save with blank invoice_number
-        const mo = String(periodMonth).padStart(0,'');
-        const moAbbr = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][parseInt(periodMonth)-1];
-        const yr2 = String(periodYear).slice(-2);
-        setSuggestedNum(`INV-${moAbbr}${yr2}-???`);
-    }, [periodMonth, periodYear, isEdit]);
+        if (cls.length && cts.length) return;
+        Promise.all([api.getClients(), api.getContracts()]).then(([cr, ctr]) => {
+            setCls(Array.isArray(cr) ? cr : (cr?.clients || []));
+            setCts(Array.isArray(ctr) ? ctr : (ctr?.contracts || []));
+        }).catch(() => {});
+    }, []);
 
-    // Clients from DB — API returns camelCase: clientName, contractName
-    const clientList  = clients.map(c => c.name || c);
-    const contractMap = {};
-    contracts.forEach(c => {
-        const key = c.clientName || c.client_name || '';
-        if (!contractMap[key]) contractMap[key] = [];
-        contractMap[key].push({ name: c.contractName || c.name || c.reference || '', id: c.id });
-    });
-    const contractsForClient = contractMap[client] || [];
-
-    // Computed totals from line items
-    const lineTotal = lineItems.reduce((s, li) => s + (parseFloat(li.amount) || 0), 0);
-    const computedSvc = parseFloat(svcCharges) || 0;
-    const computedST  = parseFloat(salesTax)   || 0;
-    const computedWHT = parseFloat(wht)        || 0;
-    const grandTotal  = (parseFloat(subtotal) || lineTotal) + computedSvc + computedST - computedWHT;
-
-    const addLine     = () => setLineItems(p => [...p, { description: '', amount: '' }]);
-    const updateLine  = (i, k, v) => setLineItems(p => p.map((li, idx) => idx === i ? { ...li, [k]: v } : li));
-    const removeLine  = (i) => setLineItems(p => p.filter((_, idx) => idx !== i));
-
-    const handleSave = async () => {
-        if (!client) { setError('Please select a client.'); return; }
-        setSaving(true); setError(null);
-        try {
-            const items = lineItems.filter(li => li.description || li.amount);
-            const payload = {
-                client, contract: contract || null,
-                invoice_number: (numberLocked ? invNumber : null) || undefined,
-                period_month: parseInt(periodMonth),
-                period_year: parseInt(periodYear),
-                po_number: poNumber || null,
-                due_date: dueDate || null,
-                line_items: items,
-                subtotal: parseFloat(subtotal) || lineTotal,
-                service_charges: computedSvc,
-                sales_tax: computedST,
-                wht: computedWHT,
-                grand_total: grandTotal,
-                notes: notes || null,
-            };
-            if (isEdit) {
-                if (numberLocked && invNumber !== existing.invoice_number) {
-                    // Number override
-                    await api.updateClientInvoice(existing.id, { invoice_number: invNumber, ...payload });
-                } else {
-                    await api.updateClientInvoice(existing.id, payload);
-                }
-            } else {
-                await api.createClientInvoice(payload);
-            }
-            onSave();
-            onClose();
-        } catch (e) { setError(e.message); setSaving(false); }
-    };
-
+    const inp = { width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '9px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none', boxSizing: 'border-box' };
     const F = ({ label, children }) => (
         <div style={{ marginBottom: '0.85rem' }}>
-            <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '5px' }}>{label}</label>
+            <label style={{ display: 'block', fontSize: '0.73rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '5px' }}>{label}</label>
             {children}
         </div>
     );
-    const inp = { width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '9px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none', boxSizing: 'border-box' };
+
+    // Contracts filtered + labelled with location/region to differentiate duplicates
+    const clientContracts = cts.filter(c => {
+        const cn = c.clientName || c.client_name || '';
+        return !client || cn.toLowerCase() === client.toLowerCase();
+    });
+
+    const contractLabel = (c) => {
+        const name = c.contractName || c.name || '';
+        const loc  = c.location || c.regionProvince || '';
+        return loc ? `${name} — ${loc}` : name;
+    };
+
+    // Step 1 → Step 2: fetch locked payroll preview
+    const handleFetch = async () => {
+        if (!client) return setError('Please select a client.');
+        setError(''); setLoading(true);
+        try {
+            const params = new URLSearchParams({ client });
+            if (contractId) params.set('contract_id', contractId);
+            const token = localStorage.getItem('asil_hcm_token');
+            const r = await fetch(`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/payroll/${year}/${month}/preview-invoice?${params}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Server error');
+            setPreview(data);
+            setStep(2);
+        } catch (e) { setError(e.message); }
+        finally { setLoading(false); }
+    };
+
+    // Step 2 → generate invoice
+    const handleGenerate = async () => {
+        if (!preview?.found) return;
+        setSaving(true); setError('');
+        try {
+            const t = preview.totals;
+            const selectedContract = cts.find(c => String(c.id) === String(contractId));
+            const payload = {
+                client,
+                contract: selectedContract ? (selectedContract.contractName || selectedContract.name) : '',
+                contract_id: contractId ? parseInt(contractId) : null,
+                period_month: parseInt(month),
+                period_year:  parseInt(year),
+                po_number:    poNumber || null,
+                due_date:     preview.due_date || null,
+                notes:        notes || null,
+                invoice_number: (overrideMode && numberOverride) ? numberOverride : undefined,
+                line_items: [
+                    { description: `Payroll — Gross Salaries (${preview.employee_count} employees)`, amount: t.gross },
+                    ...(t.eobi_ee  > 0 ? [{ description: 'EOBI Employer Contribution', amount: t.eobi_ee }]  : []),
+                    ...(t.opd_claim > 0 ? [{ description: 'OPD / Medical Claims', amount: t.opd_claim }]    : []),
+                    ...(t.reimbursement > 0 ? [{ description: 'Reimbursements', amount: t.reimbursement }]  : []),
+                    ...(t.arrears > 0 ? [{ description: 'Arrears', amount: t.arrears }]                     : []),
+                ].filter(l => l.amount > 0),
+                subtotal:         t.gross + t.eobi_ee + t.opd_claim + t.reimbursement + t.arrears,
+                service_charges:  t.service_charges,
+                sales_tax:        t.sales_tax,
+                wht:              t.wht,
+                grand_total:      t.total_invoice,
+            };
+            await api.createClientInvoice(payload);
+            setStep(3);
+            if (onSave) onSave();
+        } catch (e) { setError(e.message); setSaving(false); }
+    };
+
+    const moName = MONTH_NAMES[parseInt(month) - 1];
+    const moAbbr = moName?.slice(0,3).toUpperCase();
+    const yr2    = String(year).slice(-2);
 
     return (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-            <div className="modal-box" style={{ maxWidth: '860px', maxHeight: '92vh', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 5 }}>
-                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <FilePlus size={18} color="var(--primary)" />
-                        {isEdit ? `Edit Invoice — ${existing.invoice_number}` : 'Create New Invoice'}
-                    </h3>
+            <div className="modal-box" style={{ maxWidth: '800px', maxHeight: '92vh', overflowY: 'auto' }}>
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 2rem', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 5 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <FilePlus size={18} color="var(--primary)" />
+                            Generate Invoice from Payroll
+                        </h3>
+                        {/* Step indicators */}
+                        <div style={{ display: 'flex', gap: '6px', marginLeft: '8px' }}>
+                            {[1,2,3].map(s => (
+                                <div key={s} style={{ width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700,
+                                    background: step >= s ? (step > s ? '#22c55e' : 'var(--primary)') : 'var(--bg-dark)',
+                                    color: step >= s ? '#fff' : '#64748b',
+                                    border: `1px solid ${step >= s ? 'transparent' : 'var(--border)'}` }}>
+                                    {step > s ? '✓' : s}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
                 </div>
 
-                <div style={{ padding: '1.75rem 2rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-                    {/* Left col — metadata */}
-                    <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem' }}>
-                            1 — Client &amp; Period
+                <div style={{ padding: '1.75rem 2rem' }}>
+                    {error && (
+                        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '0.75rem 1rem', color: '#f87171', marginBottom: '1rem', fontSize: '0.85rem', display: 'flex', gap: '8px' }}>
+                            <AlertCircle size={15} style={{ flexShrink: 0, marginTop: '2px' }} /> {error}
                         </div>
+                    )}
 
-                        <F label="Client *">
-                            <select value={client} onChange={e => { setClient(e.target.value); setContract(''); }} style={inp}>
-                                <option value="">— Select Client —</option>
-                                {clientList.map(c => <option key={c}>{c}</option>)}
-                            </select>
-                        </F>
-
-                        <F label="Contract">
-                            <select value={contract} onChange={e => setContract(e.target.value)} style={inp}>
-                                <option value="">— Select Contract (optional) —</option>
-                                {contractsForClient.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
-                            </select>
-                        </F>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                            <F label="Billing Month">
-                                <select value={periodMonth} onChange={e => setPeriodMonth(e.target.value)} style={inp}>
-                                    {MONTH_NAMES.map((m, i) => <option key={i} value={i+1}>{m}</option>)}
-                                </select>
-                            </F>
-                            <F label="Year">
-                                <select value={periodYear} onChange={e => setPeriodYear(e.target.value)} style={inp}>
-                                    {[2024,2025,2026,2027].map(y => <option key={y}>{y}</option>)}
-                                </select>
-                            </F>
-                        </div>
-
-                        <F label="PO / Client Reference">
-                            <input type="text" value={poNumber} onChange={e => setPoNumber(e.target.value)} placeholder="Client PO or reference number" style={inp} />
-                        </F>
-
-                        <F label="Payment Due Date">
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '6px' }}>
-                                <select value={dueDateDay} onChange={e => setDueDateDay(e.target.value)} style={inp}>
-                                    <option value="">Day</option>
-                                    {Array.from({length:31},(_,i)=>i+1).map(d=><option key={d} value={d}>{d}</option>)}
-                                </select>
-                                <select value={dueDateMonth} onChange={e => setDueDateMonth(e.target.value)} style={inp}>
-                                    <option value="">Month</option>
-                                    {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
-                                </select>
-                                <select value={dueDateYear} onChange={e => setDueDateYear(e.target.value)} style={inp}>
-                                    {[2024,2025,2026,2027,2028,2029,2030].map(y=><option key={y} value={y}>{y}</option>)}
-                                </select>
+                    {/* ── STEP 1: Selection ── */}
+                    {step === 1 && (
+                        <div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1.5rem', background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '10px', padding: '12px 16px' }}>
+                                📋 Select the client, contract, and billing month. The system will pull all <strong>locked payroll</strong> for that period and calculate the invoice automatically.
                             </div>
-                        </F>
-
-                        {/* Invoice Number — editable override */}
-                        <div style={{ background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '10px', padding: '0.85rem 1rem', marginBottom: '0.85rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                                <label style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: 700, textTransform: 'uppercase' }}>
-                                    Invoice Number {!isEdit && !numberLocked && `(system will generate)`}
-                                </label>
-                                {!isEdit && (
-                                    <button onClick={() => setNumberLocked(v => !v)}
-                                        style={{ background: 'transparent', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, textDecoration: 'underline' }}>
-                                        <Edit3 size={12} /> {numberLocked ? 'Use auto-generate' : 'Override (historical)'}
-                                    </button>
-                                )}
-                            </div>
-                            {numberLocked ? (
-                                <input type="text" value={invNumber} onChange={e => setInvNumber(e.target.value)}
-                                    placeholder={isEdit ? existing?.invoice_number : 'e.g. INV-APR26-001'}
-                                    style={{ ...inp, background: '#0f1823', fontWeight: 700, color: '#38bdf8', fontFamily: 'monospace' }} />
-                            ) : (
-                                <div style={{ fontFamily: 'monospace', fontSize: '0.95rem', color: '#94a3b8', padding: '8px 12px', background: '#0f1823', borderRadius: '6px' }}>
-                                    {suggestedNum} <span style={{ fontSize: '0.72rem', color: '#475569' }}>(assigned on save)</span>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div style={{ gridColumn: '1/-1' }}>
+                                    <F label="Client *">
+                                        <select style={inp} value={client} onChange={e => { setClient(e.target.value); setContractId(''); }}>
+                                            <option value="">— Select Client —</option>
+                                            {cls.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                        </select>
+                                    </F>
                                 </div>
+                                <div style={{ gridColumn: '1/-1' }}>
+                                    <F label="Contract">
+                                        <select style={inp} value={contractId} onChange={e => setContractId(e.target.value)} disabled={!client}>
+                                            <option value="">{!client ? '— Select client first —' : '— All contracts for client —'}</option>
+                                            {clientContracts.map(c => (
+                                                <option key={c.id} value={c.id}>{contractLabel(c)}</option>
+                                            ))}
+                                        </select>
+                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                            Contract name + location shown to differentiate. Leave blank to invoice all contracts together.
+                                        </div>
+                                    </F>
+                                </div>
+                                <F label="Billing Month">
+                                    <select style={inp} value={month} onChange={e => setMonth(e.target.value)}>
+                                        {MONTH_NAMES.map((m, i) => <option key={i} value={i+1}>{m}</option>)}
+                                    </select>
+                                </F>
+                                <F label="Year">
+                                    <select style={inp} value={year} onChange={e => setYear(e.target.value)}>
+                                        {[2024,2025,2026,2027].map(y => <option key={y}>{y}</option>)}
+                                    </select>
+                                </F>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+                                <button onClick={onClose} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                                <button onClick={handleFetch} disabled={!client || loading}
+                                    style={{ flex: 3, background: 'var(--primary)', border: 'none', color: 'white', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, opacity: loading ? 0.7 : 1 }}>
+                                    {loading ? 'Loading payroll data…' : `Preview Invoice for ${moName} ${year} →`}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── STEP 2: Preview & Confirm ── */}
+                    {step === 2 && preview && (
+                        <div>
+                            {!preview.found ? (
+                                <div style={{ textAlign: 'center', padding: '3rem', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '12px' }}>
+                                    <AlertCircle size={40} color="#f59e0b" style={{ marginBottom: '1rem' }} />
+                                    <div style={{ fontWeight: 700, marginBottom: '8px' }}>No Locked Payroll Found</div>
+                                    <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: '1.5rem' }}>{preview.message}</div>
+                                    <button onClick={() => setStep(1)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer' }}>← Go Back</button>
+                                </div>
+                            ) : (
+                                <>
+                                    {preview.already_invoiced && (
+                                        <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '1rem', fontSize: '0.83rem', color: '#f59e0b' }}>
+                                            ⚠ Invoice <strong>{preview.already_invoiced.invoice_number}</strong> already exists for this period (Status: {preview.already_invoiced.status}). Generating again will create a duplicate draft.
+                                        </div>
+                                    )}
+
+                                    {/* Summary header */}
+                                    <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 800, fontSize: '1rem' }}>{client}</div>
+                                            {preview.contract && <div style={{ fontSize: '0.83rem', color: '#818cf8', marginTop: '2px' }}>{preview.contract.name}{preview.contract.location ? ` — ${preview.contract.location}` : ''}{preview.contract.region_province ? ` (${preview.contract.region_province})` : ''}</div>}
+                                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>{moName} {year} · {preview.employee_count} employees locked</div>
+                                        </div>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>GRAND TOTAL</div>
+                                            <div style={{ fontWeight: 900, fontSize: '1.4rem', color: '#22c55e' }}>{Rs(preview.totals.total_invoice)}</div>
+                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>Due: {preview.due_date} ({preview.credit_cycle_days}-day terms)</div>
+                                        </div>
+                                    </div>
+
+                                    {/* Breakdown table */}
+                                    <div style={{ background: 'var(--bg-dark)', borderRadius: '10px', padding: '1rem', marginBottom: '1.25rem' }}>
+                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.75rem' }}>Invoice Line Breakdown</div>
+                                        {[
+                                            ['Gross Payroll (Salaries)',         preview.totals.gross,           '#f8fafc'],
+                                            ['EOBI Employer Contribution',        preview.totals.eobi_ee,         '#94a3b8'],
+                                            ['OPD / Medical Claims',              preview.totals.opd_claim,       '#94a3b8'],
+                                            ['Reimbursements',                    preview.totals.reimbursement,   '#94a3b8'],
+                                            ['Arrears',                           preview.totals.arrears,         '#94a3b8'],
+                                        ].filter(([,v]) => v > 0).map(([label, val, clr]) => (
+                                            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '0.85rem' }}>
+                                                <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+                                                <span style={{ fontWeight: 600, color: clr }}>{Rs(val)}</span>
+                                            </div>
+                                        ))}
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.85rem' }}>
+                                            <span style={{ color: 'var(--text-muted)' }}>Service Charges</span>
+                                            <span style={{ color: '#818cf8', fontWeight: 600 }}>{Rs(preview.totals.service_charges)}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.85rem' }}>
+                                            <span style={{ color: 'var(--text-muted)' }}>Sales Tax</span>
+                                            <span style={{ color: '#818cf8', fontWeight: 600 }}>{Rs(preview.totals.sales_tax)}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.85rem' }}>
+                                            <span style={{ color: '#f87171' }}>WHT (deducted by client)</span>
+                                            <span style={{ color: '#f87171', fontWeight: 600 }}>− {Rs(preview.totals.wht)}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 0', borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: '0.95rem', fontWeight: 800 }}>
+                                            <span>Net Payable</span>
+                                            <span style={{ color: '#22c55e' }}>{Rs(preview.totals.total_invoice)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Additional fields */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                                        <F label="PO / Client Reference">
+                                            <input style={inp} value={poNumber} onChange={e => setPoNumber(e.target.value)} placeholder="Client PO number" />
+                                        </F>
+                                        <F label="Payment Due Date">
+                                            <input style={{ ...inp, background: 'rgba(34,197,94,0.05)' }} value={preview.due_date} readOnly />
+                                            <div style={{ fontSize: '0.71rem', color: '#22c55e', marginTop: '3px' }}>Auto from contract: {preview.credit_cycle_days}-day terms</div>
+                                        </F>
+                                    </div>
+                                    <F label="Internal Notes (optional)">
+                                        <textarea style={{ ...inp, resize: 'vertical', minHeight: '60px' }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any notes for internal reference..." />
+                                    </F>
+
+                                    {/* Invoice number override */}
+                                    <div style={{ background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.15)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.78rem', color: '#38bdf8', fontWeight: 700 }}>Invoice Number</span>
+                                            <button onClick={() => setOverrideMode(v => !v)} style={{ background: 'transparent', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.75rem', textDecoration: 'underline' }}>
+                                                {overrideMode ? 'Use auto-generate' : 'Override (historical)'}
+                                            </button>
+                                        </div>
+                                        {overrideMode
+                                            ? <input style={{ ...inp, marginTop: '6px', fontFamily: 'monospace', color: '#38bdf8' }} value={numberOverride} onChange={e => setNumberOverride(e.target.value)} placeholder="e.g. INV-MAY26-001" />
+                                            : <div style={{ fontFamily: 'monospace', fontSize: '0.9rem', color: '#64748b', padding: '6px 0' }}>INV-{moAbbr}{yr2}-??? <span style={{ fontSize: '0.72rem' }}>(assigned on save)</span></div>
+                                        }
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                        <button onClick={() => { setStep(1); setPreview(null); setError(''); }} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>← Back</button>
+                                        <button onClick={handleGenerate} disabled={saving}
+                                            style={{ flex: 3, background: saving ? '#334155' : 'linear-gradient(135deg,#6366f1,#22c55e)', border: 'none', color: 'white', padding: '10px', borderRadius: '8px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.95rem' }}>
+                                            {saving ? 'Generating…' : '✓ Confirm & Generate Invoice'}
+                                        </button>
+                                    </div>
+                                </>
                             )}
                         </div>
+                    )}
 
-                        <F label="Internal Notes">
-                            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
-                                placeholder="Notes for internal reference only..."
-                                style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
-                        </F>
-                    </div>
-
-                    {/* Right col — line items + financials */}
-                    <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem' }}>
-                            2 — Line Items &amp; Financials
-                        </div>
-
-                        {/* Line items */}
-                        <div style={{ marginBottom: '0.5rem' }}>
-                            {lineItems.map((li, i) => (
-                                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
-                                    <input type="text" value={li.description} onChange={e => updateLine(i, 'description', e.target.value)}
-                                        placeholder="Description..." style={inp} />
-                                    <input type="number" value={li.amount} onChange={e => updateLine(i, 'amount', e.target.value)}
-                                        placeholder="Amount" min={0} style={{ ...inp, width: '120px' }} />
-                                    {lineItems.length > 1 && (
-                                        <button onClick={() => removeLine(i)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><X size={14} /></button>
-                                    )}
-                                </div>
-                            ))}
-                            <button onClick={addLine} style={{ background: 'transparent', border: '1px dashed var(--border)', color: 'var(--text-muted)', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', width: '100%' }}>
-                                + Add Line Item
+                    {/* ── STEP 3: Success ── */}
+                    {step === 3 && (
+                        <div style={{ textAlign: 'center', padding: '3rem 2rem' }}>
+                            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(34,197,94,0.15)', border: '2px solid #22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
+                                <CheckCircle size={32} color="#22c55e" />
+                            </div>
+                            <div style={{ fontWeight: 800, fontSize: '1.2rem', marginBottom: '8px' }}>Invoice Generated!</div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '2rem' }}>
+                                The draft invoice has been saved. You can view and raise it from the invoice list.
+                            </div>
+                            <button onClick={onClose} style={{ background: 'var(--primary)', border: 'none', color: '#fff', padding: '12px 32px', borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.95rem' }}>
+                                View Invoice List →
                             </button>
                         </div>
-
-                        {/* Totals */}
-                        <div style={{ background: 'var(--bg-dark)', borderRadius: '10px', padding: '1rem', marginTop: '1.25rem' }}>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.75rem' }}>Financials</div>
-                            {[
-                                ['Sub-Total (PKR)', subtotal, setSubtotal, `Auto: ${fmt(lineTotal)} from lines above`],
-                                ['Service Charges (PKR)', svcCharges, setSvcCharges, 'e.g. 15% of payroll cost'],
-                                ['Sales Tax on Svc Charges (PKR)', salesTax, setSalesTax, '17% of service charges'],
-                                ['WHT to be deducted by client (PKR)', wht, setWht, 'Withholding tax'],
-                            ].map(([label, val, setter, ph]) => (
-                                <div key={label} style={{ marginBottom: '0.6rem' }}>
-                                    <label style={{ display: 'block', fontSize: '0.73rem', color: '#64748b', fontWeight: 600, marginBottom: '3px' }}>{label}</label>
-                                    <input type="number" value={val} onChange={e => setter(e.target.value)} placeholder={ph} min={0}
-                                        style={{ ...inp, padding: '7px 10px' }} />
-                                </div>
-                            ))}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '0.75rem', marginTop: '0.75rem' }}>
-                                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-muted)' }}>GRAND TOTAL</span>
-                                <span style={{ fontWeight: 900, fontSize: '1.1rem', color: '#22c55e' }}>{Rs(grandTotal)}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {error && (
-                    <div style={{ margin: '0 2rem 1rem', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '0.75rem 1rem', color: '#f87171', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <AlertCircle size={15} /> {error}
-                    </div>
-                )}
-
-                <div style={{ display: 'flex', gap: '0.75rem', padding: '1rem 2rem 1.5rem', borderTop: '1px solid var(--border)' }}>
-                    <button onClick={onClose} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
-                    <button onClick={handleSave} disabled={saving}
-                        style={{ flex: 3, background: saving ? '#334155' : 'var(--primary)', border: 'none', color: 'white', padding: '10px', borderRadius: '8px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.95rem' }}>
-                        {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Generate Invoice'}
-                    </button>
+                    )}
                 </div>
             </div>
         </div>
     );
 }
 
+
+// ─── Invoice Preview Modal ────────────────────────────────────────────────────
 // ─── Invoice Preview Modal ────────────────────────────────────────────────────
 function InvoicePreviewModal({ inv, onAction, onClose }) {
     const [xeroStatus, setXeroStatus] = useState(inv.xero_invoice_id ? 'sent' : null);
@@ -758,7 +801,7 @@ export default function InvoiceSection({ user }) {
 
             {/* Modals */}
             {showCreate && (
-                <InvoiceFormModal
+                <PayrollInvoiceWizard
                     clients={clients}
                     contracts={contracts}
                     onSave={loadInvoices}
@@ -766,8 +809,7 @@ export default function InvoiceSection({ user }) {
                 />
             )}
             {editInv && (
-                <InvoiceFormModal
-                    existing={editInv}
+                <PayrollInvoiceWizard
                     clients={clients}
                     contracts={contracts}
                     onSave={loadInvoices}
