@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     FilePlus, Eye, CheckCircle, Send, Printer, X, ExternalLink,
     RefreshCw, FileText, Edit3, AlertCircle, ChevronDown,
@@ -129,7 +129,7 @@ function printInvoice(inv) {
 // ─── 3-Step Payroll Invoice Wizard ───────────────────────────────────────────
 function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose }) {
     const now = new Date();
-    const [step,        setStep]       = useState(1); // 1=select, 2=preview, 3=done
+    const [step,        setStep]       = useState(1);
     const [client,      setClient]     = useState('');
     const [contractId,  setContractId] = useState('');
     const [month,       setMonth]      = useState(now.getMonth() + 1);
@@ -140,8 +140,13 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
     const [error,       setError]      = useState('');
     const [poNumber,    setPoNumber]   = useState('');
     const [notes,       setNotes]      = useState('');
-    const [numberOverride, setNumberOverride] = useState('');
-    const [overrideMode,   setOverrideMode]   = useState(false);
+    const [generatedInvoices, setGeneratedInvoices] = useState([]);
+    // Segregation options
+    const [segRegion,    setSegRegion]    = useState(false);
+    const [segBU,        setSegBU]        = useState(false);
+    const [segPayroll,   setSegPayroll]   = useState(false);
+    const [segOvertime,  setSegOvertime]  = useState(false);
+    const [segOverheads, setSegOverheads] = useState(false);
 
     // self-load clients + contracts
     const [cls,  setCls]  = useState(clients);
@@ -174,13 +179,18 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
         return loc ? `${name} — ${loc}` : name;
     };
 
-    // Step 1 → Step 2: fetch locked payroll preview
+    // Step 1 → Step 2: fetch locked payroll preview with segregation params
     const handleFetch = async () => {
         if (!client) return setError('Please select a client.');
         setError(''); setLoading(true);
         try {
             const params = new URLSearchParams({ client });
-            if (contractId) params.set('contract_id', contractId);
+            if (contractId)   params.set('contract_id', contractId);
+            if (segRegion)    params.set('segregate_region',    'true');
+            if (segBU)        params.set('segregate_bu',        'true');
+            if (segPayroll)   params.set('segregate_payroll',   'true');
+            if (segOvertime)  params.set('segregate_overtime',  'true');
+            if (segOverheads) params.set('segregate_overheads', 'true');
             const token = localStorage.getItem('asil_hcm_token');
             const r = await fetch(`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/payroll/${year}/${month}/preview-invoice?${params}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -193,37 +203,47 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
         finally { setLoading(false); }
     };
 
-    // Step 2 → generate invoice
+    // Step 2 → generate one invoice per group
     const handleGenerate = async () => {
         if (!preview?.found) return;
         setSaving(true); setError('');
+        const selectedContract = cts.find(c => String(c.id) === String(contractId));
+        const contractName = selectedContract ? (selectedContract.contractName || selectedContract.name) : '';
+        const groups = preview.invoice_groups || [];
+        const created = [];
         try {
-            const t = preview.totals;
-            const selectedContract = cts.find(c => String(c.id) === String(contractId));
-            const payload = {
-                client,
-                contract: selectedContract ? (selectedContract.contractName || selectedContract.name) : '',
-                contract_id: contractId ? parseInt(contractId) : null,
-                period_month: parseInt(month),
-                period_year:  parseInt(year),
-                po_number:    poNumber || null,
-                due_date:     preview.due_date || null,
-                notes:        notes || null,
-                invoice_number: (overrideMode && numberOverride) ? numberOverride : undefined,
-                line_items: [
-                    { description: `Payroll — Gross Salaries (${preview.employee_count} employees)`, amount: t.gross },
-                    ...(t.eobi_ee  > 0 ? [{ description: 'EOBI Employer Contribution', amount: t.eobi_ee }]  : []),
-                    ...(t.opd_claim > 0 ? [{ description: 'OPD / Medical Claims', amount: t.opd_claim }]    : []),
-                    ...(t.reimbursement > 0 ? [{ description: 'Reimbursements', amount: t.reimbursement }]  : []),
-                    ...(t.arrears > 0 ? [{ description: 'Arrears', amount: t.arrears }]                     : []),
-                ].filter(l => l.amount > 0),
-                subtotal:         t.gross + t.eobi_ee + t.opd_claim + t.reimbursement + t.arrears,
-                service_charges:  t.service_charges,
-                sales_tax:        t.sales_tax,
-                wht:              t.wht,
-                grand_total:      t.total_invoice,
-            };
-            await api.createClientInvoice(payload);
+            for (const grp of groups) {
+                const t = grp.totals;
+                const lineItems = [];
+                if (grp.component === 'overtime') {
+                    lineItems.push({ description: `Overtime — ${grp.label}`, amount: t.overtime });
+                } else if (grp.component === 'overheads') {
+                    lineItems.push({ description: `Overheads — ${grp.label}`, amount: t.overhead });
+                } else {
+                    if (t.gross > 0)         lineItems.push({ description: `Payroll — Gross Salaries (${grp.employee_count} employees)${grp.label !== 'Combined Invoice' ? ' — ' + grp.label : ''}`, amount: t.gross });
+                    if (t.eobi_ee > 0)       lineItems.push({ description: 'EOBI Employer Contribution', amount: t.eobi_ee });
+                    if (t.opd_claim > 0)     lineItems.push({ description: 'OPD / Medical Claims', amount: t.opd_claim });
+                    if (t.reimbursement > 0) lineItems.push({ description: 'Reimbursements', amount: t.reimbursement });
+                    if (t.arrears > 0)       lineItems.push({ description: 'Arrears', amount: t.arrears });
+                }
+                const payload = {
+                    client, contract: contractName,
+                    contract_id: contractId ? parseInt(contractId) : null,
+                    period_month: parseInt(month), period_year: parseInt(year),
+                    po_number: poNumber || null, due_date: grp.due_date || null,
+                    notes: [notes, grp.label !== 'Combined Invoice' ? grp.label : ''].filter(Boolean).join(' | ') || null,
+                    region: grp.region || null, bu: grp.bu || null, component: grp.component,
+                    line_items: lineItems.filter(l => l.amount > 0),
+                    subtotal: t.gross + (t.eobi_ee||0) + (t.opd_claim||0) + (t.reimbursement||0) + (t.arrears||0) + (t.overtime||0) + (t.overhead||0),
+                    service_charges: t.service_charges || 0,
+                    sales_tax: t.sales_tax || 0,
+                    wht: t.wht || 0,
+                    grand_total: t.total_invoice,
+                };
+                const inv = await api.createClientInvoice(payload);
+                created.push(inv);
+            }
+            setGeneratedInvoices(created);
             setStep(3);
             if (onSave) onSave();
         } catch (e) { setError(e.message); setSaving(false); }
@@ -304,6 +324,40 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
                                     </select>
                                 </F>
                             </div>
+
+                            {/* ── Segregation Options ── */}
+                            <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '12px', padding: '1rem 1.25rem', marginTop: '0.5rem' }}>
+                                <div style={{ fontSize: '0.73rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#818cf8', marginBottom: '0.75rem' }}>Invoice Segregation Options</div>
+                                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Select how to split the invoice. Each checked option creates a separate invoice document.</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                                    {[
+                                        ['By Region',    segRegion,    setSegRegion,    'Split one invoice per employee region (e.g. Sindh, Punjab)'],
+                                        ['By Business Unit (BU)', segBU, setSegBU, 'Split one invoice per BU / division'],
+                                        ['Payroll',      segPayroll,   setSegPayroll,   'Separate invoice for base payroll (excl. OT and overheads)'],
+                                        ['Overtime',     segOvertime,  setSegOvertime,  'Separate invoice for overtime amounts only'],
+                                        ['Overheads',    segOverheads, setSegOverheads, 'Separate invoice for fixed overhead charges'],
+                                    ].map(([label, val, setter, hint]) => (
+                                        <label key={label} onClick={() => setter(v => !v)}
+                                            style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer',
+                                                background: val ? 'rgba(99,102,241,0.12)' : 'var(--bg-dark)',
+                                                border: `1px solid ${val ? 'rgba(99,102,241,0.4)' : 'var(--border)'}` }}>
+                                            <div style={{ width: '16px', height: '16px', borderRadius: '4px', border: `2px solid ${val ? '#6366f1' : '#475569'}`, background: val ? '#6366f1' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' }}>
+                                                {val && <span style={{ color: '#fff', fontSize: '10px', fontWeight: 900 }}>✓</span>}
+                                            </div>
+                                            <div>
+                                                <div style={{ fontWeight: 600, fontSize: '0.82rem', color: val ? '#a5b4fc' : 'var(--text)' }}>{label}</div>
+                                                <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)', marginTop: '2px' }}>{hint}</div>
+                                            </div>
+                                        </label>
+                                    ))}
+                                </div>
+                                {(segRegion || segBU || segPayroll || segOvertime || segOverheads) && (
+                                    <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#818cf8' }}>
+                                        📄 Will generate {[segRegion&&'region',segBU&&'BU',segPayroll&&'payroll',segOvertime&&'overtime',segOverheads&&'overheads'].filter(Boolean).join(' + ')} split invoices
+                                    </div>
+                                )}
+                            </div>
+
                             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
                                 <button onClick={onClose} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
                                 <button onClick={handleFetch} disabled={!client || loading}
@@ -325,61 +379,57 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
                                     <button onClick={() => setStep(1)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer' }}>← Go Back</button>
                                 </div>
                             ) : (
-                                <>
+                        <>
                                     {preview.already_invoiced && (
                                         <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '1rem', fontSize: '0.83rem', color: '#f59e0b' }}>
-                                            ⚠ Invoice <strong>{preview.already_invoiced.invoice_number}</strong> already exists for this period (Status: {preview.already_invoiced.status}). Generating again will create a duplicate draft.
+                                            ⚠ Invoice <strong>{preview.already_invoiced.invoice_number}</strong> already exists for this period. Generating again will create duplicates.
                                         </div>
                                     )}
 
                                     {/* Summary header */}
-                                    <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+                                    <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                                         <div>
                                             <div style={{ fontWeight: 800, fontSize: '1rem' }}>{client}</div>
-                                            {preview.contract && <div style={{ fontSize: '0.83rem', color: '#818cf8', marginTop: '2px' }}>{preview.contract.name}{preview.contract.location ? ` — ${preview.contract.location}` : ''}{preview.contract.region_province ? ` (${preview.contract.region_province})` : ''}</div>}
+                                            {preview.contract && <div style={{ fontSize: '0.83rem', color: '#818cf8', marginTop: '2px' }}>{preview.contract.name}{preview.contract.location ? ` — ${preview.contract.location}` : ''}</div>}
                                             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>{moName} {year} · {preview.employee_count} employees locked</div>
                                         </div>
                                         <div style={{ textAlign: 'right' }}>
                                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>GRAND TOTAL</div>
-                                            <div style={{ fontWeight: 900, fontSize: '1.4rem', color: '#22c55e' }}>{Rs(preview.totals.total_invoice)}</div>
-                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>Due: {preview.due_date} ({preview.credit_cycle_days}-day terms)</div>
+                                            <div style={{ fontWeight: 900, fontSize: '1.3rem', color: '#22c55e' }}>{Rs(preview.totals.total_invoice)}</div>
+                                            <div style={{ fontSize: '0.72rem', color: '#818cf8', marginTop: '2px' }}>{preview.invoice_groups.length} invoice{preview.invoice_groups.length !== 1 ? 's' : ''} will be created</div>
                                         </div>
                                     </div>
 
-                                    {/* Breakdown table */}
-                                    <div style={{ background: 'var(--bg-dark)', borderRadius: '10px', padding: '1rem', marginBottom: '1.25rem' }}>
-                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.75rem' }}>Invoice Line Breakdown</div>
-                                        {[
-                                            ['Gross Payroll (Salaries)',         preview.totals.gross,           '#f8fafc'],
-                                            ['EOBI Employer Contribution',        preview.totals.eobi_ee,         '#94a3b8'],
-                                            ['OPD / Medical Claims',              preview.totals.opd_claim,       '#94a3b8'],
-                                            ['Reimbursements',                    preview.totals.reimbursement,   '#94a3b8'],
-                                            ['Arrears',                           preview.totals.arrears,         '#94a3b8'],
-                                        ].filter(([,v]) => v > 0).map(([label, val, clr]) => (
-                                            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '0.85rem' }}>
-                                                <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-                                                <span style={{ fontWeight: 600, color: clr }}>{Rs(val)}</span>
+                                    {/* Invoice group cards */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '1.25rem' }}>
+                                        {(preview.invoice_groups || []).map((grp, i) => (
+                                            <div key={grp.group_key} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderLeft: `3px solid ${grp.component==='overtime'?'#f59e0b':grp.component==='overheads'?'#a78bfa':'#6366f1'}`, borderRadius: '10px', padding: '0.9rem 1.1rem' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                    <div>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '3px' }}>
+                                                            Invoice {i+1}: {grp.label}
+                                                        </div>
+                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                                            {grp.region && <span>📍 {grp.region}</span>}
+                                                            {grp.bu     && <span>🏢 {grp.bu}</span>}
+                                                            <span>👥 {grp.employee_count} employees</span>
+                                                            <span>📅 Due: {grp.due_date}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ textAlign: 'right' }}>
+                                                        <div style={{ fontWeight: 800, color: '#22c55e', fontSize: '1rem' }}>{Rs(grp.totals.total_invoice || grp.totals.overtime || grp.totals.overhead)}</div>
+                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                                            {grp.component === 'overtime' ? `OT: ${Rs(grp.totals.overtime)}` :
+                                                             grp.component === 'overheads' ? `Overhead: ${Rs(grp.totals.overhead)}` :
+                                                             `Gross: ${Rs(grp.totals.gross)}`}
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         ))}
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.85rem' }}>
-                                            <span style={{ color: 'var(--text-muted)' }}>Service Charges</span>
-                                            <span style={{ color: '#818cf8', fontWeight: 600 }}>{Rs(preview.totals.service_charges)}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.85rem' }}>
-                                            <span style={{ color: 'var(--text-muted)' }}>Sales Tax</span>
-                                            <span style={{ color: '#818cf8', fontWeight: 600 }}>{Rs(preview.totals.sales_tax)}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.85rem' }}>
-                                            <span style={{ color: '#f87171' }}>WHT (deducted by client)</span>
-                                            <span style={{ color: '#f87171', fontWeight: 600 }}>− {Rs(preview.totals.wht)}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 0', borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: '0.95rem', fontWeight: 800 }}>
-                                            <span>Net Payable</span>
-                                            <span style={{ color: '#22c55e' }}>{Rs(preview.totals.total_invoice)}</span>
-                                        </div>
                                     </div>
 
-                                    {/* Additional fields */}
+                                    {/* PO + Notes */}
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                                         <F label="PO / Client Reference">
                                             <input style={inp} value={poNumber} onChange={e => setPoNumber(e.target.value)} placeholder="Client PO number" />
@@ -390,28 +440,14 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
                                         </F>
                                     </div>
                                     <F label="Internal Notes (optional)">
-                                        <textarea style={{ ...inp, resize: 'vertical', minHeight: '60px' }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any notes for internal reference..." />
+                                        <textarea style={{ ...inp, resize: 'vertical', minHeight: '50px' }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Applied to all invoices in this batch..." />
                                     </F>
 
-                                    {/* Invoice number override */}
-                                    <div style={{ background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.15)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <span style={{ fontSize: '0.78rem', color: '#38bdf8', fontWeight: 700 }}>Invoice Number</span>
-                                            <button onClick={() => setOverrideMode(v => !v)} style={{ background: 'transparent', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.75rem', textDecoration: 'underline' }}>
-                                                {overrideMode ? 'Use auto-generate' : 'Override (historical)'}
-                                            </button>
-                                        </div>
-                                        {overrideMode
-                                            ? <input style={{ ...inp, marginTop: '6px', fontFamily: 'monospace', color: '#38bdf8' }} value={numberOverride} onChange={e => setNumberOverride(e.target.value)} placeholder="e.g. INV-MAY26-001" />
-                                            : <div style={{ fontFamily: 'monospace', fontSize: '0.9rem', color: '#64748b', padding: '6px 0' }}>INV-{moAbbr}{yr2}-??? <span style={{ fontSize: '0.72rem' }}>(assigned on save)</span></div>
-                                        }
-                                    </div>
-
-                                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                    <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
                                         <button onClick={() => { setStep(1); setPreview(null); setError(''); }} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>← Back</button>
                                         <button onClick={handleGenerate} disabled={saving}
                                             style={{ flex: 3, background: saving ? '#334155' : 'linear-gradient(135deg,#6366f1,#22c55e)', border: 'none', color: 'white', padding: '10px', borderRadius: '8px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.95rem' }}>
-                                            {saving ? 'Generating…' : '✓ Confirm & Generate Invoice'}
+                                            {saving ? 'Generating…' : `✓ Confirm & Generate ${preview.invoice_groups.length} Invoice${preview.invoice_groups.length !== 1 ? 's' : ''}`}
                                         </button>
                                     </div>
                                 </>
@@ -419,15 +455,18 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
                         </div>
                     )}
 
-                    {/* ── STEP 3: Success ── */}
                     {step === 3 && (
                         <div style={{ textAlign: 'center', padding: '3rem 2rem' }}>
                             <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(34,197,94,0.15)', border: '2px solid #22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
                                 <CheckCircle size={32} color="#22c55e" />
                             </div>
-                            <div style={{ fontWeight: 800, fontSize: '1.2rem', marginBottom: '8px' }}>Invoice Generated!</div>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '2rem' }}>
-                                The draft invoice has been saved. You can view and raise it from the invoice list.
+                            <div style={{ fontWeight: 800, fontSize: '1.2rem', marginBottom: '8px' }}>
+                                {generatedInvoices.length > 1 ? `${generatedInvoices.length} Invoices Generated!` : 'Invoice Generated!'}
+                            </div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                                {generatedInvoices.length > 1
+                                    ? `${generatedInvoices.length} draft invoices have been saved and are ready to raise.`
+                                    : 'The draft invoice has been saved. You can view and raise it from the invoice list.'}
                             </div>
                             <button onClick={onClose} style={{ background: 'var(--primary)', border: 'none', color: '#fff', padding: '12px 32px', borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.95rem' }}>
                                 View Invoice List →
