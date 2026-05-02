@@ -3572,137 +3572,217 @@ app.get('/api/payroll/:year/:month/invoice-status', requireAuth, async (req, res
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/payroll/:year/:month/preview-invoice ΓÇö aggregate locked payroll for invoice wizard
+// GET /api/payroll/:year/:month/preview-invoice
+// Query params: client, contract_id, segregate_region, segregate_bu, segregate_payroll, segregate_overtime, segregate_overheads
 app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, res) => {
     try {
         const yr = parseInt(req.params.year), mo = parseInt(req.params.month);
-        const { client, contract_id } = req.query;
+        const { client, contract_id,
+                segregate_region    = 'false',
+                segregate_bu        = 'false',
+                segregate_payroll   = 'false',
+                segregate_overtime  = 'false',
+                segregate_overheads = 'false' } = req.query;
         if (!client) return res.status(400).json({ error: 'client is required' });
 
-        // Pull contract for credit cycle and financial settings
+        const byRegion    = segregate_region    === 'true';
+        const byBU        = segregate_bu        === 'true';
+        const byPayroll   = segregate_payroll   === 'true';
+        const byOvertime  = segregate_overtime  === 'true';
+        const byOverheads = segregate_overheads === 'true';
+
+        // Pull contract for credit cycle
         let contractRow = null;
         if (contract_id) {
             const ctRes = await pool.query(
-                `SELECT c.*, cl.name AS client_name FROM contracts c
-                 LEFT JOIN clients cl ON c.client_id = cl.id WHERE c.id = $1`, [contract_id]);
+                'SELECT c.*, cl.name AS client_name FROM contracts c LEFT JOIN clients cl ON c.client_id = cl.id WHERE c.id = $1',
+                [contract_id]);
             contractRow = ctRes.rows[0] || null;
         }
         const creditDays = contractRow?.financials?.credit_cycle_days || 30;
 
-        // Locked payroll rows for this client/contract
-        // employees.id is the PK; employees uses contract_name (text) not contract_id (int FK)
-        let query, params;
+        // Fetch locked payroll with employee region + BU
+        let qSql, qParams;
         if (contract_id && contractRow) {
-            query = `SELECT pt.*, e.name AS emp_name, e.designation AS emp_designation
-                     FROM payroll_transactions pt
-                     JOIN employees e ON e.id = pt.employee_id
-                     WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
-                       AND LOWER(e.client) = LOWER($3)
-                       AND COALESCE(LOWER(e.contract_name),'') = COALESCE(LOWER($4),'')`;
-            params = [yr, mo, client, contractRow.contract_name];
+            qSql = 'SELECT pt.*, e.name AS emp_name, e.designation AS emp_designation,' +
+                   ' COALESCE(e.region, e.province, \'\') AS emp_region,' +
+                   ' COALESCE(e.client_bu, \'\') AS emp_bu' +
+                   ' FROM payroll_transactions pt JOIN employees e ON e.id = pt.employee_id' +
+                   ' WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE' +
+                   ' AND LOWER(e.client)=LOWER($3) AND COALESCE(LOWER(e.contract_name),\'\')=COALESCE(LOWER($4),\'\')';
+            qParams = [yr, mo, client, contractRow.contract_name];
         } else {
-            query = `SELECT pt.*, e.name AS emp_name, e.designation AS emp_designation
-                     FROM payroll_transactions pt
-                     JOIN employees e ON e.id = pt.employee_id
-                     WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
-                       AND LOWER(e.client) = LOWER($3)`;
-            params = [yr, mo, client];
+            qSql = 'SELECT pt.*, e.name AS emp_name, e.designation AS emp_designation,' +
+                   ' COALESCE(e.region, e.province, \'\') AS emp_region,' +
+                   ' COALESCE(e.client_bu, \'\') AS emp_bu' +
+                   ' FROM payroll_transactions pt JOIN employees e ON e.id = pt.employee_id' +
+                   ' WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE' +
+                   ' AND LOWER(e.client)=LOWER($3)';
+            qParams = [yr, mo, client];
         }
-        const { rows } = await pool.query(query, params);
+        const { rows } = await pool.query(qSql, qParams);
 
         if (rows.length === 0) {
-            return res.json({ found: false, message: 'No locked payroll found. Please lock the payroll for this month before generating an invoice.' });
+            return res.json({ found: false, message: 'No locked payroll found. Lock payroll for this period first.' });
         }
 
-        // Aggregate totals
-        const totals = rows.reduce((a, r) => ({
-            gross:           a.gross           + (parseFloat(r.gross)           || 0),
-            net:             a.net             + (parseFloat(r.net)             || 0),
-            wht:             a.wht             + (parseFloat(r.wht)             || 0),
-            eobi_ee:         a.eobi_ee         + (parseFloat(r.eobi_ee)         || 0),
-            service_charges: a.service_charges + (parseFloat(r.service_charges) || 0),
-            sales_tax:       a.sales_tax       + (parseFloat(r.sales_tax)       || 0),
-            total_invoice:   a.total_invoice   + (parseFloat(r.total_invoice)   || 0),
-            opd_claim:       a.opd_claim       + (parseFloat(r.opd_claim)       || 0),
-            reimbursement:   a.reimbursement   + (parseFloat(r.reimbursement)   || 0),
-            arrears:         a.arrears         + (parseFloat(r.arrears)         || 0),
-        }), { gross:0,net:0,wht:0,eobi_ee:0,service_charges:0,sales_tax:0,total_invoice:0,opd_claim:0,reimbursement:0,arrears:0 });
+        // Helper: sum payroll row into a totals object
+        const sumRow = (acc, r) => ({
+            gross:           acc.gross           + (parseFloat(r.gross)           || 0),
+            net:             acc.net             + (parseFloat(r.net)             || 0),
+            wht:             acc.wht             + (parseFloat(r.wht)             || 0),
+            eobi_ee:         acc.eobi_ee         + (parseFloat(r.eobi_ee)         || 0),
+            service_charges: acc.service_charges + (parseFloat(r.service_charges) || 0),
+            sales_tax:       acc.sales_tax       + (parseFloat(r.sales_tax)       || 0),
+            total_invoice:   acc.total_invoice   + (parseFloat(r.total_invoice)   || 0),
+            overtime:        acc.overtime        + (parseFloat(r.overtime)        || parseFloat(r.ot_amount) || 0),
+            overhead:        acc.overhead        + (parseFloat(r.overhead)        || 0),
+            opd_claim:       acc.opd_claim       + (parseFloat(r.opd_claim)       || 0),
+            reimbursement:   acc.reimbursement   + (parseFloat(r.reimbursement)   || 0),
+            arrears:         acc.arrears         + (parseFloat(r.arrears)         || 0),
+        });
+        const ZERO = { gross:0,net:0,wht:0,eobi_ee:0,service_charges:0,sales_tax:0,total_invoice:0,overtime:0,overhead:0,opd_claim:0,reimbursement:0,arrears:0 };
 
-        // Auto payment due date
+        // Build invoice groups
+        // Key = region|bu — component splits happen within the same region/bu group
+        const groupMap = {};
+        for (const r of rows) {
+            const regionKey = byRegion ? (r.emp_region || 'No Region') : 'ALL';
+            const buKey     = byBU     ? (r.emp_bu     || 'No BU')     : 'ALL';
+            const dimKey    = regionKey + '||' + buKey;
+            if (!groupMap[dimKey]) {
+                groupMap[dimKey] = { region: regionKey, bu: buKey, rows: [] };
+            }
+            groupMap[dimKey].rows.push(r);
+        }
+
+        // Build final invoice_groups array
         const due = new Date(); due.setDate(due.getDate() + creditDays);
         const dueDateStr = due.toISOString().split('T')[0];
+        const invoice_groups = [];
 
-        // Check if already invoiced this period (safe — contract_id column may not exist yet)
-        app.get('/api/migrate/asil-migrate-2026-x9k7', async (req, res) => {
-    const done = [], errs = [];
-    const run = async (label, sql, params=[]) => {
-        try { await pool.query(sql, params); done.push(label); }
-        catch (e) { errs.push(label + ': ' + e.message); }
-    };
-    await run('purchase_orders', `CREATE TABLE IF NOT EXISTS purchase_orders (
-        id SERIAL PRIMARY KEY, po_number VARCHAR(120) NOT NULL, client_name VARCHAR(200) NOT NULL,
-        contract_id INT REFERENCES contracts(id) ON DELETE SET NULL, contract_name VARCHAR(200),
-        bu_name VARCHAR(200), po_value NUMERIC(18,2) NOT NULL DEFAULT 0, po_date DATE, po_expiry DATE,
-        allocation_method VARCHAR(20) DEFAULT 'fifo', priority INT DEFAULT 100, notes TEXT,
-        status VARCHAR(30) DEFAULT 'active', created_by VARCHAR(120),
-        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
-    await run('ci_po_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL`);
-    await run('ci_contract_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT REFERENCES contracts(id) ON DELETE SET NULL`);
+        for (const [dimKey, dim] of Object.entries(groupMap)) {
+            const dimRows = dim.rows;
+            const allTotals = dimRows.reduce(sumRow, { ...ZERO });
 
-    // Seed a DUMMY PO so superadmin can verify the PO system works
-    try {
-        const existing = await pool.query(`SELECT id FROM purchase_orders WHERE po_number='DUMMY1' LIMIT 1`);
-        if (existing.rows.length === 0) {
-            const firstClient = await pool.query(`SELECT name FROM clients ORDER BY id ASC LIMIT 1`);
-            const clientName = firstClient.rows[0]?.name || 'ASIL Test Client';
-            await pool.query(
-                `INSERT INTO purchase_orders (po_number, client_name, po_value, notes, status, created_by)
-                 VALUES ('DUMMY1', $1, 9999999, 'DUMMY PO – delete or edit with real PO details', 'active', 'system.seed')`,
-                [clientName]
-            );
-            done.push(`dummy_po_DUMMY1 (client: ${clientName})`);
-        } else {
-            done.push('dummy_po_DUMMY1: already exists, skipped');
+            // Component segregation splits within this dim group
+            const anyComponentSplit = byPayroll || byOvertime || byOverheads;
+
+            if (!anyComponentSplit) {
+                // One invoice for the whole group
+                invoice_groups.push({
+                    group_key:      dimKey + '||combined',
+                    label:          buildLabel(dim.region, dim.bu, 'Combined', byRegion, byBU, false),
+                    region:         dim.region === 'ALL' ? null : dim.region,
+                    bu:             dim.bu     === 'ALL' ? null : dim.bu,
+                    component:      'combined',
+                    employee_count: dimRows.length,
+                    totals:         allTotals,
+                    due_date:       dueDateStr,
+                    credit_cycle_days: creditDays,
+                });
+            } else {
+                // Payroll component (gross - overtime - overhead)
+                if (byPayroll || !anyComponentSplit) {
+                    const payT = { ...ZERO };
+                    for (const r of dimRows) {
+                        const g   = parseFloat(r.gross) || 0;
+                        const ot  = parseFloat(r.overtime || r.ot_amount) || 0;
+                        const ovh = parseFloat(r.overhead) || 0;
+                        payT.gross           += Math.max(0, g - ot - ovh);
+                        payT.net             += (parseFloat(r.net) || 0);
+                        payT.wht             += (parseFloat(r.wht) || 0);
+                        payT.eobi_ee         += (parseFloat(r.eobi_ee) || 0);
+                        payT.service_charges += (parseFloat(r.service_charges) || 0) * (Math.max(0, g - ot - ovh) / (g || 1));
+                        payT.sales_tax       += (parseFloat(r.sales_tax) || 0) * (Math.max(0, g - ot - ovh) / (g || 1));
+                        payT.total_invoice   += (parseFloat(r.total_invoice) || 0) * (Math.max(0, g - ot - ovh) / (g || 1));
+                        payT.opd_claim       += (parseFloat(r.opd_claim) || 0);
+                        payT.reimbursement   += (parseFloat(r.reimbursement) || 0);
+                        payT.arrears         += (parseFloat(r.arrears) || 0);
+                    }
+                    if (payT.gross > 0 || payT.total_invoice > 0) {
+                        invoice_groups.push({
+                            group_key: dimKey + '||payroll', label: buildLabel(dim.region, dim.bu, 'Payroll', byRegion, byBU, true),
+                            region: dim.region === 'ALL' ? null : dim.region, bu: dim.bu === 'ALL' ? null : dim.bu,
+                            component: 'payroll', employee_count: dimRows.length,
+                            totals: payT, due_date: dueDateStr, credit_cycle_days: creditDays,
+                        });
+                    }
+                }
+                // Overtime component
+                if (byOvertime) {
+                    const otT = { ...ZERO };
+                    for (const r of dimRows) {
+                        otT.overtime += parseFloat(r.overtime || r.ot_amount) || 0;
+                    }
+                    if (otT.overtime > 0) {
+                        otT.total_invoice = otT.overtime;
+                        invoice_groups.push({
+                            group_key: dimKey + '||overtime', label: buildLabel(dim.region, dim.bu, 'Overtime', byRegion, byBU, true),
+                            region: dim.region === 'ALL' ? null : dim.region, bu: dim.bu === 'ALL' ? null : dim.bu,
+                            component: 'overtime', employee_count: dimRows.filter(r => (parseFloat(r.overtime||r.ot_amount)||0)>0).length,
+                            totals: otT, due_date: dueDateStr, credit_cycle_days: creditDays,
+                        });
+                    }
+                }
+                // Overheads component
+                if (byOverheads) {
+                    const ovhT = { ...ZERO };
+                    for (const r of dimRows) {
+                        ovhT.overhead += parseFloat(r.overhead) || 0;
+                    }
+                    if (ovhT.overhead > 0) {
+                        ovhT.total_invoice = ovhT.overhead;
+                        invoice_groups.push({
+                            group_key: dimKey + '||overheads', label: buildLabel(dim.region, dim.bu, 'Overheads', byRegion, byBU, true),
+                            region: dim.region === 'ALL' ? null : dim.region, bu: dim.bu === 'ALL' ? null : dim.bu,
+                            component: 'overheads', employee_count: dimRows.length,
+                            totals: ovhT, due_date: dueDateStr, credit_cycle_days: creditDays,
+                        });
+                    }
+                }
+            }
         }
-    } catch (e) { errs.push('dummy_po: ' + e.message); }
 
-    res.json({ done, errs, timestamp: new Date().toISOString() });
-});
+        // Grand totals across all groups (no double-counting: use allTotals from rows)
+        const grandTotals = rows.reduce(sumRow, { ...ZERO });
 
+        // Already invoiced check
         let alreadyInvoiced = null;
         try {
             const existQ = await pool.query(
-                `SELECT id, invoice_number, status FROM client_invoices
-                 WHERE LOWER(client) = LOWER($1) AND period_year=$2 AND period_month=$3
-                   AND status != 'Voided' LIMIT 1`,
+                'SELECT id, invoice_number, status FROM client_invoices' +
+                ' WHERE LOWER(client)=LOWER($1) AND period_year=$2 AND period_month=$3 AND status!=\'Voided\' LIMIT 1',
                 [client, yr, mo]
             );
             alreadyInvoiced = existQ.rows[0] || null;
-        } catch (_) { /* table not ready yet */ }
+        } catch (_) {}
 
         res.json({
-            found: true,
-            employee_count: rows.length,
-            employees: rows.map(r => ({
-                id: r.employee_id, name: r.emp_name, designation: r.emp_designation,
-                gross: parseFloat(r.gross)||0, net: parseFloat(r.net)||0,
-                total_invoice: parseFloat(r.total_invoice)||0,
-            })),
-            totals,
+            found:            true,
+            employee_count:   rows.length,
+            invoice_groups,
+            totals:           grandTotals,   // backwards compat for single-invoice mode
             credit_cycle_days: creditDays,
-            due_date: dueDateStr,
+            due_date:         dueDateStr,
             contract: contractRow ? {
-                id: contractRow.id,
-                name: contractRow.contract_name,
-                location: contractRow.location,
-                region_province: contractRow.region_province,
+                id: contractRow.id, name: contractRow.contract_name,
+                location: contractRow.location, region_province: contractRow.region_province,
                 credit_cycle_days: creditDays,
-                invoice_segregation: contractRow.financials?.invoice_segregation || 'combined',
             } : null,
             already_invoiced: alreadyInvoiced,
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+function buildLabel(region, bu, component, showRegion, showBU, showComponent) {
+    const parts = [];
+    if (showRegion && region && region !== 'ALL') parts.push(region);
+    if (showBU     && bu     && bu     !== 'ALL') parts.push(bu);
+    if (showComponent) parts.push(component);
+    return parts.length > 0 ? parts.join(' — ') : 'Combined Invoice';
+}
+
 
 // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 // PURCHASE ORDER (PO) TRACKING
