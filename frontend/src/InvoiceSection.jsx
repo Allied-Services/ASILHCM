@@ -138,7 +138,6 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
     const [loading,     setLoading]    = useState(false);
     const [saving,      setSaving]     = useState(false);
     const [error,       setError]      = useState('');
-    const [poNumber,    setPoNumber]   = useState('');
     const [notes,       setNotes]      = useState('');
     const [generatedInvoices, setGeneratedInvoices] = useState([]);
     // Segregation options
@@ -230,7 +229,9 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
                     client, contract: contractName,
                     contract_id: contractId ? parseInt(contractId) : null,
                     period_month: parseInt(month), period_year: parseInt(year),
-                    po_number: poNumber || null, due_date: grp.due_date || null,
+                    po_number: grp.po_number || null,
+                    po_id:     grp.po_id     || null,
+                    due_date: grp.due_date || null,
                     notes: [notes, grp.label !== 'Combined Invoice' ? grp.label : ''].filter(Boolean).join(' | ') || null,
                     region: grp.region || null, bu: grp.bu || null, component: grp.component,
                     line_items: lineItems.filter(l => l.amount > 0),
@@ -381,8 +382,15 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
                             ) : (
                         <>
                                     {preview.already_invoiced && (
-                                        <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '1rem', fontSize: '0.83rem', color: '#f59e0b' }}>
-                                            ⚠ Invoice <strong>{preview.already_invoiced.invoice_number}</strong> already exists for this period. Generating again will create duplicates.
+                                        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '1rem', fontSize: '0.83rem', color: '#f87171' }}>
+                                            ⚠ Invoice <strong>{preview.already_invoiced.invoice_number}</strong> is already <strong>{preview.already_invoiced.status}</strong> for this period. Generating will create additional draft invoices.
+                                        </div>
+                                    )}
+
+                                    {/* PO summary banner */}
+                                    {preview.po_summary && preview.po_summary.total_pos > 0 && (
+                                        <div style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '8px', padding: '9px 14px', marginBottom: '1rem', fontSize: '0.8rem', color: '#86efac', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            📄 <span><strong>{preview.po_summary.matched}</strong> of {preview.invoice_groups.length} invoices matched to active POs automatically{preview.po_summary.unmatched > 0 ? ` (${preview.po_summary.unmatched} unmatched — will generate without PO)` : '.'}</span>
                                         </div>
                                     )}
 
@@ -409,11 +417,22 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
                                                         <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '3px' }}>
                                                             Invoice {i+1}: {grp.label}
                                                         </div>
-                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '3px' }}>
                                                             {grp.region && <span>📍 {grp.region}</span>}
                                                             {grp.bu     && <span>🏢 {grp.bu}</span>}
                                                             <span>👥 {grp.employee_count} employees</span>
                                                             <span>📅 Due: {grp.due_date}</span>
+                                                        </div>
+                                                        {/* Auto-matched PO badge */}
+                                                        <div style={{ marginTop: '6px' }}>
+                                                            {grp.po_number
+                                                                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', padding: '2px 8px', fontSize: '0.72rem', color: '#86efac', fontFamily: 'monospace' }}>
+                                                                    ✓ PO: {grp.po_number}{grp.po_expiry ? ` · exp ${grp.po_expiry.slice(0,10)}` : ''}
+                                                                  </span>
+                                                                : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '6px', padding: '2px 8px', fontSize: '0.72rem', color: '#fbbf24' }}>
+                                                                    ⚠ No matching PO found
+                                                                  </span>
+                                                            }
                                                         </div>
                                                     </div>
                                                     <div style={{ textAlign: 'right' }}>
@@ -429,19 +448,16 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
                                         ))}
                                     </div>
 
-                                    {/* PO + Notes */}
+                                    {/* Notes only (PO is auto-matched) */}
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                                        <F label="PO / Client Reference">
-                                            <input style={inp} value={poNumber} onChange={e => setPoNumber(e.target.value)} placeholder="Client PO number" />
-                                        </F>
                                         <F label="Payment Due Date">
                                             <input style={{ ...inp, background: 'rgba(34,197,94,0.05)' }} value={preview.due_date} readOnly />
                                             <div style={{ fontSize: '0.71rem', color: '#22c55e', marginTop: '3px' }}>Auto from contract: {preview.credit_cycle_days}-day terms</div>
                                         </F>
+                                        <F label="Internal Notes (optional)">
+                                            <input style={inp} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Applied to all invoices in this batch..." />
+                                        </F>
                                     </div>
-                                    <F label="Internal Notes (optional)">
-                                        <textarea style={{ ...inp, resize: 'vertical', minHeight: '50px' }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Applied to all invoices in this batch..." />
-                                    </F>
 
                                     <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
                                         <button onClick={() => { setStep(1); setPreview(null); setError(''); }} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>← Back</button>

@@ -3747,12 +3747,64 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
         // Grand totals across all groups (no double-counting: use allTotals from rows)
         const grandTotals = rows.reduce(sumRow, { ...ZERO });
 
-        // Already invoiced check
+        // ── Auto-match active POs for this client ──────────────────────────────
+        // Load once, then match per group by BU and contract (best-fit logic)
+        let clientPOs = [];
+        try {
+            const poQ = await pool.query(
+                'SELECT id, po_number, bu_name, contract_name, po_value, po_expiry, status' +
+                ' FROM purchase_orders' +
+                ' WHERE LOWER(client_name)=LOWER($1) AND status=\'active\'' +
+                ' ORDER BY priority ASC, created_at ASC',
+                [client]
+            );
+            clientPOs = poQ.rows;
+        } catch (_) { /* purchase_orders table may not exist yet */ }
+
+        // Match a PO for a given bu and contract_name using cascading fallback:
+        // 1. Exact BU + exact contract  2. Exact BU only  3. No BU (client-level PO)
+        const matchPO = (bu, contractName) => {
+            if (!clientPOs.length) return null;
+            const buL  = (bu || '').toLowerCase().trim();
+            const ctL  = (contractName || '').toLowerCase().trim();
+            // Exact BU + contract
+            let po = clientPOs.find(p =>
+                p.bu_name && p.bu_name.toLowerCase().trim() === buL &&
+                p.contract_name && p.contract_name.toLowerCase().trim() === ctL
+            );
+            // Exact BU only
+            if (!po && buL) po = clientPOs.find(p =>
+                p.bu_name && p.bu_name.toLowerCase().trim() === buL && !p.contract_name
+            );
+            // Partial BU match
+            if (!po && buL) po = clientPOs.find(p =>
+                p.bu_name && (p.bu_name.toLowerCase().includes(buL) || buL.includes(p.bu_name.toLowerCase()))
+            );
+            // Client-level PO (no BU set on PO)
+            if (!po) po = clientPOs.find(p => !p.bu_name || p.bu_name.trim() === '');
+            return po ? { id: po.id, po_number: po.po_number, po_value: po.po_value, po_expiry: po.po_expiry } : null;
+        };
+
+        // Attach matched PO to each group
+        const contractName = contractRow?.contract_name || null;
+        for (const grp of invoice_groups) {
+            const matched = matchPO(grp.bu, contractName);
+            grp.po_number = matched?.po_number || null;
+            grp.po_id     = matched?.id        || null;
+            grp.po_value  = matched?.po_value  || null;
+            grp.po_expiry = matched?.po_expiry || null;
+        }
+
+        // ── Already-invoiced check ─────────────────────────────────────────────
+        // Only warn if there is a LIVE invoice (Raised / Sent / Paid).
+        // Voided invoices do NOT block re-generation — treat as clean slate.
+        // Draft invoices are also shown as a soft warning only.
         let alreadyInvoiced = null;
         try {
             const existQ = await pool.query(
                 'SELECT id, invoice_number, status FROM client_invoices' +
-                ' WHERE LOWER(client)=LOWER($1) AND period_year=$2 AND period_month=$3 AND status!=\'Voided\' LIMIT 1',
+                ' WHERE LOWER(client)=LOWER($1) AND period_year=$2 AND period_month=$3' +
+                ' AND status IN (\'Raised\',\'Sent\',\'Paid\') LIMIT 1',
                 [client, yr, mo]
             );
             alreadyInvoiced = existQ.rows[0] || null;
@@ -3762,7 +3814,7 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
             found:            true,
             employee_count:   rows.length,
             invoice_groups,
-            totals:           grandTotals,   // backwards compat for single-invoice mode
+            totals:           grandTotals,
             credit_cycle_days: creditDays,
             due_date:         dueDateStr,
             contract: contractRow ? {
@@ -3771,6 +3823,11 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
                 credit_cycle_days: creditDays,
             } : null,
             already_invoiced: alreadyInvoiced,
+            po_summary: {
+                total_pos: clientPOs.length,
+                matched:   invoice_groups.filter(g => g.po_number).length,
+                unmatched: invoice_groups.filter(g => !g.po_number).length,
+            },
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
