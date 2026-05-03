@@ -708,9 +708,76 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
     const [tab, setTab] = useState('overview');
     const [editContract, setEditContract] = useState(null);
     const [viewContract, setViewContract] = useState(null);
-    const [bidContract,  setBidContract]  = useState(null); // which contract is open in bid tab
+    const [bidContract,  setBidContract]  = useState(null);
     const [showAddContact, setShowAddContact] = useState(false);
     const [newContact, setNewContact] = useState(EMPTY_CONTACT);
+    // BU management state
+    const [bus, setBus]           = useState([]);
+    const [buLoading, setBuLoading] = useState(false);
+    const [showAddBU, setShowAddBU] = useState(false);
+    const [editBU, setEditBU]     = useState(null); // BU being edited inline
+    const [newBU, setNewBU]       = useState({ bu_code: '', bu_name: '', description: '' });
+    const [buSaving, setBuSaving] = useState(false);
+    const [buError, setBuError]   = useState('');
+
+    const loadBUs = async () => {
+        setBuLoading(true);
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            const r = await fetch(`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/clients/${client.id}/bus`, { headers: { Authorization: `Bearer ${token}` } });
+            const d = await r.json();
+            setBus(d.bus || []);
+        } catch (e) { setBuError(e.message); }
+        setBuLoading(false);
+    };
+
+    const saveBU = async () => {
+        if (!newBU.bu_code || !newBU.bu_name) return setBuError('Code and Name are required.');
+        setBuSaving(true); setBuError('');
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            if (editBU) {
+                const r = await fetch(`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/clients/${client.id}/bus/${editBU.id}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify(newBU),
+                });
+                if (!r.ok) throw new Error((await r.json()).error);
+            } else {
+                const r = await fetch(`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/clients/${client.id}/bus`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify(newBU),
+                });
+                if (!r.ok) throw new Error((await r.json()).error);
+            }
+            await loadBUs();
+            setShowAddBU(false); setEditBU(null);
+            setNewBU({ bu_code: '', bu_name: '', description: '' });
+        } catch (e) { setBuError(e.message); }
+        setBuSaving(false);
+    };
+
+    const toggleBUActive = async (bu) => {
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            await fetch(`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/clients/${client.id}/bus/${bu.id}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ is_active: !bu.is_active }),
+            });
+            await loadBUs();
+        } catch (e) { setBuError(e.message); }
+    };
+
+    const deleteBU = async (bu) => {
+        if (!window.confirm(`Delete BU "${bu.bu_name}"? This cannot be undone.`)) return;
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            const r = await fetch(`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/clients/${client.id}/bus/${bu.id}`, {
+                method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!r.ok) throw new Error((await r.json()).error);
+            await loadBUs();
+        } catch (e) { alert(e.message); }
+    };
 
     const saveContract = async (ct) => {
         // Handle client reassignment
@@ -749,7 +816,13 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
         setNewContact(EMPTY_CONTACT); setShowAddContact(false);
     };
 
-    const TABS = ['overview', 'contacts', 'contracts', 'bid tracking'];
+    const TABS = ['overview', 'contacts', 'contracts', 'business units', 'bid tracking'];
+
+    // Load BUs when Business Units tab selected
+    const handleTabChange = (t) => {
+        setTab(t);
+        if (t === 'business units' && bus.length === 0) loadBUs();
+    };
 
     return (
         <div className="dashboard">
@@ -779,11 +852,10 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                 </div>
             </div>
 
-            {/* Tabs */}
             <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid var(--border)', marginBottom: '2rem', overflowX: 'auto' }}>
                 {TABS.map(t => (
-                    <button key={t} onClick={() => setTab(t)} style={{ padding: '0.85rem 1.75rem', background: 'transparent', border: 'none', borderBottom: `2px solid ${tab === t ? 'var(--primary)' : 'transparent'}`, color: tab === t ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: tab === t ? 700 : 400, fontSize: '0.9rem', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
-                        {t === 'bid tracking' ? '📊 Bid Tracking' : t.charAt(0).toUpperCase() + t.slice(1)}
+                    <button key={t} onClick={() => handleTabChange(t)} style={{ padding: '0.85rem 1.75rem', background: 'transparent', border: 'none', borderBottom: `2px solid ${tab === t ? 'var(--primary)' : 'transparent'}`, color: tab === t ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: tab === t ? 700 : 400, fontSize: '0.9rem', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
+                        {t === 'bid tracking' ? '📊 Bid Tracking' : t === 'business units' ? '🏢 Business Units' : t.charAt(0).toUpperCase() + t.slice(1)}
                     </button>
                 ))}
             </div>
@@ -941,6 +1013,118 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
 
             {/* Contract Editor Modal */}
             {editContract && <ContractEditor contract={editContract} onSave={saveContract} onCancel={() => setEditContract(null)} allClients={allClients} currentClientId={client.id} />}
+
+            {/* Business Units Tab */}
+            {tab === 'business units' && (
+                <div>
+                    {/* Explanation banner */}
+                    <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '10px', padding: '12px 18px', marginBottom: '1.5rem', fontSize: '0.83rem', color: '#a5b4fc' }}>
+                        🏢 Business Units (BUs) defined here are used when registering Purchase Orders and segregating invoices. Every client has an implicit <strong>"General / All"</strong> BU if none are defined.
+                    </div>
+
+                    {buError && <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '10px 14px', color: '#f87171', marginBottom: '1rem', fontSize: '0.83rem' }}>{buError} <button onClick={() => setBuError('')} style={{ float: 'right', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer' }}>✕</button></div>}
+
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', background: 'var(--bg-dark)' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Business Unit Registry — {client.name}</div>
+                            <button onClick={() => { setShowAddBU(true); setEditBU(null); setNewBU({ bu_code: '', bu_name: '', description: '' }); setBuError(''); }}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', border: 'none', color: 'white', padding: '6px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 700, fontSize: '0.82rem' }}>
+                                <Plus size={14} /> Add BU
+                            </button>
+                        </div>
+
+                        {/* Add / Edit inline form */}
+                        {showAddBU && (
+                            <div style={{ background: 'rgba(99,102,241,0.06)', borderBottom: '1px solid var(--border)', padding: '1rem 1.25rem' }}>
+                                <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#818cf8', marginBottom: '0.75rem' }}>{editBU ? '✏ Edit Business Unit' : '+ New Business Unit'}</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 2fr auto', gap: '0.75rem', alignItems: 'end' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.68rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Code *</label>
+                                        <input value={newBU.bu_code} onChange={e => setNewBU(p => ({ ...p, bu_code: e.target.value.toUpperCase() }))} placeholder="e.g. BPO" disabled={!!editBU}
+                                            style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '7px 10px', color: 'var(--text)', fontSize: '0.85rem', outline: 'none', width: '100%', boxSizing: 'border-box', fontFamily: 'monospace', opacity: editBU ? 0.5 : 1 }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.68rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Name *</label>
+                                        <input value={newBU.bu_name} onChange={e => setNewBU(p => ({ ...p, bu_name: e.target.value }))} placeholder="e.g. Business Process Outsourcing"
+                                            style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '7px 10px', color: 'var(--text)', fontSize: '0.85rem', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.68rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Description</label>
+                                        <input value={newBU.description} onChange={e => setNewBU(p => ({ ...p, description: e.target.value }))} placeholder="Optional — short description of this BU"
+                                            style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '7px 10px', color: 'var(--text)', fontSize: '0.85rem', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button onClick={saveBU} disabled={buSaving}
+                                            style={{ background: buSaving ? '#334155' : '#22c55e', border: 'none', color: 'white', padding: '7px 14px', borderRadius: '6px', cursor: buSaving ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                                            {buSaving ? 'Saving…' : editBU ? 'Save' : 'Add'}
+                                        </button>
+                                        <button onClick={() => { setShowAddBU(false); setEditBU(null); setBuError(''); }}
+                                            style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '7px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' }}>✕</button>
+                                    </div>
+                                </div>
+                                {buError && <div style={{ color: '#f87171', fontSize: '0.78rem', marginTop: '6px' }}>{buError}</div>}
+                            </div>
+                        )}
+
+                        {/* BU List */}
+                        {buLoading ? (
+                            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading business units…</div>
+                        ) : (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                <thead style={{ background: 'rgba(255,255,255,0.02)' }}>
+                                    <tr>
+                                        {['Code','Business Unit Name','Description','Status','Actions'].map(h => (
+                                            <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {bus.filter(b => b.bu_code !== 'ALL').length === 0 && (
+                                        <tr><td colSpan={5} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>No business units defined yet. Click "Add BU" to create the first one.</td></tr>
+                                    )}
+                                    {/* System ALL row */}
+                                    <tr style={{ background: 'rgba(56,189,248,0.03)', borderBottom: '1px solid var(--border)' }}>
+                                        <td style={{ padding: '9px 14px', fontFamily: 'monospace', fontWeight: 700, color: '#38bdf8' }}>ALL</td>
+                                        <td style={{ padding: '9px 14px', fontWeight: 600 }}>General / All</td>
+                                        <td style={{ padding: '9px 14px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>System default — applies when no BU segregation is needed</td>
+                                        <td style={{ padding: '9px 14px' }}><span style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e', padding: '2px 9px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700 }}>System</span></td>
+                                        <td style={{ padding: '9px 14px' }}></td>
+                                    </tr>
+                                    {bus.filter(b => b.bu_code !== 'ALL').map((bu, i) => (
+                                        <tr key={bu.id || i} style={{ borderBottom: '1px solid var(--border)', opacity: bu.is_active ? 1 : 0.5 }}>
+                                            <td style={{ padding: '9px 14px', fontFamily: 'monospace', fontWeight: 700, color: 'var(--primary)' }}>{bu.bu_code}</td>
+                                            <td style={{ padding: '9px 14px', fontWeight: 600 }}>{bu.bu_name}</td>
+                                            <td style={{ padding: '9px 14px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>{bu.description || '—'}</td>
+                                            <td style={{ padding: '9px 14px' }}>
+                                                <span style={{ background: bu.is_active ? 'rgba(34,197,94,0.1)' : 'rgba(100,116,139,0.1)', color: bu.is_active ? '#22c55e' : '#64748b', padding: '2px 9px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700 }}>
+                                                    {bu.is_active ? 'Active' : 'Inactive'}
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: '9px 14px' }}>
+                                                <div style={{ display: 'flex', gap: '5px' }}>
+                                                    <button onClick={() => { setEditBU(bu); setNewBU({ bu_code: bu.bu_code, bu_name: bu.bu_name, description: bu.description || '' }); setShowAddBU(true); setBuError(''); }}
+                                                        style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '4px 9px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                                        <Edit2 size={11} /> Edit
+                                                    </button>
+                                                    <button onClick={() => toggleBUActive(bu)}
+                                                        style={{ background: 'transparent', border: `1px solid ${bu.is_active ? '#f59e0b' : '#22c55e'}`, color: bu.is_active ? '#f59e0b' : '#22c55e', padding: '4px 9px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem' }}>
+                                                        {bu.is_active ? 'Deactivate' : 'Activate'}
+                                                    </button>
+                                                    <button onClick={() => deleteBU(bu)}
+                                                        style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '4px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem' }}>
+                                                        <Trash2 size={11} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Bid Tracking Tab */}
             {tab === 'bid tracking' && (

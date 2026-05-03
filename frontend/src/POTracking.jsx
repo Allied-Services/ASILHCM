@@ -61,6 +61,7 @@ function POFormModal({ existing = null, onSave, onClose }) {
 
     const [saving, setSaving] = useState(false);
     const [err,    setErr]    = useState('');
+    const [clientBus, setClientBus] = useState([]);  // BUs for selected client
 
     useEffect(() => {
         setLoadingData(true);
@@ -76,12 +77,27 @@ function POFormModal({ existing = null, onSave, onClose }) {
             .finally(() => setLoadingData(false));
     }, []);
 
-    // When client changes, reset contract selection
-    const handleClientChange = (name) => {
+    // When client changes, reset contract + BU selection, then fetch BUs for that client
+    const handleClientChange = async (name) => {
         setClientName(name);
         setContractId('');
         setContractName('');
+        setBuName('');
+        setClientBus([]);
+        if (!name) return;
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            const r = await fetch(`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/bus?client_name=${encodeURIComponent(name)}`, { headers: { Authorization: `Bearer ${token}` } });
+            const d = await r.json();
+            setClientBus(d.bus || []);
+        } catch (_) { setClientBus([]); }
     };
+
+    // Also load BUs for pre-existing client when editing
+    useEffect(() => {
+        if (existing?.client_name) handleClientChange(existing.client_name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // When contract changes, auto-fill contract_name
     const handleContractChange = (cid) => {
@@ -175,7 +191,17 @@ function POFormModal({ existing = null, onSave, onClose }) {
                         </FL>
 
                         <FL label="BU / Division (optional)">
-                            <input style={inp} value={bu_name} onChange={e => setBuName(e.target.value)} placeholder="e.g. FM Division" />
+                            {clientBus.length > 0 ? (
+                                <select style={selStyle} value={bu_name} onChange={e => setBuName(e.target.value)}>
+                                    <option value="">— No specific BU (applies to all) —</option>
+                                    {clientBus.filter(b => b.bu_code !== 'ALL').map(b => (
+                                        <option key={b.bu_code} value={b.bu_name}>{b.bu_code} — {b.bu_name}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <input style={inp} value={bu_name} onChange={e => setBuName(e.target.value)} placeholder={client_name ? 'No BUs defined — enter manually (optional)' : '— Select client first —'} disabled={!client_name} />
+                            )}
+                            {clientBus.length > 0 && <div style={{ fontSize: '0.72rem', color: '#818cf8', marginTop: '4px' }}>BUs sourced from Client Master — define BUs in Client Information.</div>}
                         </FL>
                         <FL label="PO Value (Rs.) *">
                             <input style={inp} type="number" value={po_value} onChange={e => setPOValue(e.target.value)} placeholder="0" />

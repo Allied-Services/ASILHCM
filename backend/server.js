@@ -1051,6 +1051,97 @@ app.delete('/api/clients/:id', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// CLIENT BUSINESS UNITS (BU)
+// ═══════════════════════════════════════════════════════════════════════════════
+pool.query(`CREATE TABLE IF NOT EXISTS client_business_units (
+    id          SERIAL PRIMARY KEY,
+    client_id   TEXT NOT NULL,
+    bu_code     VARCHAR(50)  NOT NULL,
+    bu_name     VARCHAR(200) NOT NULL,
+    description TEXT,
+    is_active   BOOLEAN DEFAULT TRUE,
+    sort_order  INT DEFAULT 0,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(client_id, bu_code)
+)`).catch(e => console.warn('[BU table init]', e.message));
+
+// Helper — prepend implicit ALL entry if not stored
+const withAllBU = (clientId, rows) => {
+    const hasAll = rows.some(r => r.bu_code === 'ALL');
+    const allEntry = { id: null, client_id: clientId, bu_code: 'ALL', bu_name: 'General / All', description: 'No BU segregation', is_active: true, sort_order: -1 };
+    return hasAll ? rows : [allEntry, ...rows];
+};
+
+// GET /api/clients/:id/bus
+app.get('/api/clients/:id/bus', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM client_business_units WHERE client_id=$1 ORDER BY sort_order ASC, bu_code ASC',
+            [req.params.id]);
+        res.json({ bus: withAllBU(req.params.id, rows) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/bus?client_id=X  or  ?client_name=X  — lightweight lookup
+app.get('/api/bus', requireAuth, async (req, res) => {
+    try {
+        const { client_id, client_name } = req.query;
+        let cid = client_id;
+        if (!cid && client_name) {
+            const r = await pool.query('SELECT id FROM clients WHERE LOWER(name)=LOWER($1) LIMIT 1', [client_name]);
+            cid = r.rows[0]?.id || null;
+        }
+        if (!cid) return res.json({ bus: [{ id: null, bu_code: 'ALL', bu_name: 'General / All', is_active: true }] });
+        const { rows } = await pool.query(
+            'SELECT id, bu_code, bu_name, is_active FROM client_business_units WHERE client_id=$1 AND is_active=TRUE ORDER BY sort_order ASC, bu_code ASC',
+            [cid]);
+        res.json({ bus: withAllBU(cid, rows) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/clients/:id/bus
+app.post('/api/clients/:id/bus', requireAuth, requireRole('superadmin','finance_manager','finance_approver','operations'), async (req, res) => {
+    try {
+        const { bu_code, bu_name, description, sort_order = 0 } = req.body;
+        if (!bu_code || !bu_name) return res.status(400).json({ error: 'bu_code and bu_name are required' });
+        const { rows } = await pool.query(
+            'INSERT INTO client_business_units (client_id,bu_code,bu_name,description,sort_order) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+            [req.params.id, bu_code.toUpperCase().trim(), bu_name.trim(), description || null, sort_order]);
+        res.json({ bu: rows[0] });
+    } catch (err) {
+        if (err.code === '23505') return res.status(409).json({ error: `BU code "${req.body.bu_code}" already exists for this client` });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/clients/:id/bus/:bu_id
+app.put('/api/clients/:id/bus/:bu_id', requireAuth, requireRole('superadmin','finance_manager','finance_approver','operations'), async (req, res) => {
+    try {
+        const { bu_name, description, is_active, sort_order } = req.body;
+        const { rows } = await pool.query(
+            'UPDATE client_business_units SET bu_name=COALESCE($1,bu_name), description=COALESCE($2,description), is_active=COALESCE($3,is_active), sort_order=COALESCE($4,sort_order) WHERE id=$5 AND client_id=$6 RETURNING *',
+            [bu_name || null, description || null, is_active ?? null, sort_order ?? null, req.params.bu_id, req.params.id]);
+        if (!rows.length) return res.status(404).json({ error: 'BU not found' });
+        res.json({ bu: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/clients/:id/bus/:bu_id
+app.delete('/api/clients/:id/bus/:bu_id', requireAuth, requireRole('superadmin','finance_manager'), async (req, res) => {
+    try {
+        const buRow = await pool.query('SELECT bu_code FROM client_business_units WHERE id=$1', [req.params.bu_id]);
+        if (buRow.rows.length) {
+            const buCode = buRow.rows[0].bu_code;
+            const poCheck = await pool.query('SELECT COUNT(*) AS n FROM purchase_orders WHERE LOWER(bu_name)=LOWER($1)', [buCode]);
+            if (parseInt(poCheck.rows[0].n) > 0)
+                return res.status(409).json({ error: `Cannot delete — ${poCheck.rows[0].n} PO(s) reference this BU. Deactivate instead.` });
+        }
+        await pool.query('DELETE FROM client_business_units WHERE id=$1 AND client_id=$2', [req.params.bu_id, req.params.id]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/contracts', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(`
