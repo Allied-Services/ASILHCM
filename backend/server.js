@@ -2316,15 +2316,31 @@ app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer
                     sales_tax=$25, total_invoice=$26, updated_at=NOW()
                 RETURNING employee_id`,
                 [
-                    parseInt(month), parseInt(year), employee_id,
-                    ov.paid_days   != null ? parseFloat(ov.paid_days)   : null,
-                    parseFloat(ov.ot2_hrs)           || 0,
-                    parseFloat(ov.ot3_hrs)           || 0,
-                    parseFloat(ov.opd_claim)         || 0,
-                    parseFloat(calc.serviceCharges)  || 0,
-                    parseFloat(calc.salesTax)        || 0,
-                    parseFloat(calc.totalInvoice)    || 0,
-                    req.user?.email || 'system',
+                    parseInt(month), parseInt(year), employee_id,           // $1  $2  $3
+                    ov.paid_days != null ? parseFloat(ov.paid_days) : null, // $4  paid_days
+                    parseFloat(ov.ot2_hrs)           || 0,                  // $5  ot2_hrs
+                    parseFloat(ov.ot3_hrs)           || 0,                  // $6  ot3_hrs
+                    parseFloat(ov.opd_claim)         || 0,                  // $7  opd_claim
+                    parseFloat(ov.reimbursement)     || 0,                  // $8  reimbursement
+                    parseFloat(ov.arrears)           || 0,                  // $9  arrears
+                    parseFloat(ov.bonus_amount)      || 0,                  // $10 bonus_amount
+                    parseFloat(ov.special_allowance) || 0,                  // $11 special_allowance
+                    parseFloat(ov.fuel_mobile)       || 0,                  // $12 fuel_mobile
+                    parseFloat(ov.other_deduction)   || 0,                  // $13 other_deduction
+                    parseFloat(ov.advance_deduction) || 0,                  // $14 advance_deduction
+                    parseFloat(ov.loan_deduction)    || 0,                  // $15 loan_deduction
+                    ov.medical_ee  != null ? parseFloat(ov.medical_ee)  : null, // $16 medical_ee
+                    ov.medical_sp  != null ? parseFloat(ov.medical_sp)  : null, // $17 medical_sp
+                    ov.medical_ch1 != null ? parseFloat(ov.medical_ch1) : null, // $18 medical_ch1
+                    ov.medical_ch2 != null ? parseFloat(ov.medical_ch2) : null, // $19 medical_ch2
+                    parseFloat(calc.grossMonthly)    || 0,                  // $20 gross
+                    parseFloat(calc.netPay)          || 0,                  // $21 net
+                    parseFloat(calc.incomeTax)       || 0,                  // $22 wht
+                    parseFloat(calc.eobi_ee)         || 0,                  // $23 eobi_ee
+                    parseFloat(calc.serviceCharges)  || 0,                  // $24 service_charges
+                    parseFloat(calc.salesTax)        || 0,                  // $25 sales_tax
+                    parseFloat(calc.totalInvoice)    || 0,                  // $26 total_invoice
+                    req.user?.email || 'system',                            // $27 created_by
                 ]
             );
             if (upserted.length) saved.push(upserted[0].employee_id);
