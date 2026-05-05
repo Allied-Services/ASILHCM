@@ -326,6 +326,7 @@ const empToDb = (e) => ({
     place_of_birth: e.placeOfBirth || null, eobi_no: e.eobiNo || null,
     religion: e.religion || null, marital_status: e.maritalStatus || null,
     dob: nullDate(e.dob), doj: nullDate(e.doj),
+    last_working_day: nullDate(e.lastWorkingDay),
     primary_contact: e.primaryContact || null, emergency_contact: e.emergencyContact || null,
     email: e.email || null,
     present_address: e.presentAddress || null, permanent_address: e.permanentAddress || null,
@@ -356,6 +357,7 @@ const empFromDb = (r) => ({
     religion: r.religion, maritalStatus: r.marital_status,
     dob: toDateStr(r.dob),
     doj: toDateStr(r.doj),
+    lastWorkingDay: toDateStr(r.last_working_day),
     primaryContact: r.primary_contact, emergencyContact: r.emergency_contact,
     email: r.email, presentAddress: r.present_address, permanentAddress: r.permanent_address,
     salary: parseFloat(r.salary) || 0, lastSalary: parseFloat(r.salary) || 0,
@@ -407,7 +409,7 @@ app.get('/api/employees', requireAuth, async (req, res) => {
 app.post('/api/employees', requireAuth, async (req, res) => {
     try {
         const d = empToDb(req.body);
-        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region'];
+        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region'];
         const vals = cols.map(c => d[c]);
         const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
         const updates = cols.slice(1).map((c, i) => `${c}=EXCLUDED.${c}`).join(',');
@@ -422,7 +424,7 @@ app.post('/api/employees', requireAuth, async (req, res) => {
 app.put('/api/employees/:id', requireAuth, async (req, res) => {
     try {
         const d = empToDb({ ...req.body, id: req.params.id });
-        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region'];
+        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region'];
         const setClauses = cols.map((c, i) => `${c}=$${i + 1}`).join(',');
         const vals = [...cols.map(c => d[c]), req.params.id];
         const { rows } = await pool.query(
@@ -458,7 +460,7 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
 
     const COLS = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province',
         'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth',
-        'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'primary_contact', 'emergency_contact',
+        'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact',
         'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic',
         'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id',
         'medical_type', 'medical_maternity', 'total_medical_coverage',
@@ -823,6 +825,11 @@ pool.query(`
         created_at  TIMESTAMPTZ DEFAULT NOW()
     )`,
 ].forEach(sql => pool.query(sql).catch(e => console.error('bills migration:', e.message)));
+
+// Employee table migrations
+[
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_working_day DATE`,
+].forEach(sql => pool.query(sql).catch(e => console.error('employees migration:', e.message)));
 
 // Named-user role assignments ├óΓé¼ΓÇ¥ enforced on every startup
 [

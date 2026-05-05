@@ -539,7 +539,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                 {!isSuperAdmin && isEditing && <div style={{ background:'rgba(234,179,8,0.1)', border:'1px solid rgba(234,179,8,0.3)', borderRadius:'8px', padding:'0.6rem 1rem', fontSize:'0.84rem', color:'#eab308', marginBottom:'0.75rem' }}>🔒 Fields with lock icon can only be changed by an Administrator.</div>}
                 {!isEditing && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                     <Card><STitle>Employment</STitle>
-                        {[['Employee Code', emp.id], ['ASIL BU', emp.bu], ['Client', emp.client], ['Client BU', emp.clientBU], ['Department', emp.dept], ['Designation', emp.designation], ['Location', emp.location + ', ' + (emp.province || '')], ['Date of Joining', emp.doj], ['Status', emp.active === 'Yes' ? 'Active' : 'Inactive']].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
+                        {[['Employee Code', emp.id], ['ASIL BU', emp.bu], ['Client', emp.client], ['Client BU', emp.clientBU], ['Department', emp.dept], ['Designation', emp.designation], ['Location', emp.location + ', ' + (emp.province || '')], ['Date of Joining', emp.doj], ['Last Working Day', emp.lastWorkingDay || '—'], ['Status', emp.active === 'Yes' ? 'Active' : 'Inactive']].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
                         {/* ── CONTRACT ASSIGNMENT ── */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
                             <span style={{ color: 'var(--text-muted)' }}>Contract</span>
@@ -611,6 +611,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                         <ERow label="Location" field="location" />
                         <ERow label="Province" field="province" opts={['Sindh','Punjab','KPK','Balochistan','Gilgit-Baltistan','Islamabad']} />
                         <ERow label="Date of Joining" field="doj" type="date" />
+                        <ERow label="Last Working Day" field="lastWorkingDay" type="date" />
                         <ERow label="Status (Admin Only)" field="active" disabled opts={['Yes','No']} />
                     </Card>
                     <Card><STitle>Personal</STitle>

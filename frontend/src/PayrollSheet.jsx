@@ -441,6 +441,7 @@ export default function PayrollSheet({ user }) {
                     eobiNo: e.eobiNo || '', email: e.email || '',
                     contact: e.primaryContact || '',
                     doj: e.doj || '',
+                    lwd: e.lastWorkingDay || '',
                     hasSpouse, numChildren: Math.min(numChildren, 2),
                 };
             });
@@ -606,14 +607,31 @@ export default function PayrollSheet({ user }) {
     const locPool = filterContract === 'All' ? contractPool : contractPool.filter(e => e.contract === filterContract);
     const allLocs = ['All', ...new Set(locPool.map(e => e.location))];
 
-    const filtered = EMPLOYEES.filter(e =>
-        (filterClient === 'All' || e.client === filterClient) &&
-        (filterContract === 'All' || e.contract === filterContract) &&
-        (filterLoc === 'All' || e.location === filterLoc) &&
-        (filterLockStatus === 'All' ||
-         (filterLockStatus === 'Locked'   &&  lockedIds.has(e.id)) ||
-         (filterLockStatus === 'Unlocked' && !lockedIds.has(e.id)))
-    );
+    const [yr, mo] = month.split('-').map(Number);
+    const monthStart = new Date(yr, mo - 1, 1);          // 1st of payroll month
+    const monthEnd   = new Date(yr, mo, 0);               // last day of payroll month
+
+    // Filter employees for payroll:
+    //   - Exclude if LWD is BEFORE the start of the payroll month (already left)
+    //   - Exclude if DOJ is AFTER the end of the payroll month (not yet joined)
+    const filtered = EMPLOYEES.filter(e => {
+        if (e.lwd) {
+            const lwdDate = new Date(e.lwd);
+            if (lwdDate < monthStart) return false; // Left before this month
+        }
+        if (e.doj) {
+            const dojDate = new Date(e.doj);
+            if (dojDate > monthEnd) return false;   // Joins after this month
+        }
+        return (
+            (filterClient === 'All' || e.client === filterClient) &&
+            (filterContract === 'All' || e.contract === filterContract) &&
+            (filterLoc === 'All' || e.location === filterLoc) &&
+            (filterLockStatus === 'All' ||
+             (filterLockStatus === 'Locked'   &&  lockedIds.has(e.id)) ||
+             (filterLockStatus === 'Unlocked' && !lockedIds.has(e.id)))
+        );
+    });
 
     // isLocked = true only when ALL currently visible filtered rows are locked (and there are some)
     const isLocked = filtered.length > 0 && filtered.every(e => lockedIds.has(e.id));

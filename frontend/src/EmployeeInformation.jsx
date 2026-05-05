@@ -34,7 +34,7 @@ const EMPTY_FORM = {
     cnic: '', cnicIssue: '', cnicExpiry: '', placeOfBirth: '', eobiNo: '', religion: 'Islam',
     salary: '', maritalStatus: 'Single',
     primaryContact: '', emergencyContact: '', email: '',
-    presentAddress: '', permanentAddress: '', dob: '', doj: '',
+    presentAddress: '', permanentAddress: '', dob: '', doj: '', lastWorkingDay: '',
     lastSalary: '',
     spouseName: '', spouseAge: '', spouseCnic: '',
     child1Name: '', child1Age: '', child1Id: '',
@@ -217,6 +217,7 @@ export default function EmployeeInformation({ user }) {
                         permanentAddress: getF(obj, 'Permanent Address', 'Home Address'),
                         dob:              getF(obj, 'Date of Birth', 'DOB', 'Birth Date'),
                         doj:              getF(obj, 'Date of Joining', 'DOJ', 'Joining Date', 'Start Date'),
+                        lastWorkingDay:   getF(obj, 'Last Working Day', 'LWD', 'Exit Date', 'Resignation Date', 'Last Day'),
                         spouseName:       getF(obj, 'Spouse Name', 'Spouse'),
                         spouseAge:        getF(obj, 'Spouse Age'),
                         spouseCnic:       getF(obj, 'Spouse CNIC', 'Spouse NIC', 'Spouse ID'),
@@ -689,6 +690,7 @@ export default function EmployeeInformation({ user }) {
                                     <F label="Client Location" field="location" opts={{ ph: 'e.g. Karachi' }} />
                                     <F label="Province" field="province" opts={{ sel: ['', 'Sindh', 'Punjab', 'KPK', 'Balochistan', 'Gilgit-Baltistan', 'AJK', 'Islamabad (ICT)'] }} />
                                     <F label="Date of Joining" field="doj" type="date" />
+                                    <F label="Last Working Day" field="lastWorkingDay" type="date" opts={{ ph: 'Leave blank if still active' }} />
                                     <F label="Contract Start Date" field="contractDate" type="date" />
                                     <F label="Active" field="active" opts={{ sel: ['Yes', 'No'] }} />
                                 </>}
