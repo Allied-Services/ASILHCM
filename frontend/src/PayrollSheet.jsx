@@ -645,8 +645,32 @@ export default function PayrollSheet({ user }) {
         const defMedSP    = emp.hasSpouse ? (cfg.medical_sp || 0) : 0;
         const defMedCh1   = emp.numChildren >= 1 ? (cfg.medical_child || 0) : 0;
         const defMedCh2   = emp.numChildren >= 2 ? (cfg.medical_child || 0) : 0;
+
+        // ── Pro-rata paid days for new joiners ───────────────────────────────
+        // If the employee's DOJ falls within the current payroll month, default
+        // paid_days to the number of calendar days worked that month.
+        // Formula: days_worked = (lastDayOfMonth - doj + 1); paid_days = days_worked
+        // This maps to the business rule: salary = (days_worked / total_days) × gross
+        // The calcEmployeeRow engine uses paid_days vs workDays to compute absence deduction.
+        let defPaidDays = workDays;
+        let calDaysWorked = null;
+        let totalCalDays = null;
+        if (emp.doj) {
+            const [yr, mo] = month.split('-').map(Number);
+            const dojDate  = new Date(emp.doj);
+            const dojYear  = dojDate.getFullYear();
+            const dojMonth = dojDate.getMonth() + 1;
+            if (dojYear === yr && dojMonth === mo) {
+                // Calendar days in this month
+                totalCalDays = new Date(yr, mo, 0).getDate();
+                // Days from joining to end of month (inclusive of joining day)
+                calDaysWorked = totalCalDays - dojDate.getDate() + 1;
+                // Convert to working-day equivalent (pro-rated against workDays)
+                defPaidDays = Math.round((calDaysWorked / totalCalDays) * workDays);
+            }
+        }
         const ov = {
-            paid_days:        getOv(emp.id, 'paid_days', workDays),
+            paid_days:        getOv(emp.id, 'paid_days', defPaidDays),
             ot2_hrs:          getOv(emp.id, 'ot2_hrs', 0),
             ot3_hrs:          getOv(emp.id, 'ot3_hrs', 0),
             opd_claim:        getOv(emp.id, 'opd_claim', 0),
@@ -662,6 +686,8 @@ export default function PayrollSheet({ user }) {
             medical_sp:       getOv(emp.id, 'medical_sp',  defMedSP),
             medical_ch1:      getOv(emp.id, 'medical_ch1', defMedCh1),
             medical_ch2:      getOv(emp.id, 'medical_ch2', defMedCh2),
+            // Runtime only — used by calcEmployeeRow for joining-month pro-rata (not saved to DB)
+            ...(calDaysWorked !== null ? { calDaysWorked, totalCalDays } : {}),
         };
         return { emp, cfg, calc: calcEmployeeRow(emp, ov, cfg, workDays, PROVINCE_RATES), ov };
     });

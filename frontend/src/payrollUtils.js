@@ -70,11 +70,26 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const hrlyGross = grossSalary / (26 * 8);   // for OT calc
     const dailyGross = grossSalary / 26;         // for leave/absence deduction
 
-    // Attendance proration of salary components (partial month)
-    const absentDays = Math.max(0, workDays - pd);
-    // Deduction for absent days = absentDays × (gross / 26)
-    const absenceDeduction = Math.round(absentDays * dailyGross);
-    // Gross components (paid = full month, absence deducted at gross/26 each)
+    // Attendance proration of salary components
+    // Two modes:
+    //   A) Joining-month pro-rata: salary = calDaysWorked/totalCalDays × grossSalary
+    //      Used when ov.totalCalDays is set (new joiner mid-month).
+    //      Business rule: 27 calendar days out of 31 = 27/31 × salary
+    //   B) Standard absence deduction: absentDays × (gross/26)
+    //      Used for normal attendance shortfalls.
+    let absenceDeduction;
+    let absentDays = 0;
+    if (ov.totalCalDays && ov.calDaysWorked) {
+        // Mode A: pro-rata by calendar days (new joiner)
+        const proratedGross = Math.round(grossSalary * ov.calDaysWorked / ov.totalCalDays);
+        absenceDeduction = grossSalary - proratedGross;
+        absentDays = 0; // not applicable in this mode
+    } else {
+        // Mode B: standard working-day absence deduction
+        absentDays = Math.max(0, workDays - pd);
+        absenceDeduction = Math.round(absentDays * dailyGross);
+    }
+    // Gross components (paid = full month, absence deducted)
     const basicPaid   = Math.round(parseFloat(emp.basic || 0));
     const hraPaid     = Math.round(parseFloat(emp.hra || 0));
     const convPaid    = Math.round(parseFloat(emp.conveyance || 0));
