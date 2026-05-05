@@ -128,8 +128,8 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const loanDed = parseNum(ov.loan_deduction || 0);
     const totalDeductions = incomeTax + eobi.employee + pfEE + otherDed + advanceDed + loanDed;
     const netPay = grossMonthly - totalDeductions;
-    // SESSI: 6% of minimum wage (Rs.40,000), always capped at Rs.2,400
-    const sessi = Math.min(2400, Math.round(grossMonthly * 0.06));
+    // SESSI: 6% of gross, exempt if gross >= Rs.45,000 (per SESSI Act & System Config rule)
+    const sessi = grossMonthly >= 45000 ? 0 : Math.min(2400, Math.round(grossMonthly * 0.06));
     const eduCess = parseFloat(cfg.edu_cess || 0);
     const bonusAmount = parseFloat(ov.bonus_amount || 0);
     // Bonus accrual: contract defines bonus_months × gross / 12 as monthly employer provision

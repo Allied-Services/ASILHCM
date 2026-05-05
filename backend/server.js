@@ -2597,7 +2597,8 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             // WHT: prefer stored value, else compute from FBR slabs
             const wht = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
             const eobi_ee  = 400, eobi_er = 2000;
-            const sessi    = Math.min(2400, Math.round(grossM * 0.06));
+            // SESSI: exempt if gross >= Rs.45,000 (per SESSI Act & System Config rule)
+            const sessi    = calculateSESSI(grossM);
             // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ EOSB: PF and Gratuity are MUTUALLY EXCLUSIVE ├óΓé¼ΓÇ¥ mirrors frontend exactly ├óΓÇ¥Γé¼├óΓÇ¥Γé¼
             // Source of truth: contract costs.eosb_type ('Provident Fund' | 'Gratuity' | 'None')
             const eosbType       = emp._eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
