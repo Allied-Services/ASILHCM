@@ -887,7 +887,8 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                 </div>
             )}
 
-            {/* ── TAB: Medical & Insurance ── */}
+
+            {/* TAB: Medical and Insurance */}
             {tab === 'medical' && (() => {
                 const matchedContract = contractsList.find(c => c.id === emp.contractId || c.contractName === emp.contractName);
                 const costs = matchedContract?.costs || {};
@@ -901,16 +902,17 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                 const totalSP = hasSpouse ? rateSP : 0;
                 const totalCH = coveredChildren * rateCH;
                 const grandTotal = rateEE + totalSP + totalCH;
+                const childLabel = 'Children (x' + coveredChildren + ', max 2)';
                 return (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                         <Card>
                             <STitle><Heart size={14} /> Contract Medical Premiums</STitle>
                             {hasContract ? (
+                                <div>
                                     {[
                                         ['Employee (Self)', rateEE, true, null],
                                         ['Spouse', totalSP, hasSpouse, hasSpouse ? null : 'No spouse on record'],
-                                        ['Children (x' + coveredChildren + ', max 2)', totalCH, coveredChildren > 0, coveredChildren === 0 ? 'No children on record' : null],
-                                    ].map(([label, amount, active, reason]) => (
+                                        [childLabel, totalCH, coveredChildren > 0, coveredChildren === 0 ? 'No children on record' : null],
                                     ].map(([label, amount, active, reason]) => (
                                         <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.55rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
                                             <div>
@@ -918,7 +920,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                                                 {reason && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>{reason}</div>}
                                             </div>
                                             <span style={{ fontWeight: 700, color: active && amount > 0 ? '#22c55e' : 'var(--text-muted)' }}>
-                                                {active && amount > 0 ? fmtRs(amount) : '\u2014'}
+                                                {active && amount > 0 ? fmtRs(amount) : '—'}
                                             </span>
                                         </div>
                                     ))}
@@ -927,14 +929,14 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                                         <span style={{ fontWeight: 800, fontSize: '1.1rem', color: '#38bdf8' }}>{fmtRs(grandTotal)}</span>
                                     </div>
                                     <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
-                                        Contract: {matchedContract.contractName} &middot; Rates: Self {fmtRs(rateEE)} / Spouse {fmtRs(rateSP)} / Child {fmtRs(rateCH)}
+                                        Contract: {matchedContract.contractName} · Rates: Self {fmtRs(rateEE)} / Spouse {fmtRs(rateSP)} / Child {fmtRs(rateCH)}
                                     </div>
                                 </div>
                             ) : (
                                 <div>
-                                    {[['Coverage Type', emp.medicalType || 'Not Assigned'], ['Maternity Cover', emp.medicalMaternity || '\u2014'], ['Total Coverage (Rs.)', emp.totalMedicalCoverage ? fmtRs(emp.totalMedicalCoverage) : '\u2014']].map(([l, v]) => <Row key={l} label={l} value={v} />)}
+                                    {[['Coverage Type', emp.medicalType || 'Not Assigned'], ['Maternity Cover', emp.medicalMaternity || '—'], ['Total Coverage (Rs.)', emp.totalMedicalCoverage ? fmtRs(emp.totalMedicalCoverage) : '—']].map(([l, v]) => <Row key={l} label={l} value={v} />)}
                                     <div style={{ marginTop: '0.75rem', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '8px', padding: '8px 12px', fontSize: '0.78rem', color: '#f59e0b' }}>
-                                        No contract linked \u2014 assign a contract in Edit Profile to see auto-calculated premiums.
+                                        No contract linked — assign a contract in Edit Profile to see auto-calculated premiums.
                                     </div>
                                 </div>
                             )}
@@ -944,24 +946,24 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                             {emp.maritalStatus === 'Married' ? (
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
-                                        <CheckCircle size={14} color='#22c55e' /><span style={{ fontWeight: 600 }}>Spouse:</span> {emp.spouseName || '\u2014'}
+                                        <CheckCircle size={14} color="#22c55e" /><span style={{ fontWeight: 600 }}>Spouse:</span> {emp.spouseName || '—'}
                                         {hasContract && rateSP > 0 && hasSpouse && <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#22c55e', fontSize: '0.8rem' }}>{fmtRs(rateSP)}/mo</span>}
                                     </div>
                                     {emp.child1Name && <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
-                                        <CheckCircle size={14} color='#22c55e' /> Child 1: {emp.child1Name} (Age {emp.child1Age})
+                                        <CheckCircle size={14} color="#22c55e" /> Child 1: {emp.child1Name} (Age {emp.child1Age})
                                         {hasContract && rateCH > 0 && <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#22c55e', fontSize: '0.8rem' }}>{fmtRs(rateCH)}/mo</span>}
                                     </div>}
                                     {emp.child2Name && <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem 0', fontSize: '0.88rem' }}>
-                                        <CheckCircle size={14} color='#22c55e' /> Child 2: {emp.child2Name} (Age {emp.child2Age})
+                                        <CheckCircle size={14} color="#22c55e" /> Child 2: {emp.child2Name} (Age {emp.child2Age})
                                         {hasContract && rateCH > 0 && <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#22c55e', fontSize: '0.8rem' }}>{fmtRs(rateCH)}/mo</span>}
                                     </div>}
                                     {!emp.child1Name && !emp.child2Name && <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>No children on record.</p>}
                                 </div>
-                            ) : <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>Employee is unmarried \u2014 Self coverage only.</p>}
+                            ) : <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>Employee is unmarried — Self coverage only.</p>}
                         </Card>
                         <Card style={{ gridColumn: '1/-1', background: 'rgba(56,189,248,0.04)', border: '1px dashed rgba(56,189,248,0.3)' }}>
                             <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                                Premiums are <strong>auto-calculated</strong> from the contract Medical Insurance Premiums (PKR/head/month). Add spouse/children in <strong>Edit Profile &#8594; Family Details</strong> to include their premium. Children capped at 2 per contract terms.
+                                Premiums are <strong>auto-calculated</strong> from the contract Medical Insurance Premiums (PKR/head/month). Add spouse/children in <strong>Edit Profile</strong> to include their premium. Children capped at 2.
                             </div>
                         </Card>
                     </div>
