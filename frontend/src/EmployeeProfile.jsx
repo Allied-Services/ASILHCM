@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
          Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare, Package, CreditCard, Clock } from 'lucide-react';
 import { api } from './api';
@@ -888,30 +888,85 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
             )}
 
             {/* ── TAB: Medical & Insurance ── */}
-            {tab === 'medical' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
-                    <Card>
-                        <STitle><Heart size={14} /> Insurance Coverage</STitle>
-                        {[['Coverage Type', emp.medicalType || 'Not Assigned'], ['Maternity Cover', emp.medicalMaternity || '—'], ['Total Coverage (Rs.)', emp.totalMedicalCoverage ? fmtRs(emp.totalMedicalCoverage) : '—']].map(([l, v]) => <Row key={l} label={l} value={v} />)}
-                    </Card>
-                    <Card>
-                        <STitle>Dependants Covered</STitle>
-                        {emp.maritalStatus === 'Married' ? (
-                            <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}><CheckCircle size={14} color="#22c55e" /><span style={{ fontWeight: 600 }}>Spouse:</span> {emp.spouseName || '—'}</div>
-                                {emp.child1Name && <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}><CheckCircle size={14} color="#22c55e" /> Child 1: {emp.child1Name} (Age {emp.child1Age})</div>}
-                                {emp.child2Name && <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem 0', fontSize: '0.88rem' }}><CheckCircle size={14} color="#22c55e" /> Child 2: {emp.child2Name} (Age {emp.child2Age})</div>}
-                                {!emp.child1Name && !emp.child2Name && <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>No children on record.</p>}
+            {tab === 'medical' && (() => {
+                const matchedContract = contractsList.find(c => c.id === emp.contractId || c.contractName === emp.contractName);
+                const costs = matchedContract?.costs || {};
+                const rateEE = parseFloat(costs.medical_ee || 0);
+                const rateSP = parseFloat(costs.medical_sp || 0);
+                const rateCH = parseFloat(costs.medical_ch || costs.medical_child || 0);
+                const hasContract = !!matchedContract;
+                const hasSpouse = !!(emp.spouseName && emp.spouseName.trim());
+                const numChildren = (emp.child1Name ? 1 : 0) + (emp.child2Name ? 1 : 0);
+                const coveredChildren = Math.min(numChildren, 2);
+                const totalSP = hasSpouse ? rateSP : 0;
+                const totalCH = coveredChildren * rateCH;
+                const grandTotal = rateEE + totalSP + totalCH;
+                return (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                        <Card>
+                            <STitle><Heart size={14} /> Contract Medical Premiums</STitle>
+                            {hasContract ? (
+                                    {[
+                                        ['Employee (Self)', rateEE, true, null],
+                                        ['Spouse', totalSP, hasSpouse, hasSpouse ? null : 'No spouse on record'],
+                                        ['Children (x' + coveredChildren + ', max 2)', totalCH, coveredChildren > 0, coveredChildren === 0 ? 'No children on record' : null],
+                                    ].map(([label, amount, active, reason]) => (
+                                    ].map(([label, amount, active, reason]) => (
+                                        <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.55rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
+                                            <div>
+                                                <span style={{ color: active ? 'var(--text)' : 'var(--text-muted)' }}>{label}</span>
+                                                {reason && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>{reason}</div>}
+                                            </div>
+                                            <span style={{ fontWeight: 700, color: active && amount > 0 ? '#22c55e' : 'var(--text-muted)' }}>
+                                                {active && amount > 0 ? fmtRs(amount) : '\u2014'}
+                                            </span>
+                                        </div>
+                                    ))}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 0 0', marginTop: '4px', fontSize: '0.95rem' }}>
+                                        <span style={{ fontWeight: 700 }}>Total Monthly Premium</span>
+                                        <span style={{ fontWeight: 800, fontSize: '1.1rem', color: '#38bdf8' }}>{fmtRs(grandTotal)}</span>
+                                    </div>
+                                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
+                                        Contract: {matchedContract.contractName} &middot; Rates: Self {fmtRs(rateEE)} / Spouse {fmtRs(rateSP)} / Child {fmtRs(rateCH)}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    {[['Coverage Type', emp.medicalType || 'Not Assigned'], ['Maternity Cover', emp.medicalMaternity || '\u2014'], ['Total Coverage (Rs.)', emp.totalMedicalCoverage ? fmtRs(emp.totalMedicalCoverage) : '\u2014']].map(([l, v]) => <Row key={l} label={l} value={v} />)}
+                                    <div style={{ marginTop: '0.75rem', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '8px', padding: '8px 12px', fontSize: '0.78rem', color: '#f59e0b' }}>
+                                        No contract linked \u2014 assign a contract in Edit Profile to see auto-calculated premiums.
+                                    </div>
+                                </div>
+                            )}
+                        </Card>
+                        <Card>
+                            <STitle>Dependants Covered</STitle>
+                            {emp.maritalStatus === 'Married' ? (
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
+                                        <CheckCircle size={14} color='#22c55e' /><span style={{ fontWeight: 600 }}>Spouse:</span> {emp.spouseName || '\u2014'}
+                                        {hasContract && rateSP > 0 && hasSpouse && <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#22c55e', fontSize: '0.8rem' }}>{fmtRs(rateSP)}/mo</span>}
+                                    </div>
+                                    {emp.child1Name && <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
+                                        <CheckCircle size={14} color='#22c55e' /> Child 1: {emp.child1Name} (Age {emp.child1Age})
+                                        {hasContract && rateCH > 0 && <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#22c55e', fontSize: '0.8rem' }}>{fmtRs(rateCH)}/mo</span>}
+                                    </div>}
+                                    {emp.child2Name && <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem 0', fontSize: '0.88rem' }}>
+                                        <CheckCircle size={14} color='#22c55e' /> Child 2: {emp.child2Name} (Age {emp.child2Age})
+                                        {hasContract && rateCH > 0 && <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#22c55e', fontSize: '0.8rem' }}>{fmtRs(rateCH)}/mo</span>}
+                                    </div>}
+                                    {!emp.child1Name && !emp.child2Name && <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>No children on record.</p>}
+                                </div>
+                            ) : <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>Employee is unmarried \u2014 Self coverage only.</p>}
+                        </Card>
+                        <Card style={{ gridColumn: '1/-1', background: 'rgba(56,189,248,0.04)', border: '1px dashed rgba(56,189,248,0.3)' }}>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                Premiums are <strong>auto-calculated</strong> from the contract Medical Insurance Premiums (PKR/head/month). Add spouse/children in <strong>Edit Profile &#8594; Family Details</strong> to include their premium. Children capped at 2 per contract terms.
                             </div>
-                        ) : <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>Employee is unmarried — Self coverage only.</p>}
-                    </Card>
-                    <Card style={{ gridColumn: '1/-1', background: 'rgba(56,189,248,0.04)', border: '1px dashed rgba(56,189,248,0.3)' }}>
-                        <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                            💡 <strong>Insurance Plans Master</strong> is configured at the contract level under Client → Contract. Once a plan is assigned to this employee's contract, their premium and coverage details will auto-populate here.
-                        </div>
-                    </Card>
-                </div>
-            )}
+                        </Card>
+                    </div>
+                );
+            })()}
 
             {/* ── TAB: Final Settlement ── */}
             {tab === 'settlement' && (
