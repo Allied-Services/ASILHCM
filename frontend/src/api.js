@@ -186,5 +186,16 @@ export const api = {
 
     // ── Payroll Invoice Status (for INV badge) ────────────────────────────────
     getPayrollInvoiceStatus: (year, month) => apiFetch(`/api/payroll/${year}/${month}/invoice-status`),
+
+    // ── Attendance Management ─────────────────────────────────────────────────
+    getMyTeam:           ()           => apiFetch('/api/attendance/my-team'),
+    getAttendanceToday:  ()           => apiFetch('/api/attendance/today'),
+    markAttendance:      (date, recs) => apiFetch('/api/attendance/mark', { method: 'POST', body: JSON.stringify({ date, records: recs }) }),
+    getMonthlyReport:    (q = {})     => apiFetch('/api/attendance/report/monthly?' + new URLSearchParams(q).toString()),
+    getWeeklyReport:     (week_start) => apiFetch(`/api/attendance/report/weekly?week_start=${week_start}`),
+    exportAttendance:    (q = {})     => `${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/attendance/export?` + new URLSearchParams(q).toString(),
+    getAttendanceTeams:  ()           => apiFetch('/api/attendance/teams'),
+    assignTeam:          (d)          => apiFetch('/api/attendance/teams/assign', { method: 'POST', body: JSON.stringify(d) }),
+    removeTeamMember:    (id)         => apiFetch(`/api/attendance/teams/${id}`, { method: 'DELETE' }),
 };
 

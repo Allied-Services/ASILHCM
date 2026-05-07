@@ -17,6 +17,7 @@ import InventoryManagement from './InventoryManagement';
 import SystemConfig from './SystemConfig';
 import UserManagement from './UserManagement';
 import POTracking from './POTracking';
+import AttendanceManagement from './AttendanceManagement';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -24,14 +25,15 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users'],
-    operations:           ['employee','documents','client'],
+    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance'],
+    supervisor:           ['attendance'],
+    operations:           ['employee','documents','client','attendance'],
     procurement_proposer: ['billing','vendor','inventory'],
     procurement_approver: ['billing','vendor','inventory'],
     procurement_manager:  ['billing','vendor','inventory','ap'],
     finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure'],
-    finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users'],
-    finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users'],
+    finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance'],
+    finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance'],
     ap_team:              ['ap','billing'],
     ar_team:              ['invoices','po_tracking','billing'],
     payroll_initiator:    ['payroll','employee'],
@@ -40,6 +42,7 @@ const ROLE_NAV = {
 
 const ROLE_BADGE = {
     superadmin:           { label: 'Super Admin',           color: '#f59e0b' },
+    supervisor:           { label: 'Supervisor',             color: '#22c55e' },
     operations:           { label: 'Operations',            color: '#3b82f6' },
     procurement_proposer: { label: 'Proc. Proposer',        color: '#8b5cf6' },
     procurement_approver: { label: 'Proc. Approver',        color: '#6366f1' },
@@ -155,7 +158,8 @@ function App() {
     { key: 'inventory', label: 'Inventory & Equipment',  icon: <Package size={20} /> },
     { key: 'annexure',  label: 'Annexure Approval',      icon: <ScanLine size={20} /> },
     { key: 'config',    label: 'System Configs',         icon: <Settings size={20} /> },
-    { key: 'users',     label: 'User Management',        icon: <Shield size={20} /> },
+    { key: 'users',       label: 'User Management',        icon: <Shield size={20} /> },
+    { key: 'attendance',  label: 'Attendance',              icon: <Clock size={20} /> },
   ];
 
   const NAV = ALL_NAV.filter(n => allowedTabs.includes(n.key));
@@ -230,6 +234,7 @@ function App() {
           {effectiveTab === 'annexure'   && <AnnexureDashboard />}
           {effectiveTab === 'config'     && <SystemConfig user={user} />}
           {effectiveTab === 'users'      && <UserManagement user={user} />}
+          {effectiveTab === 'attendance' && <AttendanceManagement user={user} />}
         </main>
       </div>
     </>
