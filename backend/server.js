@@ -37,6 +37,9 @@ const EMAIL_FROM = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
+    max: 10,                       // Neon free: stay under 100 connection limit
+    idleTimeoutMillis: 30000,      // Release idle connections after 30s
+    connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
 });
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Security Headers (helmet) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
@@ -60,7 +63,7 @@ app.use(globalLimiter);
 app.use(session({
     secret: process.env.SESSION_SECRET || JWT_SECRET,
     resave: false, saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === 'production', httpOnly: true, maxAge: 60000 },
+    cookie: { secure: process.env.NODE_ENV === 'production', httpOnly: true, sameSite: 'lax', maxAge: 8 * 60 * 60 * 1000 }, // 8 hours
 }));
 app.use(passport.initialize());
 app.use(passport.session());
@@ -252,7 +255,8 @@ app.get('/health/ip', requireAuth, requireRole('superadmin'), (req, res) => {
 app.get('/', (req, res) => res.json({ name: 'ASIL HCM API', status: 'running', app: 'https://asil-hcm-frontend.onrender.com' }));
 
 // Temporary diagnostic ├óΓé¼ΓÇ¥ lists all contracts and their bonus_months (no auth needed, read-only)
-app.get('/api/debug/bonus-check', async (req, res) => {
+// SuperAdmin only diagnostic
+app.get('/api/debug/bonus-check', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         const { rows } = await pool.query(`
             SELECT id, contract_name,
@@ -4531,8 +4535,8 @@ app.post('/api/run-migrations', requireAuth, async (req, res) => {
     res.json({ done, errs });
 });
 
-// ONE-TIME public migration endpoint (secret URL, no auth required)
-app.get('/api/migrate/asil-migrate-2026-x9k7', async (req, res) => {
+// One-time migration endpoint — SuperAdmin only, requires POST
+app.post('/api/migrate/asil-migrate-2026-x9k7', requireAuth, requireRole('superadmin'), async (req, res) => {
     const done = [], errs = [];
     const run = async (label, sql, params=[]) => {
         try { await pool.query(sql, params); done.push(label); }
@@ -4597,10 +4601,23 @@ app.get('/api/migrate/asil-migrate-2026-x9k7', async (req, res) => {
     res.json({ done, errs, timestamp: new Date().toISOString() });
 });
 
+// Graceful shutdown — drain DB pool cleanly on Render deploy/restart
+process.on('SIGTERM', async () => {
+    console.log('[SIGTERM] Shutting down gracefully — draining DB pool...');
+    await pool.end();
+    process.exit(0);
+});
+process.on('SIGINT', async () => {
+    console.log('[SIGINT] Shutting down — draining DB pool...');
+    await pool.end();
+    process.exit(0);
+});
+
 app.listen(PORT, async () => {
 
 
     console.log(`ASIL HCM Backend running on port ${PORT}`);
+    console.log(`[DB] Pool configured: max=10, idle=30s`);
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
     // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ One-time migrations (safe to run every restart, IF NOT EXISTS guards) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼
     try {

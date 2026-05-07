@@ -42,3 +42,23 @@ uploads/
 
 # Desktop preview copy — not source of truth
 # (source is this folder; preview is on Desktop)
+
+# Root-level debug / maintenance scripts — never commit these
+check_db.js
+render_test.cjs
+upload_payroll.js
+compare_payroll.js
+patch_billing.js
+patch_server.py
+debug_*.js
+fix_*.js
+apply_*.js
+gen_upload_*.py
+preview_server.js
+
+# Scratch / temp files
+*.local.js
+*.tmp
+*.bak
+sms_test.ps1
+
