@@ -889,7 +889,18 @@ app.post('/api/bills', requireAuth, requireRole('procurement_proposer','finance_
              b.billCategory || 'official', b.whtAmount || 0, b.gstExempt || false]
         );
         const r = rows[0];
-                status: r.status || 'Draft', createdBy: r.created_by, billCategory: r.bill_category || 'official', whtAmount: parseFloat(r.wht_amount) || 0, gstExempt: r.gst_exempt || false } });
+        res.json({ ok: true, bill: {
+            id: r.id, type: r.type, vendor: r.vendor, date: r.date,
+            client: r.client, contract: r.contract, contractId: r.contract_id,
+            bu: r.bu, site: r.site, billType: r.bill_type, purpose: r.purpose,
+            note: r.note, invoiceNo: r.invoice_no, items: r.items || [],
+            amount: parseFloat(r.amount) || 0, gst: parseFloat(r.gst) || 0,
+            total: parseFloat(r.total) || 0, status: r.status || 'Draft',
+            createdBy: r.created_by, billable: r.billable,
+            billCategory: r.bill_category || 'official',
+            whtAmount: parseFloat(r.wht_amount) || 0, gstExempt: r.gst_exempt || false,
+            paymentMethod: r.payment_method, paymentAccount: r.payment_account,
+        } });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -899,10 +910,8 @@ app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approve
     if (!VALID.includes(status)) return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID.join(', ')}` });
     try {
         const extra = status === 'Paid'
-        const extra = status === 'Paid'
             ? `, paid_at=NOW(), paid_by=$3, payment_method=$4, payment_account=$5`
             : '';
-        const params = status === 'Paid'
         const params = status === 'Paid'
             ? [status, req.params.id, req.user.email, paymentMethod || null, paymentAccount || null]
             : [status, req.params.id];

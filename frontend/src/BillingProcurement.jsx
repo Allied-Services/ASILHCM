@@ -440,7 +440,7 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
     // WHT: only for Official Standard bills (vendor is filer=5%, non-filer=10%)
     const whtPct = (!isUnofficial && form.billType === 'Standard') ? (form.vendorFiler === 'filer' ? 5 : form.vendorFiler === 'non-filer' ? 10 : 0) : 0;
     const whtAmount = Math.round(subtotal * whtPct / 100);
-    const grandTotal = subtotal + gstAmount;
+    const grandTotal = subtotal + gstAmount - whtAmount;
 
     const save = () => {
         const ct = contractsList.find(c => c.id === form.contractId);
@@ -449,6 +449,9 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
             vendor: resolvedVendor,
             contract: ct?.contractName || '', items, amount: subtotal, gst: gstAmount, total: grandTotal, status: 'Draft',
             billable: billTypeDef.billableLocked ? billTypeDef.billable : form.billable,
+            billCategory: form.billCategory || 'official',
+            whtAmount,
+            gstExempt: form.billCategory === 'unofficial',
         });
         onClose();
     };
@@ -626,12 +629,16 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
 
                     {/* Totals */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '5px 1rem', background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.15)', borderRadius: '10px', padding: '0.85rem 1rem', marginBottom: '1rem' }}>
-                        {[['Subtotal', Rs(subtotal)], ...(whtAmount > 0 ? [['WHT Deduction', '-' + Rs(whtAmount)]] : []), [`GST (${form.gstPct || 0}%)`, Rs(gstAmount)], ['GRAND TOTAL', Rs(grandTotal)]].map(([l, v], i) => (
-                            <React.Fragment key={l}>
-                                <span style={{ fontSize: '0.85rem', fontWeight: i === 2 ? 700 : 400, color: i === 2 ? 'var(--text)' : 'var(--text-muted)' }}>{l}</span>
-                                <span style={{ textAlign: 'right', fontWeight: i === 2 ? 900 : 600, color: i === 2 ? 'var(--primary)' : 'var(--text)', fontSize: i === 2 ? '1.05rem' : '0.88rem' }}>{v}</span>
-                            </React.Fragment>
-                        ))}
+                        {(() => {
+                            const rows = [['Subtotal', Rs(subtotal)], ...(whtAmount > 0 ? [['WHT Deduction', '-' + Rs(whtAmount)]] : []), [`GST (${form.gstPct || 0}%)`, Rs(gstAmount)], ['GRAND TOTAL', Rs(grandTotal)]];
+                            const lastIdx = rows.length - 1;
+                            return rows.map(([l, v], i) => (
+                                <React.Fragment key={l}>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: i === lastIdx ? 700 : 400, color: i === lastIdx ? 'var(--text)' : 'var(--text-muted)' }}>{l}</span>
+                                    <span style={{ textAlign: 'right', fontWeight: i === lastIdx ? 900 : 600, color: i === lastIdx ? 'var(--primary)' : 'var(--text)', fontSize: i === lastIdx ? '1.05rem' : '0.88rem' }}>{v}</span>
+                                </React.Fragment>
+                            ));
+                        })()}
                     </div>
 
                     <FL label="Internal Note"><SI value={form.note} onChange={e => set('note', e.target.value)} placeholder="Optional note for auditors..." /></FL>
