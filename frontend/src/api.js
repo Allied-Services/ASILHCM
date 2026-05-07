@@ -1,4 +1,15 @@
 // Shared API utility — automatically attaches JWT auth token to every request
+
+// ── Simple in-memory 2-minute cache for frequent read-only endpoints ──────────
+const _cache = {};
+const _cacheGet = (key) => {
+    const entry = _cache[key];
+    if (!entry) return null;
+    if (Date.now() - entry.cachedAt > 120_000) { delete _cache[key]; return null; } // 2-min TTL
+    return entry.data;
+};
+const _cacheSet = (key, data) => { _cache[key] = { data, cachedAt: Date.now() }; };
+const _cacheClear = (key) => { delete _cache[key]; };
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
 export async function apiFetch(path, options = {}) {
@@ -26,10 +37,10 @@ export async function apiFetch(path, options = {}) {
 
 export const api = {
     // ── Employees ────────────────────────────────────────────────────────────
-    getEmployees: () => apiFetch('/api/employees'),
-    createEmployee: (data) => apiFetch('/api/employees', { method: 'POST', body: JSON.stringify(data) }),
-    updateEmployee: (id, data) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
-    deleteEmployee: (id) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    getEmployees: () => { const c = _cacheGet('employees'); if (c) return Promise.resolve(c); return apiFetch('/api/employees').then(d => { _cacheSet('employees', d); return d; }); },
+    createEmployee: (data) => apiFetch('/api/employees', { method: 'POST', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
+    updateEmployee: (id, data) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
+    deleteEmployee: (id) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(d => { _cacheClear('employees'); return d; }),
     bulkImportEmployees: (employees) => apiFetch('/api/employees/bulk', { method: 'POST', body: JSON.stringify({ employees }) }),
 
     // ── Clients ───────────────────────────────────────────────────────────────
@@ -39,7 +50,7 @@ export const api = {
     deleteClient: (id) => apiFetch(`/api/clients/${id}`, { method: 'DELETE' }),
 
     // ── Contracts ─────────────────────────────────────────────────────────────
-    getContracts: () => apiFetch('/api/contracts'),
+    getContracts: () => { const c = _cacheGet('contracts'); if (c) return Promise.resolve(c); return apiFetch('/api/contracts').then(d => { _cacheSet('contracts', d); return d; }); },
     deleteContract: (id) => apiFetch(`/api/contracts/${id}`, { method: 'DELETE' }),
     reassignContract: (id, clientId) => apiFetch(`/api/contracts/${id}/reassign`, { method: 'PATCH', body: JSON.stringify({ client_id: clientId }) }),
 

@@ -295,19 +295,24 @@ app.post('/api/sms/bulk', requireAuth, async (req, res) => {
         const { recipients, message } = req.body; // recipients: [{id, phone, name}]
         if (!recipients?.length || !message) return res.status(400).json({ error: 'recipients and message are required' });
         const results = [];
+        // Batch SMS log entries to avoid N+1 query per recipient
+        const smsLogIds = [], smsLogBodies = [], smsLogSenders = [];
         for (const r of recipients) {
             if (!r.phone) { results.push({ name: r.name, ok: false, error: 'No phone' }); continue; }
             try {
                 const smsMsg = message.replace('{name}', r.name || '');
                 const result = await sendJazzSMS(r.phone, smsMsg);
-                if (r.id) {
-                    await pool.query(
-                        `INSERT INTO employee_messages (employee_id, channel, subject, body, sender) VALUES ($1,'sms','Bulk SMS',$2,$3)`,
-                        [r.id, smsMsg, req.user.email]
-                    ).catch(() => {});
-                }
+                if (r.id) { smsLogIds.push(r.id); smsLogBodies.push(smsMsg); smsLogSenders.push(req.user.email); }
                 results.push({ name: r.name, phone: r.phone, ok: true, response: result.response });
             } catch (e) { results.push({ name: r.name, phone: r.phone, ok: false, error: e.message }); }
+        }
+        // Single bulk INSERT for all SMS log entries
+        if (smsLogIds.length > 0) {
+            await pool.query(
+                `INSERT INTO employee_messages (employee_id, channel, subject, body, sender)
+                  SELECT unnest($1::text[]),'sms','Bulk SMS',unnest($2::text[]),unnest($3::text[])`,
+                [smsLogIds, smsLogBodies, smsLogSenders]
+            ).catch(() => {});
         }
         res.json({ sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -3420,17 +3425,24 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
         const monthName = new Date(2000, mo-1, 1).toLocaleString('en-US', { month: 'short' });
         const yr2 = String(yr).slice(-2);
 
-        for (const emp of empRows.rows) {
+        // ── Bulk payment_ledger INSERT (replaces N+1 per-employee loop) ──────
+        if (empRows.rows.length > 0) {
+            const plBatch    = empRows.rows.map(() => batchRows[0].id);
+            const plEmpIds   = empRows.rows.map(e => e.employee_id);
+            const plNames    = empRows.rows.map(e => e.name);
+            const plAmounts  = empRows.rows.map(e => parseFloat(e.net) || 0);
+            const plRefs     = empRows.rows.map(e => `PR${monthName}${yr2}-${e.employee_id}`);
+            const plBanks    = empRows.rows.map(e => e.bank_name || bank_name || '');
+            const plAccts    = empRows.rows.map(e => e.bank_account || '');
             await pool.query(`
                 INSERT INTO payment_ledger
                     (batch_id, employee_id, employee_name, payment_type, amount, reference,
                      bank_name, bank_account, billable, xero_account_code, status)
-                VALUES ($1,$2,$3,'SALARY',$4,$5,$6,$7,TRUE,'200','Paid')
+                SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]),
+                       'SALARY', unnest($4::numeric[]), unnest($5::text[]),
+                       unnest($6::text[]), unnest($7::text[]), TRUE, '200', 'Paid'
                 ON CONFLICT (batch_id, employee_id) DO NOTHING
-            `, [batchRows[0].id, emp.employee_id, emp.name,
-                parseFloat(emp.net)||0,
-                `PR${monthName}${yr2}-${emp.employee_id}`,
-                emp.bank_name||bank_name||'', emp.bank_account||'']);
+            `, [plBatch, plEmpIds, plNames, plAmounts, plRefs, plBanks, plAccts]);
         }
 
         // Optional Xero push
@@ -4655,6 +4667,39 @@ app.post('/api/migrate/asil-migrate-2026-x9k7', requireAuth, requireRole('supera
 });
 
 // Graceful shutdown — drain DB pool cleanly on Render deploy/restart
+
+// ── Performance Indexes (idempotent — run once at startup) ─────────────────
+Promise.all([
+    pool.query('CREATE INDEX IF NOT EXISTS idx_employees_client ON employees(client)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_employees_active ON employees(active)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_employees_contract_id ON employees(contract_id)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_employees_location ON employees(location)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_payroll_emp_month ON payroll_transactions(employee_id, month, year)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_payroll_month_year ON payroll_transactions(month, year)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_bills_status ON bills(status)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_bills_client ON bills(client)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_bills_created_by ON bills(created_by)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_contracts_client_id ON contracts(client_id)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_pf_emp_month ON employee_pf_ledger(employee_id, month, year)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_gratuity_emp ON employee_gratuity_ledger(employee_id)'),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance_records(employee_id, date)').catch(() => {}),
+    pool.query('CREATE INDEX IF NOT EXISTS idx_obligations_due ON obligation_instances(due_date, status)').catch(() => {}),
+]).then(() => console.log('Performance indexes: OK'))
+  .catch(e => console.warn('Index creation warning (non-fatal):', e.message));
+
+// ── Central Error Handler ──────────────────────────────────────────────────
+// Catches errors passed via next(err). Sanitizes output in production.
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+    const status = err.status || err.statusCode || 500;
+    const isDev = process.env.NODE_ENV !== 'production';
+    console.error('[ERROR]', req.method, req.path, err.message);
+    res.status(status).json({
+        error: isDev ? err.message : 'An internal server error occurred.',
+        ...(isDev && { detail: err.stack?.split('\n').slice(0, 3).join(' | ') }),
+    });
+});
+
 process.on('SIGTERM', async () => {
     console.log('[SIGTERM] Shutting down gracefully — draining DB pool...');
     await pool.end();
