@@ -114,7 +114,7 @@ function PayslipModal({ payslip, employee, onClose }) {
 }
 
 // ── MAIN PROFILE ─────────────────────────────────────────────────────────────
-export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
+export default function EmployeeProfile({ employee, user, onBack, onUpdate, allEmployees = [] }) {
     const isSuperAdmin = user?.role === 'admin' || user?.role === 'superadmin';
     const [tab, setTab] = useState('personal');
     const [emp, setEmp] = useState(employee);
@@ -163,6 +163,31 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
             .then(d => setContractsList(d.contracts || []))
             .catch(() => {});
     }, []);
+
+    // ── Autocomplete option lists (deduplicated from full employee roster) ─────
+    const suggestBU    = [...new Set(allEmployees.map(e => e.bu).filter(Boolean))].sort();
+    const suggestDept  = [...new Set(allEmployees.map(e => e.dept).filter(Boolean))].sort();
+    const suggestDesig = [...new Set(allEmployees.map(e => e.designation).filter(Boolean))].sort();
+    const suggestLoc   = [...new Set(allEmployees.map(e => e.location).filter(Boolean))].sort();
+    const suggestCliB  = [...new Set(allEmployees.map(e => e.clientBU).filter(Boolean))].sort();
+
+    // ── Searchable combobox using <datalist> — allows free-text AND selection ──
+    const ECombo = ({ field, listId, suggestions, placeholder = '' }) => (
+        <>
+            <input
+                type="text"
+                list={listId}
+                value={ef(field)}
+                onChange={e => setEf(field, e.target.value)}
+                placeholder={placeholder}
+                style={{ background: 'var(--bg-dark)', border: '1px solid var(--primary)', borderRadius: '6px',
+                    padding: '4px 8px', color: 'var(--text)', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box' }}
+            />
+            <datalist id={listId}>
+                {suggestions.map(s => <option key={s} value={s} />)}
+            </datalist>
+        </>
+    );
 
     // Salary History state
     const [showAddSalary, setShowAddSalary] = useState(false);
@@ -578,7 +603,10 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                 {isEditing && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                     <Card><STitle>Employment</STitle>
                         <ERow label="Employee Code" field="id" disabled />
-                        <ERow label="ASIL BU" field="bu" />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>ASIL BU</span>
+                            <div style={{ flex: 1 }}><ECombo field="bu" listId="opt-bu" suggestions={suggestBU} placeholder="e.g. Retail, Operations..." /></div>
+                        </div>
                         {/* ── Assign Contract dropdown ── */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
                             <span style={{ color: editForm.contractId ? 'var(--text-muted)' : '#f59e0b', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Contract *</span>
@@ -605,10 +633,22 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate }) {
                             </div>
                         </div>
                         <ERow label="Client Name" field="client" />
-                        <ERow label="Client BU" field="clientBU" />
-                        <ERow label="Department" field="dept" />
-                        <ERow label="Designation" field="designation" />
-                        <ERow label="Location" field="location" />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Client BU</span>
+                            <div style={{ flex: 1 }}><ECombo field="clientBU" listId="opt-clientbu" suggestions={suggestCliB} placeholder="e.g. Facility Management..." /></div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Department</span>
+                            <div style={{ flex: 1 }}><ECombo field="dept" listId="opt-dept" suggestions={suggestDept} placeholder="e.g. Security Services..." /></div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Designation</span>
+                            <div style={{ flex: 1 }}><ECombo field="designation" listId="opt-desig" suggestions={suggestDesig} placeholder="e.g. Security Guard..." /></div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Location</span>
+                            <div style={{ flex: 1 }}><ECombo field="location" listId="opt-loc" suggestions={suggestLoc} placeholder="e.g. Islamabad..." /></div>
+                        </div>
                         <ERow label="Province" field="province" opts={['Sindh','Punjab','KPK','Balochistan','Gilgit-Baltistan','Islamabad']} />
                         <ERow label="Date of Joining" field="doj" type="date" />
                         <ERow label="Last Working Day" field="lastWorkingDay" type="date" />

@@ -62,6 +62,15 @@ const FormField = ({ label, field, type = 'text', opts, form, setForm }) => (
             <select value={form[field]} onChange={e => setForm(p => ({ ...p, [field]: e.target.value }))} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem' }}>
                 {opts.sel.map(o => <option key={o}>{o}</option>)}
             </select>
+        ) : opts?.list ? (
+            <>
+                <input type="text" list={field + '-datalist'} value={form[field] || ''} placeholder={opts?.ph || ''}
+                    onChange={e => setForm(p => ({ ...p, [field]: e.target.value }))}
+                    style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                <datalist id={field + '-datalist'}>
+                    {opts.list.map(o => <option key={o} value={o} />)}
+                </datalist>
+            </>
         ) : (
             <input type={type} value={form[field] || ''} placeholder={opts?.ph || ''} onChange={e => setForm(p => ({ ...p, [field]: e.target.value }))}
                 style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
@@ -79,6 +88,7 @@ export default function EmployeeInformation({ user }) {
     const [filterClient, setFilterClient] = useState('All');
     const [filterLocation, setFilterLocation] = useState('All');
     const [filterDept, setFilterDept] = useState('All');
+    const [filterContract, setFilterContract] = useState('All');
     const [showAdd, setShowAdd] = useState(false);
     const [addMode, setAddMode] = useState('single');
     const [form, setForm] = useState(EMPTY_FORM);
@@ -111,6 +121,7 @@ export default function EmployeeInformation({ user }) {
     const allClients = ['All', ...new Set(emps.map(e => e.client).filter(Boolean))];
     const allLocations = ['All', ...new Set(emps.map(e => e.location).filter(Boolean))];
     const allDepts = ['All', ...new Set(emps.map(e => e.designation).filter(Boolean))];
+    const allContracts = ['All', ...new Set(emps.map(e => e.contractName).filter(Boolean))].sort();
 
     const filtered = emps.filter(e => {
         const q = search.toLowerCase();
@@ -124,7 +135,8 @@ export default function EmployeeInformation({ user }) {
         const matchClient = filterClient === 'All' || e.client === filterClient;
         const matchLocation = filterLocation === 'All' || e.location === filterLocation;
         const matchDept = filterDept === 'All' || e.designation === filterDept;
-        return matchSearch && matchActive && matchClient && matchLocation && matchDept;
+        const matchContract = filterContract === 'All' || e.contractName === filterContract;
+        return matchSearch && matchActive && matchClient && matchLocation && matchDept && matchContract;
     });
 
     // ── Flexible CSV header lookup (case-insensitive, multi-alias) ─────────
@@ -356,7 +368,7 @@ export default function EmployeeInformation({ user }) {
     const F = (props) => <FormField {...props} form={form} setForm={setForm} />;
 
 
-    if (profile) return <EmployeeProfile employee={profile} user={user} onBack={() => setProfile(null)} onUpdate={updateEmployee} />;
+    if (profile) return <EmployeeProfile employee={profile} user={user} onBack={() => setProfile(null)} onUpdate={updateEmployee} allEmployees={emps} />;
 
     return (
         <div className="dashboard">
@@ -506,6 +518,7 @@ export default function EmployeeInformation({ user }) {
                     { label: 'Client', val: filterClient, set: setFilterClient, opts: allClients },
                     { label: 'Location', val: filterLocation, set: setFilterLocation, opts: allLocations },
                     { label: 'Position', val: filterDept, set: setFilterDept, opts: allDepts },
+                    { label: 'Contract', val: filterContract, set: setFilterContract, opts: allContracts },
                 ].map(f => (
                     <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{f.label}:</span>
@@ -515,8 +528,8 @@ export default function EmployeeInformation({ user }) {
                         </select>
                     </div>
                 ))}
-                {(filterClient !== 'All' || filterLocation !== 'All' || filterDept !== 'All') && (
-                    <button onClick={() => { setFilterClient('All'); setFilterLocation('All'); setFilterDept('All'); }}
+                {(filterClient !== 'All' || filterLocation !== 'All' || filterDept !== 'All' || filterContract !== 'All') && (
+                    <button onClick={() => { setFilterClient('All'); setFilterLocation('All'); setFilterDept('All'); setFilterContract('All'); }}
                         style={{ fontSize: '0.78rem', color: '#ef4444', background: 'transparent', border: '1px solid #ef444440', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>
                         Clear Filters
                     </button>
@@ -656,7 +669,7 @@ export default function EmployeeInformation({ user }) {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                                 {sec === 'Employment' && <>
                                     <F label="ASIL Employee Code" field="id" opts={{ ph: 'ASIL/SPL-XXX/25' }} />
-                                    <F label="ASIL BU" field="bu" opts={{ ph: 'e.g. WafiBPO' }} />
+                                    <F label="ASIL BU" field="bu" opts={{ ph: 'e.g. WafiBPO', list: [...new Set(emps.map(e => e.bu).filter(Boolean))].sort() }} />
                                     <div style={{ gridColumn: '1/-1' }}>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                             <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Contract *</label>
@@ -684,10 +697,10 @@ export default function EmployeeInformation({ user }) {
                                         </div>
                                     </div>
                                     <F label="Client Name" field="client" opts={{ ph: 'Client organisation name' }} />
-                                    <F label="Client Business Unit" field="clientBU" opts={{ ph: 'e.g. Trading & Supply' }} />
-                                    <F label="Department" field="dept" opts={{ ph: 'e.g. Security Services' }} />
-                                    <F label="Designation" field="designation" opts={{ ph: 'e.g. Security Guard' }} />
-                                    <F label="Client Location" field="location" opts={{ ph: 'e.g. Karachi' }} />
+                                    <F label="Client Business Unit" field="clientBU" opts={{ ph: 'e.g. Trading & Supply', list: [...new Set(emps.map(e => e.clientBU).filter(Boolean))].sort() }} />
+                                    <F label="Department" field="dept" opts={{ ph: 'e.g. Security Services', list: [...new Set(emps.map(e => e.dept).filter(Boolean))].sort() }} />
+                                    <F label="Designation" field="designation" opts={{ ph: 'e.g. Security Guard', list: [...new Set(emps.map(e => e.designation).filter(Boolean))].sort() }} />
+                                    <F label="Client Location" field="location" opts={{ ph: 'e.g. Karachi', list: [...new Set(emps.map(e => e.location).filter(Boolean))].sort() }} />
                                     <F label="Province" field="province" opts={{ sel: ['', 'Sindh', 'Punjab', 'KPK', 'Balochistan', 'Gilgit-Baltistan', 'AJK', 'Islamabad (ICT)'] }} />
                                     <F label="Date of Joining" field="doj" type="date" />
                                     <F label="Last Working Day" field="lastWorkingDay" type="date" opts={{ ph: 'Leave blank if still active' }} />
