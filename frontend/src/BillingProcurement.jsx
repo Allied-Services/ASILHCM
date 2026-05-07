@@ -46,6 +46,17 @@ const BILL_TYPE_DEFS = [
         color: '#f59e0b',
     },
 ];
+    {
+        id: 'Standard',
+        icon: '📋',
+        desc: 'Standard purchase bill — Official (with GST/WHT) or Unofficial (no tax verification)',
+        billable: null,
+        billableLocked: false,
+        requiresClient: false,
+        requiresContract: false,
+        color: '#e879f9',
+        hasCategory: true, // triggers official/unofficial sub-selection
+    },
 const BILL_TYPES = BILL_TYPE_DEFS.map(t => t.id);
 const PURPOSES = ['Office Supplies', 'Maintenance & Repair', 'Fuel & Transport', 'Safety Equipment', 'Monthly Consumables', 'Equipment', 'Catering', 'Utilities', 'Other'];
 
@@ -407,7 +418,7 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
     const [form, setForm] = useState({
         vendorId: '', vendor: '', date: new Date().toISOString().split('T')[0],
         invoiceNo: '', gstPct: '17', client: '', contractId: '', bu: '', site: '',
-        billType: 'Debit Note / Imprest', purpose: '', note: '',
+        billType: 'Debit Note / Imprest', purpose: '', note: '', billCategory: 'official', vendorFiler: '',
         billable: true, periodMonth: new Date().getMonth() + 1, periodYear: new Date().getFullYear(),
     });
     const [items, setItems] = useState([emptyItem()]);
@@ -423,7 +434,12 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
     });
 
     const subtotal = items.reduce((a, it) => a + (parseFloat(it.total) || 0), 0);
-    const gstAmount = Math.round(subtotal * (parseFloat(form.gstPct) || 0) / 100);
+    // For unofficial Standard bills: no GST or WHT
+    const isUnofficial = form.billType === 'Standard' && form.billCategory === 'unofficial';
+    const gstAmount = isUnofficial ? 0 : Math.round(subtotal * (parseFloat(form.gstPct) || 0) / 100);
+    // WHT: only for Official Standard bills (vendor is filer=5%, non-filer=10%)
+    const whtPct = (!isUnofficial && form.billType === 'Standard') ? (form.vendorFiler === 'filer' ? 5 : form.vendorFiler === 'non-filer' ? 10 : 0) : 0;
+    const whtAmount = Math.round(subtotal * whtPct / 100);
     const grandTotal = subtotal + gstAmount;
 
     const save = () => {
@@ -513,6 +529,45 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
                         <FL label="Purpose" span="span 2"><SS value={form.purpose} onChange={e => set('purpose', e.target.value)} opts={PURPOSES} /></FL>
                         <FL label="GST %"><SI type="number" value={form.gstPct} onChange={e => set('gstPct', e.target.value)} placeholder="17" /></FL>
 
+                        {/* Standard bill: Official / Unofficial toggle */}
+                        {form.billType === 'Standard' && (
+                            <div style={{ gridColumn: 'span 3', marginBottom: '0.75rem' }}>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>Bill Nature — Standard</div>
+                                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                    {[
+                                        { id: 'official', label: '📄 Official', desc: 'Registered vendor · GST applicable · WHT based on filer status', color: '#38bdf8' },
+                                        { id: 'unofficial', label: '✋ Unofficial', desc: 'No GST · No WHT · No filer verification required', color: '#f59e0b' },
+                                    ].map(opt => (
+                                        <button key={opt.id} onClick={() => set('billCategory', opt.id)}
+                                            style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: `2px solid ${form.billCategory === opt.id ? opt.color : 'var(--border)'}`,
+                                                background: form.billCategory === opt.id ? `${opt.color}15` : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                                            <div style={{ fontWeight: 700, color: form.billCategory === opt.id ? opt.color : 'var(--text-muted)', marginBottom: '3px', fontSize: '0.88rem' }}>{opt.label}</div>
+                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>{opt.desc}</div>
+                                        </button>
+                                    ))}
+                                </div>
+                                {form.billCategory === 'unofficial' && (
+                                    <div style={{ marginTop: '8px', padding: '8px 12px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '8px', fontSize: '0.78rem', color: '#f59e0b' }}>
+                                        ⚠ Unofficial bill — GST and WHT will NOT be applied. No filer/non-filer check required.
+                                    </div>
+                                )}
+                                {form.billCategory === 'official' && (
+                                    <div style={{ marginTop: '8px' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '5px' }}>Vendor Filer Status (for WHT)</div>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            {[['filer', 'Filer (WHT 5%)', '#22c55e'], ['non-filer', 'Non-Filer (WHT 10%)', '#ef4444'], ['', 'Unknown / Skip WHT', '#64748b']].map(([val, lbl, col]) => (
+                                                <button key={val} onClick={() => set('vendorFiler', val)}
+                                                    style={{ flex: 1, padding: '6px 8px', borderRadius: '8px', border: `1px solid ${form.vendorFiler === val ? col : 'var(--border)'}`,
+                                                        background: form.vendorFiler === val ? `${col}18` : 'transparent', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 700, color: form.vendorFiler === val ? col : 'var(--text-muted)' }}>
+                                                    {lbl}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {/* Billable toggle — locked for types 1 & 2 */}
                         <div style={{ gridColumn: 'span 3', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderRadius: '8px', background: form.billable ? 'rgba(34,197,94,0.07)' : 'rgba(245,158,11,0.07)', border: `1px solid ${form.billable ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.3)'}` }}>
                             <input type="checkbox" checked={!!form.billable} disabled={billTypeDef.billableLocked}
@@ -571,7 +626,7 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
 
                     {/* Totals */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '5px 1rem', background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.15)', borderRadius: '10px', padding: '0.85rem 1rem', marginBottom: '1rem' }}>
-                        {[['Subtotal', Rs(subtotal)], [`GST (${form.gstPct || 0}%)`, Rs(gstAmount)], ['GRAND TOTAL', Rs(grandTotal)]].map(([l, v], i) => (
+                        {[['Subtotal', Rs(subtotal)], ...(whtAmount > 0 ? [['WHT Deduction', '-' + Rs(whtAmount)]] : []), [`GST (${form.gstPct || 0}%)`, Rs(gstAmount)], ['GRAND TOTAL', Rs(grandTotal)]].map(([l, v], i) => (
                             <React.Fragment key={l}>
                                 <span style={{ fontSize: '0.85rem', fontWeight: i === 2 ? 700 : 400, color: i === 2 ? 'var(--text)' : 'var(--text-muted)' }}>{l}</span>
                                 <span style={{ textAlign: 'right', fontWeight: i === 2 ? 900 : 600, color: i === 2 ? 'var(--primary)' : 'var(--text)', fontSize: i === 2 ? '1.05rem' : '0.88rem' }}>{v}</span>
@@ -855,6 +910,9 @@ export default function BillingProcurement({ user }) {
     const [vendorsList, setVendorsList]     = useState([]);
     const [activeTab, setActiveTab]         = useState('active'); // 'active' | 'paid'
     const [unlockTarget, setUnlockTarget]   = useState(null); // bill to unlock
+    const [paymentModal, setPaymentModal] = useState(null); // { billId, action } when Mark as Paid clicked
+    const [paymentMethod, setPaymentMethod] = useState('HBL');
+    const [paymentAccount, setPaymentAccount] = useState('');
     const [unlockPwd, setUnlockPwd]         = useState('');
     const [unlockError, setUnlockError]     = useState(null);
     const [unlockLoading, setUnlockLoading] = useState(false);
@@ -884,6 +942,10 @@ export default function BillingProcurement({ user }) {
     };
 
     const doAction = async (id, action) => {
+        if (action === 'Mark as Paid') {
+            setPaymentModal({ billId: id });
+            return; // payment modal handles the actual PATCH
+        }
         const map = {
             'Submit for Approval': 'Pending Approval',
             'Approve': 'Approved',
@@ -898,6 +960,23 @@ export default function BillingProcurement({ user }) {
             await api.updateBillStatus(id, newStatus);
             setBills(p => p.map(b => b.id === id ? { ...b, status: newStatus } : b));
         } catch (err) { alert('Status update failed: ' + err.message); }
+    };
+
+    const doPayment = async () => {
+        if (!paymentModal) return;
+        try {
+            const token = localStorage.getItem('asil_hcm_token');
+            const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+            const r = await fetch(`${API}/api/bills/${paymentModal.billId}/status`, {
+                method: 'PATCH',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'Paid', paymentMethod, paymentAccount }),
+            });
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Payment update failed');
+            setBills(p => p.map(b => b.id === paymentModal.billId ? { ...b, status: 'Paid', paymentMethod, paymentAccount } : b));
+            setPaymentModal(null); setPaymentMethod('HBL'); setPaymentAccount('');
+        } catch (err) { alert('Payment failed: ' + err.message); }
     };
 
     const generateChallan = async (bill) => {
@@ -1144,7 +1223,7 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
                                                         🔓 Unlock
                                                     </button>
                                                 )}
-                                                {isSuperAdmin && !isPaid && (
+                                                {(isSuperAdmin || (b.created_by === user?.email && ['Draft','Pending Approval','Pending'].includes(b.status))) && !isPaid && (
                                                     <button onClick={() => deleteBill(b)} title="Delete"
                                                         style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', padding: '5px 7px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem' }}>🗑</button>
                                                 )}
@@ -1186,6 +1265,64 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
                                 <button onClick={doUnlock} disabled={!unlockPwd || unlockLoading}
                                     style={{ flex: 2, background: unlockPwd ? '#f59e0b' : '#334155', border: 'none', color: 'white', padding: '9px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
                                     {unlockLoading ? 'Checking…' : '🔓 Unlock Bill'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+
+            {/* Payment Method Modal — shown when Mark as Paid is clicked */}
+            {paymentModal && (
+                <div className='modal-overlay' onClick={e => e.target === e.currentTarget && setPaymentModal(null)}>
+                    <div className='modal-box' style={{ maxWidth: '440px' }}>
+                        <div style={{ padding: '1.5rem 2rem' }}>
+                            <h3 style={{ margin: '0 0 0.25rem' }}>💳 Record Payment</h3>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                                Select the payment method and account used to settle this bill.
+                            </p>
+                            <div style={{ marginBottom: '1.25rem' }}>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>Payment Method</div>
+                                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                    {[
+                                        { id: 'HBL', label: '🏦 HBL', desc: 'Habib Bank Limited', color: '#38bdf8' },
+                                        { id: 'NBP', label: '🏛 NBP', desc: 'National Bank of Pakistan', color: '#22c55e' },
+                                        { id: 'Cash', label: '💵 Cash', desc: 'Physical cash payment', color: '#f59e0b' },
+                                    ].map(m => (
+                                        <button key={m.id} onClick={() => { setPaymentMethod(m.id); setPaymentAccount(''); }}
+                                            style={{ flex: 1, padding: '10px 8px', borderRadius: '10px', border: `2px solid ${paymentMethod === m.id ? m.color : 'var(--border)'}`,
+                                                background: paymentMethod === m.id ? `${m.color}18` : 'transparent', cursor: 'pointer', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '1.1rem', marginBottom: '3px' }}>{m.label.split(' ')[0]}</div>
+                                            <div style={{ fontWeight: 700, fontSize: '0.8rem', color: paymentMethod === m.id ? m.color : 'var(--text-muted)' }}>{m.id}</div>
+                                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{m.desc}</div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            {paymentMethod !== 'Cash' && (
+                                <div style={{ marginBottom: '1.25rem' }}>
+                                    <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>
+                                        {paymentMethod} Account / Reference No. (Optional)
+                                    </label>
+                                    <input value={paymentAccount} onChange={e => setPaymentAccount(e.target.value)}
+                                        placeholder={paymentMethod === 'HBL' ? 'e.g. HBL-0012-xxxx or Cheque #' : 'e.g. NBP Account or Cheque #'}
+                                        style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '9px 12px', color: 'var(--text)', fontSize: '0.88rem', boxSizing: 'border-box' }} />
+                                </div>
+                            )}
+                            {paymentMethod === 'Cash' && (
+                                <div style={{ marginBottom: '1.25rem', padding: '10px 14px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '8px', fontSize: '0.8rem', color: '#f59e0b' }}>
+                                    💵 Cash payment will be recorded against the <strong>Cash Account</strong>. Ensure a receipt or acknowledgment is filed.
+                                </div>
+                            )}
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button onClick={() => setPaymentModal(null)}
+                                    style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>
+                                    Cancel
+                                </button>
+                                <button onClick={doPayment}
+                                    style={{ flex: 2, background: '#10b981', border: 'none', color: 'white', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                                    ✅ Confirm Payment via {paymentMethod}
                                 </button>
                             </div>
                         </div>

@@ -811,6 +811,11 @@ pool.query(`
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS billable     BOOLEAN DEFAULT TRUE`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS period_month INT`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS period_year  INT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS bill_category   TEXT DEFAULT 'official'`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS payment_method  TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS payment_account TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS wht_amount      NUMERIC(12,2) DEFAULT 0`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS gst_exempt       BOOLEAN DEFAULT FALSE`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS paid_at      TIMESTAMPTZ`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS paid_by      TEXT`,
     `CREATE TABLE IF NOT EXISTS delivery_challans (
@@ -857,7 +862,7 @@ app.get('/api/bills', requireAuth, async (req, res) => {
             invoiceNo: r.invoice_no,
             items: r.items || [], amount: parseFloat(r.amount) || 0,
             gst: parseFloat(r.gst) || 0, total: parseFloat(r.total) || 0,
-            status: r.status || 'Draft', createdBy: r.created_by,
+            status: r.status || 'Draft', createdBy: r.created_by, billCategory: r.bill_category || 'official', whtAmount: parseFloat(r.wht_amount) || 0, gstExempt: r.gst_exempt || false, paymentMethod: r.payment_method, paymentAccount: r.payment_account,
             createdAt: r.created_at,
         })));
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -867,36 +872,39 @@ app.post('/api/bills', requireAuth, requireRole('procurement_proposer','finance_
     const b = req.body;
     try {
         const { rows } = await pool.query(
-            `INSERT INTO bills (id,type,vendor,date,client,contract,contract_id,bu,site,bill_type,purpose,note,invoice_no,items,amount,gst,total,status,created_by)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+            `INSERT INTO bills (id,type,vendor,date,client,contract,contract_id,bu,site,bill_type,purpose,note,invoice_no,items,amount,gst,total,status,created_by,billable,bill_category,wht_amount,gst_exempt)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
              ON CONFLICT (id) DO UPDATE SET
                vendor=EXCLUDED.vendor, date=EXCLUDED.date, client=EXCLUDED.client,
                contract=EXCLUDED.contract, contract_id=EXCLUDED.contract_id,
                bu=EXCLUDED.bu, site=EXCLUDED.site, bill_type=EXCLUDED.bill_type,
                purpose=EXCLUDED.purpose, note=EXCLUDED.note, invoice_no=EXCLUDED.invoice_no,
                items=EXCLUDED.items, amount=EXCLUDED.amount, gst=EXCLUDED.gst,
-               total=EXCLUDED.total, status=EXCLUDED.status, updated_at=NOW()
+               total=EXCLUDED.total, status=EXCLUDED.status, billable=EXCLUDED.billable, bill_category=EXCLUDED.bill_category, wht_amount=EXCLUDED.wht_amount, gst_exempt=EXCLUDED.gst_exempt, updated_at=NOW()
              RETURNING *`,
             [b.id, b.type, b.vendor, b.date, b.client, b.contract, b.contractId || null,
              b.bu || null, b.site, b.billType, b.purpose, b.note, b.invoiceNo || null,
              JSON.stringify(b.items || []), b.amount || 0, b.gst || 0, b.total || 0,
-             b.status || 'Draft', req.user.email]
+             b.status || 'Draft', req.user.email, b.billable !== false,
+             b.billCategory || 'official', b.whtAmount || 0, b.gstExempt || false]
         );
         const r = rows[0];
-        res.json({ ok: true, bill: { id: r.id, type: r.type, vendor: r.vendor, date: r.date, client: r.client, contract: r.contract, contractId: r.contract_id, bu: r.bu, site: r.site, billType: r.bill_type, purpose: r.purpose, note: r.note, invoiceNo: r.invoice_no, items: r.items || [], amount: parseFloat(r.amount) || 0, gst: parseFloat(r.gst) || 0, total: parseFloat(r.total) || 0, status: r.status || 'Draft', createdBy: r.created_by } });
+                status: r.status || 'Draft', createdBy: r.created_by, billCategory: r.bill_category || 'official', whtAmount: parseFloat(r.wht_amount) || 0, gstExempt: r.gst_exempt || false } });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approver','finance_approver','superadmin'), async (req, res) => {
-    const { status } = req.body;
+    const { status, paymentMethod, paymentAccount } = req.body;
     const VALID = ['Draft','Pending Approval','Approved','Rejected','Pushed to Xero','Posted','Paid'];
     if (!VALID.includes(status)) return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID.join(', ')}` });
     try {
         const extra = status === 'Paid'
-            ? ', paid_at=NOW(), paid_by=$3'
+        const extra = status === 'Paid'
+            ? `, paid_at=NOW(), paid_by=$3, payment_method=$4, payment_account=$5`
             : '';
         const params = status === 'Paid'
-            ? [status, req.params.id, req.user.email]
+        const params = status === 'Paid'
+            ? [status, req.params.id, req.user.email, paymentMethod || null, paymentAccount || null]
             : [status, req.params.id];
         await pool.query(`UPDATE bills SET status=$1, updated_at=NOW()${extra} WHERE id=$2`, params);
         res.json({ ok: true, status });
@@ -916,6 +924,33 @@ app.post('/api/bills/:id/unlock', requireAuth, async (req, res) => {
 });
 
 // POST /api/bills/:id/challan ├óΓé¼ΓÇ¥ generate or retrieve a delivery challan
+// PUT /api/bills/:id — maker can edit own bills before approval
+app.put('/api/bills/:id', requireAuth, async (req, res) => {
+    const b = req.body;
+    try {
+        const { rows: [existing] } = await pool.query('SELECT created_by, status FROM bills WHERE id=$1', [req.params.id]);
+        if (!existing) return res.status(404).json({ error: 'Bill not found' });
+        const isMaker = existing.created_by === req.user.email;
+        const isSuperAdmin = req.user.role === 'superadmin';
+        const isEditable = ['Draft', 'Pending Approval', 'Pending'].includes(existing.status);
+        if (!isSuperAdmin && !(isMaker && isEditable)) {
+            return res.status(403).json({ error: 'Bills can only be edited by the maker before approval.' });
+        }
+        const { rows } = await pool.query(
+            `UPDATE bills SET vendor=$1, date=$2, client=$3, contract=$4, bu=$5, site=$6,
+             bill_type=$7, purpose=$8, note=$9, invoice_no=$10, items=$11,
+             amount=$12, gst=$13, total=$14, billable=$15, bill_category=$16,
+             wht_amount=$17, gst_exempt=$18, updated_at=NOW() WHERE id=$19 RETURNING *`,
+            [b.vendor, b.date, b.client, b.contract, b.bu, b.site,
+             b.billType, b.purpose, b.note, b.invoiceNo,
+             JSON.stringify(b.items || []), b.amount || 0, b.gst || 0, b.total || 0,
+             b.billable !== false, b.billCategory || 'official', b.whtAmount || 0, b.gstExempt || false,
+             req.params.id]
+        );
+        res.json({ ok: true, bill: rows[0] });
+    } catch (err) { console.error('[PUT /bills/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
+});
+
 app.post('/api/bills/:id/challan', requireAuth, async (req, res) => {
     try {
         const { delivery_date, notes } = req.body;
@@ -981,7 +1016,16 @@ app.get('/api/bills/:id/challan', requireAuth, async (req, res) => {
 });
 
 
-app.delete('/api/bills/:id', requireAuth, requireRole('superadmin'), async (req, res) => {
+app.delete('/api/bills/:id', requireAuth, async (req, res) => {
+    // Maker can delete own Draft/Pending bills; superadmin can delete anything
+    const { rows: [bill] } = await pool.query('SELECT created_by, status FROM bills WHERE id=$1', [req.params.id]).catch(() => ({ rows: [] }));
+    if (!bill) return res.status(404).json({ error: 'Bill not found' });
+    const isMaker = bill.created_by === req.user.email;
+    const isSuperAdmin = req.user.role === 'superadmin';
+    const isDeletable = ['Draft', 'Pending Approval', 'Pending'].includes(bill.status);
+    if (!isSuperAdmin && !(isMaker && isDeletable)) {
+        return res.status(403).json({ error: 'Only the bill maker can delete Draft/Pending bills. Approved or Paid bills require SuperAdmin.' });
+    }
     try {
         const result = await pool.query('DELETE FROM bills WHERE id=$1 RETURNING id', [req.params.id]);
         if (!result.rows.length) return res.status(404).json({ error: 'Bill not found' });
