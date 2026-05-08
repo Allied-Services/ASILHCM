@@ -1,3 +1,4 @@
+// Build v2026.05.08 — Attendance Management Module
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
