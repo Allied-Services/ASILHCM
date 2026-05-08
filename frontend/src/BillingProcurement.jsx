@@ -45,7 +45,6 @@ const BILL_TYPE_DEFS = [
         requiresContract: false,
         color: '#f59e0b',
     },
-];
     {
         id: 'Standard',
         icon: '📋',
@@ -55,8 +54,9 @@ const BILL_TYPE_DEFS = [
         requiresClient: false,
         requiresContract: false,
         color: '#e879f9',
-        hasCategory: true, // triggers official/unofficial sub-selection
+        hasCategory: true,
     },
+];
 const BILL_TYPES = BILL_TYPE_DEFS.map(t => t.id);
 const PURPOSES = ['Office Supplies', 'Maintenance & Repair', 'Fuel & Transport', 'Safety Equipment', 'Monthly Consumables', 'Equipment', 'Catering', 'Utilities', 'Other'];
 
