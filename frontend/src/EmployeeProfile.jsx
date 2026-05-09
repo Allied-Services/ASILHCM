@@ -1,4 +1,61 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext, createContext, useCallback } from 'react';
+
+// ── Edit-form context (module-level) ─────────────────────────────────────────
+// Keeps EI / ERow / ECombo as STABLE module-level components so React never
+// unmounts them on re-render (which was causing the cursor-jumping bug).
+const EditCtx = createContext({ ef: () => '', setEf: () => {}, isSuperAdmin: false });
+
+// Input primitive — reads/writes via context
+const EI = React.memo(function EI({ field, disabled = false, type = 'text', opts }) {
+    const { ef, setEf } = useContext(EditCtx);
+    const val = ef(field);
+    const s = {
+        background: 'var(--bg-dark)',
+        border: `1px solid ${disabled ? '#555' : 'var(--primary)'}`,
+        borderRadius: '6px', padding: '4px 8px',
+        color: disabled ? 'var(--text-muted)' : 'var(--text)',
+        fontSize: '0.85rem', width: '100%', boxSizing: 'border-box',
+        opacity: disabled ? 0.55 : 1,
+    };
+    if (type === 'date') {
+        // Uncontrolled for date so browser manages year-typing cursor internally
+        return <input type="date" defaultValue={val} disabled={disabled}
+            onChange={e => setEf(field, e.target.value)}
+            style={{ ...s, colorScheme: 'dark' }} />;
+    }
+    if (opts) return (
+        <select value={val} onChange={e => setEf(field, e.target.value)} disabled={disabled} style={s}>
+            {opts.map(o => <option key={o}>{o}</option>)}
+        </select>
+    );
+    return <input type={type} value={val} onChange={e => setEf(field, e.target.value)} disabled={disabled} style={s} />;
+});
+
+// Row wrapper — label + EI
+const ERow = React.memo(function ERow({ label, field, disabled = false, type = 'text', opts }) {
+    const { isSuperAdmin } = useContext(EditCtx);
+    const isLocked = disabled && !isSuperAdmin;
+    return (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>{label}{isLocked ? ' 🔒' : ''}</span>
+            <div style={{ flex: 1 }}><EI field={field} disabled={isLocked} type={type} opts={opts} /></div>
+        </div>
+    );
+});
+
+// Combobox with datalist
+const ECombo = React.memo(function ECombo({ field, listId, suggestions, placeholder = '' }) {
+    const { ef, setEf } = useContext(EditCtx);
+    return (
+        <>
+            <input type="text" list={listId} value={ef(field)} onChange={e => setEf(field, e.target.value)}
+                placeholder={placeholder}
+                style={{ background: 'var(--bg-dark)', border: '1px solid var(--primary)', borderRadius: '6px',
+                    padding: '4px 8px', color: 'var(--text)', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box' }} />
+            <datalist id={listId}>{suggestions.map(s => <option key={s} value={s} />)}</datalist>
+        </>
+    );
+});
 import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
          Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare, Package, CreditCard, Clock } from 'lucide-react';
 import { api } from './api';
@@ -125,48 +182,8 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     const [editSaving, setEditSaving] = useState(false);
 
     // ── Inline edit helpers ──────────────────────────────────────────────────
-    const ef = (field) => editForm[field] ?? '';
-    const setEf = (field, val) => setEditForm(p => ({ ...p, [field]: val }));
-    const EI = ({ field, disabled = false, type = 'text', opts }) => {
-        // For date fields: use a local text input so the user can type the full year
-        // without React's controlled input resetting the cursor mid-digit.
-        // We commit the value onBlur / onChange for non-date, immediately for date.
-        if (type === 'date') {
-            return (
-                <input
-                    type="date"
-                    key={`date-${field}`}
-                    defaultValue={ef(field)}
-                    disabled={disabled}
-                    onChange={e => setEf(field, e.target.value)}
-                    style={{
-                        background: 'var(--bg-dark)',
-                        border: `1px solid ${disabled ? '#555' : 'var(--primary)'}`,
-                        borderRadius: '6px', padding: '4px 8px',
-                        color: disabled ? 'var(--text-muted)' : 'var(--text)',
-                        fontSize: '0.85rem', width: '100%', boxSizing: 'border-box',
-                        opacity: disabled ? 0.55 : 1,
-                        colorScheme: 'dark',
-                    }}
-                />
-            );
-        }
-        return opts ? (
-            <select value={ef(field)} onChange={e => setEf(field, e.target.value)} disabled={disabled}
-                style={{ background: 'var(--bg-dark)', border: `1px solid ${disabled ? '#555' : 'var(--primary)'}`, borderRadius: '6px', padding: '4px 8px', color: disabled ? 'var(--text-muted)' : 'var(--text)', fontSize: '0.85rem', width: '100%', opacity: disabled ? 0.55 : 1 }}>
-                {opts.map(o => <option key={o}>{o}</option>)}
-            </select>
-        ) : (
-            <input type={type} value={ef(field)} onChange={e => setEf(field, e.target.value)} disabled={disabled}
-                style={{ background: 'var(--bg-dark)', border: `1px solid ${disabled ? '#555' : 'var(--primary)'}`, borderRadius: '6px', padding: '4px 8px', color: disabled ? 'var(--text-muted)' : 'var(--text)', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box', opacity: disabled ? 0.55 : 1 }} />
-        );
-    };
-    const ERow = ({ label, field, disabled = false, type = 'text', opts }) => (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>{label}{disabled && !isSuperAdmin ? ' 🔒' : ''}</span>
-            <div style={{ flex: 1 }}><EI field={field} disabled={disabled && !isSuperAdmin} type={type} opts={opts} /></div>
-        </div>
-    );
+    const ef = useCallback((field) => editForm[field] ?? '', [editForm]);
+    const setEf = useCallback((field, val) => setEditForm(p => ({ ...p, [field]: val })), []);
     const startEdit = () => { setEditForm({ ...emp }); setIsEditing(true); };
     const cancelEdit = () => { setEditForm({}); setIsEditing(false); };
     const saveEdit = async () => {
@@ -195,23 +212,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     const suggestLoc   = [...new Set(allEmployees.map(e => e.location).filter(Boolean))].sort();
     const suggestCliB  = [...new Set(allEmployees.map(e => e.clientBU).filter(Boolean))].sort();
 
-    // ── Searchable combobox using <datalist> — allows free-text AND selection ──
-    const ECombo = ({ field, listId, suggestions, placeholder = '' }) => (
-        <>
-            <input
-                type="text"
-                list={listId}
-                value={ef(field)}
-                onChange={e => setEf(field, e.target.value)}
-                placeholder={placeholder}
-                style={{ background: 'var(--bg-dark)', border: '1px solid var(--primary)', borderRadius: '6px',
-                    padding: '4px 8px', color: 'var(--text)', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box' }}
-            />
-            <datalist id={listId}>
-                {suggestions.map(s => <option key={s} value={s} />)}
-            </datalist>
-        </>
-    );
+
 
     // Salary History state
     const [showAddSalary, setShowAddSalary] = useState(false);
@@ -475,6 +476,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     };
 
     return (
+    <EditCtx.Provider value={{ ef, setEf, isSuperAdmin }}>
         <div className="dashboard">
             {/* Back */}
             <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', marginBottom: '1.5rem', fontSize: '0.9rem', padding: 0 }}>
@@ -960,8 +962,17 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                 const rateSP = parseFloat(costs.medical_sp || 0);
                 const rateCH = parseFloat(costs.medical_ch || costs.medical_child || 0);
                 const hasContract = !!matchedContract;
-                const hasSpouse = !!(emp.spouseName && emp.spouseName.trim());
-                const numChildren = (emp.child1Name ? 1 : 0) + (emp.child2Name ? 1 : 0);
+                // Accept any truthy value as 'covered': name, 'YES', '1', numeric count, etc.
+                const spouseVal = String(emp.spouseName || emp.spouse_count || '').trim();
+                const hasSpouse = spouseVal.length > 0 && spouseVal !== '0';
+                const ch1Val = String(emp.child1Name || '').trim();
+                const ch2Val = String(emp.child2Name || '').trim();
+                // Also support a numeric children_count field (e.g. imported as 2)
+                const childrenCount = parseInt(emp.children_count || emp.childrenCount || 0);
+                const numChildren = Math.max(
+                    (ch1Val.length > 0 && ch1Val !== '0' ? 1 : 0) + (ch2Val.length > 0 && ch2Val !== '0' ? 1 : 0),
+                    childrenCount
+                );
                 const coveredChildren = Math.min(numChildren, 2);
                 const totalSP = hasSpouse ? rateSP : 0;
                 const totalCH = coveredChildren * rateCH;
@@ -1529,5 +1540,6 @@ function PFLedgerSection({ emp, pfLedger, setPfLedger, pfBalance, setPfBalance,
                 </div>
             )}
         </div>
+    </EditCtx.Provider>
     );
 }
