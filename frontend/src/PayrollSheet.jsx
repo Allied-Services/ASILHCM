@@ -154,6 +154,12 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                         fuel_mobile:       n(obj['Other Allowance Fuel | Mobile']),
                         other_deduction:   n(obj['Other Deduction']),
                         contract_name:     obj['Contract Name'] || '',
+                        // Family coverage: read Spouse and Children counts from payroll CSV
+                        // These drive medical premium inclusion for spouse + children
+                        spouse_count:      n(obj['Spouse'] ?? obj['Spouse Count'] ?? 0),
+                        children_count:    n(obj['Children'] ?? obj['Children Count'] ?? 0),
+                        // Direct CSV medical total — used as fallback if contract has no medical rates set
+                        total_medical_csv: n(obj['Total Medical Coverage (Self & Family)'] || obj['Total Medical'] || 0),
                     });
                     prev.push({
                         name: match.name, id: match.id,
@@ -660,11 +666,20 @@ export default function PayrollSheet({ user }) {
         const noContract = !cfg;
         cfg = cfg || {};
         cfg._noContract = noContract;
-        // Medical defaults from contract + employee family
+        // Medical defaults: use OVERRIDE spouse/children count first (from CSV import),
+        // then fall back to the employee record's family data.
+        const ovSpouseCount    = getOv(emp.id, 'spouse_count', emp.hasSpouse ? 1 : 0);
+        const ovChildrenCount  = getOv(emp.id, 'children_count', emp.numChildren);
         const defMedEE    = cfg.medical_ee    || 0;
-        const defMedSP    = emp.hasSpouse ? (cfg.medical_sp || 0) : 0;
-        const defMedCh1   = emp.numChildren >= 1 ? (cfg.medical_child || 0) : 0;
-        const defMedCh2   = emp.numChildren >= 2 ? (cfg.medical_child || 0) : 0;
+        const defMedSP    = ovSpouseCount   >= 1 ? (cfg.medical_sp    || 0) : 0;
+        const defMedCh1   = ovChildrenCount >= 1 ? (cfg.medical_child || 0) : 0;
+        const defMedCh2   = ovChildrenCount >= 2 ? (cfg.medical_child || 0) : 0;
+        // Safety net: if contract has no medical rates, use the CSV total directly
+        // so TPC is always accurate even when contract is not fully configured.
+        const csvMedTotal = getOv(emp.id, 'total_medical_csv', 0);
+        const contractMedTotal = defMedEE + defMedSP + defMedCh1 + defMedCh2;
+        // If contract gives 0 but CSV has a value, absorb CSV total into medical_ee
+        const useCsvFallback = csvMedTotal > 0 && contractMedTotal === 0;
 
         // ── Pro-rata paid days for new joiners ───────────────────────────────
         // If the employee's DOJ falls within the current payroll month, default
@@ -702,10 +717,10 @@ export default function PayrollSheet({ user }) {
             advance_deduction:getOv(emp.id, 'advance_deduction', 0),
             loan_deduction:   getOv(emp.id, 'loan_deduction', 0),
             bonus_amount:     getOv(emp.id, 'bonus_amount', 0),
-            medical_ee:       getOv(emp.id, 'medical_ee',  defMedEE),
-            medical_sp:       getOv(emp.id, 'medical_sp',  defMedSP),
-            medical_ch1:      getOv(emp.id, 'medical_ch1', defMedCh1),
-            medical_ch2:      getOv(emp.id, 'medical_ch2', defMedCh2),
+            medical_ee:  getOv(emp.id, 'medical_ee',  useCsvFallback ? csvMedTotal : defMedEE),
+            medical_sp:  getOv(emp.id, 'medical_sp',  useCsvFallback ? 0           : defMedSP),
+            medical_ch1: getOv(emp.id, 'medical_ch1', useCsvFallback ? 0           : defMedCh1),
+            medical_ch2: getOv(emp.id, 'medical_ch2', useCsvFallback ? 0           : defMedCh2),
             // Runtime only — used by calcEmployeeRow for joining-month pro-rata (not saved to DB)
             ...(calDaysWorked !== null ? { calDaysWorked, totalCalDays } : {}),
         };
@@ -758,6 +773,12 @@ export default function PayrollSheet({ user }) {
                     const cfg = CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] ||
                                 CONTRACT_MAP[emp.contract?.toLowerCase()?.trim()] || {};
                     const empOv = newOv[emp.id] || {};
+                    const empMedEE   = cfg.medical_ee    || 0;
+                    const empMedSP   = (empOv.spouse_count   ?? 0) >= 1 ? (cfg.medical_sp    || 0) : 0;
+                    const empMedCh1  = (empOv.children_count ?? 0) >= 1 ? (cfg.medical_child || 0) : 0;
+                    const empMedCh2  = (empOv.children_count ?? 0) >= 2 ? (cfg.medical_child || 0) : 0;
+                    const _csvMed    = empOv.total_medical_csv ?? 0;
+                    const _useFallback = _csvMed > 0 && (empMedEE + empMedSP + empMedCh1 + empMedCh2) === 0;
                     const ov = {
                         paid_days:         empOv.paid_days         ?? workDays,
                         ot2_hrs:           empOv.ot2_hrs           ?? 0,
@@ -771,6 +792,18 @@ export default function PayrollSheet({ user }) {
                         other_deduction:   empOv.other_deduction   ?? 0,
                         advance_deduction: empOv.advance_deduction ?? 0,
                         loan_deduction:    empOv.loan_deduction    ?? 0,
+                        spouse_count:      empOv.spouse_count      ?? 0,
+                        children_count:    empOv.children_count    ?? 0,
+                        // Persist medical overrides so they reload correctly
+                        medical_ee:        _useFallback
+                            ? _csvMed
+                            : (empOv.medical_ee ?? (cfg.medical_ee || 0)),
+                        medical_sp:        _useFallback ? 0
+                            : ((empOv.spouse_count ?? 0) >= 1 ? (empOv.medical_sp ?? (cfg.medical_sp || 0)) : 0),
+                        medical_ch1:       _useFallback ? 0
+                            : ((empOv.children_count ?? 0) >= 1 ? (empOv.medical_ch1 ?? (cfg.medical_child || 0)) : 0),
+                        medical_ch2:       _useFallback ? 0
+                            : ((empOv.children_count ?? 0) >= 2 ? (empOv.medical_ch2 ?? (cfg.medical_child || 0)) : 0),
                     };
                     const calc = calcEmployeeRow(emp, ov, cfg, workDays);
                     return { employee_id: emp.id, ov, calc };
