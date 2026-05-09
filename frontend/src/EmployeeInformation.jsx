@@ -364,8 +364,10 @@ export default function EmployeeInformation({ user }) {
         setBulkSmsSending(false);
     };
 
-    // F is a thin wrapper that passes form state to the module-level FormField
-    const F = (props) => <FormField {...props} form={form} setForm={setForm} />;
+    // F is called as a FUNCTION (not component) to avoid React treating it as a new
+    // component type on each render (which caused focus/cursor loss after every keystroke).
+    // FormField itself is safely defined at module level.
+    const F = (props) => FormField({ ...props, form, setForm });
 
 
     if (profile) return <EmployeeProfile employee={profile} user={user} onBack={() => setProfile(null)} onUpdate={updateEmployee} allEmployees={emps} />;

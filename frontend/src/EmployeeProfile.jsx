@@ -1018,7 +1018,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                         </Card>
                         <Card>
                             <STitle>Dependants Covered</STitle>
-                            {emp.maritalStatus === 'Married' ? (
+                            {(emp.maritalStatus === 'Married' || hasSpouse || numChildren > 0) ? (
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
                                         <CheckCircle size={14} color="#22c55e" /><span style={{ fontWeight: 600 }}>Spouse:</span> {emp.spouseName || '—'}

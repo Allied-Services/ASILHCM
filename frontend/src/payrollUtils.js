@@ -205,7 +205,11 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     // bonusDisbursed is the actual cash payout (only in disbursement month, 0 otherwise)
     // overhead is a fixed per-head charge from the contract
     const overhead = parseFloat(cfg.overhead_per_employee || 0);
-    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusDisbursed + bonusAccrual + gratuity + lifeIns + totalMedical + pfER + overhead;
+    // CRITICAL: use bonusDisbursed OR bonusAccrual — NEVER both in the same month.
+    // In the disbursement month, bonusDisbursed is the full cash payout (replaces the monthly accrual).
+    // In all other months, bonusAccrual is the monthly provision.
+    const bonusTPC = bonusDisbursed > 0 ? bonusDisbursed : bonusAccrual;
+    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusTPC + gratuity + lifeIns + totalMedical + pfER + overhead;
     const svcPct = parseFloat(cfg.service_charges_pct || 0);
     // Sales tax: rate from System Config "Tax by Region" (DB-driven via provinceRates param)
     // Base: Total Payroll Cost + Service Charges (full invoice value, per MD instruction)
