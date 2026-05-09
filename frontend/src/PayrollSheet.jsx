@@ -149,7 +149,7 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                         opd_claim:         n(obj['OPD']),
                         reimbursement:     n(obj['Expense Reimbursement']),
                         arrears:           n(obj['Arrears']),
-                        bonus_amount:      n(obj['Bonus']),
+                        bonus_amount:      n(obj['Bonus Amount'] || obj['Bonus'] || obj['Bonus amount']),
                         special_allowance: n(obj['Special Allowance']),
                         fuel_mobile:       n(obj['Other Allowance Fuel | Mobile']),
                         other_deduction:   n(obj['Other Deduction']),
