@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useContext, createContext, useCallback } from 'react';
+import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
+         Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare, Package, CreditCard, Clock } from 'lucide-react';
+import { api } from './api';
 
 // ── Edit-form context (module-level) ─────────────────────────────────────────
 // Keeps EI / ERow / ECombo as STABLE module-level components so React never
@@ -56,9 +59,7 @@ const ECombo = React.memo(function ECombo({ field, listId, suggestions, placehol
         </>
     );
 });
-import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
-         Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare, Package, CreditCard, Clock } from 'lucide-react';
-import { api } from './api';
+
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = n => (parseFloat(n) || 0).toLocaleString('en-PK');
