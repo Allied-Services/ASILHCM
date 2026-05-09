@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
          Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare, Package, CreditCard, Clock } from 'lucide-react';
 import { api } from './api';
@@ -85,6 +85,7 @@ function PayslipModal({ payslip, employee, onClose }) {
                     {/* Deductions */}
                     <div style={{ background: 'var(--bg-dark)', borderRadius: '10px', padding: '1.25rem', marginBottom: '1rem' }}>
                         <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#f43f5e', marginBottom: '0.75rem' }}>▼ Deductions</div>
+
                         {[
                             ['EOBI (Employee 1%)', eobi.employee],
                             ['Income Tax / WHT (FBR 2025-26)', wht],
@@ -126,8 +127,31 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     // ── Inline edit helpers ──────────────────────────────────────────────────
     const ef = (field) => editForm[field] ?? '';
     const setEf = (field, val) => setEditForm(p => ({ ...p, [field]: val }));
-    const EI = ({ field, disabled = false, type = 'text', opts }) => (
-        opts ? (
+    const EI = ({ field, disabled = false, type = 'text', opts }) => {
+        // For date fields: use a local text input so the user can type the full year
+        // without React's controlled input resetting the cursor mid-digit.
+        // We commit the value onBlur / onChange for non-date, immediately for date.
+        if (type === 'date') {
+            return (
+                <input
+                    type="date"
+                    key={`date-${field}`}
+                    defaultValue={ef(field)}
+                    disabled={disabled}
+                    onChange={e => setEf(field, e.target.value)}
+                    style={{
+                        background: 'var(--bg-dark)',
+                        border: `1px solid ${disabled ? '#555' : 'var(--primary)'}`,
+                        borderRadius: '6px', padding: '4px 8px',
+                        color: disabled ? 'var(--text-muted)' : 'var(--text)',
+                        fontSize: '0.85rem', width: '100%', boxSizing: 'border-box',
+                        opacity: disabled ? 0.55 : 1,
+                        colorScheme: 'dark',
+                    }}
+                />
+            );
+        }
+        return opts ? (
             <select value={ef(field)} onChange={e => setEf(field, e.target.value)} disabled={disabled}
                 style={{ background: 'var(--bg-dark)', border: `1px solid ${disabled ? '#555' : 'var(--primary)'}`, borderRadius: '6px', padding: '4px 8px', color: disabled ? 'var(--text-muted)' : 'var(--text)', fontSize: '0.85rem', width: '100%', opacity: disabled ? 0.55 : 1 }}>
                 {opts.map(o => <option key={o}>{o}</option>)}
@@ -135,8 +159,8 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
         ) : (
             <input type={type} value={ef(field)} onChange={e => setEf(field, e.target.value)} disabled={disabled}
                 style={{ background: 'var(--bg-dark)', border: `1px solid ${disabled ? '#555' : 'var(--primary)'}`, borderRadius: '6px', padding: '4px 8px', color: disabled ? 'var(--text-muted)' : 'var(--text)', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box', opacity: disabled ? 0.55 : 1 }} />
-        )
-    );
+        );
+    };
     const ERow = ({ label, field, disabled = false, type = 'text', opts }) => (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
             <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>{label}{disabled && !isSuperAdmin ? ' 🔒' : ''}</span>

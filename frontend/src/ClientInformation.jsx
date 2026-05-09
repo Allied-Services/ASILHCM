@@ -27,6 +27,8 @@ const EMPTY_CONTRACT = {
         medical_child: 300,   // Medical premium — per Child (max 2)
         bonus_months: 1,      // Bonus = X months of gross per year
         bonus_min_months: 12, // Min service months for full bonus (0 = always pro-rata)
+        bonus_disbursement_month: 4, // Month to disburse (1=Jan … 12=Dec). Default: April
+
         uniform_cost: 300, shoes_cost: 150, ppe_cost: 200, opd: 500,
         dedicated_staff: 0, courier: 3000,
         other1_name: '', other1_amount: 0, other2_name: '', other2_amount: 0,
@@ -153,15 +155,28 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                     {/* Bonus policy */}
                     <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '10px', padding: '1rem', marginBottom: '1rem' }}>
                         <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#f59e0b', marginBottom: '0.75rem' }}>Annual Bonus Policy</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
                             <FRow label="Bonus = X months of Gross Salary">
                                 <FInput type="number" value={c.costs.bonus_months ?? 1} onChange={e => set('costs.bonus_months', parseFloat(e.target.value) || 0)} ph="1" />
                             </FRow>
                             <FRow label="Min. service months for full bonus (0 = always pro-rata)">
                                 <FInput type="number" value={c.costs.bonus_min_months ?? 12} onChange={e => set('costs.bonus_min_months', parseFloat(e.target.value) || 0)} ph="12" />
                             </FRow>
+                            <FRow label="📅 Disbursement Month (bonus payout month)">
+                                <select
+                                    value={c.costs.bonus_disbursement_month ?? 4}
+                                    onChange={e => set('costs.bonus_disbursement_month', parseInt(e.target.value) || 4)}
+                                    style={{ background: 'var(--bg-dark)', border: '1px solid #f59e0b', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%' }}>
+                                    {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, i) => (
+                                        <option key={i+1} value={i+1}>{m}</option>
+                                    ))}
+                                </select>
+                            </FRow>
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>e.g. 1 month bonus. If min=12, must work full year. If min=0, pro-rated from day 1. Partial year = gross × months × service_months/12.</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                            Bonus is accrued monthly and <strong>disbursed in the selected month</strong>. Employees who joined before the disbursement month in the same year receive the full bonus if they meet the minimum service months; otherwise, it's pro-rated by months served since joining.<br />
+                            <span style={{ color: '#f59e0b' }}>Example: April disbursement — employee joined Aug 2025 → receives 9/12 of 1×gross (Aug–Apr).</span>
+                        </div>
                     </div>
 
                     {/* Overhead Per Employee */}
@@ -988,17 +1003,29 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                                     </div>
                                     <div>
                                         <div style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Contract Financials (%)</div>
-                                        {[
-                                            ['WHT', ct.financials?.wht_pct + '%'],
-                                            ['Sales Tax', 'Province-based (auto)'],
-                                            ['Service Charges / Margin', ct.financials?.service_charges_pct + '%'],
-                                            ['EOSB Type', ct.costs?.eosb_type || 'None'],
-                                        ].map(([l, v]) => (
-                                            <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', padding: '3px 0' }}>
-                                                <span style={{ color: 'var(--text-muted)' }}>{l}</span>
-                                                <span style={{ fontWeight: 600, color: l === 'EOSB Type' ? (v === 'Provident Fund' ? '#22c55e' : v === 'Gratuity' ? '#f59e0b' : 'var(--text-muted)') : 'var(--primary)' }}>{v}</span>
-                                            </div>
-                                        ))}
+                                        {(()=>{
+                                            const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+                                            const disbMo = ct.costs?.bonus_disbursement_month;
+                                            const disbLabel = disbMo ? MONTH_NAMES[parseInt(disbMo)-1] : 'April (default)';
+                                            const bonusMo = ct.costs?.bonus_months ?? 0;
+                                            return [
+                                                ['WHT', ct.financials?.wht_pct + '%'],
+                                                ['Sales Tax', 'Province-based (auto)'],
+                                                ['Service Charges / Margin', ct.financials?.service_charges_pct + '%'],
+                                                ['EOSB Type', ct.costs?.eosb_type || 'None'],
+                                                ['Annual Bonus', bonusMo + (bonusMo === 1 ? ' month' : ' months') + ' gross'],
+                                                ['📅 Bonus Disbursement', disbLabel],
+                                            ].map(([l, v]) => (
+                                                <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', padding: '3px 0' }}>
+                                                    <span style={{ color: 'var(--text-muted)' }}>{l}</span>
+                                                    <span style={{ fontWeight: 600, color:
+                                                        l === 'EOSB Type' ? (v === 'Provident Fund' ? '#22c55e' : v === 'Gratuity' ? '#f59e0b' : 'var(--text-muted)') :
+                                                        l === '📅 Bonus Disbursement' ? '#f59e0b' :
+                                                        'var(--primary)'
+                                                    }}>{v}</span>
+                                                </div>
+                                            ));
+                                        })()}
                                         <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--bg-dark)', borderRadius: '8px' }}>
                                             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Contract Period</div>
                                             <div style={{ fontSize: '0.9rem' }}>{ct.startDate} → {ct.endDate || 'Open-ended'}</div>

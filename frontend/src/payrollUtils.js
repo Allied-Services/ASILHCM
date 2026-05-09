@@ -36,8 +36,9 @@ export const calcEOBI_fn = () => {
 };
 // PF: 1/24th of Gross Salary (≈ 4.166%) — both EE and ER
 export const calcPF_fn = (gross, enrolled) => enrolled ? Math.round(parseFloat(gross || 0) / 24) : 0;
-// Gratuity monthly accrual: 1/12th of Gross Salary (≈ 8.33%) — Employer cost only, per EOB Ord 1968
-export const calcGratuityMonthly = (gross) => Math.round(parseFloat(gross || 0) / 12);
+// Gratuity monthly accrual: 1/12th of CONTRACTUAL BASE SALARY (≈ 8.33%) — Employer cost only, per EOB Ord 1968
+// IMPORTANT: always pass emp.gross (contractual base), NOT grossMonthly (which inflates with OT)
+export const calcGratuityMonthly = (grossSalary) => Math.round(parseFloat(grossSalary || 0) / 12);
 
 // ─── Province → Provincial Service Tax Rate ──────────────────────────────────
 // Punjab: PRA 16%, Sindh: SRB 13%, KPK: KPRA 15%, Balochistan: BRA 15%, Federal/Other: 13%
@@ -132,12 +133,62 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const sessi = grossMonthly >= 45000 ? 0 : Math.min(2400, Math.round(grossMonthly * 0.06));
     const eduCess = parseFloat(cfg.edu_cess || 0);
     const bonusAmount = parseFloat(ov.bonus_amount || 0);
-    // Bonus accrual: contract defines bonus_months × gross / 12 as monthly employer provision
-    // e.g. 1 bonus month/yr → 1/12 of gross added to employer cost each month
-    const bonusMonths = parseFloat(cfg.bonus_months || 0);
-    const bonusAccrual = bonusMonths > 0 ? Math.round(bonusMonths * grossSalary / 12) : 0;
+    // ── Annual Bonus Disbursement ───────────────────────────────────────────────
+    // Bonus accrual: monthly provision = bonus_months × grossSalary / 12 (shown in employer cost)
+    // Bonus cash disbursement: only in bonus_disbursement_month — pro-rated by months served
+    // Logic:
+    //   1. If current payroll month ≠ bonus_disbursement_month → bonusCash = 0
+    //   2. If current month = disbursement month AND employee joined before this month:
+    //      - months_served = months from DOJ to current month (within same fiscal year)
+    //      - If months_served >= bonus_min_months → full bonus (bonus_months × grossSalary)
+    //      - Else → pro-rated (bonus_months × grossSalary × months_served / 12)
+    const bonusMonths      = parseFloat(cfg.bonus_months || 0);
+    const bonusMinMonths   = parseFloat(cfg.bonus_min_months ?? 12);
+    const disbursementMo   = parseInt(cfg.bonus_disbursement_month || 4); // default April
+    const bonusAccrual     = bonusMonths > 0 ? Math.round(bonusMonths * grossSalary / 12) : 0;
+    // Determine current payroll month from the passed-in override or default to current date
+    // We derive month from the employee's payroll context via payPeriod if available
+    // The caller (PayrollSheet) passes month via the workDays param but not directly.
+    // For now, if ov.bonus_amount is manually set (legacy import), we use that.
+    // The disbursement auto-calc is used when ov.bonus_amount === 0 and bonusMonths > 0.
+    // NOTE: payrollMonth is passed as a global via the sheet context — we read it from
+    // the window.__payrollMonth injected by PayrollSheet before calling calcEmployeeRow.
+    let bonusDisbursed = bonusAmount; // fallback: use manually imported value
+    if (bonusMonths > 0 && bonusAmount === 0 && typeof window !== 'undefined' && window.__payrollMonth) {
+        const [pyear, pmonth] = String(window.__payrollMonth).split('-').map(Number);
+        if (pmonth === disbursementMo) {
+            // Employee is active this month — calculate months served in this bonus cycle
+            // Bonus cycle: from (disbursement month of PREVIOUS year) to (disbursement month of current year)
+            let monthsServed = 12; // default: full year
+            if (emp.doj) {
+                const doj = new Date(emp.doj);
+                // Cycle start = disbursement month of previous year (or current year if joined after last disburse)
+                const cycleStart = new Date(pyear - 1, disbursementMo - 1, 1); // e.g. April 2025
+                if (doj > cycleStart) {
+                    // Months from DOJ to end of disbursement month
+                    const cycleEnd = new Date(pyear, disbursementMo - 1, 28); // end of disburse month
+                    monthsServed = Math.max(0,
+                        (cycleEnd.getFullYear() - doj.getFullYear()) * 12 +
+                        (cycleEnd.getMonth() - doj.getMonth())
+                    );
+                }
+            }
+            if (monthsServed >= bonusMinMonths) {
+                bonusDisbursed = Math.round(bonusMonths * grossSalary); // full bonus
+            } else if (monthsServed > 0) {
+                bonusDisbursed = Math.round(bonusMonths * grossSalary * monthsServed / 12); // pro-rated
+            } else {
+                bonusDisbursed = 0;
+            }
+        }
+        // In non-disbursement months, bonusDisbursed stays 0 (accrual is the monthly provision)
+    }
+
     // Gratuity monthly accrual (Employer cost only — no employee deduction):
-    //   Gratuity  = Gross / 12  (1/12th = 8.33% of Gross — per EOB Ordinance 1968)
+    //   Gratuity  = Contractual Base Salary / 12  (8.33% — per EOB Ordinance 1968)
+    //   CRITICAL: use grossSalary (contractual base), NOT grossMonthly.
+    //   grossMonthly inflates with OT, reimbursements, arrears which are NOT part of Gratuity base.
+    //   This matches the master CSV formula: gratuity = New Salary (col R) / 12.
     //   PF        = 0 when Gratuity scheme active (pfER covers Provident Fund instead)
     //   None      = 0 (no EOSB provision)
     const gratuity = isGratuity ? Math.round(grossSalary / 12) : 0;
@@ -151,9 +202,10 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     // Total employer payroll cost = gross + all employer obligations
     // pfER is employer's PF contribution (= employee's contribution when PF type)
     // bonusAccrual is the monthly provision for annual bonus (from contract.bonus_months)
+    // bonusDisbursed is the actual cash payout (only in disbursement month, 0 otherwise)
     // overhead is a fixed per-head charge from the contract
     const overhead = parseFloat(cfg.overhead_per_employee || 0);
-    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusAmount + bonusAccrual + gratuity + lifeIns + totalMedical + pfER + overhead;
+    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusDisbursed + bonusAccrual + gratuity + lifeIns + totalMedical + pfER + overhead;
     const svcPct = parseFloat(cfg.service_charges_pct || 0);
     // Sales tax: rate from System Config "Tax by Region" (DB-driven via provinceRates param)
     // Base: Total Payroll Cost + Service Charges (full invoice value, per MD instruction)
@@ -166,11 +218,13 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
         otAmount, opdClaim, reimb, arrears, splAllow, fuelMob, absenceDeduction, absentDays,
         grossMonthly, taxableMonthly, annualIncome,
         incomeTax, eobi_ee: eobi.employee, pfEE, otherDed, advanceDed, loanDed,
-        totalDeductions, netPay, eobi_er: eobi.employer, sessi, eduCess, bonusAmount, bonusAccrual,
+        totalDeductions, netPay, eobi_er: eobi.employer, sessi, eduCess,
+        bonusAmount: bonusDisbursed, bonusAccrual, bonusDisbursed,
         gratuity, pfER, lifeIns, medEE, medSP, medCh1, medCh2, totalMedical, overhead,
         totalPayrollCost, serviceCharges, salesTax, totalInvoice,
         hrlyGross, dailyGross,
     };
+
 };
 
 // ─── CSV download helper ──────────────────────────────────────────────────────
@@ -261,3 +315,228 @@ export const buildSESSIFile = (rows, month) => rows.map(({ emp, calc }) => ({
     'EOBI Number': emp.eobiNo || '',
     'SESSI Amount': calc.sessi,
 }));
+
+// ─── Bank file split by HBL vs Other Banks per client ───────────────────────
+// isHBL: returns true if bank name contains 'hbl' or 'habib'
+const isHBLBank = (bankName = '') =>
+    bankName.toLowerCase().replace(/\s/g, '').includes('hbl') ||
+    bankName.toLowerCase().includes('habib');
+
+/**
+ * buildBankFileSplit — returns { hbl: rows[], other: rows[] } split by bank type
+ * Format matches actual HBL Net Payment file (columns from sample files)
+ */
+export const buildBankFileSplit = (rows, month) => {
+    const monthAbbr = new Date(month + '-01').toLocaleString('en-US', { month: 'short' }); // 'Apr'
+    const yr2 = month.slice(2, 4); // '26'
+    const makeRow = ({ emp, calc }) => ({
+        'Beneficiary\u00a0Name':        emp.name,
+        'Beneficiary Account Number':   emp.bankAccount || '',
+        'Transaction Amount':           Math.round(calc.netPay),
+        'Reference # 1':                `PR${monthAbbr}${yr2}-${emp.id}`,
+        'Reference # 2':                '',
+        'Reference # 3':                '',
+        'Inovice Number':               '',
+        'Account Title':                emp.accountTitle || emp.name,
+    });
+    return {
+        hbl:   rows.filter(r => isHBLBank(r.emp.bankName)).map(makeRow),
+        other: rows.filter(r => !isHBLBank(r.emp.bankName)).map(makeRow),
+    };
+};
+
+// ─── Xero Tax Type string builder ────────────────────────────────────────────
+// Must match EXACTLY what is in Xero (case-sensitive). From real sample file.
+const xeroTaxType = (province = '') => {
+    const p = province.toLowerCase();
+    if (p.includes('punjab') || p.includes('lahore') || p.includes('islamabad') || p.includes('rawalpindi') || p.includes('multan') || p.includes('faisalabad') || p.includes('gujranwala'))
+        return 'Punjab Services Tax 16% (16%)';
+    if (p.includes('sindh') || p.includes('karachi') || p.includes('hyderabad') || p.includes('sukkur'))
+        return 'Sindh Sales Tax 15% (15%)';
+    if (p.includes('kpk') || p.includes('khyber') || p.includes('peshawar') || p.includes('abbottabad'))
+        return 'KPK Services Tax 15% (15%)';
+    if (p.includes('balochistan') || p.includes('quetta'))
+        return 'Balochistan Services Tax 15% (15%)';
+    return 'Sindh Sales Tax 15% (15%)'; // default
+};
+
+// ─── Tracking Option: BPO or FM based on employee code ───────────────────────
+const xeroTracking = (empId = '') =>
+    empId.toUpperCase().includes('ASILFM') ? 'FM' : 'BPO';
+
+/**
+ * buildXeroCSV — Xero Sales Invoice import format
+ * Grouped by: ClientBU + Province (each BU-Province = one sequential invoice)
+ * Each invoice = 2 rows: [payroll cost line] + [service charges line]
+ *
+ * EXACT column order and format from production Xero sample file (Apr-26):
+ * *ContactName = "{ClientBU} - {ClientName}"
+ * *InvoiceNumber = sequential starting from startInvNum
+ * *InvoiceDate = DD-MM-YY (last day of month, or invoiceDay param)
+ * *DueDate = 60 days after invoiceDate
+ * *Description = "Services in {Province} for the month of {Month} {Year}" (BPO)
+ *              = "FM Services in {Province} for the month of {Month} {Year}" (FM)
+ * *AccountCode = 208 (hardcoded — all payroll invoices use this Xero account)
+ * *TaxType = province-based exact string e.g. "Punjab Services Tax 16% (16%)"
+ * TrackingOption1 = "BPO" or "FM"
+ * BrandingTheme = "Letterhead"
+ *
+ * @param {Array} rows - array of { emp, calc } from PayrollSheet
+ * @param {string} month - "YYYY-MM"
+ * @param {number} startInvNum - starting sequential invoice number (e.g. 4939)
+ * @param {number} invoiceDay - day of month for invoice date (default 27)
+ */
+export const buildXeroCSV = (rows, month, startInvNum = 5000, invoiceDay = 27) => {
+    const [yr, mo] = month.split('-');
+    const monthName = new Date(month + '-01').toLocaleString('en-US', { month: 'long' });
+    const yr2 = yr.slice(-2); // '26'
+    const moNum = parseInt(mo);
+
+    // Invoice date: DD-MM-YY (e.g. "27-04-26")
+    const invDate = `${String(invoiceDay).padStart(2,'0')}-${mo}-${yr2}`;
+    // Due date: 60 days later
+    const dueD = new Date(parseInt(yr), moNum - 1, invoiceDay + 60);
+    const dueDate = `${String(dueD.getDate()).padStart(2,'0')}-${String(dueD.getMonth()+1).padStart(2,'0')}-${String(dueD.getFullYear()).slice(-2)}`;
+
+    // Group by ClientBU + Province (each group = one invoice)
+    const groups = {};
+    rows.forEach(({ emp, calc }) => {
+        const clientName = emp.client || 'Unknown';
+        const bu         = emp.contract || emp.clientBU || emp.contract || '';
+        const province   = emp.province || emp.location || 'Sindh';
+        const tracking   = xeroTracking(emp.id || '');
+        const key        = `${clientName}||${bu}||${province}`;
+        if (!groups[key]) groups[key] = {
+            contactName:      `${bu} - ${clientName}`,
+            clientName, bu, province, tracking,
+            totalPayrollCost: 0, serviceCharges: 0, salesTax: 0, count: 0,
+        };
+        groups[key].totalPayrollCost += Math.round(calc.totalPayrollCost || 0);
+        groups[key].serviceCharges   += Math.round(calc.serviceCharges   || 0);
+        groups[key].salesTax         += Math.round(calc.salesTax         || 0);
+        groups[key].count++;
+    });
+
+    // Sort: clientName → bu → province (deterministic order)
+    const sorted = Object.values(groups).sort((a, b) =>
+        a.clientName.localeCompare(b.clientName) ||
+        a.bu.localeCompare(b.bu) ||
+        a.province.localeCompare(b.province)
+    );
+
+    const xeroRows = [];
+    let invNum = startInvNum;
+
+    sorted.forEach(grp => {
+        const inv     = String(invNum++);
+        const taxType = xeroTaxType(grp.province);
+        const isFM    = grp.tracking === 'FM';
+        const descPfx = isFM ? 'FM Services' : 'Services';
+        const descMain = `${descPfx} in ${grp.province} for the month of ${monthName} ${yr}`;
+        const descSvc  = 'Service Charges';
+
+        // Payroll cost line
+        xeroRows.push({
+            '*ContactName':     grp.contactName,
+            'EmailAddress':     '',
+            'POAddressLine1':   '',
+            'POAddressLine2':   '',
+            'POAddressLine3':   '',
+            'POAddressLine4':   '',
+            'POCity':           '',
+            'PORegion':         '',
+            'POPostalCode':     '',
+            'POCountry':        '',
+            '*InvoiceNumber':   inv,
+            'Reference':        '',
+            '*InvoiceDate':     invDate,
+            '*DueDate':         dueDate,
+            'Total':            '',
+            'InventoryItemCode':'',
+            '*Description':     descMain,
+            '*Quantity':        '1',
+            '*UnitAmount':      grp.totalPayrollCost,
+            'Discount':         '',
+            '*AccountCode':     '208',
+            '*TaxType':         taxType,
+            'TaxAmount':        grp.salesTax,
+            'TrackingName1':    'Tracking Category',
+            'TrackingOption1':  grp.tracking,
+            'TrackingName2':    'Type',
+            'TrackingOption2':  'Official',
+            'Currency':         'PKR',
+            'BrandingTheme':    'Letterhead',
+        });
+        // Service charges line (same invoice number)
+        if (grp.serviceCharges > 0) {
+            xeroRows.push({
+                '*ContactName':     grp.contactName,
+                'EmailAddress':     '',
+                'POAddressLine1':   '',
+                'POAddressLine2':   '',
+                'POAddressLine3':   '',
+                'POAddressLine4':   '',
+                'POCity':           '',
+                'PORegion':         '',
+                'POPostalCode':     '',
+                'POCountry':        '',
+                '*InvoiceNumber':   inv,
+                'Reference':        '',
+                '*InvoiceDate':     invDate,
+                '*DueDate':         dueDate,
+                'Total':            '',
+                'InventoryItemCode':'',
+                '*Description':     descSvc,
+                '*Quantity':        '1',
+                '*UnitAmount':      grp.serviceCharges,
+                'Discount':         '',
+                '*AccountCode':     '208',
+                '*TaxType':         taxType,
+                'TaxAmount':        '',
+                'TrackingName1':    'Tracking Category',
+                'TrackingOption1':  grp.tracking,
+                'TrackingName2':    'Type',
+                'TrackingOption2':  'Official',
+                'Currency':         'PKR',
+                'BrandingTheme':    'Letterhead',
+            });
+        }
+    });
+    return xeroRows;
+};
+
+/**
+ * buildInvoiceSummaryCSV — grouped summary table equivalent to columns AT:AW in master CSV
+ * Grouped by Client → BU → Province
+ */
+export const buildInvoiceSummaryCSV = (rows, month) => {
+    const groups = {};
+    rows.forEach(({ emp, calc }) => {
+        const client   = emp.client || 'Unknown';
+        const bu       = emp.contract || emp.clientBU || '';
+        const province = emp.province || emp.location || 'Other';
+        const key = `${client}||${bu}||${province}`;
+        if (!groups[key]) {
+            groups[key] = {
+                Client: client, 'Business Unit': bu, Province: province,
+                Employees: 0,
+                'Net Pay to Employees': 0,
+                'Gross Monthly': 0,
+                'Total Payroll Cost (AT)': 0,
+                'Service Charges (AU)': 0,
+                'Sales Tax (AV)': 0,
+                'Total Invoice (AW)': 0,
+            };
+        }
+        groups[key].Employees++;
+        groups[key]['Net Pay to Employees']    += Math.round(calc.netPay || 0);
+        groups[key]['Gross Monthly']           += Math.round(calc.grossMonthly || 0);
+        groups[key]['Total Payroll Cost (AT)'] += Math.round(calc.totalPayrollCost || 0);
+        groups[key]['Service Charges (AU)']    += Math.round(calc.serviceCharges || 0);
+        groups[key]['Sales Tax (AV)']          += Math.round(calc.salesTax || 0);
+        groups[key]['Total Invoice (AW)']      += Math.round(calc.totalInvoice || 0);
+    });
+    return Object.values(groups).sort((a, b) =>
+        a.Client.localeCompare(b.Client) || a['Business Unit'].localeCompare(b['Business Unit']) || a.Province.localeCompare(b.Province)
+    );
+};

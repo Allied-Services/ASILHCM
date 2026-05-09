@@ -76,7 +76,7 @@ function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
                         {calc.sessi > 0
                             ? <R label={`SESSI (6% — gross Rs.${fmt(calc.grossMonthly)} < 45,000)`} formula={`6% × ${fmt(calc.grossMonthly)}`} value={calc.sessi} />
                             : <R label="SESSI — Exempt (gross ≥ Rs. 45,000)" formula="Not applicable" value={0} muted />}
-                        <R label="Gratuity (monthly accrual — Employer only)" formula={`Gross ÷ 12  (8.33% of Gross)`} value={calc.gratuity} />
+                        <R label="Gratuity (monthly accrual — Employer only)" formula={`Base Salary ÷ 12  (8.33% of contractual base — per EOB Ord 1968)`} value={calc.gratuity} />
                         <R label="Life Insurance" value={calc.lifeIns} />
                         <R label="Medical — Employee" value={calc.medEE} />
                         {calc.medSP > 0 && <R label="Medical — Spouse" value={calc.medSP} />}
@@ -314,6 +314,8 @@ function ExportMenu({ month, isLocked, filterClient, filterContract, filterLoc, 
         { label: '📋 WHT Returns (FBR)', sub: 'Taxable amount + tax per employee for FBR', fn: () => dlExport('wht') },
         { label: '📋 EOBI Contributions', sub: 'Employee & employer EOBI per head', fn: () => dlExport('eobi') },
         { label: '📋 SESSI Contributions', sub: 'Employer SESSI contribution per head', fn: () => dlExport('sessi') },
+        { label: '🧾 Xero Invoice CSV', sub: 'Xero-importable Sales Invoice CSV grouped by Client + Province (🔒 locked only)', fn: () => dlExport('xero'), needsLock: true },
+        { label: '📈 Invoice Summary (AT:AW)', sub: 'Grouped totals: Net Pay, Total Payroll Cost, Service Charges, Sales Tax, Total Invoice (🔒 locked only)', fn: () => dlExport('invoice_summary'), needsLock: true },
     ];
     // Show active filter badge if any filter is set
     const hasFilter = (filterClient && filterClient !== 'All') || (filterContract && filterContract !== 'All') || (filterLoc && filterLoc !== 'All');
@@ -707,7 +709,11 @@ export default function PayrollSheet({ user }) {
             // Runtime only — used by calcEmployeeRow for joining-month pro-rata (not saved to DB)
             ...(calDaysWorked !== null ? { calDaysWorked, totalCalDays } : {}),
         };
+        // Expose current payroll month to calcEmployeeRow for bonus disbursement logic
+        if (typeof window !== 'undefined') window.__payrollMonth = month;
         return { emp, cfg, calc: calcEmployeeRow(emp, ov, cfg, workDays, PROVINCE_RATES), ov };
+
+
     });
     // Keep ref in sync so the debounced setOv save always uses current calculations
     rowsRef.current = rows;
@@ -1243,8 +1249,8 @@ export default function PayrollSheet({ user }) {
                 <strong>Formulas:</strong> Gross = Basic(paid) + Allowances(pro-rata) + OT | WHT = FBR 2025-26 slabs ÷ 12 |
                 EOBI = Flat <strong>Rs. 400 (EE) / Rs. 2,000 (ER)</strong> for all employees |
                 SESSI = <strong>6% of gross</strong>, only where gross &lt; Rs. 45,000 (exempt above) |
-                PF = 8.33% of Basic (if enrolled) | Gratuity = (Gross÷26)×30÷12 | Total Payroll Cost = Gross + employer obligations |
-                Service Charges on Total Payroll Cost | Sales Tax on Service Charges only. Click <strong>Verify</strong> on any row for full step-by-step breakdown.
+                PF = Gross ÷ 24 (EE &amp; ER, when PF scheme) | <strong>Gratuity = Base Salary ÷ 12</strong> (8.33% of contractual base, EOB Ord 1968 — NOT inflated by OT) |
+                Total Payroll Cost = Gross + employer obligations | Service Charges on Total Payroll Cost | Sales Tax on (Total Payroll Cost + Service Charges). Click <strong>Verify</strong> on any row for full step-by-step breakdown.
             </div>
 
             {breakdown && <BreakdownPanel emp={breakdown.emp} calc={breakdown.calc} cfg={breakdown.cfg || {}} workDays={workDays} onClose={() => setBreakdown(null)} />}

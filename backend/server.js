@@ -2850,8 +2850,104 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Gross Monthly': c.grossM, 'SESSI Amount': c.sessi };
             });
             filename = `SESSI_${year}-${String(month).padStart(2,'0')}.csv`;
+        } else if (type === 'xero') {
+            // Xero-importable Sales Invoice CSV grouped by Client + Province
+            const groups = {};
+            bankEmps.forEach(emp => {
+                const c          = calcRow(emp, payMap[emp.id]);
+                const clientName = emp.client || 'Unknown';
+                const buName     = emp.contract_name || emp.client_bu || emp.contract || '';
+                const province   = emp.province || emp.location || 'Sindh';
+                const tracking   = (emp.id || '').toUpperCase().includes('ASILFM') ? 'FM' : 'BPO';
+                const key        = `${clientName}||${buName}||${province}`;
+                if (!groups[key]) groups[key] = { clientName, buName, province, tracking, totalPayrollCost: 0, serviceCharges: 0, salesTax: 0, count: 0 };
+                groups[key].totalPayrollCost += c.costBase;
+                groups[key].serviceCharges   += c.sc;
+                groups[key].salesTax         += c.st;
+                groups[key].count++;
+            });
+            const invDay   = parseInt(req.query.invoiceDay || 27);
+            const startInv = parseInt(req.query.startInv || 5000);
+            const invDateD = new Date(yrInt, moInt - 1, invDay);
+            const dueDateD = new Date(yrInt, moInt - 1, invDay + 60);
+            const fmt2 = n => String(n).padStart(2, '0');
+            const invDateStr = `${fmt2(invDateD.getDate())}-${fmt2(invDateD.getMonth()+1)}-${String(invDateD.getFullYear()).slice(-2)}`;
+            const dueDateStr = `${fmt2(dueDateD.getDate())}-${fmt2(dueDateD.getMonth()+1)}-${String(dueDateD.getFullYear()).slice(-2)}`;
+            const monthLbl = new Date(yrInt, moInt-1, 1).toLocaleString('en-US', { month: 'long' });
+            let invNum = startInv;
+            const sortedXero = Object.values(groups).sort((a, b) =>
+                a.clientName.localeCompare(b.clientName) || a.buName.localeCompare(b.buName) || a.province.localeCompare(b.province)
+            );
+            sortedXero.forEach(grp => {
+                const inv     = String(invNum++);
+                const taxType = xeroTaxType(grp.province);
+                const isFM    = grp.tracking === 'FM';
+                const descMain = `${isFM ? 'FM Services' : 'Services'} in ${grp.province} for the month of ${monthLbl} ${yrInt}`;
+                const makeRow = (desc, amount, taxAmt) => ({
+                    '*ContactName': `${grp.buName} - ${grp.clientName}`,
+                    'EmailAddress': '', 'POAddressLine1': '', 'POAddressLine2': '', 'POAddressLine3': '', 'POAddressLine4': '',
+                    'POCity': '', 'PORegion': '', 'POPostalCode': '', 'POCountry': '',
+                    '*InvoiceNumber': inv, 'Reference': '',
+                    '*InvoiceDate': invDateStr, '*DueDate': dueDateStr,
+                    'Total': '', 'InventoryItemCode': '',
+                    '*Description': desc, '*Quantity': '1', '*UnitAmount': Math.round(amount),
+                    'Discount': '', '*AccountCode': '208',
+                    '*TaxType': taxType, 'TaxAmount': taxAmt !== '' ? Math.round(taxAmt) : '',
+                    'TrackingName1': 'Tracking Category', 'TrackingOption1': grp.tracking,
+                    'TrackingName2': 'Type', 'TrackingOption2': 'Official',
+                    'Currency': 'PKR', 'BrandingTheme': 'Letterhead',
+                });
+                rows.push(makeRow(descMain, grp.totalPayrollCost, grp.salesTax));
+                if (grp.serviceCharges > 0) rows.push(makeRow('Service Charges', grp.serviceCharges, ''));
+            });
+            if (!rows.length) return res.status(200).json({ msg: 'No locked payroll records found for Xero export.' });
+            filename = `Invoice_File_Upload_on_Xero_${monthLbl.substring(0,3)}-${String(yrInt).slice(-2)}.csv`;
+
+        } else if (type === 'invoice_summary') {
+            // Invoice summary grouped by Client → Contract → Province (mirrors AT:AW columns)
+            const sumGroups = {};
+            bankEmps.forEach(emp => {
+                const c        = calcRow(emp, payMap[emp.id]);
+                const client   = emp.client   || 'Unknown';
+                const contract = emp.contract_name || bu(emp) || '';
+                const province = emp.province  || emp.location || 'Other';
+                const key = `${client}||${contract}||${province}`;
+                if (!sumGroups[key]) sumGroups[key] = {
+                    'Month': monthLabel, 'Client': client, 'Contract': contract, 'Province': province,
+                    'Employees': 0, 'Net Pay': 0, 'Gross Monthly': 0,
+                    'Total Payroll Cost (AT)': 0, 'Service Charges (AU)': 0,
+                    'Sales Tax (AV)': 0, 'Total Invoice (AW)': 0,
+                };
+                sumGroups[key]['Employees']++;
+                sumGroups[key]['Net Pay']                  += c.netPay;
+                sumGroups[key]['Gross Monthly']            += c.grossM;
+                sumGroups[key]['Total Payroll Cost (AT)']  += c.costBase;
+                sumGroups[key]['Service Charges (AU)']     += c.sc;
+                sumGroups[key]['Sales Tax (AV)']           += c.st;
+                sumGroups[key]['Total Invoice (AW)']       += c.inv;
+            });
+            rows = Object.values(sumGroups).sort((a, b) =>
+                a.Client.localeCompare(b.Client) || a.Contract.localeCompare(b.Contract) || a.Province.localeCompare(b.Province)
+            );
+            // Add grand total row
+            if (rows.length > 1) {
+                const grand = rows.reduce((acc, r) => {
+                    acc['Employees'] += r['Employees'];
+                    acc['Net Pay'] += r['Net Pay'];
+                    acc['Gross Monthly'] += r['Gross Monthly'];
+                    acc['Total Payroll Cost (AT)'] += r['Total Payroll Cost (AT)'];
+                    acc['Service Charges (AU)'] += r['Service Charges (AU)'];
+                    acc['Sales Tax (AV)'] += r['Sales Tax (AV)'];
+                    acc['Total Invoice (AW)'] += r['Total Invoice (AW)'];
+                    return acc;
+                }, { Month: monthLabel, Client: 'GRAND TOTAL', Contract: '', Province: '', Employees: 0, 'Net Pay': 0, 'Gross Monthly': 0, 'Total Payroll Cost (AT)': 0, 'Service Charges (AU)': 0, 'Sales Tax (AV)': 0, 'Total Invoice (AW)': 0 });
+                rows.push(grand);
+            }
+            if (!rows.length) return res.status(200).json({ msg: 'No locked payroll records found for invoice summary.' });
+            filename = `Invoice_Summary_${year}-${String(month).padStart(2,'0')}${filterClient !== 'All' ? '_' + filterClient.replace(/\s+/g,'_').slice(0,20) : ''}.csv`;
+
         } else {
-            return res.status(400).json({ error: 'Invalid type. Use payroll|hbl_same|hbl_other|hbl|wht|eobi|sessi' });
+            return res.status(400).json({ error: 'Invalid type. Use payroll|hbl_same|hbl_other|hbl|wht|eobi|sessi|xero|invoice_summary' });
         }
 
         if (!rows.length) return res.status(200).send('No data to export.');
