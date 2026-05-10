@@ -144,7 +144,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     //      - Else → pro-rated (bonus_months × grossSalary × months_served / 12)
     const bonusMonths      = parseFloat(cfg.bonus_months || 0);
     const bonusMinMonths   = parseFloat(cfg.bonus_min_months ?? 12);
-    const disbursementMo   = parseInt(cfg.bonus_disbursement_month || 4); // default April
+    const disbursementMo   = parseInt(cfg.bonus_disbursement_month || 0); // 0 = no auto-disburse; must be set on contract
     const bonusAccrual     = bonusMonths > 0 ? Math.round(bonusMonths * grossSalary / 12) : 0;
     // Determine current payroll month from the passed-in override or default to current date
     // We derive month from the employee's payroll context via payPeriod if available
@@ -154,7 +154,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     // NOTE: payrollMonth is passed as a global via the sheet context — we read it from
     // the window.__payrollMonth injected by PayrollSheet before calling calcEmployeeRow.
     let bonusDisbursed = bonusAmount; // fallback: use manually imported value
-    if (bonusMonths > 0 && bonusAmount === 0 && typeof window !== 'undefined' && window.__payrollMonth) {
+    if (bonusMonths > 0 && bonusAmount === 0 && disbursementMo > 0 && typeof window !== 'undefined' && window.__payrollMonth) {
         const [pyear, pmonth] = String(window.__payrollMonth).split('-').map(Number);
         if (pmonth === disbursementMo) {
             // Employee is active this month — calculate months served in this bonus cycle

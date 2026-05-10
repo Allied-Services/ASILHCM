@@ -413,6 +413,7 @@ export default function PayrollSheet({ user }) {
                     medical_child:       parseFloat(ct.costs?.medical_child) || 0,
                     bonus_months:        parseFloat(ct.costs?.bonus_months) || 0,
                     bonus_min_months:    parseFloat(ct.costs?.bonus_min_months) || 12,
+                    bonus_disbursement_month: parseInt(ct.costs?.bonus_disbursement_month) || 0,
                     eosb_type:           ct.costs?.eosb_type || 'None',
                     overhead_per_employee: parseFloat(ct.costs?.overhead_per_employee) || 0,
                     _isActive:           ct.status === 'Active',
