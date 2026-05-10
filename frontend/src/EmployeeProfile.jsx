@@ -1403,6 +1403,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
             {/* Payslip viewer */}
             {viewPayslip && <PayslipModal payslip={viewPayslip} employee={emp} onClose={() => setViewPayslip(null)} />}
         </div>
+    </EditCtx.Provider>
     );
 }
 
@@ -1541,6 +1542,5 @@ function PFLedgerSection({ emp, pfLedger, setPfLedger, pfBalance, setPfBalance,
                 </div>
             )}
         </div>
-    </EditCtx.Provider>
     );
 }
