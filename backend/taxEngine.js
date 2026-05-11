@@ -23,10 +23,10 @@ function calculateEOBI() {
 /**
  * Calculates SESSI (Employer only) — Sindh only.
  * 6% of gross, capped at Rs. 2,400 (min wage Rs. 40,000 × 6% = 2,400)
- * Exempt if gross >= Rs. 45,000 per SESSI Act.
+ * Exempt if grossWage > Rs. 40,000 (SESSI wage ceiling — inclusive at 40,000).
  */
 function calculateSESSI(grossWage) {
-    if (grossWage >= 45000) return 0;
+    if (grossWage > 40000) return 0;
     return Math.min(2400, Math.round(grossWage * 0.06));
 }
 

@@ -129,8 +129,10 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const loanDed = parseNum(ov.loan_deduction || 0);
     const totalDeductions = incomeTax + eobi.employee + pfEE + otherDed + advanceDed + loanDed;
     const netPay = grossMonthly - totalDeductions;
-    // SESSI: 6% of gross, exempt if gross >= Rs.45,000 (per SESSI Act & System Config rule)
-    const sessi = grossMonthly >= 45000 ? 0 : Math.min(2400, Math.round(grossMonthly * 0.06));
+    // SESSI: 6% of gross, capped at Rs.2,400 (6% × statutory min wage Rs.40,000).
+    // Exempt if grossMonthly > Rs.40,000 (the SESSI wage ceiling per SESSI Act).
+    // Employees earning EXACTLY Rs.40,000 ARE covered (ceiling is inclusive).
+    const sessi = grossMonthly > 40000 ? 0 : Math.min(2400, Math.round(grossMonthly * 0.06));
     const eduCess = parseFloat(cfg.edu_cess || 0);
     const bonusAmount = parseFloat(ov.bonus_amount || 0);
     // ── Annual Bonus Disbursement ───────────────────────────────────────────────
@@ -205,10 +207,12 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     // bonusDisbursed is the actual cash payout (only in disbursement month, 0 otherwise)
     // overhead is a fixed per-head charge from the contract
     const overhead = parseFloat(cfg.overhead_per_employee || 0);
-    // CRITICAL: use bonusDisbursed OR bonusAccrual — NEVER both in the same month.
-    // In the disbursement month, bonusDisbursed is the full cash payout (replaces the monthly accrual).
-    // In all other months, bonusAccrual is the monthly provision.
-    const bonusTPC = bonusDisbursed > 0 ? bonusDisbursed : bonusAccrual;
+    // INVOICE RULE: TPC always uses bonusAccrual (salary / 12 × bonus_months), NEVER bonusDisbursed.
+    // Rationale: the client is charged the monthly accrual every month throughout the year.
+    // When the bonus is disbursed in April the cash goes to the employee — the client has already
+    // been paying for it via the monthly accrual. Charging the full disbursed amount in April
+    // would double-bill the client for all previously accrued months.
+    const bonusTPC = bonusAccrual;
     const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusTPC + gratuity + lifeIns + totalMedical + pfER + overhead;
     const svcPct = parseFloat(cfg.service_charges_pct || 0);
     // Sales tax: rate from System Config "Tax by Region" (DB-driven via provinceRates param)
