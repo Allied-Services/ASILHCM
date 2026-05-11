@@ -1810,7 +1810,7 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
 
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Gross = sum of all earnings ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
         const grossTotal = basicSalary + hra + conveyance + medical + otherAllow
-                         + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile + bonusAmount;
+                         + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile; // bonus excluded: separate TPC line
 
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Deductions ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
         // WHT: use saved DB value if available, else calculate from gross
@@ -2653,10 +2653,11 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const spl      = Math.round(parseFloat(pay?.special_allowance||0));
             const fuel     = Math.round(parseFloat(pay?.fuel_mobile||0));
             const bonus    = Math.round(parseFloat(pay?.bonus_amount||0));
-            // grossM: use stored gross if available, else compute from components
+            // grossM: use stored gross if available (must NOT include bonus — see save logic),
+            // else compute from base components. Bonus is a separate TPC line, not gross.
             const grossM   = pay?.gross && parseFloat(pay.gross) > 0
                 ? Math.round(parseFloat(pay.gross))
-                : Math.round(basic + hra + conv + medAll + other + otAmt + opd + reimb + arr + spl + fuel + bonus);
+                : Math.round(basic + hra + conv + medAll + other + otAmt + opd + reimb + arr + spl + fuel);
             // WHT: prefer stored value, else compute from FBR slabs
             const wht = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
             const eobi_ee  = 400, eobi_er = 2000;
