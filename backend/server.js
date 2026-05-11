@@ -2609,12 +2609,13 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         const WD = 26;
 
         const whtCalc = (a) => {
+            // FBR 2025-26 Salaried Individual — Finance Act 2024 (matches frontend calcWHT)
             if (a <= 600000) return 0;
-            if (a <= 1200000) return Math.round(((a-600000)*0.05)/12);
-            if (a <= 2200000) return Math.round((30000+(a-1200000)*0.15)/12);
-            if (a <= 3200000) return Math.round((180000+(a-2200000)*0.25)/12);
-            if (a <= 4100000) return Math.round((430000+(a-3200000)*0.30)/12);
-            return Math.round((700000+(a-4100000)*0.35)/12);
+            if (a <= 1200000) return Math.round(((a - 600000) * 0.01) / 12);
+            if (a <= 2200000) return Math.round((6000 + (a - 1200000) * 0.11) / 12);
+            if (a <= 3200000) return Math.round((116000 + (a - 2200000) * 0.23) / 12);
+            if (a <= 4100000) return Math.round((346000 + (a - 3200000) * 0.30) / 12);
+            return Math.round((616000 + (a - 4100000) * 0.35) / 12);
         };
 
         // Province ├óΓÇáΓÇÖ provincial service tax rate (DB-driven from System Config Tax by Region)
@@ -2675,10 +2676,19 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const totalDed = wht + eobi_ee + pfDed + advDed + loanDed + otherDed;
             const netPay   = grossM - totalDed;
             // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Medical: priority: payroll_transactions override ├óΓÇáΓÇÖ contract costs ├óΓÇáΓÇÖ 0
-            const medEE  = Math.round(parseFloat(pay?.medical_ee  != null ? pay.medical_ee  : emp._medical_ee  || 0));
-            const medSP  = Math.round(parseFloat(pay?.medical_sp  != null ? pay.medical_sp  : emp._medical_sp  || 0));
-            const medCh1 = Math.round(parseFloat(pay?.medical_ch1 != null ? pay.medical_ch1 : emp._medical_ch  || 0));
-            const medCh2 = Math.round(parseFloat(pay?.medical_ch2 != null ? pay.medical_ch2 : 0));
+            // ── Medical: priority: payroll_transactions override → contract costs → employee family data
+            // BUG FIX: If medical_sp/ch1/ch2 are stored as 0 (from CSV import without Spouse/Children
+            // Count columns), fall back to the employee master's family data (spouse_name, child1_name,
+            // child2_name) to determine whether spouse/child premiums apply. Mirrors frontend fix.
+            const savedMedSP  = pay?.medical_sp  != null ? parseFloat(pay.medical_sp)  : null;
+            const savedMedCh1 = pay?.medical_ch1 != null ? parseFloat(pay.medical_ch1) : null;
+            const savedMedCh2 = pay?.medical_ch2 != null ? parseFloat(pay.medical_ch2) : null;
+            const empHasSpouse   = !!(emp.spouse_name && String(emp.spouse_name).trim());
+            const empNumChildren = [emp.child1_name, emp.child2_name].filter(n => n && String(n).trim()).length;
+            const medEE  = Math.round(parseFloat(pay?.medical_ee != null ? pay.medical_ee : emp._medical_ee || 0));
+            const medSP  = (savedMedSP  != null && savedMedSP  > 0) ? savedMedSP  : (empHasSpouse   ? Math.round(emp._medical_sp || 0) : 0);
+            const medCh1 = (savedMedCh1 != null && savedMedCh1 > 0) ? savedMedCh1 : (empNumChildren >= 1 ? Math.round(emp._medical_ch || 0) : 0);
+            const medCh2 = (savedMedCh2 != null && savedMedCh2 > 0) ? savedMedCh2 : (empNumChildren >= 2 ? Math.round(emp._medical_ch || 0) : 0);
             const medTotal = medEE + medSP + medCh1 + medCh2;
             // Life Insurance: from contract costs
             const lifeIns = Math.round(parseFloat(emp._life_ins || emp.life_insurance || 0));

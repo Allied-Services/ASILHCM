@@ -481,10 +481,14 @@ export default function PayrollSheet({ user }) {
                     other_deduction:   r.other_deduction,
                     advance_deduction: r.advance_deduction,
                     loan_deduction:    r.loan_deduction,
-                    ...(r.medical_ee  != null ? { medical_ee:  r.medical_ee  } : {}),
-                    ...(r.medical_sp  != null ? { medical_sp:  r.medical_sp  } : {}),
-                    ...(r.medical_ch1 != null ? { medical_ch1: r.medical_ch1 } : {}),
-                    ...(r.medical_ch2 != null ? { medical_ch2: r.medical_ch2 } : {}),
+                    // BUG FIX: Only apply medical overrides from DB if value > 0.
+                    // If saved as 0 (from an import that had no Spouse/Children columns),
+                    // do NOT override the defaults derived from the employee's family data.
+                    // This ensures hasSpouse/numChildren always drives family medical correctly.
+                    ...(r.medical_ee  != null && parseFloat(r.medical_ee)  > 0 ? { medical_ee:  parseFloat(r.medical_ee)  } : {}),
+                    ...(r.medical_sp  != null && parseFloat(r.medical_sp)  > 0 ? { medical_sp:  parseFloat(r.medical_sp)  } : {}),
+                    ...(r.medical_ch1 != null && parseFloat(r.medical_ch1) > 0 ? { medical_ch1: parseFloat(r.medical_ch1) } : {}),
+                    ...(r.medical_ch2 != null && parseFloat(r.medical_ch2) > 0 ? { medical_ch2: parseFloat(r.medical_ch2) } : {}),
                 };
             });
             setOverrides(ov);
@@ -771,13 +775,29 @@ export default function PayrollSheet({ user }) {
             const payload = filtered
                 .filter(emp => importedIds.has(emp.id))
                 .map(emp => {
-                    const cfg = CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] ||
-                                CONTRACT_MAP[emp.contract?.toLowerCase()?.trim()] || {};
+                    // Contract lookup mirrors the main rows() logic: ID → name → BU → client
+                    let cfg = emp.contractId && CONTRACT_MAP[emp.contractId];
+                    const contractKey = emp.contractName?.toLowerCase()?.trim();
+                    if (!cfg && contractKey) cfg = CONTRACT_MAP[contractKey];
+                    const buKey = emp.contract?.toLowerCase()?.trim();
+                    if (!cfg && buKey) cfg = CONTRACT_MAP[buKey];
+                    cfg = cfg || CONTRACT_MAP[emp.client?.toLowerCase()?.trim()] || {};
+
                     const empOv = newOv[emp.id] || {};
+
+                    // BUG FIX: Use employee record's family data as fallback when CSV
+                    // did not contain Spouse/Children Count columns (they'd both be 0).
+                    // This ensures spouse/children medical is ALWAYS included when the
+                    // employee master has spouse_name / child1_name / child2_name filled.
+                    const csvSpouseCount   = empOv.spouse_count   ?? null;
+                    const csvChildrenCount = empOv.children_count ?? null;
+                    const resolvedSpouseCount   = csvSpouseCount   != null ? csvSpouseCount   : (emp.hasSpouse   ? 1 : 0);
+                    const resolvedChildrenCount = csvChildrenCount != null ? csvChildrenCount : (emp.numChildren ?? 0);
+
                     const empMedEE   = cfg.medical_ee    || 0;
-                    const empMedSP   = (empOv.spouse_count   ?? 0) >= 1 ? (cfg.medical_sp    || 0) : 0;
-                    const empMedCh1  = (empOv.children_count ?? 0) >= 1 ? (cfg.medical_child || 0) : 0;
-                    const empMedCh2  = (empOv.children_count ?? 0) >= 2 ? (cfg.medical_child || 0) : 0;
+                    const empMedSP   = resolvedSpouseCount   >= 1 ? (cfg.medical_sp    || 0) : 0;
+                    const empMedCh1  = resolvedChildrenCount >= 1 ? (cfg.medical_child || 0) : 0;
+                    const empMedCh2  = resolvedChildrenCount >= 2 ? (cfg.medical_child || 0) : 0;
                     const _csvMed    = empOv.total_medical_csv ?? 0;
                     const _useFallback = _csvMed > 0 && (empMedEE + empMedSP + empMedCh1 + empMedCh2) === 0;
                     const ov = {
@@ -793,18 +813,13 @@ export default function PayrollSheet({ user }) {
                         other_deduction:   empOv.other_deduction   ?? 0,
                         advance_deduction: empOv.advance_deduction ?? 0,
                         loan_deduction:    empOv.loan_deduction    ?? 0,
-                        spouse_count:      empOv.spouse_count      ?? 0,
-                        children_count:    empOv.children_count    ?? 0,
-                        // Persist medical overrides so they reload correctly
-                        medical_ee:        _useFallback
-                            ? _csvMed
-                            : (empOv.medical_ee ?? (cfg.medical_ee || 0)),
-                        medical_sp:        _useFallback ? 0
-                            : ((empOv.spouse_count ?? 0) >= 1 ? (empOv.medical_sp ?? (cfg.medical_sp || 0)) : 0),
-                        medical_ch1:       _useFallback ? 0
-                            : ((empOv.children_count ?? 0) >= 1 ? (empOv.medical_ch1 ?? (cfg.medical_child || 0)) : 0),
-                        medical_ch2:       _useFallback ? 0
-                            : ((empOv.children_count ?? 0) >= 2 ? (empOv.medical_ch2 ?? (cfg.medical_child || 0)) : 0),
+                        spouse_count:      resolvedSpouseCount,
+                        children_count:    resolvedChildrenCount,
+                        // Save family medical with actual resolved amounts (never 0 when family exists)
+                        medical_ee:        _useFallback ? _csvMed  : (empOv.medical_ee  ?? empMedEE),
+                        medical_sp:        _useFallback ? 0         : (empOv.medical_sp  ?? empMedSP),
+                        medical_ch1:       _useFallback ? 0         : (empOv.medical_ch1 ?? empMedCh1),
+                        medical_ch2:       _useFallback ? 0         : (empOv.medical_ch2 ?? empMedCh2),
                     };
                     const calc = calcEmployeeRow(emp, ov, cfg, workDays);
                     return { employee_id: emp.id, ov, calc };
