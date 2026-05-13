@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard } from 'lucide-react';
+import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail } from 'lucide-react';
+import EmailClaimsListener from './EmailClaimsListener';
 import Dashboard from './Dashboard';
 import AnnexureDashboard from './AnnexureDashboard';
 import MockOCR from './MockOCR';
@@ -25,15 +26,15 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance'],
+    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','email_claims'],
     supervisor:           ['attendance'],
     operations:           ['employee','documents','client','attendance'],
     procurement_proposer: ['billing','vendor','inventory'],
     procurement_approver: ['billing','vendor','inventory'],
     procurement_manager:  ['billing','vendor','inventory','ap'],
     finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure'],
-    finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance'],
-    finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance'],
+    finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims'],
+    finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','email_claims'],
     ap_team:              ['ap','billing'],
     ar_team:              ['invoices','po_tracking','billing'],
     payroll_initiator:    ['payroll','employee'],
@@ -107,7 +108,7 @@ function App() {
   // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
-    allowedTabs = ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance'];
+    allowedTabs = ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','email_claims'];
   } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
     // Saved custom permissions: show all modules where access === true
     allowedTabs = Object.entries(user.permissions)
@@ -159,7 +160,8 @@ function App() {
     { key: 'annexure',  label: 'Annexure Approval',      icon: <ScanLine size={20} /> },
     { key: 'config',    label: 'System Configs',         icon: <Settings size={20} /> },
     { key: 'users',       label: 'User Management',        icon: <Shield size={20} /> },
-    { key: 'attendance',  label: 'Attendance',              icon: <Clock size={20} /> },
+    { key: 'attendance',    label: 'Attendance',              icon: <Clock size={20} /> },
+    { key: 'email_claims',  label: 'Email Claims',            icon: <Mail size={20} /> },
   ];
 
   const NAV = ALL_NAV.filter(n => allowedTabs.includes(n.key));
@@ -234,7 +236,8 @@ function App() {
           {effectiveTab === 'annexure'   && <AnnexureDashboard />}
           {effectiveTab === 'config'     && <SystemConfig user={user} />}
           {effectiveTab === 'users'      && <UserManagement user={user} />}
-          {effectiveTab === 'attendance' && <AttendanceManagement user={user} />}
+          {effectiveTab === 'attendance'   && <AttendanceManagement user={user} />}
+          {effectiveTab === 'email_claims' && <EmailClaimsListener user={user} />}
         </main>
       </div>
     </>

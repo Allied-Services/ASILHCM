@@ -10,6 +10,7 @@ const { Pool } = require('pg');
 const { Resend } = require('resend');
 
 const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratuity } = require('./taxEngine');
+const { startEmailClaimsService, triggerManualPoll } = require('./emailClaimsService');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -351,6 +352,8 @@ const empToDb = (e) => ({
     contract_name: e.contractName || null,
     contract_id:   e.contractId   || null,
     region: e.region || null,
+    line_manager_name:  e.lineManagerName  || null,
+    line_manager_email: e.lineManagerEmail || null,
 });
 
 const empFromDb = (r) => ({
@@ -382,6 +385,8 @@ const empFromDb = (r) => ({
     contractName: r.contract_name || null,
     contractId:   r.contract_id   || null,
     region: r.region || null,
+    lineManagerName:  r.line_manager_name  || null,
+    lineManagerEmail: r.line_manager_email || null,
     salaryHistory: [],
     leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
 });
@@ -418,7 +423,7 @@ app.get('/api/employees', requireAuth, async (req, res) => {
 app.post('/api/employees', requireAuth, async (req, res) => {
     try {
         const d = empToDb(req.body);
-        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region'];
+        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email'];
         const vals = cols.map(c => d[c]);
         const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
         const updates = cols.slice(1).map((c, i) => `${c}=EXCLUDED.${c}`).join(',');
@@ -433,7 +438,7 @@ app.post('/api/employees', requireAuth, async (req, res) => {
 app.put('/api/employees/:id', requireAuth, async (req, res) => {
     try {
         const d = empToDb({ ...req.body, id: req.params.id });
-        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region'];
+        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email'];
         const setClauses = cols.map((c, i) => `${c}=$${i + 1}`).join(',');
         const vals = [...cols.map(c => d[c]), req.params.id];
         const { rows } = await pool.query(
@@ -474,7 +479,7 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
         'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id',
         'medical_type', 'medical_maternity', 'total_medical_coverage',
         'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact',
-        'contract_date', 'contract_name', 'contract_id', 'region'];
+        'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email'];
     const placeholders = COLS.map((_, i) => `$${i + 1}`).join(',');
     const updates = COLS.slice(1).map(c => `${c}=EXCLUDED.${c}`).join(',');
 
@@ -5093,7 +5098,292 @@ Promise.all([
 ]).then(() => console.log('Performance indexes: OK'))
   .catch(e => console.warn('Index creation warning (non-fatal):', e.message));
 
+// ══════════════════════════════════════════════════════════════════════════════
+// EMAIL CLAIMS MODULE — Routes
+// ══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/claims/inbox — list all claim emails with employee join
+app.get('/api/claims/inbox', requireAuth, async (req, res) => {
+    try {
+        const { month, client, status } = req.query;
+        let where = 'WHERE 1=1';
+        const vals = [];
+        if (month) { vals.push(month); where += ` AND ci.claim_month = $${vals.length}::DATE`; }
+        if (status && status !== 'ALL') { vals.push(status); where += ` AND ci.status = $${vals.length}`; }
+        const { rows } = await pool.query(`
+            SELECT ci.*,
+                e.name AS employee_name, e.designation, e.dept, e.client AS employee_client,
+                e.line_manager_name, e.line_manager_email
+            FROM claims_inbox ci
+            LEFT JOIN employees e ON e.id = ci.employee_id
+            ${where}
+            ORDER BY ci.received_at DESC
+        `, vals);
+        // Stats
+        const stats = await pool.query(`
+            SELECT
+                COUNT(*) FILTER (WHERE status NOT IN ('DUPLICATE')) AS total,
+                COUNT(*) FILTER (WHERE status = 'PENDING') AS pending,
+                COUNT(*) FILTER (WHERE status = 'UNMATCHED') AS unmatched,
+                COUNT(*) FILTER (WHERE status = 'DUPLICATE') AS duplicates,
+                COUNT(*) FILTER (WHERE status = 'APPROVED') AS approved,
+                COALESCE(SUM(claim_amount) FILTER (WHERE status = 'APPROVED'), 0) AS approved_amount
+            FROM claims_inbox
+        `);
+        res.json({ claims: rows, stats: stats.rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/claims/consolidation — claims grouped per employee for a given month
+app.get('/api/claims/consolidation', requireAuth, async (req, res) => {
+    try {
+        const { month, client } = req.query;
+        if (!month) return res.status(400).json({ error: 'month is required (YYYY-MM-DD)' });
+
+        let clientFilter = '';
+        const vals = [month];
+        if (client) { vals.push(client); clientFilter = `AND LOWER(e.client) LIKE LOWER($${vals.length})`; }
+
+        const { rows } = await pool.query(`
+            SELECT
+                ci.employee_id,
+                e.name AS employee_name, e.designation, e.dept, e.client AS employee_client,
+                e.line_manager_name, e.line_manager_email,
+                SUM(ci.ot_hours) FILTER (WHERE ci.claim_type = 'OT_2X') AS ot2_hours,
+                SUM(ci.ot_hours) FILTER (WHERE ci.claim_type = 'OT_3X') AS ot3_hours,
+                SUM(ci.claim_amount) FILTER (WHERE ci.claim_type = 'OPD') AS opd_amount,
+                SUM(ci.claim_amount) FILTER (WHERE ci.claim_type = 'EXPENSE') AS expense_amount,
+                SUM(ci.claim_amount) FILTER (WHERE ci.claim_type = 'ALLOWANCE') AS allowance_amount,
+                MIN(ci.status) AS claim_status,
+                ARRAY_AGG(ci.id) AS claim_ids
+            FROM claims_inbox ci
+            JOIN employees e ON e.id = ci.employee_id
+            WHERE ci.claim_month = $1::DATE
+              AND ci.status NOT IN ('DUPLICATE', 'REJECTED')
+              ${clientFilter}
+            GROUP BY ci.employee_id, e.name, e.designation, e.dept, e.client,
+                     e.line_manager_name, e.line_manager_email
+            ORDER BY e.name ASC
+        `, vals);
+
+        // Summary totals
+        const totals = rows.reduce((acc, r) => ({
+            employees: acc.employees + 1,
+            ot2Hours:  acc.ot2Hours  + (parseFloat(r.ot2_hours)   || 0),
+            ot3Hours:  acc.ot3Hours  + (parseFloat(r.ot3_hours)   || 0),
+            opd:       acc.opd       + (parseFloat(r.opd_amount)  || 0),
+            expense:   acc.expense   + (parseFloat(r.expense_amount)  || 0),
+        }), { employees: 0, ot2Hours: 0, ot3Hours: 0, opd: 0, expense: 0 });
+
+        res.json({ rows, totals });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /api/claims/:id/status — manually update a single claim status
+app.patch('/api/claims/:id/status', requireAuth, async (req, res) => {
+    try {
+        const { status, employee_id, claim_type, ot_hours, claim_amount, claim_month } = req.body;
+        const VALID = ['PENDING', 'APPROVED', 'REJECTED', 'UNMATCHED'];
+        if (!VALID.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+        const { rows } = await pool.query(`
+            UPDATE claims_inbox
+            SET status=$1, employee_id=COALESCE($2, employee_id),
+                claim_type=COALESCE($3, claim_type),
+                ot_hours=COALESCE($4, ot_hours),
+                claim_amount=COALESCE($5, claim_amount),
+                claim_month=COALESCE($6::DATE, claim_month)
+            WHERE id=$7 RETURNING *
+        `, [status, employee_id||null, claim_type||null, ot_hours||null, claim_amount||null, claim_month||null, req.params.id]);
+        if (!rows.length) return res.status(404).json({ error: 'Claim not found' });
+        res.json({ ok: true, claim: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/claims/send-approval-emails — dispatch approval emails to line managers
+app.post('/api/claims/send-approval-emails', requireAuth, async (req, res) => {
+    try {
+        const { month, client, claimIds } = req.body;
+        if (!month) return res.status(400).json({ error: 'month required' });
+
+        // Get consolidation data
+        let clientFilter = '';
+        const vals = [month];
+        if (client) { vals.push(client); clientFilter = `AND LOWER(e.client) LIKE LOWER($${vals.length})`; }
+
+        const { rows: consolidation } = await pool.query(`
+            SELECT
+                e.line_manager_name, e.line_manager_email,
+                e.name AS employee_name, e.id AS employee_id, e.designation, e.client AS employee_client,
+                SUM(ci.ot_hours) FILTER (WHERE ci.claim_type = 'OT_2X') AS ot2_hours,
+                SUM(ci.ot_hours) FILTER (WHERE ci.claim_type = 'OT_3X') AS ot3_hours,
+                SUM(ci.claim_amount) FILTER (WHERE ci.claim_type = 'OPD') AS opd_amount,
+                SUM(ci.claim_amount) FILTER (WHERE ci.claim_type = 'EXPENSE') AS expense_amount,
+                ARRAY_AGG(ci.id) AS claim_ids
+            FROM claims_inbox ci
+            JOIN employees e ON e.id = ci.employee_id
+            WHERE ci.claim_month = $1::DATE
+              AND ci.status = 'PENDING'
+              ${clientFilter}
+            GROUP BY e.line_manager_name, e.line_manager_email, e.name, e.id, e.designation, e.client
+        `, vals);
+
+        if (!consolidation.length) return res.json({ ok: true, sent: 0, message: 'No pending claims found' });
+
+        // Group by manager
+        const byManager = {};
+        for (const row of consolidation) {
+            const key = (row.line_manager_email || 'UNKNOWN').toLowerCase();
+            if (!byManager[key]) byManager[key] = { name: row.line_manager_name || 'Manager', email: row.line_manager_email, employees: [] };
+            byManager[key].employees.push(row);
+        }
+
+        const monthLabel = new Date(month).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
+        const sentTo = [];
+        const errors = [];
+
+        for (const mgr of Object.values(byManager)) {
+            if (!mgr.email) { errors.push({ manager: mgr.name, error: 'No email on record' }); continue; }
+
+            // Build HTML table rows
+            const tableRows = mgr.employees.map(e => `
+                <tr style="border-bottom:1px solid #e2e8f0;">
+                    <td style="padding:8px 12px;">${e.employee_name}</td>
+                    <td style="padding:8px 12px;">${e.employee_id}</td>
+                    <td style="padding:8px 12px;text-align:center;">${e.ot2_hours || '—'}</td>
+                    <td style="padding:8px 12px;text-align:center;">${e.ot3_hours || '—'}</td>
+                    <td style="padding:8px 12px;text-align:right;">${e.opd_amount ? 'PKR ' + parseFloat(e.opd_amount).toLocaleString() : '—'}</td>
+                    <td style="padding:8px 12px;text-align:right;">${e.expense_amount ? 'PKR ' + parseFloat(e.expense_amount).toLocaleString() : '—'}</td>
+                </tr>
+            `).join('');
+
+            const html = `
+<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:20px;">
+<div style="max-width:680px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#1e3a5f,#2d5f8a);padding:28px 32px;">
+    <h1 style="color:#fff;margin:0;font-size:1.3rem;">ASIL HCM System</h1>
+    <p style="color:#94c5f5;margin:6px 0 0;font-size:0.9rem;">Automated HR Notification</p>
+  </div>
+  <div style="padding:28px 32px;">
+    <h2 style="color:#1e3a5f;margin:0 0 8px;">Action Required: Claims Approval</h2>
+    <p style="color:#64748b;margin:0 0 20px;">Month of <strong>${monthLabel}</strong></p>
+    <p style="color:#334155;">Dear <strong>${mgr.name}</strong>,</p>
+    <p style="color:#334155;">Please review and approve the following overtime, OPD and expense claims for your team members for <strong>${monthLabel}</strong>.</p>
+    <table style="width:100%;border-collapse:collapse;margin:20px 0;font-size:0.88rem;">
+      <thead>
+        <tr style="background:#f1f5f9;">
+          <th style="padding:10px 12px;text-align:left;color:#475569;">Employee</th>
+          <th style="padding:10px 12px;text-align:left;color:#475569;">ID</th>
+          <th style="padding:10px 12px;text-align:center;color:#475569;">OT 2X (hrs)</th>
+          <th style="padding:10px 12px;text-align:center;color:#475569;">OT 3X (hrs)</th>
+          <th style="padding:10px 12px;text-align:right;color:#475569;">OPD</th>
+          <th style="padding:10px 12px;text-align:right;color:#475569;">Expenses</th>
+        </tr>
+      </thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+    <div style="margin:24px 0;padding:16px;background:#f0fdf4;border-left:4px solid #22c55e;border-radius:6px;">
+      <p style="margin:0;color:#15803d;font-weight:600;">To approve, reply to this email with the word: APPROVED</p>
+      <p style="margin:6px 0 0;color:#166534;font-size:0.85rem;">To reject, reply with: REJECTED (and optionally state the reason)</p>
+    </div>
+    <p style="color:#94a3b8;font-size:0.8rem;margin:20px 0 0;">This is an automated notification from ASIL HCM System. Do not forward this email. If you did not expect this, contact HR.</p>
+  </div>
+  <div style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;">
+    <p style="color:#94a3b8;font-size:0.78rem;margin:0;">Allied Services International (Pvt.) Ltd. · ASIL HCM · ${new Date().getFullYear()}</p>
+  </div>
+</div>
+</body></html>`;
+
+            try {
+                await resend.emails.send({
+                    from: EMAIL_FROM,
+                    to: mgr.email,
+                    subject: `Action Required: Approval for ${monthLabel} — ${mgr.employees.length} Claim(s)`,
+                    html,
+                });
+
+                // Create approval cycle record
+                const totalVal = mgr.employees.reduce((s, e) =>
+                    s + (parseFloat(e.opd_amount)||0) + (parseFloat(e.expense_amount)||0), 0);
+                const cycle = await pool.query(`
+                    INSERT INTO claims_approval_cycles
+                        (cycle_month, manager_email, manager_name, sent_at, claims_count, total_value)
+                    VALUES ($1::DATE, $2, $3, NOW(), $4, $5)
+                    RETURNING id
+                `, [month, mgr.email, mgr.name, mgr.employees.length, totalVal]);
+
+                // Tag the claims with cycle ID
+                const allClaimIds = mgr.employees.flatMap(e => e.claim_ids).filter(Boolean);
+                if (allClaimIds.length && cycle.rows[0]) {
+                    await pool.query(
+                        `UPDATE claims_inbox SET status='AWAITING_APPROVAL', approval_cycle_id=$1 WHERE id = ANY($2::int[])`,
+                        [cycle.rows[0].id, allClaimIds]
+                    );
+                }
+
+                sentTo.push({ manager: mgr.name, email: mgr.email, employees: mgr.employees.length });
+            } catch (emailErr) {
+                errors.push({ manager: mgr.name, email: mgr.email, error: emailErr.message });
+            }
+        }
+
+        res.json({ ok: true, sent: sentTo.length, sentTo, errors });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/claims/approval-cycles — list approval cycles and their status
+app.get('/api/claims/approval-cycles', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT * FROM claims_approval_cycles
+            ORDER BY sent_at DESC LIMIT 100
+        `);
+        res.json({ cycles: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/claims/listener-status — returns listener config (no secrets)
+app.get('/api/claims/listener-status', requireAuth, async (req, res) => {
+    const user = process.env.CLAIMS_EMAIL_USER || '';
+    const host = process.env.CLAIMS_EMAIL_HOST || 'imap.gmail.com';
+    const interval = parseInt(process.env.CLAIMS_POLL_INTERVAL_MS) || 300000;
+    const { rows } = await pool.query(
+        `SELECT COUNT(*) AS total, MAX(received_at) AS last_received FROM claims_inbox`
+    ).catch(() => ({ rows: [{ total: 0, last_received: null }] }));
+    res.json({
+        configured: !!process.env.CLAIMS_EMAIL_USER,
+        inbox: user ? `${user.split('@')[0].slice(0,3)}***@${user.split('@')[1] || ''}` : '(not set)',
+        host,
+        pollIntervalSeconds: interval / 1000,
+        totalProcessed: parseInt(rows[0]?.total) || 0,
+        lastReceived: rows[0]?.last_received || null,
+    });
+});
+
+// POST /api/claims/trigger-poll — manual "Run Now" from HCM UI (requires email_monitoring permission)
+app.post('/api/claims/trigger-poll', requireAuth, async (req, res) => {
+    try {
+        const result = await triggerManualPoll(pool);
+        res.json({ ok: true, result });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/claims/approve/:token — secure one-click web approval (JWT link sent in approval email)
+app.get('/api/claims/approve/:token', async (req, res) => {
+    try {
+        let payload;
+        try { payload = jwt.verify(req.params.token, JWT_SECRET); }
+        catch { return res.status(400).send('<h2 style="color:#ef4444">Link expired or invalid. Please reply APPROVED via email instead.</h2>'); }
+        const { cycleId, decision } = payload;
+        if (!['APPROVED','REJECTED'].includes(decision)) return res.status(400).send('Invalid.');
+        await pool.query('UPDATE claims_approval_cycles SET response=$1, responded_at=NOW() WHERE id=$2 AND response IS NULL', [decision, cycleId]);
+        await pool.query("UPDATE claims_inbox SET status=$1 WHERE approval_cycle_id=$2 AND status='AWAITING_APPROVAL'", [decision, cycleId]);
+        const color = decision === 'APPROVED' ? '#22c55e' : '#ef4444';
+        res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0f172a;color:#e2e8f0"><div style="max-width:400px;margin:auto;background:#1e293b;border-radius:16px;padding:40px;border:1px solid #334155"><div style="font-size:3rem">${decision==='APPROVED'?'✅':'❌'}</div><h2 style="color:${color}">${decision}</h2><p style="color:#94a3b8">Response recorded. ASIL HCM system updated.</p></div></body></html>`);
+    } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
 // ── Central Error Handler ──────────────────────────────────────────────────
+
 // Catches errors passed via next(err). Sanitizes output in production.
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
     const status = err.status || err.statusCode || 500;
@@ -5706,6 +5996,75 @@ app.listen(PORT, async () => {
             WHERE e.id = sub.id
         `);
         console.log('Bulk contract_date update: ' + bulkResult.rowCount + ' employees updated');
+        // ═══ Claims Inbox table ═══════════════════════════════════════════════
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS claims_inbox (
+                id                  SERIAL PRIMARY KEY,
+                received_at         TIMESTAMPTZ NOT NULL,
+                sender_email        TEXT NOT NULL,
+                subject             TEXT,
+                message_id          TEXT,
+                message_hash        TEXT UNIQUE NOT NULL,
+                raw_body            TEXT,
+                parsed_data         JSONB,
+                employee_id         TEXT REFERENCES employees(id) ON DELETE SET NULL,
+                claim_month         DATE,
+                claim_type          TEXT,
+                ot_hours_1x         NUMERIC(6,2),
+                ot_hours_2x         NUMERIC(6,2),
+                ot_hours_3x         NUMERIC(6,2),
+                ot_hours            NUMERIC(6,2),
+                claim_amount        NUMERIC(12,2),
+                line_manager_name   TEXT,
+                line_manager_email  TEXT,
+                attachment_filename TEXT,
+                status              TEXT DEFAULT 'PENDING',
+                approval_cycle_id   INT,
+                created_at          TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        // Fallback: add missing columns if table already existed with old schema
+        for (const col of [
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS ot_hours_1x NUMERIC(6,2)',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS ot_hours_2x NUMERIC(6,2)',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS ot_hours_3x NUMERIC(6,2)',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS line_manager_name TEXT',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS line_manager_email TEXT',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS attachment_filename TEXT',
+        ]) { await pool.query(col).catch(() => {}); }
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_claims_status ON claims_inbox(status)');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_claims_month ON claims_inbox(claim_month)');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_claims_emp ON claims_inbox(employee_id)');
+        console.log('Migration OK: claims_inbox');
+
+
+        // ═══ Claims Approval Cycles table ════════════════════════════════════
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS claims_approval_cycles (
+                id              SERIAL PRIMARY KEY,
+                cycle_month     DATE NOT NULL,
+                client_id       INT,
+                manager_email   TEXT NOT NULL,
+                manager_name    TEXT,
+                sent_at         TIMESTAMPTZ,
+                responded_at    TIMESTAMPTZ,
+                response        TEXT,
+                claims_count    INT DEFAULT 0,
+                total_value     NUMERIC(12,2) DEFAULT 0,
+                reminder_sent   BOOLEAN DEFAULT FALSE,
+                created_at      TIMESTAMPTZ DEFAULT NOW()
+            );
+        `);
+        console.log('Migration OK: claims_approval_cycles');
+
+        // ═══ Employee line manager columns ════════════════════════════════════
+        await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS line_manager_name TEXT');
+        await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS line_manager_email TEXT');
+        console.log('Migration OK: employees line_manager columns');
+
+        // ═══ Start Email Claims Listener Service ══════════════════════════════
+        startEmailClaimsService(pool);
+
     } catch (e) {
         console.warn('Migration warning (non-fatal):', e.message);
     }

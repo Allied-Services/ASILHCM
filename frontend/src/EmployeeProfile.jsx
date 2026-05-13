@@ -592,6 +592,11 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                 {!isEditing && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                     <Card><STitle>Employment</STitle>
                         {[['Employee Code', emp.id], ['ASIL BU', emp.bu], ['Client', emp.client], ['Client BU', emp.clientBU], ['Department', emp.dept], ['Designation', emp.designation], ['Location', emp.location + ', ' + (emp.province || '')], ['Date of Joining', emp.doj], ['Last Working Day', emp.lastWorkingDay || '—'], ['Status', emp.active === 'Yes' ? 'Active' : 'Inactive']].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
+                        <div style={{marginTop:'0.6rem',paddingTop:'0.6rem',borderTop:'1px dashed rgba(99,102,241,0.3)'}}>
+                          <div style={{fontSize:'0.68rem',color:'#6366f1',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'4px'}}>Line Manager</div>
+                          <Row label="Manager Name" value={emp.lineManagerName || '—'} />
+                          <Row label="Manager Email" value={emp.lineManagerEmail || '—'} />
+                        </div>
                         {/* ── CONTRACT ASSIGNMENT ── */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
                             <span style={{ color: 'var(--text-muted)' }}>Contract</span>
@@ -680,6 +685,11 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                         <ERow label="Date of Joining" field="doj" type="date" />
                         <ERow label="Last Working Day" field="lastWorkingDay" type="date" />
                         <ERow label="Status (Admin Only)" field="active" disabled opts={['Yes','No']} />
+                        <div style={{marginTop:'0.6rem',paddingTop:'0.6rem',borderTop:'1px dashed rgba(99,102,241,0.3)'}}>
+                          <div style={{fontSize:'0.68rem',color:'#6366f1',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'4px'}}>Line Manager</div>
+                          <ERow label="Manager Name" field="lineManagerName" />
+                          <ERow label="Manager Email" field="lineManagerEmail" type="email" />
+                        </div>
                     </Card>
                     <Card><STitle>Personal</STitle>
                         <ERow label="Full Name (Admin Only)" field="name" disabled />
