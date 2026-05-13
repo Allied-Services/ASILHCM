@@ -77,7 +77,14 @@ passport.use(new GoogleStrategy({
     callbackURL: `${BACKEND_URL}/auth/google/callback`,
 }, async (accessToken, refreshToken, profile, done) => {
     const email = profile.emails?.[0]?.value || '';
-    if (!email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`)) {
+    const isAllowedDomain = email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`);
+    // Also allow any email pre-registered in hcm_users (e.g. Gmail supervisors)
+    let isPreRegistered = false;
+    try {
+        const preCheck = await pool.query('SELECT id FROM hcm_users WHERE LOWER(email)=LOWER($1)', [email]);
+        isPreRegistered = preCheck.rows.length > 0;
+    } catch (_) {}
+    if (!isAllowedDomain && !isPreRegistered) {
         console.log(`Blocked login: ${email}`);
         return done(null, false, { message: 'unauthorized_domain' });
     }
@@ -174,12 +181,15 @@ app.get('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req, 
 app.post('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req, res) => {
     try {
         const { email, role = 'pending' } = req.body;
-        if (!email || !email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`)) {
-            return res.status(400).json({ error: `Email must be @${ALLOWED_DOMAIN}` });
+        // Supervisors may use Gmail; all other roles must be @asil.com.pk
+        const isSupervisorRole = role === 'supervisor';
+        const isValidDomain = email && (email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`) || isSupervisorRole);
+        if (!email || !isValidDomain) {
+            return res.status(400).json({ error: isSupervisorRole ? 'A valid email is required for supervisor role' : `Email must be @${ALLOWED_DOMAIN}` });
         }
         const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver',
             'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
-            'procurement_manager','finance_manager','pending'];
+            'procurement_manager','finance_manager','supervisor','hr_manager','admin','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
         // Non-superadmins cannot create superadmin accounts
         if (role === 'superadmin' && req.user.role !== 'superadmin') {
@@ -850,6 +860,11 @@ pool.query(`
     `ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_working_day DATE`,
 ].forEach(sql => pool.query(sql).catch(e => console.error('employees migration:', e.message)));
 
+// Clients table migrations
+[
+    `ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE`,
+].forEach(sql => pool.query(sql).catch(e => console.error('clients migration:', e.message)));
+
 // Named-user role assignments ├óΓé¼ΓÇ¥ enforced on every startup
 [
     ['laiba.mughal@asil.com.pk',    'finance_proposer'],
@@ -1056,6 +1071,7 @@ app.delete('/api/bills/:id', requireAuth, async (req, res) => {
 
 const clientFromDb = (r) => ({
     id: r.id, name: r.name, hq: r.hq, ntn: r.ntn, strn: r.strn, industry: r.industry,
+    isActive: r.is_active !== false,  // default true for old rows without the column
     contacts: r.contacts || [],
     contracts: [],  // loaded separately
 });
@@ -1063,7 +1079,13 @@ const clientFromDb = (r) => ({
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Client Routes ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 app.get('/api/clients', requireAuth, async (req, res) => {
     try {
-        const { rows: clients } = await pool.query('SELECT * FROM clients ORDER BY name ASC');
+        // ?all=true → return every client (used by Client Management admin page)
+        // default    → active clients only (used by all dropdowns / payroll / billing)
+        const showAll = req.query.all === 'true';
+        const clientQuery = showAll
+            ? 'SELECT * FROM clients ORDER BY name ASC'
+            : 'SELECT * FROM clients WHERE is_active IS NOT FALSE ORDER BY name ASC';
+        const { rows: clients } = await pool.query(clientQuery);
         const { rows: contracts } = await pool.query('SELECT * FROM contracts ORDER BY contract_name ASC');
         const result = clients.map(c => ({
             ...clientFromDb(c),
@@ -1115,6 +1137,18 @@ app.put('/api/clients/:id', requireAuth, async (req, res) => {
         // Return updated client with contracts
         const { rows: ctRows } = await pool.query('SELECT * FROM contracts WHERE client_id=$1', [req.params.id]);
         res.json({ client: { ...clientFromDb(rows[0]), contracts: ctRows.map(ct => ({ id: ct.id, contractName: ct.contract_name, location: ct.location, serviceType: ct.service_type, headcount: ct.headcount, status: ct.status, startDate: toDateStr(ct.start_date), endDate: toDateStr(ct.end_date), costs: ct.costs, financials: ct.financials })) } });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /api/clients/:id/toggle-active — soft activate / deactivate
+app.patch('/api/clients/:id/toggle-active', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'UPDATE clients SET is_active = NOT COALESCE(is_active, TRUE) WHERE id=$1 RETURNING id, is_active',
+            [req.params.id]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Client not found' });
+        res.json({ ok: true, isActive: rows[0].is_active });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

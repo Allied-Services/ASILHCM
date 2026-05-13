@@ -281,6 +281,7 @@ const Sel = ({ label, value, onChange, options, placeholder='All' }) => (
 function TeamAdmin({user}) {
   const [teams,setTeams]=useState([]);
   const [emps,setEmps]=useState([]);
+  const [sysUsers,setSysUsers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState(false);
   const [loadErr,setLoadErr]=useState('');
@@ -288,16 +289,21 @@ function TeamAdmin({user}) {
   const [fContract,setFContract]=useState('');
   const [fLocation,setFLocation]=useState('');
   const [fBU,setFBU]=useState('');
-  const [supervisorId,setSupervisorId]=useState('');
+  const [supEmail,setSupEmail]=useState('');
   const [selectedIds,setSelectedIds]=useState([]);
 
   useEffect(()=>{
     // allSettled: a teams-fetch failure never silently kills the employee list
     // apiFetch directly bypasses the 2-min api.js cache that may serve stale/empty data
-    Promise.allSettled([api.getAttendanceTeams(), apiFetch('/api/employees')])
-      .then(([teamsRes, empsRes])=>{
+    Promise.allSettled([
+      api.getAttendanceTeams(),
+      apiFetch('/api/employees'),
+      apiFetch('/api/users'),
+    ])
+      .then(([teamsRes, empsRes, usersRes])=>{
         if(teamsRes.status==='fulfilled') setTeams(teamsRes.value.teams||[]);
         if(empsRes.status==='fulfilled')  setEmps(empsRes.value.employees||[]);
+        if(usersRes.status==='fulfilled') setSysUsers((usersRes.value.users||[]).filter(u=>u.role==='supervisor'));
         const errs=[];
         if(teamsRes.status==='rejected') errs.push('Teams: '+teamsRes.reason?.message);
         if(empsRes.status==='rejected')  errs.push('Employees: '+empsRes.reason?.message);
@@ -312,11 +318,11 @@ function TeamAdmin({user}) {
   const locationOpts=uniq(active.filter(e=>(!fClient||e.client===fClient)&&(!fContract||e.contractName===fContract)).map(e=>e.location));
   const buOpts=uniq(active.filter(e=>(!fClient||e.client===fClient)&&(!fContract||e.contractName===fContract)&&(!fLocation||e.location===fLocation)).map(e=>e.bu||e.dept));
 
-  const resetBelow=(level)=>{if(level<=1)setFContract('');if(level<=2)setFLocation('');if(level<=3)setFBU('');setSupervisorId('');setSelectedIds([]);};
+  const resetBelow=(level)=>{if(level<=1)setFContract('');if(level<=2)setFLocation('');if(level<=3)setFBU('');setSupEmail('');setSelectedIds([]);};
   const setClient=v=>{setFClient(v);resetBelow(1);};
   const setContract=v=>{setFContract(v);resetBelow(2);};
   const setLocation=v=>{setFLocation(v);resetBelow(3);};
-  const setBU=v=>{setFBU(v);setSupervisorId('');setSelectedIds([]);};
+  const setBU=v=>{setFBU(v);setSupEmail('');setSelectedIds([]);};
 
   const filtered=active.filter(e=>
     (!fClient||e.client===fClient)&&
@@ -324,19 +330,16 @@ function TeamAdmin({user}) {
     (!fLocation||e.location===fLocation)&&
     (!fBU||(e.bu||e.dept)===fBU)
   );
-  const supervisor=filtered.find(e=>e.id===supervisorId);
-  const teamMembers=filtered.filter(e=>e.id!==supervisorId);
 
   const assign=async()=>{
-    if(!supervisorId)return alert('Select a Supervisor first.');
+    if(!supEmail.trim())return alert('Enter the supervisor\'s Google login email.');
+    if(!/\S+@\S+\.\S+/.test(supEmail.trim()))return alert('Please enter a valid email address.');
     if(!selectedIds.length)return alert('Select at least one team member.');
-    const supEmail=supervisor?.email||supervisor?.id;
-    if(!supEmail)return alert('Supervisor has no email on record.');
     setSaving(true);
     try{
-      await api.assignTeam({supervisor_email:supEmail,employee_ids:selectedIds,site:fLocation||fClient,client:fClient,contract_id:filtered[0]?.contractId||null});
+      await api.assignTeam({supervisor_email:supEmail.trim().toLowerCase(),employee_ids:selectedIds,site:fLocation||fClient,client:fClient,contract_id:filtered[0]?.contractId||null});
       const t=await api.getAttendanceTeams();
-      setTeams(t.teams||[]);setSupervisorId('');setSelectedIds([]);
+      setTeams(t.teams||[]);setSupEmail('');setSelectedIds([]);
     }catch(e){alert(e.message);}
     setSaving(false);
   };
@@ -371,15 +374,31 @@ function TeamAdmin({user}) {
             <div style={{fontSize:'0.78rem',color:'var(--text-muted)',textAlign:'right'}}>{filtered.length} employee{filtered.length!==1?'s':''} match</div>
           </div>
 
-          {/* Step 2 — Supervisor */}
+          {/* Step 2 — Supervisor email */}
           <div style={{...sBox,background:'rgba(167,139,250,0.04)',border:'1px solid rgba(167,139,250,0.2)'}}>
-            <div style={{...sLabel,color:'#a78bfa'}}>Step 2 — Select Supervisor</div>
-            <select value={supervisorId} onChange={e=>{setSupervisorId(e.target.value);setSelectedIds(p=>p.filter(x=>x!==e.target.value));}}
-              style={{width:'100%',background:'var(--bg-dark)',border:`1px solid ${supervisorId?'#a78bfa':'var(--border)'}`,borderRadius:'7px',padding:'8px 10px',color:'var(--text)',fontSize:'0.88rem'}}>
-              <option value="">— Pick from filtered list —</option>
-              {filtered.map(e=><option key={e.id} value={e.id}>{e.name} · {e.designation||e.id}</option>)}
-            </select>
-            {supervisor&&<div style={{fontSize:'0.78rem',color:'#a78bfa',background:'rgba(167,139,250,0.1)',borderRadius:'6px',padding:'5px 8px'}}>👤 {supervisor.name} · {supervisor.email||'No email recorded'}</div>}
+            <div style={{...sLabel,color:'#a78bfa'}}>Step 2 — Supervisor Google Login Email</div>
+            <input
+              type="email"
+              value={supEmail}
+              onChange={e=>setSupEmail(e.target.value)}
+              placeholder="e.g. supervisor@gmail.com"
+              style={{width:'100%',background:'var(--bg-dark)',border:`1px solid ${supEmail?'#a78bfa':'var(--border)'}`,borderRadius:'7px',padding:'8px 10px',color:'var(--text)',fontSize:'0.88rem',boxSizing:'border-box',outline:'none'}}
+            />
+            <div style={{fontSize:'0.74rem',color:'var(--text-muted)'}}>This must match the Google account the supervisor will use to sign in.</div>
+            {sysUsers.length>0&&(
+              <div>
+                <div style={{fontSize:'0.72rem',color:'var(--text-muted)',marginBottom:'5px',fontWeight:600}}>REGISTERED SUPERVISORS — click to select:</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:'5px'}}>
+                  {sysUsers.map(u=>(
+                    <button key={u.email} onClick={()=>setSupEmail(u.email)}
+                      style={{background:supEmail===u.email?'rgba(167,139,250,0.2)':'var(--bg-dark)',border:`1px solid ${supEmail===u.email?'#a78bfa':'var(--border)'}`,borderRadius:'6px',padding:'3px 9px',color:supEmail===u.email?'#a78bfa':'var(--text-muted)',cursor:'pointer',fontSize:'0.78rem'}}>
+                      {u.name||u.email}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {supEmail&&<div style={{fontSize:'0.78rem',color:'#a78bfa',background:'rgba(167,139,250,0.1)',borderRadius:'6px',padding:'5px 8px'}}>👤 Supervisor: {supEmail}</div>}
           </div>
 
           {/* Step 3 — Team members */}
@@ -390,12 +409,12 @@ function TeamAdmin({user}) {
               :<>
                 <label style={{display:'flex',alignItems:'center',gap:'7px',cursor:'pointer',fontSize:'0.8rem',color:'var(--text-muted)',borderBottom:'1px solid var(--border)',paddingBottom:'5px'}}>
                   <input type="checkbox" style={{accentColor:'#22c55e'}}
-                    checked={teamMembers.length>0&&teamMembers.every(e=>selectedIds.includes(e.id))}
-                    onChange={ev=>setSelectedIds(ev.target.checked?teamMembers.map(e=>e.id):[])}/>
-                  Select all ({teamMembers.length})
+                    checked={filtered.length>0&&filtered.every(e=>selectedIds.includes(e.id))}
+                    onChange={ev=>setSelectedIds(ev.target.checked?filtered.map(e=>e.id):[])}/>
+                  Select all ({filtered.length})
                 </label>
                 <div style={{maxHeight:'200px',overflowY:'auto'}}>
-                  {teamMembers.map(e=>(
+                  {filtered.map(e=>(
                     <label key={e.id} style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 4px',cursor:'pointer',borderBottom:'1px solid rgba(255,255,255,0.03)',background:selectedIds.includes(e.id)?'rgba(34,197,94,0.07)':'transparent',borderRadius:'4px'}}>
                       <input type="checkbox" checked={selectedIds.includes(e.id)} style={{accentColor:'#22c55e'}}
                         onChange={ev=>setSelectedIds(p=>ev.target.checked?[...p,e.id]:p.filter(x=>x!==e.id))}/>
@@ -410,9 +429,9 @@ function TeamAdmin({user}) {
             }
           </div>
 
-          <button onClick={assign} disabled={saving||!supervisorId||!selectedIds.length}
-            style={{background:(!supervisorId||!selectedIds.length)?'#1e293b':'var(--primary)',border:'none',color:(!supervisorId||!selectedIds.length)?'var(--text-muted)':'white',padding:'10px',borderRadius:'8px',cursor:(!supervisorId||!selectedIds.length)?'not-allowed':'pointer',fontWeight:700}}>
-            {saving?'Saving…':supervisorId&&selectedIds.length?`✓ Assign ${selectedIds.length} member${selectedIds.length!==1?'s':''} to ${supervisor?.name?.split(' ')[0]}`:'Assign Team'}
+          <button onClick={assign} disabled={saving||!supEmail.trim()||!selectedIds.length}
+            style={{background:(!supEmail.trim()||!selectedIds.length)?'#1e293b':'var(--primary)',border:'none',color:(!supEmail.trim()||!selectedIds.length)?'var(--text-muted)':'white',padding:'10px',borderRadius:'8px',cursor:(!supEmail.trim()||!selectedIds.length)?'not-allowed':'pointer',fontWeight:700}}>
+            {saving?'Saving…':supEmail&&selectedIds.length?`✓ Assign ${selectedIds.length} member${selectedIds.length!==1?'s':''} to ${supEmail.split('@')[0]}`:'Assign Team'}
           </button>
         </div>
       </Card>
