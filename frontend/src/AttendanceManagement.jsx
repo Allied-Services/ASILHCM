@@ -298,9 +298,9 @@ function TeamAdmin({user}) {
 
   const active=emps.filter(e=>e.active==='Yes');
   const clientOpts=uniq(active.map(e=>e.client));
-  const contractOpts=uniq(active.filter(e=>!fClient||e.client===fClient).map(e=>e.contract_name||e.contract));
-  const locationOpts=uniq(active.filter(e=>(!fClient||e.client===fClient)&&(!fContract||(e.contract_name||e.contract)===fContract)).map(e=>e.location));
-  const buOpts=uniq(active.filter(e=>(!fClient||e.client===fClient)&&(!fContract||(e.contract_name||e.contract)===fContract)&&(!fLocation||e.location===fLocation)).map(e=>e.asil_bu||e.department));
+  const contractOpts=uniq(active.filter(e=>!fClient||e.client===fClient).map(e=>e.contractName));
+  const locationOpts=uniq(active.filter(e=>(!fClient||e.client===fClient)&&(!fContract||e.contractName===fContract)).map(e=>e.location));
+  const buOpts=uniq(active.filter(e=>(!fClient||e.client===fClient)&&(!fContract||e.contractName===fContract)&&(!fLocation||e.location===fLocation)).map(e=>e.bu||e.dept));
 
   const resetBelow=(level)=>{if(level<=1)setFContract('');if(level<=2)setFLocation('');if(level<=3)setFBU('');setSupervisorId('');setSelectedIds([]);};
   const setClient=v=>{setFClient(v);resetBelow(1);};
@@ -310,9 +310,9 @@ function TeamAdmin({user}) {
 
   const filtered=active.filter(e=>
     (!fClient||e.client===fClient)&&
-    (!fContract||(e.contract_name||e.contract)===fContract)&&
+    (!fContract||e.contractName===fContract)&&
     (!fLocation||e.location===fLocation)&&
-    (!fBU||e.asil_bu===fBU||e.department===fBU)
+    (!fBU||(e.bu||e.dept)===fBU)
   );
   const supervisor=filtered.find(e=>e.id===supervisorId);
   const teamMembers=filtered.filter(e=>e.id!==supervisorId);
@@ -324,7 +324,7 @@ function TeamAdmin({user}) {
     if(!supEmail)return alert('Supervisor has no email on record.');
     setSaving(true);
     try{
-      await api.assignTeam({supervisor_email:supEmail,employee_ids:selectedIds,site:fLocation||fClient,client:fClient,contract_id:filtered[0]?.contract_id||null});
+      await api.assignTeam({supervisor_email:supEmail,employee_ids:selectedIds,site:fLocation||fClient,client:fClient,contract_id:filtered[0]?.contractId||null});
       const t=await api.getAttendanceTeams();
       setTeams(t.teams||[]);setSupervisorId('');setSelectedIds([]);
     }catch(e){alert(e.message);}
