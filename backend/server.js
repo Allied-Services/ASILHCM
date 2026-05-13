@@ -211,7 +211,7 @@ app.patch('/api/users/:id/role', requireAuth, requireRole(...USER_MGMT_ROLES), a
         const { role } = req.body;
         const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver',
             'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
-            'procurement_manager','finance_manager','pending'];
+            'procurement_manager','finance_manager','supervisor','hr_manager','admin','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
         // Non-superadmins cannot assign or escalate to superadmin
         if (role === 'superadmin' && req.user.role !== 'superadmin') {
