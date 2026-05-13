@@ -1,27 +1,26 @@
 /**
- * emailClaimsService.js — ASIL HCM Email Claims Listener (v3)
+ * emailClaimsService.js — ASIL HCM Email Claims Listener (v4 — XLSX)
  *
- * FIXES in v3:
- * 1. Does NOT mark emails as read (markSeen: false) — user inbox preserved
- * 2. Filters FROM: only @wafi-energy.com senders processed
- * 3. Subject filter updated: Claims, Claim, Overtime, OT, Expense, Reimbursement, Medical, OPD
- * 4. Attachment handling fixed:
- *    - Images (jpg/png/gif/webp) → GPT-4o Vision
- *    - PDFs/Excel → base64 text sent as text prompt to GPT-4o (no vision needed)
- *    - ALL attachment types accepted (was previously dropping xlsx/pdf silently)
- * 5. Uses ALL email (not just UNSEEN) + DB hash dedup — more robust
+ * v4 Changes:
+ * - XLSX only: uses SheetJS to convert Excel → plain text, sent to GPT-4o as text
+ * - Date filter: only emails received AFTER 1 April 2026
+ * - Sender filter: only @wafi-energy.com
+ * - Subject filter: Claim/Claims/OT/Overtime/Expense/Reimbursement/Medical/OPD
+ * - READ-ONLY IMAP (no mark-as-seen)
+ * - DB hash dedup
  */
 
 'use strict';
 
-const Imap = require('imap');
+const Imap          = require('imap');
 const { simpleParser } = require('mailparser');
+const XLSX          = require('xlsx');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const ALLOWED_SENDER_DOMAIN = (process.env.CLAIMS_SENDER_DOMAIN || 'wafi-energy.com').toLowerCase();
+const CUTOFF_DATE = new Date('2026-04-01T00:00:00Z'); // Only emails received after this date
 
-// Subject must contain at least one of these keywords (case-insensitive)
-const CLAIM_KEYWORDS = ['claim', 'claims', 'overtime', ' ot ', 'ot-', 'expense', 'reimbursement', 'reimburse', 'medical', 'opd'];
+const CLAIM_KEYWORDS = ['claim', 'overtime', ' ot ', 'ot-', 'expense', 'reimbursement', 'reimburse', 'medical', 'opd'];
 
 // ── IMAP config ────────────────────────────────────────────────────────────────
 function getImapConfig() {
@@ -36,90 +35,94 @@ function getImapConfig() {
     };
 }
 
-// ── Filter: subject must contain a claim keyword ───────────────────────────────
+// ── Filters ───────────────────────────────────────────────────────────────────
 function isClaimSubject(subject = '') {
     const s = ' ' + subject.toLowerCase() + ' ';
     return CLAIM_KEYWORDS.some(kw => s.includes(kw));
 }
 
-// ── Filter: sender must be from allowed domain ────────────────────────────────
 function isAllowedSender(fromText = '') {
     return fromText.toLowerCase().includes('@' + ALLOWED_SENDER_DOMAIN);
 }
 
-// ── GPT-4o: parse attachment ──────────────────────────────────────────────────
-// GPT-4o Vision accepts: image/jpeg, image/png, image/gif, image/webp, application/pdf
-// For Excel/other: send as text prompt with filename hint only
-async function parseAttachmentViaAI(content, mimeType, filename) {
+function isAfterCutoff(date) {
+    if (!date) return false;
+    return new Date(date) >= CUTOFF_DATE;
+}
+
+// ── XLSX → text extraction ────────────────────────────────────────────────────
+function xlsxToText(buffer) {
+    try {
+        const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+        const lines = [];
+
+        for (const sheetName of workbook.SheetNames) {
+            lines.push(`=== Sheet: ${sheetName} ===`);
+            const sheet = workbook.Sheets[sheetName];
+            // Convert to array of arrays (rows)
+            const rows = XLSX.utils.sheet_to_json(sheet, {
+                header: 1,
+                defval: '',
+                blankrows: false,
+                raw: false,   // format dates as strings
+            });
+            for (const row of rows) {
+                const rowStr = row.map(cell => String(cell || '').trim()).join('\t');
+                if (rowStr.replace(/\t/g, '').trim()) lines.push(rowStr); // skip blank rows
+            }
+            lines.push('');
+        }
+        return lines.join('\n');
+    } catch (e) {
+        console.error('[Claims] XLSX parse error:', e.message);
+        return null;
+    }
+}
+
+// ── GPT-4o text extraction from Excel content ─────────────────────────────────
+async function parseXlsxViaAI(sheetText, filename) {
     const OPENAI_KEY = process.env.OPENAI_API_KEY;
     if (!OPENAI_KEY || OPENAI_KEY.startsWith('sk-dummy')) {
         console.log('[Claims] No valid OpenAI key — skipping AI parse');
         return null;
     }
 
-    const b64 = content.toString('base64');
+    // Limit to first 6000 chars to stay within token limits
+    const excerpt = sheetText.slice(0, 6000);
 
-    // GPT-4o Vision supports these natively (including PDFs as of 2024)
-    const VISION_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
-    const isVision = VISION_TYPES.includes(mimeType);
+    const prompt = `You are extracting structured data from an ASIL HCM Excel claim form.
+The file is: "${filename}"
+This is either an Expense Claim Form (ER3) or an Overtime (OT) Claim Form (TR3) from Allied Services International (ASIL).
 
-    const prompt = `You are parsing an ASIL HCM HR claim form. File: "${filename || 'attachment'}".
-It is either an Expense Claim Form (ER3) or an Overtime Claim Form (TR3) from Allied Services / ASIL.
+Here is the raw tab-separated content extracted from the Excel file:
 
-Extract ALL fields and return ONLY valid JSON (no markdown fences, no extra text):
+${excerpt}
+
+Extract the following and return ONLY valid JSON (no markdown, no explanation):
 
 {
-  "form_type": "EXPENSE" or "OT" or "OPD" or "UNKNOWN",
-  "employee_code": "ASIL/SPL/-129/21",
-  "employee_name": "Full Name",
-  "department": "Department name",
-  "location": "Location name",
-  "line_manager_name": "Manager Full Name",
-  "line_manager_email": "manager@wafi-energy.com",
-  "claim_month": "2026-03-01",
-  "total_expense_pkr": 93934.00,
+  "form_type": "EXPENSE" or "OT" or "OPD" or "ALLOWANCE" or "UNKNOWN",
+  "employee_code": "e.g. ASIL/SPL/-129/21 or ASIL/RO/SP-009",
+  "employee_name": "Full name of the employee",
+  "department": "Department",
+  "location": "Work location / site",
+  "line_manager_name": "Direct line manager full name",
+  "line_manager_email": "line.manager@wafi-energy.com",
+  "claim_month": "YYYY-MM-01",
+  "total_expense_pkr": 0.00,
   "ot_hours_single": 0,
-  "ot_hours_double": 30,
+  "ot_hours_double": 0,
   "ot_hours_triple": 0
 }
 
 Rules:
-- claim_month MUST be first day of the month from "FOR MONTH OF" header (e.g. "Mar 2026" → "2026-03-01")
-- Employee code format is like ASIL/SPL/-129/21 or ASIL/RO/SP-009
-- OT form: Single=1X rate, Double=2X rate, Triple=3X rate — sum all hours
-- Return null for fields not found. Do NOT guess.`;
+- claim_month: find "FOR MONTH OF" or "Month:" header — return first day of that month as YYYY-MM-01
+- employee_code: look for "Employee Code", "Emp Code", "Staff No" — format is like ASIL/XXX/YYY or similar
+- OT form (TR3): sum all hours by rate type (Single=1X, Double=2X, Triple=3X)
+- Expense form (ER3): sum all expense amounts for total_expense_pkr
+- Return null for any field you cannot confidently determine. Do NOT guess.`;
 
     try {
-        let messages;
-
-        if (isVision) {
-            // Use Vision API — works for images AND PDFs
-            messages = [{
-                role: 'user',
-                content: [
-                    { type: 'text', text: prompt },
-                    {
-                        type: 'image_url',
-                        image_url: {
-                            url: `data:${mimeType};base64,${b64}`,
-                            detail: 'high'
-                        }
-                    }
-                ]
-            }];
-        } else {
-            // Excel/Word/other — extract what we can from filename + send as text
-            // Try to determine form type from filename
-            const fn = (filename || '').toLowerCase();
-            const formTypeHint = fn.includes('er3') || fn.includes('expense') ? 'EXPENSE' :
-                                 fn.includes('tr3') || fn.includes('ot') || fn.includes('overtime') ? 'OT' :
-                                 fn.includes('opd') || fn.includes('medical') ? 'OPD' : 'UNKNOWN';
-            messages = [{
-                role: 'user',
-                content: `${prompt}\n\nFile type: ${mimeType}\nFilename: ${filename}\nForm type hint from filename: ${formTypeHint}\n\nThis file cannot be read as an image. Please return the best JSON you can with form_type="${formTypeHint}" and all other fields as null, unless you can determine them from the filename.`
-            }];
-        }
-
         const resp = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -128,25 +131,23 @@ Rules:
             },
             body: JSON.stringify({
                 model: 'gpt-4o',
-                max_tokens: 800,
-                messages
+                max_tokens: 600,
+                temperature: 0,
+                messages: [{ role: 'user', content: prompt }]
             })
         });
 
         if (!resp.ok) {
             const errBody = await resp.text();
-            console.error(`[Claims] OpenAI API error ${resp.status} for ${filename}:`, errBody.slice(0, 300));
+            console.error(`[Claims] OpenAI error ${resp.status}:`, errBody.slice(0, 300));
             return null;
         }
 
         const data = await resp.json();
         const rawContent = data.choices?.[0]?.message?.content || '{}';
-        console.log(`[Claims] GPT raw response for ${filename}:`, rawContent.slice(0, 400));
+        console.log(`[Claims] GPT response for ${filename}:`, rawContent.slice(0, 500));
 
-        const cleaned = rawContent
-            .replace(/```json\n?/g, '')
-            .replace(/```\n?/g, '')
-            .trim();
+        const cleaned = rawContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         return JSON.parse(cleaned);
 
     } catch (e) {
@@ -155,22 +156,21 @@ Rules:
     }
 }
 
-
-
 // ── Month validation ───────────────────────────────────────────────────────────
-// Accepts current month, previous month, or 2 months back (to handle late submissions)
 function isMonthValid(claimMonthStr) {
     if (!claimMonthStr) return false;
     const claim = new Date(claimMonthStr);
-    const now = new Date();
-    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-    const nextMonth    = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    return claim >= twoMonthsAgo && claim < nextMonth;
+    if (isNaN(claim)) return false;
+    // Accept April 2026 onwards (aligns with cutoff)
+    const minMonth = new Date('2026-04-01');
+    const maxMonth = new Date(); maxMonth.setDate(1); // start of current month
+    maxMonth.setMonth(maxMonth.getMonth() + 1); // up to next month
+    return claim >= minMonth && claim < maxMonth;
 }
 
 // ── Message hash for dedup ────────────────────────────────────────────────────
-function buildHash(msgId, from, subject, date) {
-    return `${msgId || ''}|${from || ''}|${subject || ''}|${date ? new Date(date).toISOString().slice(0, 10) : ''}`;
+function buildHash(msgId, fromAddr, subject, date) {
+    return `${msgId || ''}|${fromAddr || ''}|${subject || ''}|${date ? new Date(date).toISOString().slice(0, 10) : ''}`;
 }
 
 // ── Core processing for one parsed email ──────────────────────────────────────
@@ -182,48 +182,68 @@ async function processOneEmail(pool, parsed) {
     const date     = parsed.date || new Date();
     const bodyText = parsed.text || '';
     const hash     = buildHash(msgId, fromAddr, subject, date);
-    const results  = [];
 
-    console.log(`[Claims] Processing: "${subject}" from ${fromAddr}`);
+    console.log(`[Claims] → Processing: "${subject}" from ${fromAddr} dated ${date}`);
 
     // ── Duplicate check ──────────────────────────────────────────────────────
     const dup = await pool.query('SELECT id FROM claims_inbox WHERE message_hash=$1 LIMIT 1', [hash]);
     if (dup.rows.length) {
-        console.log('[Claims] Duplicate, skipping:', hash.slice(0, 60));
+        console.log('[Claims]   Duplicate, skipping');
         return [{ type: 'duplicate', from, subject }];
     }
 
-    // ── Collect ALL attachments (image + PDF + Excel + any binary) ───────────
-    const attachments = (parsed.attachments || []).filter(a => a.content && a.content.length > 0);
+    // ── Find XLSX attachments ────────────────────────────────────────────────
+    const XLSX_TYPES = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+        'application/vnd.ms-excel',                                           // .xls
+        'application/octet-stream',                                           // generic binary (often xlsx)
+    ];
+    const xlsxAtts = (parsed.attachments || []).filter(a => {
+        if (!a.content || a.content.length === 0) return false;
+        const fn = (a.filename || '').toLowerCase();
+        const isXlsxMime = XLSX_TYPES.includes(a.contentType);
+        const isXlsxExt  = fn.endsWith('.xlsx') || fn.endsWith('.xls');
+        return isXlsxMime || isXlsxExt;
+    });
 
-    console.log(`[Claims] Attachments found: ${attachments.length} (${attachments.map(a => a.filename || a.contentType).join(', ')})`);
+    console.log(`[Claims]   Total attachments: ${(parsed.attachments || []).length}, XLSX: ${xlsxAtts.length}`);
+    if (parsed.attachments?.length) {
+        parsed.attachments.forEach(a => console.log(`[Claims]     Att: ${a.filename} | type: ${a.contentType} | size: ${a.content?.length}`));
+    }
 
-    if (!attachments.length) {
-        // No attachments — log and skip (claim data must be in an attachment)
+    if (!xlsxAtts.length) {
         await pool.query(`
             INSERT INTO claims_inbox
               (received_at,sender_email,subject,message_id,message_hash,raw_body,status)
             VALUES ($1,$2,$3,$4,$5,$6,'NO_ATTACHMENT')
             ON CONFLICT (message_hash) DO NOTHING
         `, [date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000)]);
-        console.log('[Claims] No attachments in email — logged as NO_ATTACHMENT');
+        console.log('[Claims]   No XLSX attachments — logged as NO_ATTACHMENT');
         return [{ type: 'no_attachment', from, subject }];
     }
 
-    // ── Process each attachment ───────────────────────────────────────────────
-    for (const att of attachments) {
-        const filename = att.filename || 'attachment';
-        console.log(`[Claims] Parsing attachment: ${filename} (${att.contentType}, ${att.content.length} bytes)`);
+    const results = [];
 
-        const aiData = await parseAttachmentViaAI(att.content, att.contentType, filename);
+    for (const att of xlsxAtts) {
+        const filename = att.filename || 'attachment.xlsx';
+        console.log(`[Claims]   Parsing XLSX: ${filename} (${att.content.length} bytes)`);
 
+        // Step 1: Extract text from Excel
+        const sheetText = xlsxToText(att.content);
+        if (!sheetText) {
+            console.warn(`[Claims]   Could not extract text from ${filename}`);
+            results.push({ type: 'parse_failed', from, subject, file: filename });
+            continue;
+        }
+        console.log(`[Claims]   Sheet text preview: ${sheetText.slice(0, 300).replace(/\n/g, ' | ')}`);
+
+        // Step 2: GPT extracts structured data from the text
+        const aiData = await parseXlsxViaAI(sheetText, filename);
         if (!aiData) {
-            console.warn('[Claims] AI returned null for:', filename);
-            // Still log the email so it shows in inbox as UNMATCHED
+            console.warn(`[Claims]   AI returned null for ${filename}`);
             await pool.query(`
                 INSERT INTO claims_inbox
-                  (received_at,sender_email,subject,message_id,message_hash,raw_body,
-                   attachment_filename,status)
+                  (received_at,sender_email,subject,message_id,message_hash,raw_body,attachment_filename,status)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,'UNMATCHED')
                 ON CONFLICT (message_hash) DO NOTHING
             `, [date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000), filename]);
@@ -231,11 +251,9 @@ async function processOneEmail(pool, parsed) {
             continue;
         }
 
-        console.log('[Claims] AI extracted:', JSON.stringify({ ...aiData, line_items: undefined }));
-
         // ── Month validation ─────────────────────────────────────────────────
         if (!isMonthValid(aiData.claim_month)) {
-            console.warn(`[Claims] Invalid month: ${aiData.claim_month} for ${filename}`);
+            console.warn(`[Claims]   Invalid/out-of-range month: ${aiData.claim_month}`);
             await pool.query(`
                 INSERT INTO claims_inbox
                   (received_at,sender_email,subject,message_id,message_hash,raw_body,
@@ -251,24 +269,25 @@ async function processOneEmail(pool, parsed) {
         // ── Employee match ───────────────────────────────────────────────────
         let empId = null, status = 'UNMATCHED';
         if (aiData.employee_code) {
-            // Try exact match first, then fuzzy (strip spaces/dashes)
             const empRow = await pool.query(
                 `SELECT id FROM employees
-                 WHERE LOWER(REPLACE(REPLACE(id,' ',''),'-','')) =
-                       LOWER(REPLACE(REPLACE($1,' ',''),'-',''))
+                 WHERE LOWER(REPLACE(REPLACE(REPLACE(id,' ',''),'-',''),'/','')) =
+                       LOWER(REPLACE(REPLACE(REPLACE($1,' ',''),'-',''),'/',''))
                  LIMIT 1`,
                 [aiData.employee_code]
             );
             if (empRow.rows.length) {
                 empId = empRow.rows[0].id;
                 status = 'PENDING';
-                console.log(`[Claims] Matched employee: ${empId}`);
+                console.log(`[Claims]   ✅ Matched employee: ${empId}`);
             } else {
-                console.warn(`[Claims] No employee match for code: ${aiData.employee_code}`);
+                console.warn(`[Claims]   ⚠ No match for employee code: "${aiData.employee_code}"`);
             }
+        } else {
+            console.warn('[Claims]   No employee_code extracted from form');
         }
 
-        // ── Auto-update line manager on employee record ──────────────────────
+        // ── Auto-update line manager ─────────────────────────────────────────
         if (empId && (aiData.line_manager_name || aiData.line_manager_email)) {
             await pool.query(
                 `UPDATE employees SET
@@ -279,8 +298,6 @@ async function processOneEmail(pool, parsed) {
             );
         }
 
-        // ── Map form type and values ─────────────────────────────────────────
-        const claimType   = aiData.form_type || 'UNKNOWN';
         const otHours1x   = parseFloat(aiData.ot_hours_single) || null;
         const otHours2x   = parseFloat(aiData.ot_hours_double) || null;
         const otHours3x   = parseFloat(aiData.ot_hours_triple) || null;
@@ -296,15 +313,16 @@ async function processOneEmail(pool, parsed) {
             ON CONFLICT (message_hash) DO NOTHING
         `, [
             date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000),
-            JSON.stringify(aiData), empId, aiData.claim_month, claimType,
+            JSON.stringify(aiData), empId, aiData.claim_month, aiData.form_type,
             otHours1x, otHours2x, otHours3x, claimAmount,
             aiData.line_manager_name || null, aiData.line_manager_email || null,
             filename, status
         ]);
 
-        results.push({ type: 'claim', from, subject, status, empId, claimType, file: filename });
-        console.log(`[Claims] ✅ Saved: ${filename} | emp=${empId} | type=${claimType} | ${status}`);
+        console.log(`[Claims]   ✅ Saved: ${filename} | emp=${empId} | ${aiData.form_type} | ${status}`);
+        results.push({ type: 'claim', from, subject, status, empId, claimType: aiData.form_type, file: filename });
     }
+
     return results;
 }
 
@@ -316,9 +334,8 @@ async function fetchAndProcess(pool) {
         return { skipped: true };
     }
 
-    console.log(`[Claims] === Starting poll: ${cfg.user} at ${new Date().toLocaleString('en-PK')} ===`);
-    console.log(`[Claims] Sender filter: @${ALLOWED_SENDER_DOMAIN}`);
-    const summary = { processed: 0, duplicates: 0, skippedSender: 0, skippedSubject: 0, errors: 0, invalid_month: 0 };
+    console.log(`[Claims] ═══ Poll starting: ${cfg.user} | Cutoff: ${CUTOFF_DATE.toDateString()} | Domain: @${ALLOWED_SENDER_DOMAIN} ═══`);
+    const summary = { processed: 0, duplicates: 0, skippedSender: 0, skippedSubject: 0, skippedDate: 0, errors: 0, invalid_month: 0 };
 
     return new Promise((resolve) => {
         const imap = new Imap(cfg);
@@ -329,26 +346,22 @@ async function fetchAndProcess(pool) {
         });
 
         imap.once('ready', () => {
-            // Open INBOX in READ-ONLY mode → emails will NOT be marked as read
+            // READ-ONLY — emails will NOT be marked as read
             imap.openBox('INBOX', true, (err) => {
                 if (err) { imap.end(); resolve({ error: err.message }); return; }
 
-                // Search ALL emails (not just UNSEEN) — we use DB hash for dedup
-                // This avoids the "mark as read" side effect entirely
-                imap.search(['ALL'], async (err, uids) => {
+                // Search emails since 31 March 2026 (IMAP date is inclusive)
+                imap.search([['SINCE', 'March 31, 2026']], async (err, uids) => {
                     if (err || !uids?.length) {
-                        console.log('[Claims] Inbox is empty or search failed');
+                        console.log('[Claims] No emails found since April 2026');
                         imap.end();
                         resolve({ noNew: true, ...summary });
                         return;
                     }
 
-                    // Only fetch the most recent 50 emails to avoid overload
-                    const recentUids = uids.slice(-50);
-                    console.log(`[Claims] Found ${uids.length} total emails, checking latest ${recentUids.length}`);
+                    console.log(`[Claims] ${uids.length} emails found since March 31 2026`);
 
-                    // markSeen: false — critical: do NOT mark emails as read
-                    const fetcher = imap.fetch(recentUids, { bodies: '', markSeen: false });
+                    const fetcher = imap.fetch(uids, { bodies: '', markSeen: false });
                     const raws = [];
 
                     fetcher.on('message', msg => {
@@ -358,33 +371,39 @@ async function fetchAndProcess(pool) {
                     });
 
                     fetcher.once('end', async () => {
-                        console.log(`[Claims] Fetched ${raws.length} raw messages`);
+                        console.log(`[Claims] Fetched ${raws.length} raw messages to process`);
 
                         for (const raw of raws) {
                             try {
                                 const parsed = await simpleParser(Buffer.from(raw, 'binary'));
                                 const fromAddr = parsed.from?.value?.[0]?.address || '';
                                 const subject  = parsed.subject || '';
+                                const emailDate = parsed.date || new Date();
 
-                                // ── FILTER 1: Sender domain ──────────────────
+                                // ── FILTER 1: Date (belt-and-suspenders after IMAP SINCE) ──
+                                if (!isAfterCutoff(emailDate)) {
+                                    summary.skippedDate++;
+                                    continue;
+                                }
+
+                                // ── FILTER 2: Sender domain ───────────────────
                                 if (!isAllowedSender(fromAddr)) {
                                     summary.skippedSender++;
                                     continue;
                                 }
 
-                                // ── FILTER 2: Subject keywords ───────────────
+                                // ── FILTER 3: Subject keywords ────────────────
                                 if (!isClaimSubject(subject)) {
                                     summary.skippedSubject++;
                                     continue;
                                 }
 
-                                console.log(`[Claims] Qualifying email: "${subject}" from ${fromAddr}`);
-
+                                console.log(`[Claims] ✉ Qualifying: "${subject}" | ${fromAddr}`);
                                 const res = await processOneEmail(pool, parsed);
                                 for (const r of res) {
-                                    if      (r.type === 'claim')         summary.processed++;
-                                    else if (r.type === 'duplicate')     summary.duplicates++;
-                                    else if (r.type === 'invalid_month') summary.invalid_month++;
+                                    if      (r.type === 'claim')          summary.processed++;
+                                    else if (r.type === 'duplicate')      summary.duplicates++;
+                                    else if (r.type === 'invalid_month')  summary.invalid_month++;
                                 }
                             } catch (e) {
                                 console.error('[Claims] Email parse error:', e.message);
@@ -392,7 +411,7 @@ async function fetchAndProcess(pool) {
                             }
                         }
 
-                        console.log(`[Claims] === Poll complete ===`, summary);
+                        console.log('[Claims] ═══ Poll complete ═══', JSON.stringify(summary));
                         imap.end();
                         resolve(summary);
                     });
@@ -410,20 +429,19 @@ async function fetchAndProcess(pool) {
     });
 }
 
-// ── Schedule: run once daily at 13:00 ─────────────────────────────────────────
+// ── Schedule: once daily at 13:00 ─────────────────────────────────────────────
 function scheduleDailyAt13(pool) {
     function msUntil13() {
-        const now  = new Date();
-        const next = new Date(now);
+        const now = new Date(), next = new Date(now);
         next.setHours(13, 0, 0, 0);
         if (next <= now) next.setDate(next.getDate() + 1);
         return next - now;
     }
     function scheduleNext() {
         const delay = msUntil13();
-        console.log(`[Claims] Next scheduled poll in ${Math.round(delay / 60000)} min (13:00 PKT)`);
+        console.log(`[Claims] Next scheduled poll in ${Math.round(delay / 60000)} min (13:00)`);
         setTimeout(async () => {
-            await fetchAndProcess(pool).catch(e => console.error('[Claims] Scheduled poll error:', e.message));
+            await fetchAndProcess(pool).catch(e => console.error('[Claims] Scheduled error:', e.message));
             scheduleNext();
         }, delay);
     }
@@ -433,11 +451,8 @@ function scheduleDailyAt13(pool) {
 // ── Entry points ───────────────────────────────────────────────────────────────
 function startEmailClaimsService(pool) {
     const cfg = getImapConfig();
-    if (!cfg.user) {
-        console.log('[Claims] Service disabled — CLAIMS_EMAIL_USER not set');
-        return;
-    }
-    console.log(`[Claims] Service started for ${cfg.user} | Sender filter: @${ALLOWED_SENDER_DOMAIN}`);
+    if (!cfg.user) { console.log('[Claims] Disabled — CLAIMS_EMAIL_USER not set'); return; }
+    console.log(`[Claims] Service started for ${cfg.user} | @${ALLOWED_SENDER_DOMAIN} | after ${CUTOFF_DATE.toDateString()}`);
     scheduleDailyAt13(pool);
 }
 
