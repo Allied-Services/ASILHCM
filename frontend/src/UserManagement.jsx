@@ -23,6 +23,7 @@ const ROLE_META = {
   ap_team:               { label: 'AP Team',              color: '#22c55e', bg: 'rgba(34,197,94,0.12)',  desc: 'Confirms AP payment batches and billing access.' },
   ar_team:               { label: 'AR Team',              color: '#38bdf8', bg: 'rgba(56,189,248,0.12)', desc: 'Manages accounts receivable invoices.' },
   payroll_initiator:     { label: 'Payroll Initiator',    color: '#f43f5e', bg: 'rgba(244,63,94,0.12)',  desc: 'Runs and locks monthly payroll, views employee records.' },
+  supervisor:             { label: 'Supervisor (Attendance)', color: '#22c55e', bg: 'rgba(34,197,94,0.12)',  desc: 'External supervisor — can only mark daily attendance for their assigned team. Supports Gmail login.' },
   pending:               { label: 'Access Pending',       color: '#94a3b8', bg: 'rgba(148,163,184,0.12)', desc: 'Awaiting role assignment from Super Admin.' },
 };
 
@@ -102,6 +103,11 @@ const MODULES = [
     icon: <Shield size={16} />,
     subPerms: ['view', 'create', 'assign_role'],
   },
+  {
+    key: 'attendance', label: 'Attendance', navKey: 'attendance',
+    icon: <Clock size={16} />,
+    subPerms: ['mark_attendance'],
+  },
 ];
 
 // ─── Default permissions per role (derived from blueprint ROLE_NAV) ───────────
@@ -117,6 +123,7 @@ const ROLE_NAV_SET = {
   ap_team:              ['ap','billing'],
   ar_team:              ['invoices','po_tracking','billing'],
   payroll_initiator:    ['payroll','employee'],
+  supervisor:           ['attendance'],
   pending:              [],
 };
 
@@ -137,6 +144,7 @@ const ROLE_SUB_PERMS = {
     annexure:    ['view','approve'],
     config:      ['view','edit'],
     users:       ['view','create','assign_role'],
+    attendance:  ['mark_attendance'],
   },
   finance_proposer: {
     billing:     ['view','create','edit'],
@@ -205,13 +213,17 @@ const ROLE_SUB_PERMS = {
     documents: ['view','generate'],
     client:    ['view'],
   },
+  supervisor: {
+    attendance: ['mark_attendance'],
+  },
   pending: {},
 };
 
 const SUB_PERM_LABELS = {
-  view:        { label: 'View',        color: '#38bdf8' },
-  create:      { label: 'Create',      color: '#10b981' },
-  edit:        { label: 'Edit',        color: '#f59e0b' },
+  view:             { label: 'View',            color: '#38bdf8' },
+  create:           { label: 'Create',          color: '#10b981' },
+  edit:             { label: 'Edit',            color: '#f59e0b' },
+  mark_attendance:  { label: 'Mark Attendance', color: '#22c55e' },
   delete:      { label: 'Delete',      color: '#ef4444' },
   approve:     { label: 'Approve',     color: '#a78bfa' },
   mark_paid:   { label: 'Mark Paid',   color: '#22c55e' },
