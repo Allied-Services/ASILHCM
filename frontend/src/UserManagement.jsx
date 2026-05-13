@@ -572,13 +572,22 @@ export default function UserManagement({ user: currentUser }) {
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setLoading(true);
-    fetch(`${API}/api/users`, { headers })
-      .then(r => r.json())
-      .then(d => { setUsers(d.users || []); setError(''); })
-      .catch(() => setError('Failed to load users'))
-      .finally(() => setLoading(false));
+    setError('');
+    try {
+      const tok = localStorage.getItem('asil_hcm_token');
+      const r = await fetch(`${API}/api/users`, {
+        headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setUsers(d.users || []);
+    } catch (e) {
+      setError(`Failed to load users: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(load, [load]);
@@ -762,7 +771,18 @@ export default function UserManagement({ user: currentUser }) {
               Loading users…
             </div>
           ) : error ? (
-            <div style={{ textAlign: 'center', padding: '4rem', color: '#ef4444' }}>{error}</div>
+            <div style={{ padding: '3rem', textAlign: 'center' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '12px', padding: '1rem 1.5rem', maxWidth: '480px' }}>
+                <XCircle size={20} color="#ef4444" style={{ flexShrink: 0 }} />
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ color: '#f87171', fontWeight: 700, fontSize: '0.85rem', marginBottom: '4px' }}>Could not load users</div>
+                  <div style={{ color: '#64748b', fontSize: '0.78rem' }}>{error}</div>
+                </div>
+                <button onClick={load} style={{ marginLeft: '8px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>
+                  Retry
+                </button>
+              </div>
+            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {filtered.length === 0 && (
