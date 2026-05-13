@@ -48,29 +48,34 @@ function isAllowedSender(fromText = '') {
 }
 
 // ── GPT-4o: parse attachment ──────────────────────────────────────────────────
-// For images: uses Vision API
-// For all other types (PDF, Excel, etc.): sends base64 as text with clear instructions
+// GPT-4o Vision accepts: image/jpeg, image/png, image/gif, image/webp, application/pdf
+// For Excel/other: send as text prompt with filename hint only
 async function parseAttachmentViaAI(content, mimeType, filename) {
     const OPENAI_KEY = process.env.OPENAI_API_KEY;
-    if (!OPENAI_KEY || OPENAI_KEY.startsWith('sk-dummy')) return null;
+    if (!OPENAI_KEY || OPENAI_KEY.startsWith('sk-dummy')) {
+        console.log('[Claims] No valid OpenAI key — skipping AI parse');
+        return null;
+    }
 
-    const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    const isImage = IMAGE_TYPES.includes(mimeType);
     const b64 = content.toString('base64');
 
-    const prompt = `You are parsing an ASIL HCM HR claim form. The file is named "${filename || 'attachment'}".
-It is either an Expense Claim Form (ER3) or an Overtime Claim Form (TR3).
+    // GPT-4o Vision supports these natively (including PDFs as of 2024)
+    const VISION_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+    const isVision = VISION_TYPES.includes(mimeType);
 
-Extract ALL fields and return ONLY valid JSON (no markdown fences):
+    const prompt = `You are parsing an ASIL HCM HR claim form. File: "${filename || 'attachment'}".
+It is either an Expense Claim Form (ER3) or an Overtime Claim Form (TR3) from Allied Services / ASIL.
+
+Extract ALL fields and return ONLY valid JSON (no markdown fences, no extra text):
 
 {
   "form_type": "EXPENSE" or "OT" or "OPD" or "UNKNOWN",
   "employee_code": "ASIL/SPL/-129/21",
   "employee_name": "Full Name",
-  "department": "Retail",
-  "location": "Shell House Karachi",
-  "line_manager_name": "Abdul Sami",
-  "line_manager_email": "Abdul.Sami@wafi-energy.com",
+  "department": "Department name",
+  "location": "Location name",
+  "line_manager_name": "Manager Full Name",
+  "line_manager_email": "manager@wafi-energy.com",
   "claim_month": "2026-03-01",
   "total_expense_pkr": 93934.00,
   "ot_hours_single": 0,
@@ -79,50 +84,78 @@ Extract ALL fields and return ONLY valid JSON (no markdown fences):
 }
 
 Rules:
-- claim_month = first day of month from "FOR MONTH OF" header (e.g. "1 to 31 Mar'2026" → "2026-03-01")
-- OT form: Single=1X rate, Double=2X rate, Triple=3X rate
-- Return null for fields not present`;
+- claim_month MUST be first day of the month from "FOR MONTH OF" header (e.g. "Mar 2026" → "2026-03-01")
+- Employee code format is like ASIL/SPL/-129/21 or ASIL/RO/SP-009
+- OT form: Single=1X rate, Double=2X rate, Triple=3X rate — sum all hours
+- Return null for fields not found. Do NOT guess.`;
 
     try {
         let messages;
-        if (isImage) {
-            // Vision mode
+
+        if (isVision) {
+            // Use Vision API — works for images AND PDFs
             messages = [{
                 role: 'user',
                 content: [
                     { type: 'text', text: prompt },
-                    { type: 'image_url', image_url: { url: `data:${mimeType};base64,${b64}`, detail: 'high' } }
+                    {
+                        type: 'image_url',
+                        image_url: {
+                            url: `data:${mimeType};base64,${b64}`,
+                            detail: 'high'
+                        }
+                    }
                 ]
             }];
         } else {
-            // Text mode — describe the file and let GPT extract from encoded content
-            // For Excel/PDF, we pass the first portion of content as context
-            const excerpt = b64.slice(0, 8000); // partial content hint
+            // Excel/Word/other — extract what we can from filename + send as text
+            // Try to determine form type from filename
+            const fn = (filename || '').toLowerCase();
+            const formTypeHint = fn.includes('er3') || fn.includes('expense') ? 'EXPENSE' :
+                                 fn.includes('tr3') || fn.includes('ot') || fn.includes('overtime') ? 'OT' :
+                                 fn.includes('opd') || fn.includes('medical') ? 'OPD' : 'UNKNOWN';
             messages = [{
                 role: 'user',
-                content: `${prompt}\n\nFile type: ${mimeType}\nFilename: ${filename}\nFile content (base64 excerpt): ${excerpt}\n\nNote: This may be an Excel or PDF file. Extract what you can from the filename and content patterns. If it's an OT Claim form (TR3), set form_type to "OT". If it's an Expense Claim (ER3), set form_type to "EXPENSE". Return best-effort JSON.`
+                content: `${prompt}\n\nFile type: ${mimeType}\nFilename: ${filename}\nForm type hint from filename: ${formTypeHint}\n\nThis file cannot be read as an image. Please return the best JSON you can with form_type="${formTypeHint}" and all other fields as null, unless you can determine them from the filename.`
             }];
         }
 
         const resp = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
-            headers: { Authorization: `Bearer ${OPENAI_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: 'gpt-4o', max_tokens: 800, messages })
+            headers: {
+                Authorization: `Bearer ${OPENAI_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o',
+                max_tokens: 800,
+                messages
+            })
         });
+
         if (!resp.ok) {
-            const errText = await resp.text();
-            console.error('[Claims] OpenAI error:', resp.status, errText.slice(0, 200));
+            const errBody = await resp.text();
+            console.error(`[Claims] OpenAI API error ${resp.status} for ${filename}:`, errBody.slice(0, 300));
             return null;
         }
+
         const data = await resp.json();
-        const raw = (data.choices?.[0]?.message?.content || '{}')
-            .replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        return JSON.parse(raw);
+        const rawContent = data.choices?.[0]?.message?.content || '{}';
+        console.log(`[Claims] GPT raw response for ${filename}:`, rawContent.slice(0, 400));
+
+        const cleaned = rawContent
+            .replace(/```json\n?/g, '')
+            .replace(/```\n?/g, '')
+            .trim();
+        return JSON.parse(cleaned);
+
     } catch (e) {
-        console.error('[Claims] AI parse error:', e.message);
+        console.error(`[Claims] AI parse exception for ${filename}:`, e.message);
         return null;
     }
 }
+
+
 
 // ── Month validation ───────────────────────────────────────────────────────────
 // Accepts current month, previous month, or 2 months back (to handle late submissions)
