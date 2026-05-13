@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { api } from './api';
+import { api, apiFetch } from './api';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 const fmt = n => (parseFloat(n)||0).toLocaleString('en-PK');
@@ -283,6 +283,7 @@ function TeamAdmin({user}) {
   const [emps,setEmps]=useState([]);
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState(false);
+  const [loadErr,setLoadErr]=useState('');
   const [fClient,setFClient]=useState('');
   const [fContract,setFContract]=useState('');
   const [fLocation,setFLocation]=useState('');
@@ -291,9 +292,18 @@ function TeamAdmin({user}) {
   const [selectedIds,setSelectedIds]=useState([]);
 
   useEffect(()=>{
-    Promise.all([api.getAttendanceTeams(),api.getEmployees()])
-      .then(([t,e])=>{setTeams(t.teams||[]);setEmps(e.employees||[]);})
-      .catch(()=>{}).finally(()=>setLoading(false));
+    // allSettled: a teams-fetch failure never silently kills the employee list
+    // apiFetch directly bypasses the 2-min api.js cache that may serve stale/empty data
+    Promise.allSettled([api.getAttendanceTeams(), apiFetch('/api/employees')])
+      .then(([teamsRes, empsRes])=>{
+        if(teamsRes.status==='fulfilled') setTeams(teamsRes.value.teams||[]);
+        if(empsRes.status==='fulfilled')  setEmps(empsRes.value.employees||[]);
+        const errs=[];
+        if(teamsRes.status==='rejected') errs.push('Teams: '+teamsRes.reason?.message);
+        if(empsRes.status==='rejected')  errs.push('Employees: '+empsRes.reason?.message);
+        if(errs.length) setLoadErr(errs.join(' | '));
+      })
+      .finally(()=>setLoading(false));
   },[]);
 
   const active=emps.filter(e=>e.active==='Yes');
@@ -343,6 +353,9 @@ function TeamAdmin({user}) {
   const sLabel={fontSize:'0.72rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em'};
 
   return (
+    <div style={{display:'flex',flexDirection:'column',gap:'1rem'}}>
+      {loadErr&&<div style={{background:'rgba(239,68,68,0.12)',border:'1px solid #ef4444',borderRadius:'8px',padding:'0.75rem 1rem',color:'#ef4444',fontSize:'0.83rem'}}>⚠ Load error: {loadErr}</div>}
+      {!loadErr&&emps.length===0&&<div style={{background:'rgba(245,158,11,0.1)',border:'1px solid #f59e0b',borderRadius:'8px',padding:'0.75rem 1rem',color:'#f59e0b',fontSize:'0.83rem'}}>⚠ No employees loaded — the employee database may be empty or unreachable.</div>}
     <div style={{display:'grid',gridTemplateColumns:'1fr 1.4fr',gap:'1.25rem',alignItems:'start'}}>
       <Card>
         <h3 style={{margin:'0 0 1rem',fontSize:'0.8rem',textTransform:'uppercase',letterSpacing:'0.07em',color:'var(--text-muted)'}}>Assign Team to Supervisor</h3>
@@ -427,10 +440,10 @@ function TeamAdmin({user}) {
         </div>
       </Card>
     </div>
+    </div>
   );
 }
 
-// ── Main Export ───────────────────────────────────────────────────────────────
 export default function AttendanceManagement({ user }) {
   const isSupervisor = user?.role === 'supervisor';
   const isAdmin = ['superadmin','admin','hr_manager','finance_manager','finance_approver'].includes(user?.role);
@@ -478,3 +491,4 @@ export default function AttendanceManagement({ user }) {
     </div>
   );
 }
+
