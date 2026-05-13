@@ -45,17 +45,6 @@ const BILL_TYPE_DEFS = [
         requiresContract: false,
         color: '#f59e0b',
     },
-    {
-        id: 'Standard',
-        icon: '📋',
-        desc: 'Standard purchase bill — Official (with GST/WHT) or Unofficial (no tax verification)',
-        billable: null,
-        billableLocked: false,
-        requiresClient: false,
-        requiresContract: false,
-        color: '#e879f9',
-        hasCategory: true,
-    },
 ];
 const BILL_TYPES = BILL_TYPE_DEFS.map(t => t.id);
 const PURPOSES = ['Office Supplies', 'Maintenance & Repair', 'Fuel & Transport', 'Safety Equipment', 'Monthly Consumables', 'Equipment', 'Catering', 'Utilities', 'Other'];
@@ -434,11 +423,11 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
     });
 
     const subtotal = items.reduce((a, it) => a + (parseFloat(it.total) || 0), 0);
-    // For unofficial Standard bills: no GST or WHT
-    const isUnofficial = form.billType === 'Standard' && form.billCategory === 'unofficial';
+    // Unofficial bills: no GST or WHT regardless of bill type
+    const isUnofficial = form.billCategory === 'unofficial';
     const gstAmount = isUnofficial ? 0 : Math.round(subtotal * (parseFloat(form.gstPct) || 0) / 100);
-    // WHT: only for Official Standard bills (vendor is filer=5%, non-filer=10%)
-    const whtPct = (!isUnofficial && form.billType === 'Standard') ? (form.vendorFiler === 'filer' ? 5 : form.vendorFiler === 'non-filer' ? 10 : 0) : 0;
+    // WHT: for Official bills based on vendor filer status (filer=5%, non-filer=10%)
+    const whtPct = !isUnofficial ? (form.vendorFiler === 'filer' ? 5 : form.vendorFiler === 'non-filer' ? 10 : 0) : 0;
     const whtAmount = Math.round(subtotal * whtPct / 100);
     const grandTotal = subtotal + gstAmount - whtAmount;
 
@@ -530,46 +519,44 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
                         )}
                         <FL label="Site / Location"><SI value={form.site} onChange={e => set('site', e.target.value)} placeholder="e.g. Karachi" /></FL>
                         <FL label="Purpose" span="span 2"><SS value={form.purpose} onChange={e => set('purpose', e.target.value)} opts={PURPOSES} /></FL>
-                        <FL label="GST %"><SI type="number" value={form.gstPct} onChange={e => set('gstPct', e.target.value)} placeholder="17" /></FL>
+                        <FL label="GST %"><SI type="number" value={isUnofficial ? '0' : form.gstPct} onChange={e => set('gstPct', e.target.value)} placeholder="17" disabled={isUnofficial} style={{ opacity: isUnofficial ? 0.45 : 1 }} /></FL>
 
-                        {/* Standard bill: Official / Unofficial toggle */}
-                        {form.billType === 'Standard' && (
-                            <div style={{ gridColumn: 'span 3', marginBottom: '0.75rem' }}>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>Bill Nature — Standard</div>
-                                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                                    {[
-                                        { id: 'official', label: '📄 Official', desc: 'Registered vendor · GST applicable · WHT based on filer status', color: '#38bdf8' },
-                                        { id: 'unofficial', label: '✋ Unofficial', desc: 'No GST · No WHT · No filer verification required', color: '#f59e0b' },
-                                    ].map(opt => (
-                                        <button key={opt.id} onClick={() => set('billCategory', opt.id)}
-                                            style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: `2px solid ${form.billCategory === opt.id ? opt.color : 'var(--border)'}`,
-                                                background: form.billCategory === opt.id ? `${opt.color}15` : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
-                                            <div style={{ fontWeight: 700, color: form.billCategory === opt.id ? opt.color : 'var(--text-muted)', marginBottom: '3px', fontSize: '0.88rem' }}>{opt.label}</div>
-                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>{opt.desc}</div>
-                                        </button>
-                                    ))}
-                                </div>
-                                {form.billCategory === 'unofficial' && (
-                                    <div style={{ marginTop: '8px', padding: '8px 12px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '8px', fontSize: '0.78rem', color: '#f59e0b' }}>
-                                        ⚠ Unofficial bill — GST and WHT will NOT be applied. No filer/non-filer check required.
-                                    </div>
-                                )}
-                                {form.billCategory === 'official' && (
-                                    <div style={{ marginTop: '8px' }}>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '5px' }}>Vendor Filer Status (for WHT)</div>
-                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                            {[['filer', 'Filer (WHT 5%)', '#22c55e'], ['non-filer', 'Non-Filer (WHT 10%)', '#ef4444'], ['', 'Unknown / Skip WHT', '#64748b']].map(([val, lbl, col]) => (
-                                                <button key={val} onClick={() => set('vendorFiler', val)}
-                                                    style={{ flex: 1, padding: '6px 8px', borderRadius: '8px', border: `1px solid ${form.vendorFiler === val ? col : 'var(--border)'}`,
-                                                        background: form.vendorFiler === val ? `${col}18` : 'transparent', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 700, color: form.vendorFiler === val ? col : 'var(--text-muted)' }}>
-                                                    {lbl}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+                        {/* Bill Nature — Official / Unofficial (applies to ALL bill types) */}
+                        <div style={{ gridColumn: 'span 3', marginBottom: '0.75rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.05em' }}>Bill Nature — Official or Unofficial</div>
+                            <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                {[
+                                    { id: 'official', label: '📄 Official', desc: 'Registered vendor · GST applicable · WHT based on filer status', color: '#38bdf8' },
+                                    { id: 'unofficial', label: '✋ Unofficial', desc: 'No GST · No WHT · No filer verification required', color: '#f59e0b' },
+                                ].map(opt => (
+                                    <button key={opt.id} onClick={() => set('billCategory', opt.id)}
+                                        style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: `2px solid ${form.billCategory === opt.id ? opt.color : 'var(--border)'}`,
+                                            background: form.billCategory === opt.id ? `${opt.color}15` : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                                        <div style={{ fontWeight: 700, color: form.billCategory === opt.id ? opt.color : 'var(--text-muted)', marginBottom: '3px', fontSize: '0.88rem' }}>{opt.label}</div>
+                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>{opt.desc}</div>
+                                    </button>
+                                ))}
                             </div>
-                        )}
+                            {form.billCategory === 'unofficial' && (
+                                <div style={{ marginTop: '8px', padding: '8px 12px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '8px', fontSize: '0.78rem', color: '#f59e0b' }}>
+                                    ⚠ Unofficial bill — GST and WHT will NOT be applied. No filer/non-filer check required.
+                                </div>
+                            )}
+                            {form.billCategory === 'official' && (
+                                <div style={{ marginTop: '8px' }}>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '5px' }}>Vendor Filer Status (for WHT)</div>
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        {[['filer', 'Filer (WHT 5%)', '#22c55e'], ['non-filer', 'Non-Filer (WHT 10%)', '#ef4444'], ['', 'Unknown / Skip WHT', '#64748b']].map(([val, lbl, col]) => (
+                                            <button key={val} onClick={() => set('vendorFiler', val)}
+                                                style={{ flex: 1, padding: '6px 8px', borderRadius: '8px', border: `1px solid ${form.vendorFiler === val ? col : 'var(--border)'}`,
+                                                    background: form.vendorFiler === val ? `${col}18` : 'transparent', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 700, color: form.vendorFiler === val ? col : 'var(--text-muted)' }}>
+                                                {lbl}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
 
                         {/* Billable toggle — locked for types 1 & 2 */}
                         <div style={{ gridColumn: 'span 3', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderRadius: '8px', background: form.billable ? 'rgba(34,197,94,0.07)' : 'rgba(245,158,11,0.07)', border: `1px solid ${form.billable ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.3)'}` }}>
