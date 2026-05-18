@@ -218,7 +218,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const medCh2 = numChildren < 2 ? 0
                  : ov.medical_ch2 != null ? parseFloat(ov.medical_ch2)
                  : cfgRateCh;
-
+    const medEE  = parseFloat(ov.medical_ee ?? (cfg.medical_ee || 0));
 
     const totalMedical = medEE + medSP + medCh1 + medCh2;
     // Total employer payroll cost = gross + all employer obligations
