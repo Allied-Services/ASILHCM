@@ -4780,8 +4780,9 @@ app.all('/api/fix-medical-premiums', async (req, res) => {
     if (key !== 'asil-med-fix-2026') return res.status(403).json({ error: 'Invalid key' });
     try {
         const staleRes = await pool.query(`
-            SELECT e.employee_code, e.name, pt.year, pt.month,
-                   pt.medical_sp, pt.medical_ch1, pt.medical_ch2
+            SELECT e.id, e.name, e.cnic, pt.year, pt.month,
+                   pt.medical_sp, pt.medical_ch1, pt.medical_ch2,
+                   e.spouse_name, e.child1_name, e.child2_name
             FROM payroll_transactions pt
             JOIN employees e ON e.id = pt.employee_id
             WHERE (
@@ -4789,7 +4790,7 @@ app.all('/api/fix-medical-premiums', async (req, res) => {
              OR (pt.medical_ch1 > 0 AND (e.child1_name  IS NULL OR TRIM(e.child1_name)  = ''))
              OR (pt.medical_ch2 > 0 AND (e.child2_name  IS NULL OR TRIM(e.child2_name)  = ''))
             )
-            ORDER BY e.employee_code, pt.year, pt.month
+            ORDER BY e.name, pt.year, pt.month
         `);
         const affected = staleRes.rows;
         const fixRes = await pool.query(`
