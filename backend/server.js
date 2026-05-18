@@ -4771,6 +4771,48 @@ app.post('/api/run-migrations', requireAuth, async (req, res) => {
     res.json({ done, errs });
 });
 
+// ─── Fix stale medical premiums directly in DB (superadmin) ─────────────────
+// Zeroes out medical_sp/ch1/ch2 in payroll_transactions for any employee
+// who has no spouse_name / child1_name / child2_name in the employee master.
+app.post('/api/fix-medical-premiums', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        // Check scope
+        const staleRes = await pool.query(`
+            SELECT e.employee_code, e.name, pt.year, pt.month,
+                   pt.medical_sp, pt.medical_ch1, pt.medical_ch2
+            FROM payroll_transactions pt
+            JOIN employees e ON e.id = pt.employee_id
+            WHERE (
+                (pt.medical_sp  > 0 AND (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  = ''))
+             OR (pt.medical_ch1 > 0 AND (e.child1_name  IS NULL OR TRIM(e.child1_name)  = ''))
+             OR (pt.medical_ch2 > 0 AND (e.child2_name  IS NULL OR TRIM(e.child2_name)  = ''))
+            )
+            ORDER BY e.employee_code, pt.year, pt.month
+        `);
+        const affected = staleRes.rows;
+
+        const fixRes = await pool.query(`
+            UPDATE payroll_transactions pt
+            SET
+                medical_sp  = CASE WHEN (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  = '') THEN 0 ELSE pt.medical_sp  END,
+                medical_ch1 = CASE WHEN (e.child1_name  IS NULL OR TRIM(e.child1_name)  = '') THEN 0 ELSE pt.medical_ch1 END,
+                medical_ch2 = CASE WHEN (e.child2_name  IS NULL OR TRIM(e.child2_name)  = '') THEN 0 ELSE pt.medical_ch2 END
+            FROM employees e
+            WHERE pt.employee_id = e.id
+              AND (
+                  (pt.medical_sp  > 0 AND (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  = ''))
+               OR (pt.medical_ch1 > 0 AND (e.child1_name  IS NULL OR TRIM(e.child1_name)  = ''))
+               OR (pt.medical_ch2 > 0 AND (e.child2_name  IS NULL OR TRIM(e.child2_name)  = ''))
+              )
+        `);
+        console.log(`fix-medical-premiums: fixed ${fixRes.rowCount} rows`);
+        res.json({ fixed: fixRes.rowCount, rows: affected });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+
 // One-time migration endpoint — SuperAdmin only, requires POST
 app.post('/api/migrate/asil-migrate-2026-x9k7', requireAuth, requireRole('superadmin'), async (req, res) => {
     const done = [], errs = [];
