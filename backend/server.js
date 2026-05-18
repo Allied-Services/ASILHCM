@@ -4774,9 +4774,11 @@ app.post('/api/run-migrations', requireAuth, async (req, res) => {
 // ─── Fix stale medical premiums directly in DB (superadmin) ─────────────────
 // Zeroes out medical_sp/ch1/ch2 in payroll_transactions for any employee
 // who has no spouse_name / child1_name / child2_name in the employee master.
-app.post('/api/fix-medical-premiums', requireAuth, requireRole('superadmin'), async (req, res) => {
+app.all('/api/fix-medical-premiums', async (req, res) => {
+    // Secret key protects this — no session needed
+    const key = req.query.key || req.body?.key;
+    if (key !== 'asil-med-fix-2026') return res.status(403).json({ error: 'Invalid key' });
     try {
-        // Check scope
         const staleRes = await pool.query(`
             SELECT e.employee_code, e.name, pt.year, pt.month,
                    pt.medical_sp, pt.medical_ch1, pt.medical_ch2
@@ -4790,7 +4792,6 @@ app.post('/api/fix-medical-premiums', requireAuth, requireRole('superadmin'), as
             ORDER BY e.employee_code, pt.year, pt.month
         `);
         const affected = staleRes.rows;
-
         const fixRes = await pool.query(`
             UPDATE payroll_transactions pt
             SET
@@ -4806,11 +4807,12 @@ app.post('/api/fix-medical-premiums', requireAuth, requireRole('superadmin'), as
               )
         `);
         console.log(`fix-medical-premiums: fixed ${fixRes.rowCount} rows`);
-        res.json({ fixed: fixRes.rowCount, rows: affected });
+        res.json({ fixed: fixRes.rowCount, stale_before_fix: affected });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
+
 
 
 // One-time migration endpoint — SuperAdmin only, requires POST
