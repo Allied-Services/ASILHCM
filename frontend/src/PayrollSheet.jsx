@@ -390,6 +390,21 @@ export default function PayrollSheet({ user }) {
     const [PROVINCE_RATES, setPROVINCE_RATES] = useState([]); // from System Config Tax by Region
     const [invoiceStatus, setInvoiceStatus] = useState({ invoicedClients: [], invoicedContracts: [] });
 
+    // ── REFS — ALL declared here at the TOP, before any useEffect ─────────────────────
+    // overridesRef: mirror of overrides state, kept in sync synchronously so
+    // debounced save callbacks always read the latest value (not stale React state).
+    const overridesRef  = useRef({});
+    // empMapRef: map of employee_id -> { emp, cfg } for quick lookup in save callbacks
+    const empMapRef     = useRef({});
+    // workDaysRef: mirror of workDays to avoid stale closures in async callbacks
+    const workDaysRef   = useRef(26);
+    // rowsRef: latest rendered rows list (used by lock handler to build save payload)
+    const rowsRef       = useRef([]);
+    // perEmpTimers: per-employee debounce timers so editing emp A doesn’t cancel emp B’s pending save
+    const perEmpTimers  = useRef({});
+    // monthRef: mirror of month to avoid stale closures in debounced callbacks
+    const monthRef      = useRef(defaultMonth);
+
     // ── Load contracts + employees + province tax rates in parallel ──
     useEffect(() => {
         Promise.all([
@@ -458,10 +473,12 @@ export default function PayrollSheet({ user }) {
         }).catch(() => {});
     }, []);
 
+
     // ── Load saved payroll from DB whenever month changes ──────────────────────
     useEffect(() => {
         const [yr, mo] = month.split('-');
-        overridesRef.current = {}; // reset sync ref on month change
+        monthRef.current = month;          // keep ref in sync
+        overridesRef.current = {};         // reset on month change
         setOverrides({});
         setLockedIds(new Set());
         setLockedBy(null);
@@ -484,137 +501,125 @@ export default function PayrollSheet({ user }) {
                     loan_deduction:    r.loan_deduction,
                     // BUG FIX: Only apply medical overrides from DB if value > 0.
                     // If saved as 0 (from an import that had no Spouse/Children columns),
-                    // do NOT override the defaults derived from the employee's family data.
-                    // This ensures hasSpouse/numChildren always drives family medical correctly.
+                    // do NOT override the defaults derived from the employee’s family data.
                     ...(r.medical_ee  != null && parseFloat(r.medical_ee)  > 0 ? { medical_ee:  parseFloat(r.medical_ee)  } : {}),
                     ...(r.medical_sp  != null && parseFloat(r.medical_sp)  > 0 ? { medical_sp:  parseFloat(r.medical_sp)  } : {}),
                     ...(r.medical_ch1 != null && parseFloat(r.medical_ch1) > 0 ? { medical_ch1: parseFloat(r.medical_ch1) } : {}),
                     ...(r.medical_ch2 != null && parseFloat(r.medical_ch2) > 0 ? { medical_ch2: parseFloat(r.medical_ch2) } : {}),
                 };
             });
-            overridesRef.current = ov; // keep sync ref in step with DB-loaded state
+            overridesRef.current = ov;     // keep ref in sync
             setOverrides(ov);
             const lockedRowIds = data.rows.filter(r => r.locked).map(r => r.employee_id);
             setLockedIds(new Set(lockedRowIds));
-            // Derive lockedBy from first locked row
             const firstLocked = data.rows.find(r => r.locked);
             if (firstLocked?.locked_by) setLockedBy(firstLocked.locked_by);
-        }).catch(() => {}); // silently ignore if table not yet created
+        }).catch(() => {});
         // Also load invoice status for current month — drives INV ✓ badge
         api.getPayrollInvoiceStatus(yr, mo)
             .then(d => setInvoiceStatus(d || { invoicedClients: [], invoicedContracts: [] }))
             .catch(() => {});
     }, [month]);
 
-    // ── Overrides ref — stays in sync with overrides state synchronously ──────
-    // This is CRITICAL for the debounced save: the save callback closes over this ref,
-    // not over the stale `overrides` state snapshot from the render cycle.
-    const overridesRef = useRef({});
-
-    // ── workDays ref — used in debounced saves to avoid stale closure ──────────
-    const workDaysRef = useRef(workDays);
+    // Keep workDaysRef in sync whenever workDays changes
     useEffect(() => { workDaysRef.current = workDays; }, [workDays]);
+    // Keep monthRef in sync whenever month changes
+    useEffect(() => { monthRef.current = month; }, [month]);
 
-    const rowsRef = useRef([]);
+    const getOv = (id, field, def) => { const o = overrides[id]; return (o && o[field] !== undefined) ? o[field] : def; };
 
-    // ── Trigger bulk save when workDays changes (skip initial mount) ───────────
-    const isMountedRef = useRef(false);
-    useEffect(() => {
-        if (!isMountedRef.current) { isMountedRef.current = true; return; }
-        // workDays changed — re-save all visible unlocked rows with fresh calcs
-        const empsList = rowsRef.current;
-        if (!empsList.length) return;
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(async () => {
-            const latestOv = overridesRef.current;
-            const wd = workDaysRef.current;
-            try {
-                setIsSaving(true);
-                const [yr, mo] = month.split('-');
-                const payload = empsList
-                    .filter(({ emp }) => !lockedIds.has(emp.id))
-                    .map(({ emp, cfg, calc: _oldCalc }) => {
-                        const ov = latestOv[emp.id] || {};
-                        const freshCalc = calcEmployeeRow(emp, {
-                            paid_days:         ov.paid_days         ?? wd,
-                            ot2_hrs:           ov.ot2_hrs           ?? 0,
-                            ot3_hrs:           ov.ot3_hrs           ?? 0,
-                            opd_claim:         ov.opd_claim         ?? 0,
-                            reimbursement:     ov.reimbursement     ?? 0,
-                            arrears:           ov.arrears           ?? 0,
-                            special_allowance: ov.special_allowance ?? 0,
-                            fuel_mobile:       ov.fuel_mobile       ?? 0,
-                            other_deduction:   ov.other_deduction   ?? 0,
-                            advance_deduction: ov.advance_deduction ?? 0,
-                            loan_deduction:    ov.loan_deduction    ?? 0,
-                            bonus_amount:      ov.bonus_amount      ?? 0,
-                            medical_ee:        ov.medical_ee        ?? _oldCalc.medEE  ?? 0,
-                            medical_sp:        ov.medical_sp        ?? _oldCalc.medSP  ?? 0,
-                            medical_ch1:       ov.medical_ch1       ?? _oldCalc.medCh1 ?? 0,
-                            medical_ch2:       ov.medical_ch2       ?? _oldCalc.medCh2 ?? 0,
-                        }, cfg, wd, PROVINCE_RATES);
-                        return { employee_id: emp.id, ov, calc: freshCalc };
-                    });
-                if (payload.length) await api.savePayroll(yr, mo, payload);
-            } catch (e) { console.warn('WorkDays save failed:', e.message); }
-            finally { setIsSaving(false); }
-        }, 1500);
-    }, [workDays]); // eslint-disable-line react-hooks/exhaustive-deps
+    // \u2500\u2500 Build the calc overrides object for one employee from refs \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    const buildOvForEmp = (empId) => {
+        const ov  = overridesRef.current[empId] || {};
+        const wd  = workDaysRef.current;
+        const old = rowsRef.current.find(r => r.emp.id === empId)?.calc || {};
+        return {
+            paid_days:         ov.paid_days         ?? old.pd ?? wd,
+            ot2_hrs:           ov.ot2_hrs           ?? 0,
+            ot3_hrs:           ov.ot3_hrs           ?? 0,
+            opd_claim:         ov.opd_claim         ?? 0,
+            reimbursement:     ov.reimbursement     ?? 0,
+            arrears:           ov.arrears           ?? 0,
+            special_allowance: ov.special_allowance ?? 0,
+            fuel_mobile:       ov.fuel_mobile       ?? 0,
+            other_deduction:   ov.other_deduction   ?? 0,
+            advance_deduction: ov.advance_deduction ?? 0,
+            loan_deduction:    ov.loan_deduction    ?? 0,
+            bonus_amount:      ov.bonus_amount      ?? 0,
+            medical_ee:        ov.medical_ee        ?? old.medEE  ?? 0,
+            medical_sp:        ov.medical_sp        ?? old.medSP  ?? 0,
+            medical_ch1:       ov.medical_ch1       ?? old.medCh1 ?? 0,
+            medical_ch2:       ov.medical_ch2       ?? old.medCh2 ?? 0,
+            ...(ov.calDaysWorked != null ? { calDaysWorked: ov.calDaysWorked, totalCalDays: ov.totalCalDays } : {}),
+        };
+    };
 
+    // \u2500\u2500 Save ONE employee row to DB immediately (called after debounce) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    const persistEmployee = async (empId) => {
+        const { emp, cfg } = empMapRef.current[empId] || {};
+        if (!emp || !cfg) return; // employee not loaded yet
+        const ov        = buildOvForEmp(empId);
+        const freshCalc = calcEmployeeRow(emp, ov, cfg, workDaysRef.current, PROVINCE_RATES);
+        const [yr, mo]  = monthRef.current.split('-');
+        try {
+            setIsSaving(true);
+            await api.savePayroll(yr, mo, [{ employee_id: empId, ov, calc: freshCalc }]);
+        } catch (e) {
+            console.warn(`Payroll save failed for ${empId}:`, e.message);
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
+    // \u2500\u2500 setOv: update one field for one employee, trigger debounced auto-save \u2500\u2500\u2500\u2500\u2500
     const setOv = (id, field, val) => {
-        if (lockedIds.has(id)) return;
-        // 1. Update overridesRef synchronously — debounce will read this latest value
+        if (lockedIds.has(id)) return; // locked rows are read-only
+        // 1. Update overridesRef synchronously so debounce reads the latest value
         overridesRef.current = {
             ...overridesRef.current,
             [id]: { ...(overridesRef.current[id] || {}), [field]: val },
         };
-        // 2. Trigger React state update (causes re-render and rowsRef update)
+        // 2. Trigger React re-render
         setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
-        // 3. Debounced save — reads overridesRef.current (always fresh) NOT rowsRef
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(async () => {
-            const latestOv = overridesRef.current;
-            const empsList = rowsRef.current;
-            const wd = workDaysRef.current;
-            if (!empsList.length) return;
-            try {
-                setIsSaving(true);
-                const [yr, mo] = month.split('-');
-                // Re-build payload using fresh overrides + current calc for each emp
-                const payload = empsList.map(({ emp, cfg, calc: _oldCalc }) => {
-                    const ov = latestOv[emp.id] || {};
-                    // Re-calculate with latest overrides so calc fields (netPay, invoice) are accurate
-                    const freshCalc = calcEmployeeRow(emp, {
-                        paid_days:         ov.paid_days         ?? _oldCalc.pd ?? wd,
-                        ot2_hrs:           ov.ot2_hrs           ?? 0,
-                        ot3_hrs:           ov.ot3_hrs           ?? 0,
-                        opd_claim:         ov.opd_claim         ?? 0,
-                        reimbursement:     ov.reimbursement     ?? 0,
-                        arrears:           ov.arrears           ?? 0,
-                        special_allowance: ov.special_allowance ?? 0,
-                        fuel_mobile:       ov.fuel_mobile       ?? 0,
-                        other_deduction:   ov.other_deduction   ?? 0,
-                        advance_deduction: ov.advance_deduction ?? 0,
-                        loan_deduction:    ov.loan_deduction    ?? 0,
-                        bonus_amount:      ov.bonus_amount      ?? 0,
-                        medical_ee:        ov.medical_ee        ?? _oldCalc.medEE  ?? 0,
-                        medical_sp:        ov.medical_sp        ?? _oldCalc.medSP  ?? 0,
-                        medical_ch1:       ov.medical_ch1       ?? _oldCalc.medCh1 ?? 0,
-                        medical_ch2:       ov.medical_ch2       ?? _oldCalc.medCh2 ?? 0,
-                        ...(ov.calDaysWorked != null ? { calDaysWorked: ov.calDaysWorked, totalCalDays: ov.totalCalDays } : {}),
-                    }, cfg, wd, PROVINCE_RATES);
-                    return { employee_id: emp.id, ov, calc: freshCalc };
-                });
-                await api.savePayroll(yr, mo, payload);
-            } catch (e) { console.warn('Payroll save failed:', e.message); }
-            finally { setIsSaving(false); }
-        }, 1200);
+        // 3. Per-employee debounce — editing emp A does NOT cancel emp B's pending save
+        clearTimeout(perEmpTimers.current[id]);
+        perEmpTimers.current[id] = setTimeout(() => persistEmployee(id), 900);
     };
-    const getOv = (id, field, def) => { const o = overrides[id]; return (o && o[field] !== undefined) ? o[field] : def; };
+
+    // \u2500\u2500 Bulk save all unlocked rows (used when workDays changes) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    const persistAllUnlocked = async (wd) => {
+        const empsList = rowsRef.current;
+        if (!empsList.length) return;
+        const [yr, mo] = monthRef.current.split('-');
+        const payload = empsList
+            .filter(({ emp }) => !lockedIds.has(emp.id))
+            .map(({ emp, cfg }) => {
+                const ov        = buildOvForEmp(emp.id);
+                // Use the passed-in wd rather than the ref (ref update may lag slightly)
+                const ovWithWd  = { ...ov, paid_days: overridesRef.current[emp.id]?.paid_days ?? wd };
+                const freshCalc = calcEmployeeRow(emp, ovWithWd, cfg, wd, PROVINCE_RATES);
+                return { employee_id: emp.id, ov: ovWithWd, calc: freshCalc };
+            });
+        if (!payload.length) return;
+        try {
+            setIsSaving(true);
+            await api.savePayroll(yr, mo, payload);
+        } catch (e) { console.warn('Bulk save failed:', e.message); }
+        finally { setIsSaving(false); }
+    };
+
+    // \u2500\u2500 When Working Days changes, bulk-save every unlocked employee \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    const prevWorkDays = useRef(workDays);
+    useEffect(() => {
+        if (workDays === prevWorkDays.current) return; // skip mount
+        prevWorkDays.current = workDays;
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => persistAllUnlocked(workDays), 1200);
+    }, [workDays]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Bulk selection helpers — defined AFTER filtered/rows (declared below)
     const toggleSelect = (id) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
 
     // Bulk SMS send (uses Jazz bulk endpoint)
     const sendBulkSMS = async () => {
@@ -802,8 +807,11 @@ export default function PayrollSheet({ user }) {
 
 
     });
-    // Keep ref in sync so the debounced setOv save always uses current calculations
+    // Keep ref in sync so workDays save and lock handler always use current data
     rowsRef.current = rows;
+    // Rebuild empMapRef on every render so persistEmployee always has the latest emp+cfg
+    rows.forEach(({ emp, cfg }) => { empMapRef.current[emp.id] = { emp, cfg }; });
+
 
     // Bulk helpers — placed HERE so filtered + rows are already defined
     const allSelected = filtered.length > 0 && filtered.every(e => selectedIds.has(e.id));
@@ -903,7 +911,6 @@ export default function PayrollSheet({ user }) {
     const canManageLock = isSuperAdmin || user?.role === 'finance_approver';
 
     const handleLock = async () => {
-        // Only lock the IDs that are currently VISIBLE (filtered) and NOT yet locked
         const toLock = rows.filter(r => !lockedIds.has(r.emp.id)).map(r => r.emp.id);
         const scopeLabel = filterClient !== 'All'
             ? `${filterClient}${filterContract !== 'All' ? ' / ' + filterContract : ''}`
@@ -916,47 +923,19 @@ export default function PayrollSheet({ user }) {
             `Exports will only include locked records.`
         )) return;
         try {
-            const [yr, mo] = month.split('-');
-            // ── STEP 1: Flush any pending edits — save all unlocked rows before locking ──
-            // This ensures every employee has a row in payroll_transactions so the
-            // subsequent UPDATE … WHERE employee_id = ANY(…) actually finds and locks them.
+            // Step 1: flush all pending per-emp timers then save every unlocked row
+            Object.values(perEmpTimers.current).forEach(clearTimeout);
+            perEmpTimers.current = {};
             clearTimeout(saveTimerRef.current);
-            const latestOv = overridesRef.current;
-            const wd = workDaysRef.current;
-            const unlockRows = rows.filter(r => !lockedIds.has(r.emp.id));
-            const savePayload = unlockRows.map(({ emp, cfg, calc: _oldCalc }) => {
-                const ov = latestOv[emp.id] || {};
-                const freshCalc = calcEmployeeRow(emp, {
-                    paid_days:         ov.paid_days         ?? _oldCalc.pd ?? wd,
-                    ot2_hrs:           ov.ot2_hrs           ?? 0,
-                    ot3_hrs:           ov.ot3_hrs           ?? 0,
-                    opd_claim:         ov.opd_claim         ?? 0,
-                    reimbursement:     ov.reimbursement     ?? 0,
-                    arrears:           ov.arrears           ?? 0,
-                    special_allowance: ov.special_allowance ?? 0,
-                    fuel_mobile:       ov.fuel_mobile       ?? 0,
-                    other_deduction:   ov.other_deduction   ?? 0,
-                    advance_deduction: ov.advance_deduction ?? 0,
-                    loan_deduction:    ov.loan_deduction    ?? 0,
-                    bonus_amount:      ov.bonus_amount      ?? 0,
-                    medical_ee:        ov.medical_ee        ?? _oldCalc.medEE  ?? 0,
-                    medical_sp:        ov.medical_sp        ?? _oldCalc.medSP  ?? 0,
-                    medical_ch1:       ov.medical_ch1       ?? _oldCalc.medCh1 ?? 0,
-                    medical_ch2:       ov.medical_ch2       ?? _oldCalc.medCh2 ?? 0,
-                }, cfg, wd, PROVINCE_RATES);
-                return { employee_id: emp.id, ov, calc: freshCalc };
-            });
-            if (savePayload.length) {
-                setIsSaving(true);
-                await api.savePayroll(yr, mo, savePayload);
-                setIsSaving(false);
-            }
-            // ── STEP 2: Lock the saved rows ──────────────────────────────────────
+            await persistAllUnlocked(workDaysRef.current);
+            // Step 2: lock them
+            const [yr, mo] = monthRef.current.split('-');
             await api.lockPayroll(yr, mo, toLock);
             setLockedIds(prev => new Set([...prev, ...toLock]));
             setLockedBy('You');
         } catch (e) { setIsSaving(false); alert('Lock failed: ' + e.message); }
     };
+
 
 
     const handleUnlock = async () => {
