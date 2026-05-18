@@ -196,23 +196,29 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const gratuity = isGratuity ? Math.round(grossSalary / 12) : 0;
     // pfER already declared above — employer matches employee contribution
     const lifeIns = parseFloat(cfg.life_insurance || 0);
-    const medEE = parseFloat(ov.medical_ee ?? (cfg.medical_ee || 0));
-    // ── Spouse & Child medical: BOTH conditions must be true ──────────────────
-    // A) Contract must specify a rate (cfg.medical_sp / cfg.medical_child > 0)
-    // B) Employee must have spouse/child name(s) recorded (emp.hasSpouse / emp.numChildren)
-    // Priority: explicit payroll override (ov.medical_sp etc.) > family-gated contract default
+    // ── Spouse & Child medical insurance ──────────────────────────────────────
+    // RULE: Family check is UNCONDITIONAL — even if a value is stored in the DB
+    // from an old import, it must be ignored when the employee has no family recorded.
+    // This prevents stale CSV data from overriding the family check.
+    //
+    // Logic:
+    //   No spouse  → medSP  = 0 (always, overrides ignored)
+    //   Has spouse → use DB/manual override if set, else contract rate
+    //   Same for children (0, 1, or 2)
     const hasSpouse    = !!(emp.hasSpouse);
     const numChildren  = parseInt(emp.numChildren) || 0;
     const cfgRateSP    = parseFloat(cfg.medical_sp    || 0);
     const cfgRateCh    = parseFloat(cfg.medical_child || 0);
-    // If ov.medical_sp is explicitly set (e.g. from import/manual edit), use it as-is.
-    // If not set, apply the contract rate ONLY when the employee has a spouse.
-    const medSP  = ov.medical_sp  != null ? parseFloat(ov.medical_sp)
-                 : (hasSpouse   && cfgRateSP > 0 ? cfgRateSP  : 0);
-    const medCh1 = ov.medical_ch1 != null ? parseFloat(ov.medical_ch1)
-                 : (numChildren >= 1 && cfgRateCh > 0 ? cfgRateCh : 0);
-    const medCh2 = ov.medical_ch2 != null ? parseFloat(ov.medical_ch2)
-                 : (numChildren >= 2 && cfgRateCh > 0 ? cfgRateCh : 0);
+    const medSP  = !hasSpouse      ? 0
+                 : ov.medical_sp  != null ? parseFloat(ov.medical_sp)
+                 : cfgRateSP;
+    const medCh1 = numChildren < 1 ? 0
+                 : ov.medical_ch1 != null ? parseFloat(ov.medical_ch1)
+                 : cfgRateCh;
+    const medCh2 = numChildren < 2 ? 0
+                 : ov.medical_ch2 != null ? parseFloat(ov.medical_ch2)
+                 : cfgRateCh;
+
 
     const totalMedical = medEE + medSP + medCh1 + medCh2;
     // Total employer payroll cost = gross + all employer obligations

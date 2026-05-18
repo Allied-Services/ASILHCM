@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, memo } from 'react';
+import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
 import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon, Lock, Unlock, Save } from 'lucide-react';
 import {
     PAYROLL_CONTRACT_CFG as CONTRACT_CFG,
@@ -364,9 +364,9 @@ function ExportMenu({ month, isLocked, filterClient, filterContract, filterLoc, 
 //   • onChange updates only this cell's local state — zero parent re-renders
 //   • onBlur calls setOv (parent re-render + save) — once per field exit
 // ─────────────────────────────────────────────────────────────────────────────
-const EditableCell = memo(function EditableCell({ empId, field, value, locked, w = '68px', onCommit }) {
+const EditableCell = memo(function EditableCell({ empId, field, value, locked, w = '68px', setOv }) {
     const [localVal, setLocalVal] = useState(value);
-    // Sync if parent value changes (e.g. DB load, month switch)
+    // Sync with parent when DB loads or month changes
     useEffect(() => { setLocalVal(value); }, [value]);
     return (
         <input
@@ -374,7 +374,7 @@ const EditableCell = memo(function EditableCell({ empId, field, value, locked, w
             value={localVal}
             disabled={locked}
             onChange={e => { if (!locked) setLocalVal(e.target.value); }}
-            onBlur={e => { if (!locked) onCommit(e.target.value); }}
+            onBlur={e => { if (!locked) setOv(empId, field, e.target.value); }}
             style={{
                 width: w,
                 background: locked ? 'transparent' : 'rgba(56,189,248,0.07)',
@@ -589,7 +589,7 @@ export default function PayrollSheet({ user }) {
         };
     };
 
-    // \u2500\u2500 Save ONE employee row to DB immediately (called after debounce) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // ── Save ONE employee row to DB immediately (called after debounce) ──────────
     const persistEmployee = async (empId) => {
         const { emp, cfg } = empMapRef.current[empId] || {};
         if (!emp || !cfg) return; // employee not loaded yet
@@ -606,20 +606,19 @@ export default function PayrollSheet({ user }) {
         }
     };
 
-    // \u2500\u2500 setOv: update one field for one employee, trigger debounced auto-save \u2500\u2500\u2500\u2500\u2500
-    const setOv = (id, field, val) => {
-        if (lockedIds.has(id)) return; // locked rows are read-only
-        // 1. Update overridesRef synchronously so debounce reads the latest value
+    // ── setOv: update one field, trigger per-employee debounced save ──────────
+    // useCallback([lockedIds]): reference is stable so React.memo works on
+    // EditableCell — prevents all 500 cells re-rendering on every state change.
+    const setOv = useCallback((id, field, val) => {
+        if (lockedIds.has(id)) return;
         overridesRef.current = {
             ...overridesRef.current,
             [id]: { ...(overridesRef.current[id] || {}), [field]: val },
         };
-        // 2. Trigger React re-render
         setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
-        // 3. Per-employee debounce — editing emp A does NOT cancel emp B's pending save
         clearTimeout(perEmpTimers.current[id]);
         perEmpTimers.current[id] = setTimeout(() => persistEmployee(id), 900);
-    };
+    }, [lockedIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // \u2500\u2500 Bulk save all unlocked rows (used when workDays changes) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     const persistAllUnlocked = async (wd) => {
@@ -999,7 +998,7 @@ export default function PayrollSheet({ user }) {
             value={getOv(empId, field, def)}
             locked={lockedIds.has(empId)}
             w={w}
-            onCommit={val => setOv(empId, field, val)}
+            setOv={setOv}
         />
     );
 
