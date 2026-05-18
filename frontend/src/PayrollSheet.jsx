@@ -561,6 +561,32 @@ export default function PayrollSheet({ user }) {
     // Keep monthRef in sync whenever month changes
     useEffect(() => { monthRef.current = month; }, [month]);
 
+    // ── Clean stale medical overrides for employees with no family data ────────
+    // Runs after EMPLOYEES list or month loads. Removes medical_sp/ch1/ch2 overrides
+    // that were saved from old imports when family data was not yet recorded.
+    // Without this, a DB value of e.g. medical_sp=1482 for an employee with no spouse
+    // would still show in the edit cells even though calcEmployeeRow returns 0.
+    useEffect(() => {
+        if (!EMPLOYEES.length) return;
+        setOverrides(prev => {
+            let changed = false;
+            const cleaned = { ...prev };
+            EMPLOYEES.forEach(emp => {
+                const ov = cleaned[emp.id];
+                if (!ov) return;
+                const newOv = { ...ov };
+                let empChanged = false;
+                if (!emp.hasSpouse    && parseFloat(ov.medical_sp)  > 0) { delete newOv.medical_sp;  empChanged = true; }
+                if (emp.numChildren < 1 && parseFloat(ov.medical_ch1) > 0) { delete newOv.medical_ch1; empChanged = true; }
+                if (emp.numChildren < 2 && parseFloat(ov.medical_ch2) > 0) { delete newOv.medical_ch2; empChanged = true; }
+                if (empChanged) { cleaned[emp.id] = newOv; changed = true; }
+            });
+            if (changed) { overridesRef.current = cleaned; return cleaned; }
+            return prev; // no change — don't trigger re-render
+        });
+    }, [EMPLOYEES, month]); // re-run whenever employee list or month changes
+
+
     const getOv = (id, field, def) => { const o = overrides[id]; return (o && o[field] !== undefined) ? o[field] : def; };
 
     // \u2500\u2500 Build the calc overrides object for one employee from refs \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500

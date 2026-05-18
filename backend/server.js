@@ -2726,9 +2726,14 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const empHasSpouse   = !!(emp.spouse_name && String(emp.spouse_name).trim());
             const empNumChildren = [emp.child1_name, emp.child2_name].filter(n => n && String(n).trim()).length;
             const medEE  = Math.round(parseFloat(pay?.medical_ee != null ? pay.medical_ee : emp._medical_ee || 0));
-            const medSP  = (savedMedSP  != null && savedMedSP  > 0) ? savedMedSP  : (empHasSpouse   ? Math.round(emp._medical_sp || 0) : 0);
-            const medCh1 = (savedMedCh1 != null && savedMedCh1 > 0) ? savedMedCh1 : (empNumChildren >= 1 ? Math.round(emp._medical_ch || 0) : 0);
-            const medCh2 = (savedMedCh2 != null && savedMedCh2 > 0) ? savedMedCh2 : (empNumChildren >= 2 ? Math.round(emp._medical_ch || 0) : 0);
+            // UNCONDITIONAL family gate — no spouse = medSP always 0, even if DB has stale value.
+            // Mirrors payrollUtils.js logic exactly so export matches the UI.
+            const medSP  = !empHasSpouse    ? 0
+                         : (savedMedSP  != null && savedMedSP  > 0) ? savedMedSP  : Math.round(emp._medical_sp || 0);
+            const medCh1 = empNumChildren < 1 ? 0
+                         : (savedMedCh1 != null && savedMedCh1 > 0) ? savedMedCh1 : Math.round(emp._medical_ch || 0);
+            const medCh2 = empNumChildren < 2 ? 0
+                         : (savedMedCh2 != null && savedMedCh2 > 0) ? savedMedCh2 : Math.round(emp._medical_ch || 0);
             const medTotal = medEE + medSP + medCh1 + medCh2;
             // Life Insurance: from contract costs
             const lifeIns = Math.round(parseFloat(emp._life_ins || emp.life_insurance || 0));
@@ -3747,40 +3752,52 @@ async function generateInvoiceNumber(year, month) {
     return `${prefix}-${String(seq).padStart(3,'0')}`;
 }
 
-// GET /api/client-invoices ├óΓé¼ΓÇ¥ all client invoices (AR queue)
+// GET /api/client-invoices — all client invoices (AR queue), enriched with client address/NTN
 app.get('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
     try {
         const { status, client } = req.query;
-        const conds = []; const params = [];
-        if (status) { conds.push(`status=$${params.length+1}`); params.push(status); }
-        if (client) { conds.push(`client=$${params.length+1}`); params.push(client); }
-        const where = conds.length ? 'WHERE '+conds.join(' AND ') : '';
-        const { rows } = await pool.query(`SELECT * FROM client_invoices ${where} ORDER BY created_at DESC`, params);
+        const conds = ['1=1']; const params = [];
+        if (status) { params.push(status); conds.push(`ci.status=$${params.length}`); }
+        if (client) { params.push(client); conds.push(`ci.client=$${params.length}`); }
+        const where = 'WHERE ' + conds.join(' AND ');
+        const { rows } = await pool.query(`
+            SELECT ci.*,
+                   cl.ntn   AS client_ntn,
+                   cl.strn  AS client_strn,
+                   cl.hq    AS client_hq
+            FROM   client_invoices ci
+            LEFT JOIN clients cl ON LOWER(cl.name) = LOWER(ci.client)
+            ${where}
+            ORDER BY ci.created_at DESC
+        `, params);
         res.json({ invoices: rows });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/client-invoices ├óΓé¼ΓÇ¥ AR team raises an invoice
+// POST /api/client-invoices — AR team raises an invoice
 app.post('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
     try {
-        const { client, contract, period_month, period_year, po_number, due_date,
+        const { client, contract, contract_id, period_month, period_year, po_number, due_date,
                 line_items, subtotal, service_charges, sales_tax, wht, grand_total,
-                invoice_number, notes } = req.body;
-        // System-generate invoice number if not provided (historical override allowed)
+                invoice_number, notes, region, bu } = req.body;
         const invNo = invoice_number || await generateInvoiceNumber(period_year, period_month);
         const { rows } = await pool.query(`
             INSERT INTO client_invoices
-                (invoice_number, client, contract, period_month, period_year, po_number, due_date,
-                 line_items, subtotal, service_charges, sales_tax, wht, grand_total, notes, status, created_by)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'Draft',$15)
+                (invoice_number, client, contract, contract_id, period_month, period_year,
+                 po_number, due_date, line_items, subtotal, service_charges, sales_tax,
+                 wht, grand_total, notes, region, bu, status, created_by)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'Draft',$18)
             RETURNING *
-        `, [invNo, client, contract||null, parseInt(period_month)||null, parseInt(period_year)||null,
+        `, [invNo, client, contract||null, contract_id ? parseInt(contract_id) : null,
+            parseInt(period_month)||null, parseInt(period_year)||null,
             po_number||null, due_date||null, JSON.stringify(line_items||[]),
             parseFloat(subtotal)||0, parseFloat(service_charges)||0, parseFloat(sales_tax)||0,
-            parseFloat(wht)||0, parseFloat(grand_total)||0, notes||null, req.user.email]);
+            parseFloat(wht)||0, parseFloat(grand_total)||0, notes||null,
+            region||null, bu||null, req.user.email]);
         res.json({ ok: true, invoice: rows[0] });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 
 // POST /api/bills/:id/create-invoice ├óΓé¼ΓÇ¥ auto-create a draft client invoice from a billable bill
 app.post('/api/bills/:id/create-invoice', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
@@ -4194,8 +4211,15 @@ pool.query(`CREATE TABLE IF NOT EXISTS purchase_orders (
     updated_at       TIMESTAMPTZ DEFAULT NOW()
 )`).catch(e => console.warn('PO table init:', e.message));
 
-pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL`)
+pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id      INT REFERENCES purchase_orders(id) ON DELETE SET NULL`)
     .catch(e => console.warn('po_id col init:', e.message));
+pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT`)
+    .catch(e => console.warn('ci_contract_id col init:', e.message));
+pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS region      TEXT`)
+    .catch(e => console.warn('ci_region col init:', e.message));
+pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS bu          TEXT`)
+    .catch(e => console.warn('ci_bu col init:', e.message));
+
 
 async function getPOUtilization(poIds) {
     if (!poIds || !poIds.length) return {};
