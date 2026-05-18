@@ -439,6 +439,10 @@ export default function PayrollSheet({ user }) {
     const perEmpTimers  = useRef({});
     // monthRef: mirror of month to avoid stale closures in debounced callbacks
     const monthRef      = useRef(defaultMonth);
+    // medCleanedRef: flag to prevent the medical cleanup effect from looping
+    // (the effect adds overrides as a dep so it re-fires when DB data loads,
+    //  but we only want it to run ONCE per month after both employees + overrides load)
+    const medCleanedRef = useRef(false);
 
     // ── Load contracts + employees + province tax rates in parallel ──
     useEffect(() => {
@@ -562,12 +566,16 @@ export default function PayrollSheet({ user }) {
     useEffect(() => { monthRef.current = month; }, [month]);
 
     // ── Clean stale medical overrides for employees with no family data ────────
-    // Runs after EMPLOYEES list or month loads. Removes medical_sp/ch1/ch2 overrides
-    // that were saved from old imports when family data was not yet recorded.
-    // Without this, a DB value of e.g. medical_sp=1482 for an employee with no spouse
-    // would still show in the edit cells even though calcEmployeeRow returns 0.
+    // Root cause: overrides load async from DB AFTER EMPLOYEES loads. Adding
+    // [EMPLOYEES, month] as deps meant the cleanup ran when overrides was still
+    // empty {}. Adding 'overrides' to deps causes it to re-run when DB data arrives.
+    // medCleanedRef prevents the loop that would result from setOverrides() re-firing it.
+    useEffect(() => { medCleanedRef.current = false; }, [month]); // reset flag on month change
     useEffect(() => {
-        if (!EMPLOYEES.length) return;
+        if (!EMPLOYEES.length) return;               // employees not loaded yet
+        if (!Object.keys(overrides).length) return;  // DB overrides not loaded yet
+        if (medCleanedRef.current) return;           // already cleaned for this month
+        medCleanedRef.current = true;                // mark done before setOverrides to prevent loop
         setOverrides(prev => {
             let changed = false;
             const cleaned = { ...prev };
@@ -582,9 +590,9 @@ export default function PayrollSheet({ user }) {
                 if (empChanged) { cleaned[emp.id] = newOv; changed = true; }
             });
             if (changed) { overridesRef.current = cleaned; return cleaned; }
-            return prev; // no change — don't trigger re-render
+            return prev;
         });
-    }, [EMPLOYEES, month]); // re-run whenever employee list or month changes
+    }, [EMPLOYEES, month, overrides]); // overrides in deps so effect re-fires when DB data loads
 
 
     const getOv = (id, field, def) => { const o = overrides[id]; return (o && o[field] !== undefined) ? o[field] : def; };
