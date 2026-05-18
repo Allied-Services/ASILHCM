@@ -5869,6 +5869,31 @@ app.listen(PORT, async () => {
         }
         console.log('Migration OK: ot2_hrs/ot3_hrs/paid_days type ensured as NUMERIC(8,2)');
 
+        // ── Data fix: zero out stale medical spouse/child premiums in payroll_transactions ──
+        // Some employees had medical_sp/ch1/ch2 saved from old CSV imports that didn't check
+        // family data. Now we permanently fix the DB so employees with no spouse/children
+        // have these zeroed directly in the table — no frontend compensation needed.
+        try {
+            const medFix = await pool.query(`
+                UPDATE payroll_transactions pt
+                SET
+                    medical_sp  = CASE WHEN (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  = '') THEN 0 ELSE pt.medical_sp  END,
+                    medical_ch1 = CASE WHEN (e.child1_name  IS NULL OR TRIM(e.child1_name)  = '') THEN 0 ELSE pt.medical_ch1 END,
+                    medical_ch2 = CASE WHEN (e.child1_name  IS NULL OR TRIM(e.child1_name)  = ''
+                                          OR e.child2_name  IS NULL OR TRIM(e.child2_name)  = '') THEN 0 ELSE pt.medical_ch2 END
+                FROM employees e
+                WHERE pt.employee_id = e.id
+                  AND (
+                      (pt.medical_sp  > 0 AND (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  = ''))
+                   OR (pt.medical_ch1 > 0 AND (e.child1_name  IS NULL OR TRIM(e.child1_name)  = ''))
+                   OR (pt.medical_ch2 > 0 AND (e.child2_name  IS NULL OR TRIM(e.child2_name)  = ''))
+                  )
+            `);
+            if (medFix.rowCount > 0)
+                console.log(`Data fix OK: zeroed stale medical premiums for ${medFix.rowCount} payroll row(s) with no family data`);
+        } catch (e) { console.warn('Data fix warning (medical premiums):', e.message); }
+
+
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ placeholder so existing closing brace still works ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
         const _dummy = true; if (!_dummy) {
         }
