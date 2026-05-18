@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, memo } from 'react';
 import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon, Lock, Unlock, Save } from 'lucide-react';
 import {
     PAYROLL_CONTRACT_CFG as CONTRACT_CFG,
@@ -353,6 +353,41 @@ function ExportMenu({ month, isLocked, filterClient, filterContract, filterLoc, 
         </div>
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EditableCell — module-level so React.memo works (no re-creation each render)
+// ─────────────────────────────────────────────────────────────────────────────
+// Key performance insight: defining this INSIDE PayrollSheet causes it to be
+// recreated on every render, defeating React.memo and causing ALL 500 cells
+// to re-render when ANY override changes.
+// Moving it here means:
+//   • onChange updates only this cell's local state — zero parent re-renders
+//   • onBlur calls setOv (parent re-render + save) — once per field exit
+// ─────────────────────────────────────────────────────────────────────────────
+const EditableCell = memo(function EditableCell({ empId, field, value, locked, w = '68px', onCommit }) {
+    const [localVal, setLocalVal] = useState(value);
+    // Sync if parent value changes (e.g. DB load, month switch)
+    useEffect(() => { setLocalVal(value); }, [value]);
+    return (
+        <input
+            type="number" min={0} step="any"
+            value={localVal}
+            disabled={locked}
+            onChange={e => { if (!locked) setLocalVal(e.target.value); }}
+            onBlur={e => { if (!locked) onCommit(e.target.value); }}
+            style={{
+                width: w,
+                background: locked ? 'transparent' : 'rgba(56,189,248,0.07)',
+                border: locked ? 'none' : '1px solid rgba(56,189,248,0.2)',
+                borderRadius: '4px', padding: '3px 5px',
+                color: 'var(--text)', fontSize: '0.78rem',
+                textAlign: 'right', outline: 'none',
+                cursor: locked ? 'not-allowed' : 'text',
+                opacity: locked ? 0.7 : 1,
+            }}
+        />
+    );
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -955,19 +990,19 @@ export default function PayrollSheet({ user }) {
 
     const needsApproval = rows.some(r => r.cfg.client_approval);
 
-    // Editable cell — disabled when this employee is locked
-    const EC = ({ empId, field, def = 0, w = '68px' }) => {
-        const cellLocked = lockedIds.has(empId);
-        return (
-            <input type="number" min={0} step="any" value={getOv(empId, field, def)}
-                disabled={cellLocked}
-                onChange={e => {
-                    if (cellLocked) return;
-                    setOv(empId, field, e.target.value);
-                }}
-                style={{ width: w, background: cellLocked ? 'transparent' : 'rgba(56,189,248,0.07)', border: cellLocked ? 'none' : '1px solid rgba(56,189,248,0.2)', borderRadius: '4px', padding: '3px 5px', color: 'var(--text)', fontSize: '0.78rem', textAlign: 'right', outline: 'none', cursor: cellLocked ? 'not-allowed' : 'text', opacity: cellLocked ? 0.7 : 1 }} />
-        );
-    };
+    // EC — thin wrapper that wires EditableCell to this component's setOv / overrides
+    // Defined here (not at module level) because it captures setOv, getOv, lockedIds
+    const EC = ({ empId, field, def = 0, w = '68px' }) => (
+        <EditableCell
+            empId={empId}
+            field={field}
+            value={getOv(empId, field, def)}
+            locked={lockedIds.has(empId)}
+            w={w}
+            onCommit={val => setOv(empId, field, val)}
+        />
+    );
+
     const RC = ({ val, pos, neg, bold, muted }) => (
         <td style={{ padding: '6px 7px', textAlign: 'right', fontWeight: bold ? 700 : 400, fontSize: '0.8rem', whiteSpace: 'nowrap', color: neg ? '#f43f5e' : pos ? '#22c55e' : muted ? '#64748b' : 'var(--text)' }}>
             {fmt(val)}
