@@ -2738,7 +2738,8 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             // Overhead: fixed per-employee charge from contract
             const overhead = Math.round(parseFloat(emp._overhead_per_employee || 0));
             // Total employer cost = gross + all employer obligations
-            const costBase = grossM + eobi_er + sessi + pfER + gratuity + lifeIns + medTotal + bonusAccrual + overhead;
+            // other_deduction reduces the invoice (mirrors frontend payrollUtils.js fix)
+            const costBase = grossM + eobi_er + sessi + pfER + gratuity + lifeIns + medTotal + bonusAccrual + overhead - otherDed;
             const sc       = pay?.service_charges ? Math.round(parseFloat(pay.service_charges)) : 0;
             const stRate   = provinceTaxRate(emp.province);
             // Sales tax base: Total Payroll Cost + Service Charges (per MD instruction)

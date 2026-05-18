@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon, Lock, Unlock, Save } from 'lucide-react';
 import {
     PAYROLL_CONTRACT_CFG as CONTRACT_CFG,
@@ -461,6 +461,7 @@ export default function PayrollSheet({ user }) {
     // ── Load saved payroll from DB whenever month changes ──────────────────────
     useEffect(() => {
         const [yr, mo] = month.split('-');
+        overridesRef.current = {}; // reset sync ref on month change
         setOverrides({});
         setLockedIds(new Set());
         setLockedBy(null);
@@ -491,6 +492,7 @@ export default function PayrollSheet({ user }) {
                     ...(r.medical_ch2 != null && parseFloat(r.medical_ch2) > 0 ? { medical_ch2: parseFloat(r.medical_ch2) } : {}),
                 };
             });
+            overridesRef.current = ov; // keep sync ref in step with DB-loaded state
             setOverrides(ov);
             const lockedRowIds = data.rows.filter(r => r.locked).map(r => r.employee_id);
             setLockedIds(new Set(lockedRowIds));
@@ -504,41 +506,106 @@ export default function PayrollSheet({ user }) {
             .catch(() => {});
     }, [month]);
 
-    // ── Save rows to DB (debounced) ─────────────────────────────────────────────
-    const saveToDb = useCallback((ovState, rowsData) => {
-        if (rowsData.some(r => lockedIds.has(r.emp?.id))) return;
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(async () => {
-            try {
-                setIsSaving(true);
-                const [yr, mo] = month.split('-');
-                const payload = rowsData.map(({ emp, ov: rowOv, calc }) => ({
-                    employee_id: emp.id,
-                    ov: rowOv,
-                    calc,
-                }));
-                await api.savePayroll(yr, mo, payload);
-            } catch (e) { console.warn('Payroll save failed:', e.message); }
-            finally { setIsSaving(false); }
-        }, 800);
-    }, [month, lockedIds]);
+    // ── Overrides ref — stays in sync with overrides state synchronously ──────
+    // This is CRITICAL for the debounced save: the save callback closes over this ref,
+    // not over the stale `overrides` state snapshot from the render cycle.
+    const overridesRef = useRef({});
+
+    // ── workDays ref — used in debounced saves to avoid stale closure ──────────
+    const workDaysRef = useRef(workDays);
+    useEffect(() => { workDaysRef.current = workDays; }, [workDays]);
 
     const rowsRef = useRef([]);
 
-    const setOv = (id, field, val) => {
-        if (lockedIds.has(id)) return;
-        setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
-        // Trigger debounced save after user edits
+    // ── Trigger bulk save when workDays changes (skip initial mount) ───────────
+    const isMountedRef = useRef(false);
+    useEffect(() => {
+        if (!isMountedRef.current) { isMountedRef.current = true; return; }
+        // workDays changed — re-save all visible unlocked rows with fresh calcs
+        const empsList = rowsRef.current;
+        if (!empsList.length) return;
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(async () => {
-            const currentRows = rowsRef.current;
-            if (!currentRows.length) return;
+            const latestOv = overridesRef.current;
+            const wd = workDaysRef.current;
             try {
                 setIsSaving(true);
                 const [yr, mo] = month.split('-');
-                const payload = currentRows.map(({ emp, ov: rowOv, calc }) => ({
-                    employee_id: emp.id, ov: rowOv, calc,
-                }));
+                const payload = empsList
+                    .filter(({ emp }) => !lockedIds.has(emp.id))
+                    .map(({ emp, cfg, calc: _oldCalc }) => {
+                        const ov = latestOv[emp.id] || {};
+                        const freshCalc = calcEmployeeRow(emp, {
+                            paid_days:         ov.paid_days         ?? wd,
+                            ot2_hrs:           ov.ot2_hrs           ?? 0,
+                            ot3_hrs:           ov.ot3_hrs           ?? 0,
+                            opd_claim:         ov.opd_claim         ?? 0,
+                            reimbursement:     ov.reimbursement     ?? 0,
+                            arrears:           ov.arrears           ?? 0,
+                            special_allowance: ov.special_allowance ?? 0,
+                            fuel_mobile:       ov.fuel_mobile       ?? 0,
+                            other_deduction:   ov.other_deduction   ?? 0,
+                            advance_deduction: ov.advance_deduction ?? 0,
+                            loan_deduction:    ov.loan_deduction    ?? 0,
+                            bonus_amount:      ov.bonus_amount      ?? 0,
+                            medical_ee:        ov.medical_ee        ?? _oldCalc.medEE  ?? 0,
+                            medical_sp:        ov.medical_sp        ?? _oldCalc.medSP  ?? 0,
+                            medical_ch1:       ov.medical_ch1       ?? _oldCalc.medCh1 ?? 0,
+                            medical_ch2:       ov.medical_ch2       ?? _oldCalc.medCh2 ?? 0,
+                        }, cfg, wd, PROVINCE_RATES);
+                        return { employee_id: emp.id, ov, calc: freshCalc };
+                    });
+                if (payload.length) await api.savePayroll(yr, mo, payload);
+            } catch (e) { console.warn('WorkDays save failed:', e.message); }
+            finally { setIsSaving(false); }
+        }, 1500);
+    }, [workDays]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+    const setOv = (id, field, val) => {
+        if (lockedIds.has(id)) return;
+        // 1. Update overridesRef synchronously — debounce will read this latest value
+        overridesRef.current = {
+            ...overridesRef.current,
+            [id]: { ...(overridesRef.current[id] || {}), [field]: val },
+        };
+        // 2. Trigger React state update (causes re-render and rowsRef update)
+        setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), [field]: val } }));
+        // 3. Debounced save — reads overridesRef.current (always fresh) NOT rowsRef
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(async () => {
+            const latestOv = overridesRef.current;
+            const empsList = rowsRef.current;
+            const wd = workDaysRef.current;
+            if (!empsList.length) return;
+            try {
+                setIsSaving(true);
+                const [yr, mo] = month.split('-');
+                // Re-build payload using fresh overrides + current calc for each emp
+                const payload = empsList.map(({ emp, cfg, calc: _oldCalc }) => {
+                    const ov = latestOv[emp.id] || {};
+                    // Re-calculate with latest overrides so calc fields (netPay, invoice) are accurate
+                    const freshCalc = calcEmployeeRow(emp, {
+                        paid_days:         ov.paid_days         ?? _oldCalc.pd ?? wd,
+                        ot2_hrs:           ov.ot2_hrs           ?? 0,
+                        ot3_hrs:           ov.ot3_hrs           ?? 0,
+                        opd_claim:         ov.opd_claim         ?? 0,
+                        reimbursement:     ov.reimbursement     ?? 0,
+                        arrears:           ov.arrears           ?? 0,
+                        special_allowance: ov.special_allowance ?? 0,
+                        fuel_mobile:       ov.fuel_mobile       ?? 0,
+                        other_deduction:   ov.other_deduction   ?? 0,
+                        advance_deduction: ov.advance_deduction ?? 0,
+                        loan_deduction:    ov.loan_deduction    ?? 0,
+                        bonus_amount:      ov.bonus_amount      ?? 0,
+                        medical_ee:        ov.medical_ee        ?? _oldCalc.medEE  ?? 0,
+                        medical_sp:        ov.medical_sp        ?? _oldCalc.medSP  ?? 0,
+                        medical_ch1:       ov.medical_ch1       ?? _oldCalc.medCh1 ?? 0,
+                        medical_ch2:       ov.medical_ch2       ?? _oldCalc.medCh2 ?? 0,
+                        ...(ov.calDaysWorked != null ? { calDaysWorked: ov.calDaysWorked, totalCalDays: ov.totalCalDays } : {}),
+                    }, cfg, wd, PROVINCE_RATES);
+                    return { employee_id: emp.id, ov, calc: freshCalc };
+                });
                 await api.savePayroll(yr, mo, payload);
             } catch (e) { console.warn('Payroll save failed:', e.message); }
             finally { setIsSaving(false); }
@@ -768,6 +835,7 @@ export default function PayrollSheet({ user }) {
             newOv[empId] = { ...(newOv[empId] || {}), ...fields };
             importedIds.add(empId);
         });
+        overridesRef.current = newOv; // keep sync ref in step with imported state
         setOverrides(newOv);
         // Save ONLY the employees that were in the import CSV — never overwrite others
         try {
@@ -849,11 +917,47 @@ export default function PayrollSheet({ user }) {
         )) return;
         try {
             const [yr, mo] = month.split('-');
+            // ── STEP 1: Flush any pending edits — save all unlocked rows before locking ──
+            // This ensures every employee has a row in payroll_transactions so the
+            // subsequent UPDATE … WHERE employee_id = ANY(…) actually finds and locks them.
+            clearTimeout(saveTimerRef.current);
+            const latestOv = overridesRef.current;
+            const wd = workDaysRef.current;
+            const unlockRows = rows.filter(r => !lockedIds.has(r.emp.id));
+            const savePayload = unlockRows.map(({ emp, cfg, calc: _oldCalc }) => {
+                const ov = latestOv[emp.id] || {};
+                const freshCalc = calcEmployeeRow(emp, {
+                    paid_days:         ov.paid_days         ?? _oldCalc.pd ?? wd,
+                    ot2_hrs:           ov.ot2_hrs           ?? 0,
+                    ot3_hrs:           ov.ot3_hrs           ?? 0,
+                    opd_claim:         ov.opd_claim         ?? 0,
+                    reimbursement:     ov.reimbursement     ?? 0,
+                    arrears:           ov.arrears           ?? 0,
+                    special_allowance: ov.special_allowance ?? 0,
+                    fuel_mobile:       ov.fuel_mobile       ?? 0,
+                    other_deduction:   ov.other_deduction   ?? 0,
+                    advance_deduction: ov.advance_deduction ?? 0,
+                    loan_deduction:    ov.loan_deduction    ?? 0,
+                    bonus_amount:      ov.bonus_amount      ?? 0,
+                    medical_ee:        ov.medical_ee        ?? _oldCalc.medEE  ?? 0,
+                    medical_sp:        ov.medical_sp        ?? _oldCalc.medSP  ?? 0,
+                    medical_ch1:       ov.medical_ch1       ?? _oldCalc.medCh1 ?? 0,
+                    medical_ch2:       ov.medical_ch2       ?? _oldCalc.medCh2 ?? 0,
+                }, cfg, wd, PROVINCE_RATES);
+                return { employee_id: emp.id, ov, calc: freshCalc };
+            });
+            if (savePayload.length) {
+                setIsSaving(true);
+                await api.savePayroll(yr, mo, savePayload);
+                setIsSaving(false);
+            }
+            // ── STEP 2: Lock the saved rows ──────────────────────────────────────
             await api.lockPayroll(yr, mo, toLock);
             setLockedIds(prev => new Set([...prev, ...toLock]));
             setLockedBy('You');
-        } catch (e) { alert('Lock failed: ' + e.message); }
+        } catch (e) { setIsSaving(false); alert('Lock failed: ' + e.message); }
     };
+
 
     const handleUnlock = async () => {
         // Only unlock the IDs that are currently VISIBLE (filtered) and are locked

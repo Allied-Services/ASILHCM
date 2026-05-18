@@ -206,6 +206,9 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     // bonusAccrual is the monthly provision for annual bonus (from contract.bonus_months)
     // bonusDisbursed is the actual cash payout (only in disbursement month, 0 otherwise)
     // overhead is a fixed per-head charge from the contract
+    // otherDed: deducted from both net pay AND total payroll cost (reduces client invoice)
+    // Rationale: Other Deduction is money ASIL keeps/passes on, so the client
+    // should be invoiced the reduced amount (what actually goes to the employee).
     const overhead = parseFloat(cfg.overhead_per_employee || 0);
     // INVOICE RULE: TPC always uses bonusAccrual (salary / 12 × bonus_months), NEVER bonusDisbursed.
     // Rationale: the client is charged the monthly accrual every month throughout the year.
@@ -213,7 +216,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     // been paying for it via the monthly accrual. Charging the full disbursed amount in April
     // would double-bill the client for all previously accrued months.
     const bonusTPC = bonusAccrual;
-    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusTPC + gratuity + lifeIns + totalMedical + pfER + overhead;
+    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusTPC + gratuity + lifeIns + totalMedical + pfER + overhead - otherDed;
     const svcPct = parseFloat(cfg.service_charges_pct || 0);
     // Sales tax: rate from System Config "Tax by Region" (DB-driven via provinceRates param)
     // Base: Total Payroll Cost + Service Charges (full invoice value, per MD instruction)
