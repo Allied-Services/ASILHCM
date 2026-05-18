@@ -327,6 +327,8 @@ async function processOneEmail(pool, parsed) {
 }
 
 // ── Main IMAP fetch ────────────────────────────────────────────────────────────
+// Processes each email inline as it streams in — never holds all 1000+ emails
+// in memory at once. A concurrency gate limits parallel async processing to 3.
 async function fetchAndProcess(pool) {
     const cfg = getImapConfig();
     if (!cfg.user || !cfg.password) {
@@ -361,56 +363,64 @@ async function fetchAndProcess(pool) {
 
                     console.log(`[Claims] ${uids.length} emails found since March 31 2026`);
 
+                    // ── Stream-and-process: handle each message inline, never buffering all at once ──
+                    const pending = []; // tracks in-flight promises
+                    const CONCURRENCY = 3; // max parallel emails being parsed/processed at once
+
                     const fetcher = imap.fetch(uids, { bodies: '', markSeen: false });
-                    const raws = [];
 
                     fetcher.on('message', msg => {
+                        // Collect raw bytes for this single message only
                         let raw = '';
                         msg.on('body', stream => stream.on('data', c => { raw += c.toString('binary'); }));
-                        msg.once('end', () => { if (raw) raws.push(raw); });
+
+                        msg.once('end', () => {
+                            if (!raw) return;
+
+                            // Throttle: if already at concurrency limit, wait for oldest to finish
+                            const task = (async () => {
+                                while (pending.filter(p => p.running).length >= CONCURRENCY) {
+                                    await new Promise(r => setTimeout(r, 50));
+                                }
+                                const slot = { running: true };
+                                pending.push(slot);
+                                try {
+                                    const parsed = await simpleParser(Buffer.from(raw, 'binary'));
+                                    raw = ''; // release raw bytes immediately after parse
+
+                                    const fromAddr = parsed.from?.value?.[0]?.address || '';
+                                    const subject  = parsed.subject || '';
+                                    const emailDate = parsed.date || new Date();
+
+                                    // ── FILTER 1: Date ──────────────────────────────────────
+                                    if (!isAfterCutoff(emailDate)) { summary.skippedDate++; return; }
+                                    // ── FILTER 2: Sender domain ─────────────────────────────
+                                    if (!isAllowedSender(fromAddr)) { summary.skippedSender++; return; }
+                                    // ── FILTER 3: Subject keywords ───────────────────────────
+                                    if (!isClaimSubject(subject)) { summary.skippedSubject++; return; }
+
+                                    console.log(`[Claims] ✉ Qualifying: "${subject}" | ${fromAddr}`);
+                                    const res = await processOneEmail(pool, parsed);
+                                    for (const r of res) {
+                                        if      (r.type === 'claim')         summary.processed++;
+                                        else if (r.type === 'duplicate')     summary.duplicates++;
+                                        else if (r.type === 'invalid_month') summary.invalid_month++;
+                                    }
+                                } catch (e) {
+                                    console.error('[Claims] Email parse error:', e.message);
+                                    summary.errors++;
+                                } finally {
+                                    slot.running = false;
+                                }
+                            })();
+
+                            pending.push(task);
+                        });
                     });
 
                     fetcher.once('end', async () => {
-                        console.log(`[Claims] Fetched ${raws.length} raw messages to process`);
-
-                        for (const raw of raws) {
-                            try {
-                                const parsed = await simpleParser(Buffer.from(raw, 'binary'));
-                                const fromAddr = parsed.from?.value?.[0]?.address || '';
-                                const subject  = parsed.subject || '';
-                                const emailDate = parsed.date || new Date();
-
-                                // ── FILTER 1: Date (belt-and-suspenders after IMAP SINCE) ──
-                                if (!isAfterCutoff(emailDate)) {
-                                    summary.skippedDate++;
-                                    continue;
-                                }
-
-                                // ── FILTER 2: Sender domain ───────────────────
-                                if (!isAllowedSender(fromAddr)) {
-                                    summary.skippedSender++;
-                                    continue;
-                                }
-
-                                // ── FILTER 3: Subject keywords ────────────────
-                                if (!isClaimSubject(subject)) {
-                                    summary.skippedSubject++;
-                                    continue;
-                                }
-
-                                console.log(`[Claims] ✉ Qualifying: "${subject}" | ${fromAddr}`);
-                                const res = await processOneEmail(pool, parsed);
-                                for (const r of res) {
-                                    if      (r.type === 'claim')          summary.processed++;
-                                    else if (r.type === 'duplicate')      summary.duplicates++;
-                                    else if (r.type === 'invalid_month')  summary.invalid_month++;
-                                }
-                            } catch (e) {
-                                console.error('[Claims] Email parse error:', e.message);
-                                summary.errors++;
-                            }
-                        }
-
+                        // Wait for all in-flight processing tasks to complete
+                        await Promise.allSettled(pending.filter(p => p instanceof Promise));
                         console.log('[Claims] ═══ Poll complete ═══', JSON.stringify(summary));
                         imap.end();
                         resolve(summary);

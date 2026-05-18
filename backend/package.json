@@ -4,7 +4,7 @@
   "description": "ASIL HCM System — Backend API",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --max-old-space-size=400 server.js",
     "dev": "node server.js"
   },
   "dependencies": {
