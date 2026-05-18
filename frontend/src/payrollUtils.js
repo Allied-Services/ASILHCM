@@ -197,9 +197,23 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     // pfER already declared above — employer matches employee contribution
     const lifeIns = parseFloat(cfg.life_insurance || 0);
     const medEE = parseFloat(ov.medical_ee ?? (cfg.medical_ee || 0));
-    const medSP = parseFloat(ov.medical_sp ?? (cfg.medical_sp || 0));
-    const medCh1 = parseFloat(ov.medical_ch1 ?? (cfg.medical_child || 0));
-    const medCh2 = parseFloat(ov.medical_ch2 ?? 0);
+    // ── Spouse & Child medical: BOTH conditions must be true ──────────────────
+    // A) Contract must specify a rate (cfg.medical_sp / cfg.medical_child > 0)
+    // B) Employee must have spouse/child name(s) recorded (emp.hasSpouse / emp.numChildren)
+    // Priority: explicit payroll override (ov.medical_sp etc.) > family-gated contract default
+    const hasSpouse    = !!(emp.hasSpouse);
+    const numChildren  = parseInt(emp.numChildren) || 0;
+    const cfgRateSP    = parseFloat(cfg.medical_sp    || 0);
+    const cfgRateCh    = parseFloat(cfg.medical_child || 0);
+    // If ov.medical_sp is explicitly set (e.g. from import/manual edit), use it as-is.
+    // If not set, apply the contract rate ONLY when the employee has a spouse.
+    const medSP  = ov.medical_sp  != null ? parseFloat(ov.medical_sp)
+                 : (hasSpouse   && cfgRateSP > 0 ? cfgRateSP  : 0);
+    const medCh1 = ov.medical_ch1 != null ? parseFloat(ov.medical_ch1)
+                 : (numChildren >= 1 && cfgRateCh > 0 ? cfgRateCh : 0);
+    const medCh2 = ov.medical_ch2 != null ? parseFloat(ov.medical_ch2)
+                 : (numChildren >= 2 && cfgRateCh > 0 ? cfgRateCh : 0);
+
     const totalMedical = medEE + medSP + medCh1 + medCh2;
     // Total employer payroll cost = gross + all employer obligations
     // pfER is employer's PF contribution (= employee's contribution when PF type)
