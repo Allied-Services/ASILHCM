@@ -5965,21 +5965,21 @@ app.listen(PORT, async () => {
             const medFix = await pool.query(`
                 UPDATE payroll_transactions pt
                 SET
-                    medical_sp  = CASE WHEN (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  = '') THEN 0 ELSE pt.medical_sp  END,
-                    medical_ch1 = CASE WHEN (e.child1_name  IS NULL OR TRIM(e.child1_name)  = '') THEN 0 ELSE pt.medical_ch1 END,
-                    medical_ch2 = CASE WHEN (e.child1_name  IS NULL OR TRIM(e.child1_name)  = ''
-                                          OR e.child2_name  IS NULL OR TRIM(e.child2_name)  = '') THEN 0 ELSE pt.medical_ch2 END
+                    medical_sp  = CASE WHEN (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  IN ('','0')) THEN 0 ELSE pt.medical_sp  END,
+                    medical_ch1 = CASE WHEN (e.child1_name  IS NULL OR TRIM(e.child1_name)  IN ('','0')) THEN 0 ELSE pt.medical_ch1 END,
+                    medical_ch2 = CASE WHEN (e.child2_name  IS NULL OR TRIM(e.child2_name)  IN ('','0')) THEN 0 ELSE pt.medical_ch2 END
                 FROM employees e
                 WHERE pt.employee_id = e.id
                   AND (
-                      (pt.medical_sp  > 0 AND (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  = ''))
-                   OR (pt.medical_ch1 > 0 AND (e.child1_name  IS NULL OR TRIM(e.child1_name)  = ''))
-                   OR (pt.medical_ch2 > 0 AND (e.child2_name  IS NULL OR TRIM(e.child2_name)  = ''))
+                      (pt.medical_sp  > 0 AND (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  IN ('','0')))
+                   OR (pt.medical_ch1 > 0 AND (e.child1_name  IS NULL OR TRIM(e.child1_name)  IN ('','0')))
+                   OR (pt.medical_ch2 > 0 AND (e.child2_name  IS NULL OR TRIM(e.child2_name)  IN ('','0')))
                   )
             `);
             if (medFix.rowCount > 0)
                 console.log(`Data fix OK: zeroed stale medical premiums for ${medFix.rowCount} payroll row(s) with no family data`);
         } catch (e) { console.warn('Data fix warning (medical premiums):', e.message); }
+
 
 
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ placeholder so existing closing brace still works ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
