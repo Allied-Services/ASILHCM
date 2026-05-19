@@ -874,7 +874,7 @@ export default function PayrollSheet({ user }) {
         ['grossMonthly','incomeTax','eobi_ee','pfEE','totalDeductions','netPay',
             'eobi_er','sessi','gratuity','lifeIns','totalMedical','totalPayrollCost',
             'serviceCharges','salesTax','totalInvoice','otAmount','otherPaid','pfER',
-            'bonusAccrual','overhead'].forEach(k => {
+            'bonusAccrual','bonusDisbursed','overhead'].forEach(k => {
             acc[k] = (acc[k] || 0) + (calc[k] || 0);
         });
         // Override / editable fields
@@ -1251,7 +1251,7 @@ export default function PayrollSheet({ user }) {
                                 <th style={{ padding: '6px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: '0.68rem', fontWeight: 800, borderLeft: '2px solid var(--border)', borderRight: '2px solid var(--border)', whiteSpace: 'nowrap' }}>GROSS</th>
                                 <th colSpan={6} style={{ padding: '6px', textAlign: 'center', background: 'rgba(244,63,94,0.08)', color: '#f43f5e', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>DEDUCTIONS</th>
                                 <th style={{ padding: '6px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: '0.68rem', fontWeight: 800, borderLeft: '2px solid var(--border)', borderRight: '2px solid var(--border)', whiteSpace: 'nowrap' }}>NET PAY</th>
-                                <th colSpan={9} style={{ padding: '6px', textAlign: 'center', background: 'rgba(167,139,250,0.08)', color: '#a78bfa', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>EMPLOYER ADD-ONS</th>
+                                <th colSpan={10} style={{ padding: '6px', textAlign: 'center', background: 'rgba(167,139,250,0.08)', color: '#a78bfa', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>EMPLOYER ADD-ONS</th>
                                 <th colSpan={3} style={{ padding: '6px', textAlign: 'center', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>INVOICE</th>
                             </tr>
                             <tr style={{ background: 'var(--bg-dark)', borderBottom: '2px solid var(--border)' }}>
@@ -1270,7 +1270,7 @@ export default function PayrollSheet({ user }) {
                                 <TH label="EOBI ER" sub="5%" /><TH label="SESSI" /><TH label="Gratuity" sub="Auto" />
                                 <TH label="Life Ins" /><TH label="Med EE" sub="Edit" /><TH label="Med SP" sub="Edit" />
                                 <TH label="Med Ch1" sub="Edit" /><TH label="Med Ch2" sub="Edit" />
-                                <TH label="Bonus" sub="Edit" /><TH label="Bns Accr" sub="Auto" color="#f59e0b" /><TH label="Overhead" sub="Fixed" color="#f59e0b" /><TH label="PF ER" sub="8.33%" />
+                                <TH label="Bonus" sub="Edit" /><TH label="Bns Disb" sub="Auto" color="#f59e0b" /><TH label="Bns Accr" sub="Monthly" color="#f59e0b" /><TH label="Overhead" sub="Fixed" color="#f59e0b" /><TH label="PF ER" sub="8.33%" />
                                 <TH label="Tot Cost" color="#a78bfa" />
                                 <TH label="Svc Chg" color="#f59e0b" /><TH label="Sales Tax" /><TH label="INVOICE" color="#f59e0b" />
                             </tr>
@@ -1374,6 +1374,7 @@ export default function PayrollSheet({ user }) {
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="medical_ch1" def={calc.medCh1} /></td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="medical_ch2" def={calc.medCh2} /></td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="bonus_amount" def={0} /></td>
+                                        <RC val={calc.bonusDisbursed} muted={!calc.bonusDisbursed} pos={calc.bonusDisbursed > 0} />
                                         <RC val={calc.bonusAccrual} muted={!calc.bonusAccrual} style={{ color: '#f59e0b' }} />
                                         <RC val={calc.overhead} muted={!calc.overhead} style={{ color: '#f59e0b' }} />
                                         <RC val={calc.pfER} muted={!calc.pfER} />
@@ -1415,6 +1416,7 @@ export default function PayrollSheet({ user }) {
                                 {/* Med Ch1 */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.medical_ch1 > 0 ? fmt(T.medical_ch1) : '—'}</td>
                                 {/* Med Ch2 */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.medical_ch2 > 0 ? fmt(T.medical_ch2) : '—'}</td>
                                 {/* Bonus */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.bonus_amount > 0 ? fmt(T.bonus_amount) : '—'}</td>
+                                {/* Bns Disb */}<td style={{ padding: '6px 5px', textAlign: 'right', color: T.bonusDisbursed > 0 ? '#22c55e' : 'var(--text-muted)', fontWeight: T.bonusDisbursed > 0 ? 700 : 400 }}>{T.bonusDisbursed > 0 ? fmt(T.bonusDisbursed) : '—'}</td>
                                 {/* Bns Accr */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#f59e0b' }}>{T.bonusAccrual > 0 ? fmt(T.bonusAccrual) : '—'}</td>
                                 {/* Overhead */}<td style={{ padding: '6px 5px', textAlign: 'right', color: '#f59e0b' }}>{T.overhead > 0 ? fmt(T.overhead) : '—'}</td>
                                 {/* PF ER */}<td style={{ padding: '6px 5px', textAlign: 'right' }}>{T.pfER > 0 ? fmt(T.pfER) : '—'}</td>

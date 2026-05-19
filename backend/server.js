@@ -5044,10 +5044,10 @@ app.post('/api/attendance/mark', requireAuth, async (req, res) => {
             DO UPDATE SET status=EXCLUDED.status, remarks=EXCLUDED.remarks,
                           marked_by=EXCLUDED.marked_by, updated_at=NOW()
         `, [empIds, dates, statuses, markers, remarks]);
-
         res.json({ ok: true, saved: records.length, date });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 
 // ── GET /api/attendance/report/monthly — monthly summary for HR/Finance ───────
 app.get('/api/attendance/report/monthly', requireAuth, requireRole('hr_manager','finance_manager','finance_approver','superadmin','admin'), async (req, res) => {
@@ -5982,7 +5982,23 @@ app.listen(PORT, async () => {
                 console.log(`Data fix OK: zeroed stale medical premiums for ${medFix.rowCount} payroll row(s) with no family data`);
         } catch (e) { console.warn('Data fix warning (medical premiums):', e.message); }
 
-
+        // ─── One-time fix: Apr-2026 bonus migration ──────────────────────────────────
+        // Root cause: April 2026 bonus was entered in 'Special Allowance' during CSV
+        // upload instead of 'Bonus Amount'. This inflated grossMonthly incorrectly.
+        // Fix: move special_allowance -> bonus_amount and zero it.
+        // Idempotent: only rows where bonus_amount=0 AND special_allowance>0 are updated.
+        try {
+            const bonusFix = await pool.query(`
+                UPDATE payroll_transactions
+                SET bonus_amount      = special_allowance,
+                    special_allowance = 0,
+                    updated_at        = NOW()
+                WHERE year = 2026 AND month = 4
+                  AND bonus_amount = 0 AND special_allowance > 0
+            `);
+            if (bonusFix.rowCount > 0)
+                console.log(`[Migration] Apr-2026: moved bonus for ${bonusFix.rowCount} employees (special_allowance->bonus_amount)`);
+        } catch (e) { console.warn('[Migration] Apr-2026 bonus fix warning:', e.message); }
 
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ placeholder so existing closing brace still works ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
         const _dummy = true; if (!_dummy) {
