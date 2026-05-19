@@ -4815,6 +4815,45 @@ app.all('/api/fix-medical-premiums', async (req, res) => {
 });
 
 
+// ─── Diagnostic: check employee family + medical DB values ──────────────────
+app.get('/api/diag-employee-medical', async (req, res) => {
+    const key = req.query.key;
+    if (key !== 'asil-med-fix-2026') return res.status(403).json({ error: 'Invalid key' });
+    const name = req.query.name || 'mehrim';
+    try {
+        const empRes = await pool.query(`
+            SELECT id, name, cnic, spouse_name, child1_name, child2_name
+            FROM employees
+            WHERE LOWER(name) LIKE LOWER($1)
+            LIMIT 10
+        `, [`%${name}%`]);
+
+        const results = [];
+        for (const emp of empRes.rows) {
+            const ptRes = await pool.query(`
+                SELECT year, month, medical_ee, medical_sp, medical_ch1, medical_ch2, locked
+                FROM payroll_transactions
+                WHERE employee_id = $1
+                ORDER BY year DESC, month DESC LIMIT 6
+            `, [emp.id]);
+            results.push({
+                id: emp.id,
+                name: emp.name,
+                cnic: emp.cnic,
+                family: {
+                    spouse_name:  emp.spouse_name  || '(empty)',
+                    child1_name:  emp.child1_name  || '(empty)',
+                    child2_name:  emp.child2_name  || '(empty)',
+                },
+                payroll_rows: ptRes.rows
+            });
+        }
+        res.json(results);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 // One-time migration endpoint — SuperAdmin only, requires POST
 app.post('/api/migrate/asil-migrate-2026-x9k7', requireAuth, requireRole('superadmin'), async (req, res) => {
