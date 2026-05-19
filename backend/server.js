@@ -4826,7 +4826,8 @@ app.get('/api/diag-employee-medical', async (req, res) => {
     const name = req.query.name || 'mehrim';
     try {
         const empRes = await pool.query(`
-            SELECT id, name, cnic, spouse_name, child1_name, child2_name
+            SELECT id, name, cnic, salary, basic, hra, conveyance, medical_allowance, other_allowances,
+                   spouse_name, child1_name, child2_name
             FROM employees
             WHERE LOWER(name) LIKE LOWER($1)
             LIMIT 10
@@ -4835,19 +4836,30 @@ app.get('/api/diag-employee-medical', async (req, res) => {
         const results = [];
         for (const emp of empRes.rows) {
             const ptRes = await pool.query(`
-                SELECT year, month, medical_ee, medical_sp, medical_ch1, medical_ch2, locked
+                SELECT year, month, paid_days, gross, net,
+                       medical_ee, medical_sp, medical_ch1, medical_ch2, locked
                 FROM payroll_transactions
                 WHERE employee_id = $1
                 ORDER BY year DESC, month DESC LIMIT 6
             `, [emp.id]);
+
+            const components = {
+                salary: emp.salary,
+                basic: emp.basic,
+                hra: emp.hra,
+                conveyance: emp.conveyance,
+                medical_allowance: emp.medical_allowance,
+                other_allowances: emp.other_allowances,
+                components_sum: [emp.basic, emp.hra, emp.conveyance, emp.medical_allowance, emp.other_allowances]
+                    .reduce((a, b) => a + (parseFloat(b) || 0), 0)
+            };
             results.push({
-                id: emp.id,
-                name: emp.name,
-                cnic: emp.cnic,
+                id: emp.id, name: emp.name, cnic: emp.cnic,
+                employee_master: components,
                 family: {
-                    spouse_name:  emp.spouse_name  || '(empty)',
-                    child1_name:  emp.child1_name  || '(empty)',
-                    child2_name:  emp.child2_name  || '(empty)',
+                    spouse_name: emp.spouse_name || '(empty)',
+                    child1_name: emp.child1_name || '(empty)',
+                    child2_name: emp.child2_name || '(empty)',
                 },
                 payroll_rows: ptRes.rows
             });
