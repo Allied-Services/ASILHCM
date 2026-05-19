@@ -4826,8 +4826,7 @@ app.get('/api/diag-employee-medical', async (req, res) => {
     const name = req.query.name || 'mehrim';
     try {
         const empRes = await pool.query(`
-            SELECT id, name, cnic, salary, basic, hra, conveyance, medical_allowance, other_allowances,
-                   spouse_name, child1_name, child2_name
+            SELECT *
             FROM employees
             WHERE LOWER(name) LIKE LOWER($1)
             LIMIT 10
@@ -4854,13 +4853,8 @@ app.get('/api/diag-employee-medical', async (req, res) => {
                     .reduce((a, b) => a + (parseFloat(b) || 0), 0)
             };
             results.push({
-                id: emp.id, name: emp.name, cnic: emp.cnic,
-                employee_master: components,
-                family: {
-                    spouse_name: emp.spouse_name || '(empty)',
-                    child1_name: emp.child1_name || '(empty)',
-                    child2_name: emp.child2_name || '(empty)',
-                },
+                id: emp.id, name: emp.name,
+                employee_master: emp,   // full row — shows all actual columns
                 payroll_rows: ptRes.rows
             });
         }
