@@ -483,8 +483,12 @@ export default function PayrollSheet({ user }) {
             // 2. Map employees — CONTRACT_MAP is already built above
             const mapped = (empData.employees || []).map(e => {
                 const gross = parseFloat(e.salary) || 0;
-                const hasSpouse = !!(e.spouseName && String(e.spouseName).trim());
-                const numChildren = [e.child1Name, e.child2Name].filter(n => n && String(n).trim()).length;
+                // Treat null, empty string, AND the literal '0' as no family data
+                // ('0' was incorrectly imported from old CSV uploads)
+                const isFamilyName = n => n && String(n).trim() && String(n).trim() !== '0';
+                const hasSpouse = isFamilyName(e.spouseName);
+                const numChildren = [e.child1Name, e.child2Name].filter(isFamilyName).length;
+
                 return {
                     id: e.id, cnic: e.cnic, name: e.name,
                     designation: e.designation || '',

@@ -2723,8 +2723,9 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const savedMedSP  = pay?.medical_sp  != null ? parseFloat(pay.medical_sp)  : null;
             const savedMedCh1 = pay?.medical_ch1 != null ? parseFloat(pay.medical_ch1) : null;
             const savedMedCh2 = pay?.medical_ch2 != null ? parseFloat(pay.medical_ch2) : null;
-            const empHasSpouse   = !!(emp.spouse_name && String(emp.spouse_name).trim());
-            const empNumChildren = [emp.child1_name, emp.child2_name].filter(n => n && String(n).trim()).length;
+            const empHasSpouse   = !!(emp.spouse_name && String(emp.spouse_name).trim() && String(emp.spouse_name).trim() !== '0');
+            const empNumChildren = [emp.child1_name, emp.child2_name].filter(n => n && String(n).trim() && String(n).trim() !== '0').length;
+
             const medEE  = Math.round(parseFloat(pay?.medical_ee != null ? pay.medical_ee : emp._medical_ee || 0));
             // UNCONDITIONAL family gate — no spouse = medSP always 0, even if DB has stale value.
             // Mirrors payrollUtils.js logic exactly so export matches the UI.
@@ -4779,6 +4780,9 @@ app.all('/api/fix-medical-premiums', async (req, res) => {
     const key = req.query.key || req.body?.key;
     if (key !== 'asil-med-fix-2026') return res.status(403).json({ error: 'Invalid key' });
     try {
+        // NOTE: treat '0' (string zero from bad CSV import) same as NULL/empty
+        const NO_FAMILY = `IS NULL OR TRIM(x) = '' OR TRIM(x) = '0'`;
+        const noFamily = col => `(${col} IS NULL OR TRIM(${col}) = '' OR TRIM(${col}) = '0')`;
         const staleRes = await pool.query(`
             SELECT e.id, e.name, e.cnic, pt.year, pt.month,
                    pt.medical_sp, pt.medical_ch1, pt.medical_ch2,
@@ -4786,9 +4790,9 @@ app.all('/api/fix-medical-premiums', async (req, res) => {
             FROM payroll_transactions pt
             JOIN employees e ON e.id = pt.employee_id
             WHERE (
-                (pt.medical_sp  > 0 AND (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  = ''))
-             OR (pt.medical_ch1 > 0 AND (e.child1_name  IS NULL OR TRIM(e.child1_name)  = ''))
-             OR (pt.medical_ch2 > 0 AND (e.child2_name  IS NULL OR TRIM(e.child2_name)  = ''))
+                (pt.medical_sp  > 0 AND ${noFamily('e.spouse_name')} )
+             OR (pt.medical_ch1 > 0 AND ${noFamily('e.child1_name')} )
+             OR (pt.medical_ch2 > 0 AND ${noFamily('e.child2_name')} )
             )
             ORDER BY e.name, pt.year, pt.month
         `);
@@ -4796,15 +4800,15 @@ app.all('/api/fix-medical-premiums', async (req, res) => {
         const fixRes = await pool.query(`
             UPDATE payroll_transactions pt
             SET
-                medical_sp  = CASE WHEN (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  = '') THEN 0 ELSE pt.medical_sp  END,
-                medical_ch1 = CASE WHEN (e.child1_name  IS NULL OR TRIM(e.child1_name)  = '') THEN 0 ELSE pt.medical_ch1 END,
-                medical_ch2 = CASE WHEN (e.child2_name  IS NULL OR TRIM(e.child2_name)  = '') THEN 0 ELSE pt.medical_ch2 END
+                medical_sp  = CASE WHEN ${noFamily('e.spouse_name')}  THEN 0 ELSE pt.medical_sp  END,
+                medical_ch1 = CASE WHEN ${noFamily('e.child1_name')}  THEN 0 ELSE pt.medical_ch1 END,
+                medical_ch2 = CASE WHEN ${noFamily('e.child2_name')}  THEN 0 ELSE pt.medical_ch2 END
             FROM employees e
             WHERE pt.employee_id = e.id
               AND (
-                  (pt.medical_sp  > 0 AND (e.spouse_name  IS NULL OR TRIM(e.spouse_name)  = ''))
-               OR (pt.medical_ch1 > 0 AND (e.child1_name  IS NULL OR TRIM(e.child1_name)  = ''))
-               OR (pt.medical_ch2 > 0 AND (e.child2_name  IS NULL OR TRIM(e.child2_name)  = ''))
+                  (pt.medical_sp  > 0 AND ${noFamily('e.spouse_name')} )
+               OR (pt.medical_ch1 > 0 AND ${noFamily('e.child1_name')} )
+               OR (pt.medical_ch2 > 0 AND ${noFamily('e.child2_name')} )
               )
         `);
         console.log(`fix-medical-premiums: fixed ${fixRes.rowCount} rows`);
