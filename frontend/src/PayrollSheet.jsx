@@ -870,9 +870,15 @@ export default function PayrollSheet({ user }) {
             medical_sp:  getOv(emp.id, 'medical_sp',  useCsvFallback ? 0           : defMedSP),
             medical_ch1: getOv(emp.id, 'medical_ch1', useCsvFallback ? 0           : defMedCh1),
             medical_ch2: getOv(emp.id, 'medical_ch2', useCsvFallback ? 0           : defMedCh2),
-            // Runtime only — used by calcEmployeeRow for joining-month pro-rata (not saved to DB)
-            ...(calDaysWorked !== null ? { calDaysWorked, totalCalDays } : {}),
+            // Mode A (joining-month calendar pro-rata) is ONLY used when paid_days has NOT been
+            // explicitly set via CSV import or user edit. If paid_days is in overrides, the user
+            // wants Mode B (absence deduction from actual paid days) — e.g. Ravi joined April 4
+            // but CSV says 10 paid days → use 10, not the 27/30 calendar-day proration.
+            ...(calDaysWorked !== null && overrides[emp.id]?.paid_days === undefined
+                ? { calDaysWorked, totalCalDays }
+                : {}),
         };
+
         // Expose current payroll month to calcEmployeeRow for bonus disbursement logic
         if (typeof window !== 'undefined') window.__payrollMonth = month;
         return { emp, cfg, calc: calcEmployeeRow(emp, ov, cfg, workDays, PROVINCE_RATES), ov };
