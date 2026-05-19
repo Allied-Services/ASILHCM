@@ -2672,32 +2672,28 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         };
 
         const calcRow = (emp, pay) => {
-            const gross = parseFloat(emp.salary) || parseFloat(emp.gross) || 0;
-            const pd = parseFloat(pay?.paid_days ?? WD);
-            const ratio = pd / WD;
-            // Gross components ├óΓé¼ΓÇ¥ employee record stores breakdown if available
-            // Fallback to standard ASIL split: 60/20/10/7/3
-            const basic    = parseFloat(emp.basic)  || Math.round(gross * 0.60 * ratio);
-            const hra      = parseFloat(emp.hra)    || Math.round(gross * 0.20 * ratio);
-            const conv     = parseFloat(emp.conveyance) || Math.round(gross * 0.10 * ratio);
-            const medAll   = parseFloat(emp.medical_allowance) || Math.round(gross * 0.07 * ratio);
-            const other    = parseFloat(emp.other_allowances)  || Math.round(gross * 0.03 * ratio);
-            const hrly     = gross / (WD * 8);
-            const ot2hrs   = parseFloat(pay?.ot2_hrs||0);
-            const ot3hrs   = parseFloat(pay?.ot3_hrs||0);
-            const otAmt    = Math.round(hrly * (ot2hrs*2 + ot3hrs*3));
-            const opd      = Math.round(parseFloat(pay?.opd_claim||0));
-            const reimb    = Math.round(parseFloat(pay?.reimbursement||0));
-            const arr      = Math.round(parseFloat(pay?.arrears||0));
-            const spl      = Math.round(parseFloat(pay?.special_allowance||0));
-            const fuel     = Math.round(parseFloat(pay?.fuel_mobile||0));
-            const bonus    = Math.round(parseFloat(pay?.bonus_amount||0));
-            // grossM: use stored gross if available (must NOT include bonus — see save logic),
-            // else compute from base components. Bonus is a separate TPC line, not gross.
-            const grossM   = pay?.gross && parseFloat(pay.gross) > 0
+            const gross  = parseFloat(emp.salary) || parseFloat(emp.gross) || 0;
+            const pd     = Math.max(0, parseFloat(pay?.paid_days ?? WD) || WD);
+            // Universal formula: gross = salary x paid_days / workDays
+            const grossPay = WD > 0 ? Math.round(gross * pd / WD) : 0;
+            const hrly   = gross / (26 * 8); // OT rate: always full salary / 208hrs
+            const ot2hrs = parseFloat(pay?.ot2_hrs || 0);
+            const ot3hrs = parseFloat(pay?.ot3_hrs || 0);
+            const otAmt  = Math.round(hrly * (ot2hrs * 2 + ot3hrs * 3));
+            const opd    = Math.round(parseFloat(pay?.opd_claim    || 0));
+            const reimb  = Math.round(parseFloat(pay?.reimbursement || 0));
+            const arr    = Math.round(parseFloat(pay?.arrears       || 0));
+            const spl    = Math.round(parseFloat(pay?.special_allowance || 0));
+            const fuel   = Math.round(parseFloat(pay?.fuel_mobile   || 0));
+            const bonus  = Math.round(parseFloat(pay?.bonus_amount  || 0));
+            // grossM: use stored gross if available (already prorated from CSV import),
+            // else compute from the universal formula.
+            const grossM = pay?.gross && parseFloat(pay.gross) > 0
                 ? Math.round(parseFloat(pay.gross))
-                : Math.round(basic + hra + conv + medAll + other + otAmt + opd + reimb + arr + spl + fuel);
+                : grossPay + otAmt + opd + reimb + arr + spl + fuel;
+
             // WHT: prefer stored value, else compute from FBR slabs
+
             const wht = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
             const eobi_ee  = 400, eobi_er = 2000;
             // SESSI: exempt if gross >= Rs.45,000 (per SESSI Act & System Config rule)

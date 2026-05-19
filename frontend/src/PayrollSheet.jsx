@@ -830,58 +830,31 @@ export default function PayrollSheet({ user }) {
         // If contract gives 0 but CSV has a value, absorb CSV total into medical_ee
         const useCsvFallback = csvMedTotal > 0 && contractMedTotal === 0;
 
-        // ── Pro-rata paid days for new joiners ───────────────────────────────
-        // If the employee's DOJ falls within the current payroll month, default
-        // paid_days to the number of calendar days worked that month.
-        // Formula: days_worked = (lastDayOfMonth - doj + 1); paid_days = days_worked
-        // This maps to the business rule: salary = (days_worked / total_days) × gross
-        // The calcEmployeeRow engine uses paid_days vs workDays to compute absence deduction.
-        let defPaidDays = workDays;
-        let calDaysWorked = null;
-        let totalCalDays = null;
-        if (emp.doj) {
-            const [yr, mo] = month.split('-').map(Number);
-            const dojDate  = new Date(emp.doj);
-            const dojYear  = dojDate.getFullYear();
-            const dojMonth = dojDate.getMonth() + 1;
-            if (dojYear === yr && dojMonth === mo) {
-                // Calendar days in this month
-                totalCalDays = new Date(yr, mo, 0).getDate();
-                // Days from joining to end of month (inclusive of joining day)
-                calDaysWorked = totalCalDays - dojDate.getDate() + 1;
-                // Convert to working-day equivalent (pro-rated against workDays)
-                defPaidDays = Math.round((calDaysWorked / totalCalDays) * workDays);
-            }
-        }
+        // paid_days: use DB/override value if set, else default to full working days.
+        // New joiners and mid-month exits are handled by entering the actual days worked
+        // in the PD DAYS field — the calculation engine does: gross = salary × pd / workDays.
         const ov = {
-            paid_days:        getOv(emp.id, 'paid_days', defPaidDays),
-            ot2_hrs:          getOv(emp.id, 'ot2_hrs', 0),
-            ot3_hrs:          getOv(emp.id, 'ot3_hrs', 0),
-            opd_claim:        getOv(emp.id, 'opd_claim', 0),
-            reimbursement:    getOv(emp.id, 'reimbursement', 0),
-            arrears:          getOv(emp.id, 'arrears', 0),
-            special_allowance:getOv(emp.id, 'special_allowance', 0),
-            fuel_mobile:      getOv(emp.id, 'fuel_mobile', 0),
-            other_deduction:  getOv(emp.id, 'other_deduction', 0),
-            advance_deduction:getOv(emp.id, 'advance_deduction', 0),
-            loan_deduction:   getOv(emp.id, 'loan_deduction', 0),
-            bonus_amount:     getOv(emp.id, 'bonus_amount', 0),
-            medical_ee:  getOv(emp.id, 'medical_ee',  useCsvFallback ? csvMedTotal : defMedEE),
-            medical_sp:  getOv(emp.id, 'medical_sp',  useCsvFallback ? 0           : defMedSP),
-            medical_ch1: getOv(emp.id, 'medical_ch1', useCsvFallback ? 0           : defMedCh1),
-            medical_ch2: getOv(emp.id, 'medical_ch2', useCsvFallback ? 0           : defMedCh2),
-            // Mode A (joining-month calendar pro-rata) is ONLY used when paid_days has NOT been
-            // explicitly set via CSV import or user edit. If paid_days is in overrides, the user
-            // wants Mode B (absence deduction from actual paid days) — e.g. Ravi joined April 4
-            // but CSV says 10 paid days → use 10, not the 27/30 calendar-day proration.
-            ...(calDaysWorked !== null && overrides[emp.id]?.paid_days === undefined
-                ? { calDaysWorked, totalCalDays }
-                : {}),
+            paid_days:         getOv(emp.id, 'paid_days', workDays),
+            ot2_hrs:           getOv(emp.id, 'ot2_hrs', 0),
+            ot3_hrs:           getOv(emp.id, 'ot3_hrs', 0),
+            opd_claim:         getOv(emp.id, 'opd_claim', 0),
+            reimbursement:     getOv(emp.id, 'reimbursement', 0),
+            arrears:           getOv(emp.id, 'arrears', 0),
+            special_allowance: getOv(emp.id, 'special_allowance', 0),
+            fuel_mobile:       getOv(emp.id, 'fuel_mobile', 0),
+            other_deduction:   getOv(emp.id, 'other_deduction', 0),
+            advance_deduction: getOv(emp.id, 'advance_deduction', 0),
+            loan_deduction:    getOv(emp.id, 'loan_deduction', 0),
+            bonus_amount:      getOv(emp.id, 'bonus_amount', 0),
+            medical_ee:   getOv(emp.id, 'medical_ee',  useCsvFallback ? csvMedTotal : defMedEE),
+            medical_sp:   getOv(emp.id, 'medical_sp',  useCsvFallback ? 0           : defMedSP),
+            medical_ch1:  getOv(emp.id, 'medical_ch1', useCsvFallback ? 0           : defMedCh1),
+            medical_ch2:  getOv(emp.id, 'medical_ch2', useCsvFallback ? 0           : defMedCh2),
         };
-
         // Expose current payroll month to calcEmployeeRow for bonus disbursement logic
         if (typeof window !== 'undefined') window.__payrollMonth = month;
         return { emp, cfg, calc: calcEmployeeRow(emp, ov, cfg, workDays, PROVINCE_RATES), ov };
+
 
 
     });

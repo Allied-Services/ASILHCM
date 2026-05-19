@@ -1,4 +1,4 @@
-// ═══ Payroll Export & Import Utilities ═══════════════════════════════════════
+﻿// â•â•â• Payroll Export & Import Utilities â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 export const COMPANY = {
     name: 'Allied Services (Pvt.) Ltd.',
     ntn: '7483900-1',
@@ -15,12 +15,12 @@ export const PAYROLL_CONTRACT_CFG = {
     'CTR-2025-X9': { service_charges_pct: 10, sales_tax_pct: 17, life_insurance: 300, medical_ee: 600, medical_sp: 0, medical_ch: 0, sessi: 2220, edu_cess: 0, client_approval: false },
 };
 
-// ─── Calculation engine ───────────────────────────────────────────────────────
-// Strip comma-formatting from CSV numbers like "10,000" → 10000
+// â”€â”€â”€ Calculation engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Strip comma-formatting from CSV numbers like "10,000" â†’ 10000
 export const parseNum = (v) => parseFloat(String(v || '').replace(/,/g, '')) || 0;
 
-// FBR 2025-26 Salaried Individual — Finance Act 2024
-// taxableAnnual = (grossMonthly - OPD - Reimbursement) × 12
+// FBR 2025-26 Salaried Individual â€” Finance Act 2024
+// taxableAnnual = (grossMonthly - OPD - Reimbursement) Ã— 12
 export const calcWHT = (annual) => {
     if (annual <= 600000) return 0;
     if (annual <= 1200000) return Math.round(((annual - 600000) * 0.01) / 12);
@@ -30,17 +30,17 @@ export const calcWHT = (annual) => {
     return Math.round((616000 + (annual - 4100000) * 0.35) / 12);
 };
 export const calcEOBI_fn = () => {
-    // EOBI is a flat statutory amount — 1%/5% of minimum wage Rs. 40,000
+    // EOBI is a flat statutory amount â€” 1%/5% of minimum wage Rs. 40,000
     // Fixed for ALL employees regardless of their salary
     return { employee: 400, employer: 2000 };
 };
-// PF: 1/24th of Gross Salary (≈ 4.166%) — both EE and ER
+// PF: 1/24th of Gross Salary (â‰ˆ 4.166%) â€” both EE and ER
 export const calcPF_fn = (gross, enrolled) => enrolled ? Math.round(parseFloat(gross || 0) / 24) : 0;
-// Gratuity monthly accrual: 1/12th of CONTRACTUAL BASE SALARY (≈ 8.33%) — Employer cost only, per EOB Ord 1968
+// Gratuity monthly accrual: 1/12th of CONTRACTUAL BASE SALARY (â‰ˆ 8.33%) â€” Employer cost only, per EOB Ord 1968
 // IMPORTANT: always pass emp.gross (contractual base), NOT grossMonthly (which inflates with OT)
 export const calcGratuityMonthly = (grossSalary) => Math.round(parseFloat(grossSalary || 0) / 12);
 
-// ─── Province → Provincial Service Tax Rate ──────────────────────────────────
+// â”€â”€â”€ Province â†’ Provincial Service Tax Rate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Punjab: PRA 16%, Sindh: SRB 13%, KPK: KPRA 15%, Balochistan: BRA 15%, Federal/Other: 13%
 // provinceSalesTaxRate: looks up the rate from System Config "Tax by Region" (DB-driven).
 // Falls back to statutory defaults if the province isn't found in the rates array.
@@ -63,187 +63,137 @@ export const provinceSalesTaxRate = (province, rates = []) => {
 
 // provinceRates: optional array of { province, salesTaxPct } from System Config
 export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
-    const pd = parseFloat(ov.paid_days ?? workDays) || 0;
-    // FIXED FORMULAS (per user spec):
-    // - OT Hourly Rate  = Gross Salary / (26 × 8) — always 208 hours/month
-    // - Leave Deduction = Gross Salary / 26       — always 26 working days
-    const grossSalary = parseFloat(emp.gross) || parseFloat(emp.salary) || parseFloat(emp.basic) || 0;
-    const hrlyGross = grossSalary / (26 * 8);   // for OT calc
-    const dailyGross = grossSalary / 26;         // for leave/absence deduction
+    const pd = Math.max(0, parseFloat(ov.paid_days ?? workDays) || 0);
 
-    // Attendance proration of salary components
-    // Two modes:
-    //   A) Joining-month pro-rata: salary = calDaysWorked/totalCalDays × grossSalary
-    //      Used when ov.totalCalDays is set (new joiner mid-month).
-    //      Business rule: 27 calendar days out of 31 = 27/31 × salary
-    //   B) Standard absence deduction: absentDays × (gross/26)
-    //      Used for normal attendance shortfalls.
-    let absenceDeduction;
-    let absentDays = 0;
-    if (ov.totalCalDays && ov.calDaysWorked) {
-        // Mode A: pro-rata by calendar days (new joiner)
-        const proratedGross = Math.round(grossSalary * ov.calDaysWorked / ov.totalCalDays);
-        absenceDeduction = grossSalary - proratedGross;
-        absentDays = 0; // not applicable in this mode
-    } else {
-        // Mode B: standard working-day absence deduction
-        absentDays = Math.max(0, workDays - pd);
-        absenceDeduction = Math.round(absentDays * dailyGross);
-    }
-    // Gross components (paid = full month, absence deducted)
-    const basicPaid   = Math.round(parseFloat(emp.basic || 0));
-    const hraPaid     = Math.round(parseFloat(emp.hra || 0));
-    const convPaid    = Math.round(parseFloat(emp.conveyance || 0));
-    const medPaid     = Math.round(parseFloat(emp.medical_allowance || 0));
-    const otherPaid   = Math.round(parseFloat(emp.other_allowances || 0));
+    // â”€â”€ Core salary values â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const grossSalary = parseFloat(emp.gross) || parseFloat(emp.salary) || 0;
+
+    // â”€â”€ UNIVERSAL GROSS FORMULA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // gross = salary Ã— paid_days / working_days
+    // This is the single source of truth for all cases:
+    //   â€¢ Full month attendance  â†’ pd = workDays â†’ gross = salary  âœ“
+    //   â€¢ Absence deduction      â†’ pd < workDays â†’ gross prorated  âœ“
+    //   â€¢ New joiner mid-month   â†’ pd = days actually worked       âœ“
+    //   â€¢ Mid-month exit         â†’ pd = days worked before exit    âœ“
+    // No Mode A / Mode B. No competing calendar-day proration.
+    const grossPay = workDays > 0 ? Math.round(grossSalary * pd / workDays) : 0;
+
+    // For the breakdown panel display â€” show the deduction so users understand
+    const absentDays = Math.max(0, workDays - pd);
+    const absenceDeduction = grossSalary - grossPay; // = salary Ã— absentDays/workDays
+
+    // â”€â”€ OT always uses full contractual salary / 208 hrs (business rule) â”€â”€â”€â”€â”€â”€â”€â”€
+    const hrlyGross  = grossSalary / (26 * 8); // OT rate stays fixed regardless of attendance
+    const dailyGross = grossSalary / 26;        // exposed for breakdown panel
 
     const ot2hrs = parseNum(ov.ot2_hrs || 0);
     const ot3hrs = parseNum(ov.ot3_hrs || 0);
-    // OT: Gross / (26×8) × multiplier × hours
     const ot2Amount = Math.round(hrlyGross * 2 * ot2hrs);
     const ot3Amount = Math.round(hrlyGross * 3 * ot3hrs);
-    const otAmount = ot2Amount + ot3Amount;
-    const opdClaim = parseNum(ov.opd_claim || 0);
-    const reimb = parseNum(ov.reimbursement || 0);
-    const arrears = parseNum(ov.arrears || 0);
+    const otAmount  = ot2Amount + ot3Amount;
+
+    const opdClaim = parseNum(ov.opd_claim        || 0);
+    const reimb    = parseNum(ov.reimbursement     || 0);
+    const arrears  = parseNum(ov.arrears           || 0);
     const splAllow = parseNum(ov.special_allowance || 0);
-    const fuelMob = parseNum(ov.fuel_mobile || 0);
-    // Gross = full salary components + OT + extras - absence deduction
-    const grossMonthly = basicPaid + hraPaid + convPaid + medPaid + otherPaid
-        + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob - absenceDeduction;
+    const fuelMob  = parseNum(ov.fuel_mobile       || 0);
+
+    // Total gross = prorated base pay + OT + non-taxable extras
+    const grossMonthly = grossPay + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob;
+
+    // Breakdown display fields (used by BreakdownPanel â€” keep same names)
+    const basicPaid  = grossPay;  // simplified: show prorated gross as "basic paid"
+    const hraPaid    = 0;
+    const convPaid   = 0;
+    const medPaid    = 0;
+    const otherPaid  = 0;
+
     // Taxable income EXCLUDES OPD and expense reimbursements (non-taxable per FBR rules)
     const taxableMonthly = grossMonthly - opdClaim - reimb;
-    const annualIncome = taxableMonthly * 12;
-    const incomeTax = calcWHT(annualIncome);
-    const eobi = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
-    // ── End-of-Service Benefit (EOSB) from contract type ──────────────────────
-    // Priority: contract cfg.eosb_type > employee pf_enrolled flag
-    const eosbType = cfg.eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
+    const annualIncome   = taxableMonthly * 12;
+    const incomeTax      = calcWHT(annualIncome);
+    const eobi           = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
+
+    // â”€â”€ EOSB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const eosbType   = cfg.eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
     const isPF       = eosbType === 'Provident Fund';
     const isGratuity = eosbType === 'Gratuity';
-    // PF Employee & Employer: Gross/24 if Provident Fund scheme
-    const pfEE = isPF ? calcPF_fn(grossSalary, true) : 0;
-    const pfER = pfEE; // employer matches employee 1-for-1
-    const otherDed = parseNum(ov.other_deduction || 0);
-    const advanceDed = parseNum(ov.advance_deduction || 0);
-    const loanDed = parseNum(ov.loan_deduction || 0);
+    const pfEE       = isPF ? calcPF_fn(grossSalary, true) : 0;
+    const pfER       = pfEE;
+
+    const otherDed   = parseNum(ov.other_deduction   || 0);
+    const advanceDed = parseNum(ov.advance_deduction  || 0);
+    const loanDed    = parseNum(ov.loan_deduction     || 0);
     const totalDeductions = incomeTax + eobi.employee + pfEE + otherDed + advanceDed + loanDed;
-    const netPay = grossMonthly - totalDeductions;
-    // SESSI: 6% of gross, capped at Rs.2,400 (6% × statutory min wage Rs.40,000).
-    // Exempt if grossMonthly > Rs.40,000 (the SESSI wage ceiling per SESSI Act).
-    // Employees earning EXACTLY Rs.40,000 ARE covered (ceiling is inclusive).
-    const sessi = grossMonthly > 40000 ? 0 : Math.min(2400, Math.round(grossMonthly * 0.06));
+    const netPay     = grossMonthly - totalDeductions;
+
+    // SESSI: 6% of gross, exempt above Rs.40,000
+    const sessi   = grossMonthly > 40000 ? 0 : Math.min(2400, Math.round(grossMonthly * 0.06));
     const eduCess = parseFloat(cfg.edu_cess || 0);
-    const bonusAmount = parseFloat(ov.bonus_amount || 0);
-    // ── Annual Bonus Disbursement ───────────────────────────────────────────────
-    // Bonus accrual: monthly provision = bonus_months × grossSalary / 12 (shown in employer cost)
-    // Bonus cash disbursement: only in bonus_disbursement_month — pro-rated by months served
-    // Logic:
-    //   1. If current payroll month ≠ bonus_disbursement_month → bonusCash = 0
-    //   2. If current month = disbursement month AND employee joined before this month:
-    //      - months_served = months from DOJ to current month (within same fiscal year)
-    //      - If months_served >= bonus_min_months → full bonus (bonus_months × grossSalary)
-    //      - Else → pro-rated (bonus_months × grossSalary × months_served / 12)
-    const bonusMonths      = parseFloat(cfg.bonus_months || 0);
-    const bonusMinMonths   = parseFloat(cfg.bonus_min_months ?? 12);
-    const disbursementMo   = parseInt(cfg.bonus_disbursement_month || 0); // 0 = no auto-disburse; must be set on contract
-    const bonusAccrual     = bonusMonths > 0 ? Math.round(bonusMonths * grossSalary / 12) : 0;
-    // Determine current payroll month from the passed-in override or default to current date
-    // We derive month from the employee's payroll context via payPeriod if available
-    // The caller (PayrollSheet) passes month via the workDays param but not directly.
-    // For now, if ov.bonus_amount is manually set (legacy import), we use that.
-    // The disbursement auto-calc is used when ov.bonus_amount === 0 and bonusMonths > 0.
-    // NOTE: payrollMonth is passed as a global via the sheet context — we read it from
-    // the window.__payrollMonth injected by PayrollSheet before calling calcEmployeeRow.
-    let bonusDisbursed = bonusAmount; // fallback: use manually imported value
-    if (bonusMonths > 0 && bonusAmount === 0 && disbursementMo > 0 && typeof window !== 'undefined' && window.__payrollMonth) {
+
+    // â”€â”€ Bonus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const bonusAmount    = parseFloat(ov.bonus_amount || 0);
+    const bonusMonths    = parseFloat(cfg.bonus_months || 0);
+    const bonusMinMonths = parseFloat(cfg.bonus_min_months ?? 12);
+    const disbursementMo = parseInt(cfg.bonus_disbursement_month || 0);
+    const bonusAccrual   = bonusMonths > 0 ? Math.round(bonusMonths * grossSalary / 12) : 0;
+
+    let bonusDisbursed = bonusAmount;
+    if (bonusMonths > 0 && bonusAmount === 0 && disbursementMo > 0 &&
+        typeof window !== 'undefined' && window.__payrollMonth) {
         const [pyear, pmonth] = String(window.__payrollMonth).split('-').map(Number);
         if (pmonth === disbursementMo) {
-            // Employee is active this month — calculate months served in this bonus cycle
-            // Bonus cycle: from (disbursement month of PREVIOUS year) to (disbursement month of current year)
-            let monthsServed = 12; // default: full year
+            let monthsServed = 12;
             if (emp.doj) {
-                const doj = new Date(emp.doj);
-                // Cycle start = disbursement month of previous year (or current year if joined after last disburse)
-                const cycleStart = new Date(pyear - 1, disbursementMo - 1, 1); // e.g. April 2025
+                const doj        = new Date(emp.doj);
+                const cycleStart = new Date(pyear - 1, disbursementMo - 1, 1);
                 if (doj > cycleStart) {
-                    // Months from DOJ to end of disbursement month
-                    const cycleEnd = new Date(pyear, disbursementMo - 1, 28); // end of disburse month
-                    monthsServed = Math.max(0,
+                    const cycleEnd = new Date(pyear, disbursementMo - 1, 28);
+                    monthsServed   = Math.max(0,
                         (cycleEnd.getFullYear() - doj.getFullYear()) * 12 +
                         (cycleEnd.getMonth() - doj.getMonth())
                     );
                 }
             }
             if (monthsServed >= bonusMinMonths) {
-                bonusDisbursed = Math.round(bonusMonths * grossSalary); // full bonus
+                bonusDisbursed = Math.round(bonusMonths * grossSalary);
             } else if (monthsServed > 0) {
-                bonusDisbursed = Math.round(bonusMonths * grossSalary * monthsServed / 12); // pro-rated
+                bonusDisbursed = Math.round(bonusMonths * grossSalary * monthsServed / 12);
             } else {
                 bonusDisbursed = 0;
             }
         }
-        // In non-disbursement months, bonusDisbursed stays 0 (accrual is the monthly provision)
     }
 
-    // Gratuity monthly accrual (Employer cost only — no employee deduction):
-    //   Gratuity  = Contractual Base Salary / 12  (8.33% — per EOB Ordinance 1968)
-    //   CRITICAL: use grossSalary (contractual base), NOT grossMonthly.
-    //   grossMonthly inflates with OT, reimbursements, arrears which are NOT part of Gratuity base.
-    //   This matches the master CSV formula: gratuity = New Salary (col R) / 12.
-    //   PF        = 0 when Gratuity scheme active (pfER covers Provident Fund instead)
-    //   None      = 0 (no EOSB provision)
+    // â”€â”€ Gratuity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Always based on contractual base (grossSalary), never grossMonthly
     const gratuity = isGratuity ? Math.round(grossSalary / 12) : 0;
-    // pfER already declared above — employer matches employee contribution
-    const lifeIns = parseFloat(cfg.life_insurance || 0);
-    // ── Spouse & Child medical insurance ──────────────────────────────────────
-    // RULE: Family check is UNCONDITIONAL — even if a value is stored in the DB
-    // from an old import, it must be ignored when the employee has no family recorded.
-    // This prevents stale CSV data from overriding the family check.
-    //
-    // Logic:
-    //   No spouse  → medSP  = 0 (always, overrides ignored)
-    //   Has spouse → use DB/manual override if set, else contract rate
-    //   Same for children (0, 1, or 2)
-    const hasSpouse    = !!(emp.hasSpouse);
-    const numChildren  = parseInt(emp.numChildren) || 0;
-    const cfgRateSP    = parseFloat(cfg.medical_sp    || 0);
-    const cfgRateCh    = parseFloat(cfg.medical_child || 0);
-    const medSP  = !hasSpouse      ? 0
-                 : ov.medical_sp  != null ? parseFloat(ov.medical_sp)
-                 : cfgRateSP;
-    const medCh1 = numChildren < 1 ? 0
-                 : ov.medical_ch1 != null ? parseFloat(ov.medical_ch1)
-                 : cfgRateCh;
-    const medCh2 = numChildren < 2 ? 0
-                 : ov.medical_ch2 != null ? parseFloat(ov.medical_ch2)
-                 : cfgRateCh;
-    const medEE  = parseFloat(ov.medical_ee ?? (cfg.medical_ee || 0));
+    const lifeIns  = parseFloat(cfg.life_insurance || 0);
 
+    // â”€â”€ Medical insurance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // RULE: always computed from employee family data + contract rates.
+    // '0' string (bad CSV import) treated as no family (same as null/empty).
+    const hasSpouse   = !!(emp.hasSpouse);
+    const numChildren = parseInt(emp.numChildren) || 0;
+    const cfgRateSP   = parseFloat(cfg.medical_sp    || 0);
+    const cfgRateCh   = parseFloat(cfg.medical_child || 0);
+    const medSP  = !hasSpouse     ? 0 : ov.medical_sp  != null ? parseFloat(ov.medical_sp)  : cfgRateSP;
+    const medCh1 = numChildren < 1 ? 0 : ov.medical_ch1 != null ? parseFloat(ov.medical_ch1) : cfgRateCh;
+    const medCh2 = numChildren < 2 ? 0 : ov.medical_ch2 != null ? parseFloat(ov.medical_ch2) : cfgRateCh;
+    const medEE  = parseFloat(ov.medical_ee ?? (cfg.medical_ee || 0));
     const totalMedical = medEE + medSP + medCh1 + medCh2;
-    // Total employer payroll cost = gross + all employer obligations
-    // pfER is employer's PF contribution (= employee's contribution when PF type)
-    // bonusAccrual is the monthly provision for annual bonus (from contract.bonus_months)
-    // bonusDisbursed is the actual cash payout (only in disbursement month, 0 otherwise)
-    // overhead is a fixed per-head charge from the contract
-    // otherDed: deducted from both net pay AND total payroll cost (reduces client invoice)
-    // Rationale: Other Deduction is money ASIL keeps/passes on, so the client
-    // should be invoiced the reduced amount (what actually goes to the employee).
+
+    // â”€â”€ Employer cost & invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const overhead = parseFloat(cfg.overhead_per_employee || 0);
-    // INVOICE RULE: TPC always uses bonusAccrual (salary / 12 × bonus_months), NEVER bonusDisbursed.
-    // Rationale: the client is charged the monthly accrual every month throughout the year.
-    // When the bonus is disbursed in April the cash goes to the employee — the client has already
-    // been paying for it via the monthly accrual. Charging the full disbursed amount in April
-    // would double-bill the client for all previously accrued months.
     const bonusTPC = bonusAccrual;
-    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess + bonusTPC + gratuity + lifeIns + totalMedical + pfER + overhead - otherDed;
-    const svcPct = parseFloat(cfg.service_charges_pct || 0);
-    // Sales tax: rate from System Config "Tax by Region" (DB-driven via provinceRates param)
-    // Base: Total Payroll Cost + Service Charges (full invoice value, per MD instruction)
-    const stRate = provinceSalesTaxRate(emp.province || emp.location || '', provinceRates);
-    const serviceCharges = Math.round(totalPayrollCost * svcPct / 100);
-    const salesTax = Math.round((totalPayrollCost + serviceCharges) * stRate);
-    const totalInvoice = totalPayrollCost + serviceCharges + salesTax;
+    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess +
+        bonusTPC + gratuity + lifeIns + totalMedical + pfER + overhead - otherDed;
+    const svcPct          = parseFloat(cfg.service_charges_pct || 0);
+    const stRate          = provinceSalesTaxRate(emp.province || emp.location || '', provinceRates);
+    const serviceCharges  = Math.round(totalPayrollCost * svcPct / 100);
+    const salesTax        = Math.round((totalPayrollCost + serviceCharges) * stRate);
+    const totalInvoice    = totalPayrollCost + serviceCharges + salesTax;
+
     return {
         pd, ot2hrs, ot3hrs, ot2Amount, ot3Amount, basicPaid, hraPaid, convPaid, medPaid, otherPaid,
         otAmount, opdClaim, reimb, arrears, splAllow, fuelMob, absenceDeduction, absentDays,
@@ -255,10 +205,9 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
         totalPayrollCost, serviceCharges, salesTax, totalInvoice,
         hrlyGross, dailyGross,
     };
-
 };
 
-// ─── CSV download helper ──────────────────────────────────────────────────────
+
 export const downloadCSV = (filename, rows) => {
     if (!rows.length) return alert('No data to export.');
     const headers = Object.keys(rows[0]);
@@ -273,7 +222,7 @@ export const downloadCSV = (filename, rows) => {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
 };
 
-// ─── Export builders ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Export builders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export const buildPayrollCSV = (rows, month) => rows.map(({ emp, calc }) => ({
     'Month': month, 'Employee ID': emp.id, 'Employee Name': emp.name,
     'CNIC': emp.cnic, 'Contract': emp.contract, 'Location': emp.location,
@@ -347,14 +296,14 @@ export const buildSESSIFile = (rows, month) => rows.map(({ emp, calc }) => ({
     'SESSI Amount': calc.sessi,
 }));
 
-// ─── Bank file split by HBL vs Other Banks per client ───────────────────────
+// â”€â”€â”€ Bank file split by HBL vs Other Banks per client â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // isHBL: returns true if bank name contains 'hbl' or 'habib'
 const isHBLBank = (bankName = '') =>
     bankName.toLowerCase().replace(/\s/g, '').includes('hbl') ||
     bankName.toLowerCase().includes('habib');
 
 /**
- * buildBankFileSplit — returns { hbl: rows[], other: rows[] } split by bank type
+ * buildBankFileSplit â€” returns { hbl: rows[], other: rows[] } split by bank type
  * Format matches actual HBL Net Payment file (columns from sample files)
  */
 export const buildBankFileSplit = (rows, month) => {
@@ -376,7 +325,7 @@ export const buildBankFileSplit = (rows, month) => {
     };
 };
 
-// ─── Xero Tax Type string builder ────────────────────────────────────────────
+// â”€â”€â”€ Xero Tax Type string builder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Must match EXACTLY what is in Xero (case-sensitive). From real sample file.
 const xeroTaxType = (province = '') => {
     const p = province.toLowerCase();
@@ -391,12 +340,12 @@ const xeroTaxType = (province = '') => {
     return 'Sindh Sales Tax 15% (15%)'; // default
 };
 
-// ─── Tracking Option: BPO or FM based on employee code ───────────────────────
+// â”€â”€â”€ Tracking Option: BPO or FM based on employee code â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const xeroTracking = (empId = '') =>
     empId.toUpperCase().includes('ASILFM') ? 'FM' : 'BPO';
 
 /**
- * buildXeroCSV — Xero Sales Invoice import format
+ * buildXeroCSV â€” Xero Sales Invoice import format
  * Grouped by: ClientBU + Province (each BU-Province = one sequential invoice)
  * Each invoice = 2 rows: [payroll cost line] + [service charges line]
  *
@@ -407,7 +356,7 @@ const xeroTracking = (empId = '') =>
  * *DueDate = 60 days after invoiceDate
  * *Description = "Services in {Province} for the month of {Month} {Year}" (BPO)
  *              = "FM Services in {Province} for the month of {Month} {Year}" (FM)
- * *AccountCode = 208 (hardcoded — all payroll invoices use this Xero account)
+ * *AccountCode = 208 (hardcoded â€” all payroll invoices use this Xero account)
  * *TaxType = province-based exact string e.g. "Punjab Services Tax 16% (16%)"
  * TrackingOption1 = "BPO" or "FM"
  * BrandingTheme = "Letterhead"
@@ -448,7 +397,7 @@ export const buildXeroCSV = (rows, month, startInvNum = 5000, invoiceDay = 27) =
         groups[key].count++;
     });
 
-    // Sort: clientName → bu → province (deterministic order)
+    // Sort: clientName â†’ bu â†’ province (deterministic order)
     const sorted = Object.values(groups).sort((a, b) =>
         a.clientName.localeCompare(b.clientName) ||
         a.bu.localeCompare(b.bu) ||
@@ -537,8 +486,8 @@ export const buildXeroCSV = (rows, month, startInvNum = 5000, invoiceDay = 27) =
 };
 
 /**
- * buildInvoiceSummaryCSV — grouped summary table equivalent to columns AT:AW in master CSV
- * Grouped by Client → BU → Province
+ * buildInvoiceSummaryCSV â€” grouped summary table equivalent to columns AT:AW in master CSV
+ * Grouped by Client â†’ BU â†’ Province
  */
 export const buildInvoiceSummaryCSV = (rows, month) => {
     const groups = {};
