@@ -2748,7 +2748,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const st       = pay?.sales_tax ? Math.round(parseFloat(pay.sales_tax)) : Math.round((costBase + sc) * stRate);
             const inv      = pay?.total_invoice ? Math.round(parseFloat(pay.total_invoice)) : costBase+sc+st;
             return { grossM, wht, eobi_ee, eobi_er, sessi, pfDed, pfER, advDed, loanDed, otherDed, totalDed, netPay,
-                     gratuity, eosbType, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus, other, overhead,
+                     gratuity, eosbType, costBase, sc, st, inv, otAmt, opd, reimb, arr, spl, fuel, bonus, overhead,
                      pd, ot2hrs, ot3hrs, medEE, medSP, medCh1, medCh2, medTotal, bonusAccrual, lifeIns };
         };
 
@@ -2790,7 +2790,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'OPD Claim':        c.opd,
                     'Reimbursement':    c.reimb,
                     'Arrears':          c.arr,
-                    'Other Allowances': c.other,
+                    'Other Allowances': 0,
                     'Spl Allowance':    c.spl,
                     'Fuel/Mobile':      c.fuel,
                     'Gross Monthly':    c.grossM,
