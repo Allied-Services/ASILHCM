@@ -1848,13 +1848,15 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const bonusAmount    = Math.round(parseFloat(pay?.bonus_amount||0));
 
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Gross = sum of all earnings ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+        // Gross = sum of all earnings including bonus (bonus is taxable, paid in disbursement month)
         const grossTotal = basicSalary + hra + conveyance + medical + otherAllow
-                         + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile; // bonus excluded: separate TPC line
+                         + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile + bonusAmount;
 
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Deductions ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
         // WHT: use saved DB value if available, else calculate from gross
         const incomeTax = (() => {
             if (pay?.wht && parseFloat(pay.wht) > 0) return Math.round(parseFloat(pay.wht));
+            // Tax on full grossTotal (bonus is taxable income)
             const ann = grossTotal * 12;
             if (ann <= 600000) return 0;
             if (ann <= 1200000) return Math.round(((ann-600000)*0.05)/12);
@@ -2687,17 +2689,21 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const fuel   = Math.round(parseFloat(pay?.fuel_mobile   || 0));
             const bonus  = Math.round(parseFloat(pay?.bonus_amount  || 0));
             // grossM: use stored gross if available (already prorated from CSV import),
-            // else compute from the universal formula.
+            // else compute from the universal formula including bonus disbursement.
+            // Bonus is taxable income and must be included before WHT calculation.
             const grossM = pay?.gross && parseFloat(pay.gross) > 0
                 ? Math.round(parseFloat(pay.gross))
+                : grossPay + otAmt + opd + reimb + arr + spl + fuel + bonus;
+
+            // grossForTPC: base gross WITHOUT bonus lump-sum (client provisioned via monthly accrual)
+            const grossForTPC = pay?.gross && parseFloat(pay.gross) > 0
+                ? Math.round(parseFloat(pay.gross)) - bonus
                 : grossPay + otAmt + opd + reimb + arr + spl + fuel;
 
             // WHT: prefer stored value, else compute from FBR slabs
 
             const wht = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
             const eobi_ee  = 400, eobi_er = 2000;
-            // SESSI: exempt if gross >= Rs.45,000 (per SESSI Act & System Config rule)
-            const sessi    = calculateSESSI(grossM);
             // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ EOSB: PF and Gratuity are MUTUALLY EXCLUSIVE ├óΓé¼ΓÇ¥ mirrors frontend exactly ├óΓÇ¥Γé¼├óΓÇ¥Γé¼
             // Source of truth: contract costs.eosb_type ('Provident Fund' | 'Gratuity' | 'None')
             const eosbType       = emp._eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
@@ -2710,12 +2716,11 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const loanDed  = Math.round(parseFloat(pay?.loan_deduction||0));
             const otherDed = Math.round(parseFloat(pay?.other_deduction||0));
             const totalDed = wht + eobi_ee + pfDed + advDed + loanDed + otherDed;
-            const netPay   = grossM - totalDed;
-            // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Medical: priority: payroll_transactions override ├óΓÇáΓÇÖ contract costs ├óΓÇáΓÇÖ 0
-            // ── Medical: priority: payroll_transactions override → contract costs → employee family data
+            const netPay   = grossM - totalDed;  // grossM includes bonus
+            // costBase uses grossForTPC (without bonus) to avoid double-billing via bonusAccrual
+            const sessi    = calculateSESSI(grossForTPC);
             // BUG FIX: If medical_sp/ch1/ch2 are stored as 0 (from CSV import without Spouse/Children
-            // Count columns), fall back to the employee master's family data (spouse_name, child1_name,
-            // child2_name) to determine whether spouse/child premiums apply. Mirrors frontend fix.
+            // Count columns), fall back to the employee master's family data to determine family premiums.
             const savedMedSP  = pay?.medical_sp  != null ? parseFloat(pay.medical_sp)  : null;
             const savedMedCh1 = pay?.medical_ch1 != null ? parseFloat(pay.medical_ch1) : null;
             const savedMedCh2 = pay?.medical_ch2 != null ? parseFloat(pay.medical_ch2) : null;
@@ -2741,7 +2746,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const overhead = Math.round(parseFloat(emp._overhead_per_employee || 0));
             // Total employer cost = gross + all employer obligations
             // other_deduction reduces the invoice (mirrors frontend payrollUtils.js fix)
-            const costBase = grossM + eobi_er + sessi + pfER + gratuity + lifeIns + medTotal + bonusAccrual + overhead - otherDed;
+            const costBase = grossForTPC + eobi_er + sessi + pfER + gratuity + lifeIns + medTotal + bonusAccrual + overhead - otherDed;
             const sc       = pay?.service_charges ? Math.round(parseFloat(pay.service_charges)) : 0;
             const stRate   = provinceTaxRate(emp.province);
             // Sales tax base: Total Payroll Cost + Service Charges (per MD instruction)
@@ -2793,6 +2798,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Other Allowances': 0,
                     'Spl Allowance':    c.spl,
                     'Fuel/Mobile':      c.fuel,
+                    'Bonus Disbursement': c.bonus,
                     'Gross Monthly':    c.grossM,
                     // Employee Deductions
                     'Income Tax (WHT)':         c.wht,

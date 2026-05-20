@@ -1,4 +1,4 @@
-﻿// â•â•â• Payroll Export & Import Utilities â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â•â•â• Payroll Export & Import Utilities â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 export const COMPANY = {
     name: 'Allied Services (Pvt.) Ltd.',
     ntn: '7483900-1',
@@ -98,40 +98,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const splAllow = parseNum(ov.special_allowance || 0);
     const fuelMob  = parseNum(ov.fuel_mobile       || 0);
 
-    // Total gross = prorated base pay + OT + non-taxable extras
-    const grossMonthly = grossPay + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob;
-
-    // Breakdown display fields (used by BreakdownPanel â€” keep same names)
-    const basicPaid  = grossPay;  // simplified: show prorated gross as "basic paid"
-    const hraPaid    = 0;
-    const convPaid   = 0;
-    const medPaid    = 0;
-    const otherPaid  = 0;
-
-    // Taxable income EXCLUDES OPD and expense reimbursements (non-taxable per FBR rules)
-    const taxableMonthly = grossMonthly - opdClaim - reimb;
-    const annualIncome   = taxableMonthly * 12;
-    const incomeTax      = calcWHT(annualIncome);
-    const eobi           = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
-
-    // â”€â”€ EOSB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const eosbType   = cfg.eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
-    const isPF       = eosbType === 'Provident Fund';
-    const isGratuity = eosbType === 'Gratuity';
-    const pfEE       = isPF ? calcPF_fn(grossSalary, true) : 0;
-    const pfER       = pfEE;
-
-    const otherDed   = parseNum(ov.other_deduction   || 0);
-    const advanceDed = parseNum(ov.advance_deduction  || 0);
-    const loanDed    = parseNum(ov.loan_deduction     || 0);
-    const totalDeductions = incomeTax + eobi.employee + pfEE + otherDed + advanceDed + loanDed;
-    const netPay     = grossMonthly - totalDeductions;
-
-    // SESSI: 6% of gross, exempt above Rs.40,000
-    const sessi   = grossMonthly > 40000 ? 0 : Math.min(2400, Math.round(grossMonthly * 0.06));
-    const eduCess = parseFloat(cfg.edu_cess || 0);
-
-    // â”€â”€ Bonus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- Bonus: calculated BEFORE grossMonthly so it is included in pay and tax ---
     const bonusAmount    = parseFloat(ov.bonus_amount || 0);
     const bonusMonths    = parseFloat(cfg.bonus_months || 0);
     const bonusMinMonths = parseFloat(cfg.bonus_min_months ?? 12);
@@ -165,14 +132,40 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
         }
     }
 
-    // â”€â”€ Gratuity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // Always based on contractual base (grossSalary), never grossMonthly
+    // Gross Monthly: ALL cash paid to the employee, including bonus disbursement.
+    const grossMonthly = grossPay + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob + bonusDisbursed;
+
+    // Breakdown display fields (used by BreakdownPanel — keep same names)
+    const basicPaid  = grossPay;
+    const hraPaid    = 0;
+    const convPaid   = 0;
+    const medPaid    = 0;
+    const otherPaid  = 0;
+
+    // Taxable income EXCLUDES OPD and expense reimbursements (non-taxable per FBR rules)
+    const taxableMonthly = grossMonthly - opdClaim - reimb;
+    const annualIncome   = taxableMonthly * 12;
+    const incomeTax      = calcWHT(annualIncome);
+    const eobi           = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
+
+    // ——— EOSB ———————————————————————————————————————————————————————————————
+    const eosbType   = cfg.eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
+    const isPF       = eosbType === 'Provident Fund';
+    const isGratuity = eosbType === 'Gratuity';
+    const pfEE       = isPF ? calcPF_fn(grossSalary, true) : 0;
+    const pfER       = pfEE;
+
+    const otherDed   = parseNum(ov.other_deduction   || 0);
+    const advanceDed = parseNum(ov.advance_deduction  || 0);
+    const loanDed    = parseNum(ov.loan_deduction     || 0);
+    const totalDeductions = incomeTax + eobi.employee + pfEE + otherDed + advanceDed + loanDed;
+    const netPay     = grossMonthly - totalDeductions;
+
+    // ——— Gratuity ———————————————————————————————————————————————————————————
     const gratuity = isGratuity ? Math.round(grossSalary / 12) : 0;
     const lifeIns  = parseFloat(cfg.life_insurance || 0);
 
-    // â”€â”€ Medical insurance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // RULE: always computed from employee family data + contract rates.
-    // '0' string (bad CSV import) treated as no family (same as null/empty).
+    // ——— Medical insurance ——————————————————————————————————————————————————
     const hasSpouse   = !!(emp.hasSpouse);
     const numChildren = parseInt(emp.numChildren) || 0;
     const cfgRateSP   = parseFloat(cfg.medical_sp    || 0);
@@ -183,10 +176,17 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const medEE  = parseFloat(ov.medical_ee ?? (cfg.medical_ee || 0));
     const totalMedical = medEE + medSP + medCh1 + medCh2;
 
-    // â”€â”€ Employer cost & invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ——— Employer cost & invoice ------------------------------------------------
+    const eduCess = parseFloat(cfg.edu_cess || 0);
+    // grossForTPC: base gross WITHOUT the bonus lump-sum disbursement.
+    // The client has already been provisioned for bonus via monthly bonusAccrual
+    // (1/12 x salary). Using grossMonthly here would double-bill in April.
+    const grossForTPC = grossPay + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob;
+    // SESSI: based on base gross (without bonus lump-sum)
+    const sessi   = grossForTPC > 40000 ? 0 : Math.min(2400, Math.round(grossForTPC * 0.06));
     const overhead = parseFloat(cfg.overhead_per_employee || 0);
-    const bonusTPC = bonusAccrual;
-    const totalPayrollCost = grossMonthly + eobi.employer + sessi + eduCess +
+    const bonusTPC = bonusAccrual;  // 1/12 monthly provision -- NOT the lump-sum disbursement
+    const totalPayrollCost = grossForTPC + eobi.employer + sessi + eduCess +
         bonusTPC + gratuity + lifeIns + totalMedical + pfER + overhead - otherDed;
     const svcPct          = parseFloat(cfg.service_charges_pct || 0);
     const stRate          = provinceSalesTaxRate(emp.province || emp.location || '', provinceRates);
