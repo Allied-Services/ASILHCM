@@ -10,14 +10,19 @@ const fmtDate = d => d ? new Date(d).toLocaleDateString('en-PK', { day: '2-digit
 const monthName = d => d ? new Date(d).toLocaleString('en-PK', { month: 'long', year: 'numeric' }) : '—';
 
 const STATUS_CONFIG = {
-  PENDING:           { label: 'Pending',          color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-  UNMATCHED:         { label: 'Unmatched',         color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-  DUPLICATE:         { label: 'Duplicate',         color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
-  INVALID_MONTH:     { label: 'Invalid Month',     color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-  AWAITING_APPROVAL: { label: 'Awaiting Approval', color: '#38bdf8', bg: 'rgba(56,189,248,0.12)' },
-  APPROVED:          { label: 'Approved',          color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-  REJECTED:          { label: 'Rejected',          color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+  PENDING:           { label: 'Pending Review',      color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+  BODY_PARSED:       { label: 'Body Parsed',         color: '#38bdf8', bg: 'rgba(56,189,248,0.12)' },
+  UNMATCHED:         { label: 'No Employee Match',   color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+  NO_ATTACHMENT:     { label: 'No File',             color: '#64748b', bg: 'rgba(100,116,139,0.10)' },
+  NO_CONTENT:        { label: 'No Data',             color: '#475569', bg: 'rgba(71,85,105,0.10)' },
+  DUPLICATE:         { label: 'Duplicate',           color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+  INVALID_MONTH:     { label: 'Invalid Month',       color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+  AWAITING_APPROVAL: { label: 'Awaiting Approval',   color: '#38bdf8', bg: 'rgba(56,189,248,0.12)' },
+  APPROVED:          { label: 'Approved',            color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+  PROCESSED:         { label: '✓ Pushed to Payroll', color: '#22c55e', bg: 'rgba(34,197,94,0.15)' },
+  REJECTED:          { label: 'Rejected',            color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
 };
+const IRRELEVANT_STATUSES = ['NO_ATTACHMENT','NO_CONTENT','INVALID_MONTH','DUPLICATE'];
 
 function StatusBadge({ status }) {
   const cfg = STATUS_CONFIG[status] || { label: status, color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' };
@@ -44,6 +49,14 @@ export default function EmailClaimsListener({ user }) {
   const [selectedClaim, setSelectedClaim] = useState(null);
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [filterMonth, setFilterMonth] = useState('');
+  const [hideIrrelevant, setHideIrrelevant] = useState(true);
+  // Push to payroll state
+  const [pushMonth, setPushMonth] = useState(MONTHS[0]?.value || '');
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState(null);
+  const [adjOt2, setAdjOt2] = useState('');
+  const [adjOt3, setAdjOt3] = useState('');
+  const [adjAmt, setAdjAmt] = useState('');
 
   // Consolidation tab
   const [consMonth, setConsMonth] = useState(MONTHS[0]?.value || '');
@@ -103,6 +116,35 @@ export default function EmailClaimsListener({ user }) {
     setPolling(false);
   };
 
+  const pushToPayroll = async (claimId) => {
+    setPushing(true); setPushResult(null);
+    try {
+      const mo = MONTHS.find(m => m.value === pushMonth) || MONTHS[0];
+      const mNum = mo ? (new Date(mo.value).getMonth() + 1) : new Date().getMonth() + 1;
+      const yNum = mo ? new Date(mo.value).getFullYear() : new Date().getFullYear();
+      // Save adjustments first if entered
+      if (adjOt2 || adjOt3 || adjAmt) {
+        await apiFetch(`/api/claims/${claimId}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            ot_hours_2x: adjOt2 ? parseFloat(adjOt2) : undefined,
+            ot_hours_3x: adjOt3 ? parseFloat(adjOt3) : undefined,
+            claim_amount: adjAmt ? parseFloat(adjAmt) : undefined,
+          }),
+        });
+      }
+      const d = await apiFetch(`/api/claims/${claimId}/push-to-payroll`, {
+        method: 'POST',
+        body: JSON.stringify({ month: mNum, year: yNum }),
+      });
+      if (d.error) throw new Error(d.error);
+      setPushResult({ ok: true, msg: d.message });
+      await loadInbox();
+      setSelectedClaim(null);
+    } catch (e) { setPushResult({ error: e.message }); }
+    setPushing(false);
+  };
+
   const sendApprovals = async () => {
     setSending(true); setSendResult(null);
     try {
@@ -152,7 +194,7 @@ export default function EmailClaimsListener({ user }) {
         <div style={{ ...card, marginBottom: '1rem', borderColor: pollResult.error ? '#ef4444' : '#22c55e' }}>
           {pollResult.error
             ? <span style={{ color: '#ef4444', fontSize: '0.85rem' }}>❌ {pollResult.error}</span>
-            : <span style={{ color: '#22c55e', fontSize: '0.85rem' }}>✅ Poll complete — {pollResult.result?.processed || 0} claims processed, {pollResult.result?.duplicates || 0} duplicates, {pollResult.result?.invalid_month || 0} invalid month</span>
+            : <span style={{ color: '#22c55e', fontSize: '0.85rem' }}>✅ Poll complete — {pollResult.result?.processed || 0} attachment claims, {pollResult.result?.bodyParsed || 0} body-parsed, {pollResult.result?.duplicates || 0} duplicates</span>
           }
         </div>
       )}
@@ -184,7 +226,7 @@ export default function EmailClaimsListener({ user }) {
         <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
           {/* Left: table */}
           <div style={{ flex: '1 1 0', minWidth: 0 }}>
-            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '7px 10px', borderRadius: '8px', fontSize: '0.85rem' }}>
                 <option value="ALL">All Statuses</option>
                 {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -194,34 +236,50 @@ export default function EmailClaimsListener({ user }) {
                 {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
               <button onClick={loadInbox} style={btn()}><RefreshCw size={14} /> Refresh</button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.84rem', color: '#94a3b8', cursor: 'pointer', userSelect: 'none' }}>
+                <input type="checkbox" checked={hideIrrelevant} onChange={e => setHideIrrelevant(e.target.checked)} style={{ accentColor: '#6366f1' }} />
+                Hide irrelevant (no data/file)
+              </label>
             </div>
             <div style={{ overflowX: 'auto', ...card, padding: 0 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {['Received', 'From', 'File', 'Claim Month', 'Employee', 'Type', 'Status'].map(h => <th key={h} style={th}>{h}</th>)}
-                    <th style={th} />
+                    {['Received', 'From', 'File / Source', 'Synopsis', 'Month', 'Employee', 'Type', 'Status', ''].map(h => <th key={h} style={th}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan={8} style={{ ...td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>Loading…</td></tr>
-                  ) : claims.length === 0 ? (
-                    <tr><td colSpan={8} style={{ ...td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>No emails found. Run the poll or adjust filters.</td></tr>
-                  ) : claims.map(c => (
-                    <tr key={c.id} style={{ cursor: 'pointer', transition: 'background 0.15s' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <td style={td}>{fmtDate(c.received_at)}</td>
-                      <td style={{ ...td, maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#94a3b8', fontSize: '0.8rem' }}>{c.sender_email}</td>
-                      <td style={{ ...td, color: '#94a3b8', fontSize: '0.8rem' }}>{c.attachment_filename || c.subject?.slice(0, 20) || '—'}</td>
-                      <td style={td}>{monthName(c.claim_month)}</td>
-                      <td style={td}>{c.employee_name || <span style={{ color: '#ef4444' }}>Not matched</span>}</td>
-                      <td style={td}><span style={{ fontSize: '0.78rem', fontWeight: 600, color: c.claim_type === 'OT' ? '#a78bfa' : c.claim_type === 'EXPENSE' ? '#f59e0b' : '#38bdf8' }}>{c.claim_type || '—'}</span></td>
-                      <td style={td}><StatusBadge status={c.status} /></td>
-                      <td style={td}><button onClick={() => setSelectedClaim(c)} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem' }}><Eye size={12} /></button></td>
-                    </tr>
-                  ))}
+                    <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>Loading…</td></tr>
+                  ) : (() => {
+                    const displayed = hideIrrelevant ? claims.filter(c => !IRRELEVANT_STATUSES.includes(c.status)) : claims;
+                    return displayed.length === 0 ? (
+                      <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>No emails found. Run the poll or adjust filters.</td></tr>
+                    ) : displayed.map(c => (
+                      <tr key={c.id} style={{ cursor: 'pointer', transition: 'background 0.15s' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <td style={{ ...td, fontSize: '0.78rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>{fmtDate(c.received_at)}</td>
+                        <td style={{ ...td, maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#94a3b8', fontSize: '0.78rem' }}>{c.sender_email}</td>
+                        <td style={{ ...td, maxWidth: '150px', fontSize: '0.78rem' }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#cbd5e1' }}>
+                            {c.attachment_filename || c.subject?.slice(0, 22) || '—'}
+                          </div>
+                          {c.body_parsed && <span style={{ fontSize: '0.68rem', color: '#38bdf8' }}>📧 body parsed</span>}
+                        </td>
+                        <td style={{ ...td, maxWidth: '180px', fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.synopsis || '—'}
+                          </div>
+                        </td>
+                        <td style={{ ...td, whiteSpace: 'nowrap', fontSize: '0.78rem' }}>{monthName(c.claim_month)}</td>
+                        <td style={{ ...td, fontSize: '0.82rem' }}>{c.employee_name || <span style={{ color: '#ef4444', fontSize: '0.75rem' }}>Not matched</span>}</td>
+                        <td style={td}><span style={{ fontSize: '0.75rem', fontWeight: 600, color: c.claim_type === 'OT' ? '#a78bfa' : '#f59e0b' }}>{c.claim_type || '—'}</span></td>
+                        <td style={td}><StatusBadge status={c.status} /></td>
+                        <td style={td}><button onClick={() => { setSelectedClaim(c); setAdjOt2(''); setAdjOt3(''); setAdjAmt(''); setPushResult(null); }} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem' }}><Eye size={12} /></button></td>
+                      </tr>
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -229,11 +287,22 @@ export default function EmailClaimsListener({ user }) {
 
           {/* Right: detail panel */}
           {selectedClaim && (
-            <div style={{ width: '300px', flexShrink: 0, ...card }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+            <div style={{ width: '320px', flexShrink: 0, ...card, overflowY: 'auto', maxHeight: '82vh' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
                 <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Claim Detail</span>
                 <button onClick={() => setSelectedClaim(null)} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer' }}><X size={16} /></button>
               </div>
+              <div style={{ marginBottom: '0.75rem' }}><StatusBadge status={selectedClaim.status} /></div>
+              {selectedClaim.match_remark && (
+                <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', padding: '8px', marginBottom: '0.75rem', fontSize: '0.78rem', color: '#f59e0b' }}>
+                  ⚠ {selectedClaim.match_remark}
+                </div>
+              )}
+              {selectedClaim.synopsis && (
+                <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px', padding: '10px', marginBottom: '0.75rem', fontSize: '0.79rem', color: '#c7d2fe', fontStyle: 'italic', lineHeight: 1.5 }}>
+                  "{selectedClaim.synopsis}"
+                </div>
+              )}
               {[
                 ['Employee', selectedClaim.employee_name || '—'],
                 ['ASIL Code', selectedClaim.employee_id || '—'],
@@ -241,21 +310,64 @@ export default function EmailClaimsListener({ user }) {
                 ['Claim Month', monthName(selectedClaim.claim_month)],
                 ['Form Type', selectedClaim.claim_type || '—'],
                 ['OT 1X Hrs', selectedClaim.ot_hours_1x || '—'],
-                ['OT 2X Hrs', selectedClaim.ot_hours || selectedClaim.ot_hours_2x || '—'],
+                ['OT 2X Hrs', selectedClaim.ot_hours_2x || '—'],
                 ['OT 3X Hrs', selectedClaim.ot_hours_3x || '—'],
                 ['Expense PKR', selectedClaim.claim_amount ? `PKR ${fmt(selectedClaim.claim_amount)}` : '—'],
-                ['Line Manager', selectedClaim.line_manager_name || selectedClaim.employee_line_manager_name || '—'],
-                ['Mgr Email', selectedClaim.line_manager_email || selectedClaim.employee_line_manager_email || '—'],
-                ['Source File', selectedClaim.attachment_filename || '—'],
+                ['Line Manager', selectedClaim.line_manager_name || '—'],
+                ['Mgr Email', selectedClaim.line_manager_email || '—'],
+                ['Source', selectedClaim.attachment_filename || (selectedClaim.body_parsed ? '📧 Email Body' : '—')],
                 ['From', selectedClaim.sender_email],
                 ['Received', fmtDate(selectedClaim.received_at)],
+                ...(selectedClaim.pushed_at ? [['Pushed', fmtDate(selectedClaim.pushed_at)], ['Payroll', `${selectedClaim.payroll_month}/${selectedClaim.payroll_year}`]] : []),
               ].map(([l, v]) => (
-                <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.82rem' }}>
+                <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.81rem' }}>
                   <span style={{ color: '#64748b' }}>{l}</span>
-                  <span style={{ color: '#e2e8f0', textAlign: 'right', maxWidth: '55%', wordBreak: 'break-all' }}>{v}</span>
+                  <span style={{ color: '#e2e8f0', textAlign: 'right', maxWidth: '58%', wordBreak: 'break-all' }}>{v}</span>
                 </div>
               ))}
-              <StatusBadge status={selectedClaim.status} />
+              {selectedClaim.raw_body && (
+                <details style={{ marginTop: '0.75rem' }}>
+                  <summary style={{ fontSize: '0.78rem', color: '#64748b', cursor: 'pointer' }}>Email body preview</summary>
+                  <div style={{ marginTop: '6px', padding: '8px', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', fontSize: '0.72rem', color: '#94a3b8', maxHeight: '120px', overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {selectedClaim.raw_body?.slice(0, 600)}
+                  </div>
+                </details>
+              )}
+              {!['PROCESSED','REJECTED'].includes(selectedClaim.status) && selectedClaim.employee_id && (
+                <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.5rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Push to Payroll</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '8px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.68rem', color: '#64748b' }}>OT 2X Hrs</label>
+                      <input value={adjOt2} onChange={e => setAdjOt2(e.target.value)} placeholder={selectedClaim.ot_hours_2x || '0'} type="number" step="0.25" style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '5px 8px', borderRadius: '6px', fontSize: '0.82rem', width: '100%' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.68rem', color: '#64748b' }}>OT 3X Hrs</label>
+                      <input value={adjOt3} onChange={e => setAdjOt3(e.target.value)} placeholder={selectedClaim.ot_hours_3x || '0'} type="number" step="0.25" style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '5px 8px', borderRadius: '6px', fontSize: '0.82rem', width: '100%' }} />
+                    </div>
+                    <div style={{ gridColumn: '1/-1' }}>
+                      <label style={{ fontSize: '0.68rem', color: '#64748b' }}>Amount PKR</label>
+                      <input value={adjAmt} onChange={e => setAdjAmt(e.target.value)} placeholder={selectedClaim.claim_amount || '0'} type="number" style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '5px 8px', borderRadius: '6px', fontSize: '0.82rem', width: '100%' }} />
+                    </div>
+                  </div>
+                  <select value={pushMonth} onChange={e => setPushMonth(e.target.value)} style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '7px 10px', borderRadius: '8px', fontSize: '0.84rem', width: '100%', marginBottom: '8px' }}>
+                    {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                  <button onClick={() => pushToPayroll(selectedClaim.id)} disabled={pushing} style={{ ...btn('#22c55e', 'rgba(34,197,94,0.15)'), width: '100%', justifyContent: 'center', opacity: pushing ? 0.7 : 1 }}>
+                    <CheckCircle size={14} /> {pushing ? 'Pushing…' : '✓ Push to Payroll'}
+                  </button>
+                  {pushResult && (
+                    <div style={{ marginTop: '8px', padding: '8px', borderRadius: '8px', background: pushResult.error ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)', fontSize: '0.78rem', color: pushResult.error ? '#ef4444' : '#22c55e' }}>
+                      {pushResult.error || pushResult.msg}
+                    </div>
+                  )}
+                </div>
+              )}
+              {selectedClaim.status === 'PROCESSED' && (
+                <div style={{ marginTop: '1rem', padding: '10px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', fontSize: '0.8rem', color: '#22c55e', textAlign: 'center' }}>
+                  ✓ Pushed to {selectedClaim.payroll_month}/{selectedClaim.payroll_year} payroll on {fmtDate(selectedClaim.pushed_at)}
+                </div>
+              )}
             </div>
           )}
         </div>

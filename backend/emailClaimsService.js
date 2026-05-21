@@ -1,13 +1,12 @@
 /**
- * emailClaimsService.js — ASIL HCM Email Claims Listener (v4 — XLSX)
+ * emailClaimsService.js — ASIL HCM Email Claims Listener (v5)
  *
- * v4 Changes:
- * - XLSX only: uses SheetJS to convert Excel → plain text, sent to GPT-4o as text
- * - Date filter: only emails received AFTER 1 April 2026
- * - Sender filter: only @wafi-energy.com
- * - Subject filter: Claim/Claims/OT/Overtime/Expense/Reimbursement/Medical/OPD
- * - READ-ONLY IMAP (no mark-as-seen)
- * - DB hash dedup
+ * v5 Changes:
+ * - Body parsing: when no XLSX attachment, GPT parses email body text
+ * - Fixed subject filter: OT/ot matches anywhere in subject, added IPD/TR3/ER3/allowance
+ * - Employee name fallback: fuzzy ILIKE match if code-based lookup fails
+ * - Synopsis: AI generates 1–2 sentence summary stored in claims_inbox.synopsis
+ * - Status: NO_CONTENT (body has no claim data), BODY_PARSED (body had data)
  */
 
 'use strict';
@@ -16,11 +15,15 @@ const Imap          = require('imap');
 const { simpleParser } = require('mailparser');
 const XLSX          = require('xlsx');
 
-// ── Config ────────────────────────────────────────────────────────────────────
+// ── Config ─────────────────────────────────────────────────────────────────────
 const ALLOWED_SENDER_DOMAIN = (process.env.CLAIMS_SENDER_DOMAIN || 'wafi-energy.com').toLowerCase();
-const CUTOFF_DATE = new Date('2026-04-01T00:00:00Z'); // Only emails received after this date
+const CUTOFF_DATE = new Date('2026-04-01T00:00:00Z');
 
-const CLAIM_KEYWORDS = ['claim', 'overtime', ' ot ', 'ot-', 'expense', 'reimbursement', 'reimburse', 'medical', 'opd'];
+// Broader keyword list — matches anywhere in subject (no space-padding needed)
+const CLAIM_KEYWORDS = [
+    'claim', 'overtime', ' ot', 'ot ', 'ot-', 'tr3', 'er3',
+    'expense', 'reimburs', 'medical', 'opd', 'ipd', 'allowance',
+];
 
 // ── IMAP config ────────────────────────────────────────────────────────────────
 function getImapConfig() {
@@ -35,9 +38,9 @@ function getImapConfig() {
     };
 }
 
-// ── Filters ───────────────────────────────────────────────────────────────────
+// ── Filters ────────────────────────────────────────────────────────────────────
 function isClaimSubject(subject = '') {
-    const s = ' ' + subject.toLowerCase() + ' ';
+    const s = subject.toLowerCase();
     return CLAIM_KEYWORDS.some(kw => s.includes(kw));
 }
 
@@ -55,20 +58,15 @@ function xlsxToText(buffer) {
     try {
         const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
         const lines = [];
-
         for (const sheetName of workbook.SheetNames) {
             lines.push(`=== Sheet: ${sheetName} ===`);
             const sheet = workbook.Sheets[sheetName];
-            // Convert to array of arrays (rows)
             const rows = XLSX.utils.sheet_to_json(sheet, {
-                header: 1,
-                defval: '',
-                blankrows: false,
-                raw: false,   // format dates as strings
+                header: 1, defval: '', blankrows: false, raw: false,
             });
             for (const row of rows) {
                 const rowStr = row.map(cell => String(cell || '').trim()).join('\t');
-                if (rowStr.replace(/\t/g, '').trim()) lines.push(rowStr); // skip blank rows
+                if (rowStr.replace(/\t/g, '').trim()) lines.push(rowStr);
             }
             lines.push('');
         }
@@ -79,48 +77,56 @@ function xlsxToText(buffer) {
     }
 }
 
-// ── GPT-4o text extraction from Excel content ─────────────────────────────────
-async function parseXlsxViaAI(sheetText, filename) {
+// ── Shared GPT extraction prompt ──────────────────────────────────────────────
+function buildExtractionPrompt(content, filename, isBody = false) {
+    const sourceDesc = isBody
+        ? 'This is the email body text (plain text or HTML-stripped) of a claim submission email.'
+        : `This is raw tab-separated content extracted from the Excel file: "${filename}"`;
+
+    return `You are extracting structured data from an ASIL HCM claim submission.
+${sourceDesc}
+This may be an Expense Claim (ER3), Overtime Claim (TR3), OPD/IPD Claim, or Expense Reimbursement from Allied Services International (ASIL) for WAFI Energy employees.
+
+Content:
+${content.slice(0, 5000)}
+
+Extract the following and return ONLY valid JSON (no markdown, no explanation):
+{
+  "form_type": "EXPENSE" or "OT" or "OPD" or "IPD" or "ALLOWANCE" or "UNKNOWN",
+  "employee_code": "e.g. ASIL/SPL/320/21 — null if not found",
+  "employee_name": "Full name — null if not found",
+  "department": "Department — null if not found",
+  "location": "Work location / site — null if not found",
+  "line_manager_name": "Line manager full name — null if not found",
+  "line_manager_email": "manager@wafi-energy.com — null if not found",
+  "claim_month": "YYYY-MM-01 (first day of claim month) — null if not determinable",
+  "total_expense_pkr": 0.00,
+  "ot_hours_single": 0,
+  "ot_hours_double": 0,
+  "ot_hours_triple": 0,
+  "synopsis": "1–2 sentence plain-English summary of what this claim is about",
+  "has_claim_data": true or false
+}
+
+Rules:
+- claim_month: find "FOR MONTH OF", "Month:", date ranges like "April to May 2026" → return YYYY-MM-01
+- employee_code: look for ASIL/XXX/YYY format anywhere in the text
+- OT form: ot_hours_double = 2X rate hours, ot_hours_triple = 3X rate hours
+- Expense/OPD/IPD: sum all amounts for total_expense_pkr
+- has_claim_data: true only if you found at least employee name/code AND some numeric claim value OR a recognizable claim type
+- synopsis: brief factual description e.g. "OT claim for Shayan Butt — 33.75 hours at 2X rate for April 2026"
+- Return null for any field you cannot determine. Do NOT guess.`;
+}
+
+// ── GPT extraction (shared for XLSX and body) ─────────────────────────────────
+async function parseViaAI(content, filename, isBody = false) {
     const OPENAI_KEY = process.env.OPENAI_API_KEY;
     if (!OPENAI_KEY || OPENAI_KEY.startsWith('sk-dummy')) {
         console.log('[Claims] No valid OpenAI key — skipping AI parse');
         return null;
     }
 
-    // Limit to first 6000 chars to stay within token limits
-    const excerpt = sheetText.slice(0, 6000);
-
-    const prompt = `You are extracting structured data from an ASIL HCM Excel claim form.
-The file is: "${filename}"
-This is either an Expense Claim Form (ER3) or an Overtime (OT) Claim Form (TR3) from Allied Services International (ASIL).
-
-Here is the raw tab-separated content extracted from the Excel file:
-
-${excerpt}
-
-Extract the following and return ONLY valid JSON (no markdown, no explanation):
-
-{
-  "form_type": "EXPENSE" or "OT" or "OPD" or "ALLOWANCE" or "UNKNOWN",
-  "employee_code": "e.g. ASIL/SPL/-129/21 or ASIL/RO/SP-009",
-  "employee_name": "Full name of the employee",
-  "department": "Department",
-  "location": "Work location / site",
-  "line_manager_name": "Direct line manager full name",
-  "line_manager_email": "line.manager@wafi-energy.com",
-  "claim_month": "YYYY-MM-01",
-  "total_expense_pkr": 0.00,
-  "ot_hours_single": 0,
-  "ot_hours_double": 0,
-  "ot_hours_triple": 0
-}
-
-Rules:
-- claim_month: find "FOR MONTH OF" or "Month:" header — return first day of that month as YYYY-MM-01
-- employee_code: look for "Employee Code", "Emp Code", "Staff No" — format is like ASIL/XXX/YYY or similar
-- OT form (TR3): sum all hours by rate type (Single=1X, Double=2X, Triple=3X)
-- Expense form (ER3): sum all expense amounts for total_expense_pkr
-- Return null for any field you cannot confidently determine. Do NOT guess.`;
+    const prompt = buildExtractionPrompt(content, filename, isBody);
 
     try {
         const resp = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -131,7 +137,7 @@ Rules:
             },
             body: JSON.stringify({
                 model: 'gpt-4o',
-                max_tokens: 600,
+                max_tokens: 700,
                 temperature: 0,
                 messages: [{ role: 'user', content: prompt }]
             })
@@ -145,32 +151,69 @@ Rules:
 
         const data = await resp.json();
         const rawContent = data.choices?.[0]?.message?.content || '{}';
-        console.log(`[Claims] GPT response for ${filename}:`, rawContent.slice(0, 500));
+        console.log(`[Claims] GPT response (${isBody ? 'body' : filename}):`, rawContent.slice(0, 400));
 
         const cleaned = rawContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         return JSON.parse(cleaned);
-
     } catch (e) {
-        console.error(`[Claims] AI parse exception for ${filename}:`, e.message);
+        console.error(`[Claims] AI parse exception:`, e.message);
         return null;
     }
 }
 
-// ── Month validation ───────────────────────────────────────────────────────────
+// ── Month validation ────────────────────────────────────────────────────────────
 function isMonthValid(claimMonthStr) {
     if (!claimMonthStr) return false;
     const claim = new Date(claimMonthStr);
     if (isNaN(claim)) return false;
-    // Accept April 2026 onwards (aligns with cutoff)
     const minMonth = new Date('2026-04-01');
-    const maxMonth = new Date(); maxMonth.setDate(1); // start of current month
-    maxMonth.setMonth(maxMonth.getMonth() + 1); // up to next month
+    const maxMonth = new Date();
+    maxMonth.setDate(1);
+    maxMonth.setMonth(maxMonth.getMonth() + 1);
     return claim >= minMonth && claim < maxMonth;
 }
 
-// ── Message hash for dedup ────────────────────────────────────────────────────
+// ── Message hash for dedup ─────────────────────────────────────────────────────
 function buildHash(msgId, fromAddr, subject, date) {
     return `${msgId || ''}|${fromAddr || ''}|${subject || ''}|${date ? new Date(date).toISOString().slice(0, 10) : ''}`;
+}
+
+// ── Employee lookup: code first, then name fallback ────────────────────────────
+async function findEmployee(pool, employeeCode, employeeName) {
+    // 1. Exact code match (normalized: remove spaces, dashes, slashes)
+    if (employeeCode) {
+        const codeRow = await pool.query(
+            `SELECT id, name FROM employees
+             WHERE LOWER(REPLACE(REPLACE(REPLACE(id,' ',''),'-',''),'/','')) =
+                   LOWER(REPLACE(REPLACE(REPLACE($1,' ',''),'-',''),'/',''))
+             LIMIT 1`,
+            [employeeCode]
+        );
+        if (codeRow.rows.length) {
+            return { id: codeRow.rows[0].id, name: codeRow.rows[0].name, remark: null };
+        }
+    }
+
+    // 2. Name-based fuzzy match
+    if (employeeName && employeeName.trim().length > 3) {
+        const nameParts = employeeName.trim().split(/\s+/);
+        // Try full name first, then first+last
+        const nameRow = await pool.query(
+            `SELECT id, name FROM employees
+             WHERE LOWER(name) ILIKE $1 OR LOWER(name) ILIKE $2
+             LIMIT 1`,
+            [`%${employeeName.toLowerCase()}%`, `%${nameParts.slice(-1)[0].toLowerCase()}%`]
+        );
+        if (nameRow.rows.length) {
+            return {
+                id: nameRow.rows[0].id,
+                name: nameRow.rows[0].name,
+                remark: `Matched by name "${employeeName}" → found "${nameRow.rows[0].name}". Verify employee code.`
+            };
+        }
+    }
+
+    return { id: null, name: null, remark: employeeCode ? `No match for code "${employeeCode}"` : 'No employee code or name found' };
 }
 
 // ── Core processing for one parsed email ──────────────────────────────────────
@@ -180,155 +223,179 @@ async function processOneEmail(pool, parsed) {
     const fromAddr = parsed.from?.value?.[0]?.address || from;
     const msgId    = parsed.messageId || '';
     const date     = parsed.date || new Date();
-    const bodyText = parsed.text || '';
-    const hash     = buildHash(msgId, fromAddr, subject, date);
+
+    // Get clean body text — strip HTML tags
+    let bodyText = parsed.text || '';
+    if (!bodyText && parsed.html) {
+        bodyText = parsed.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    const hash = buildHash(msgId, fromAddr, subject, date);
 
     console.log(`[Claims] → Processing: "${subject}" from ${fromAddr} dated ${date}`);
 
-    // ── Duplicate check ──────────────────────────────────────────────────────
+    // ── Duplicate check ────────────────────────────────────────────────────────
     const dup = await pool.query('SELECT id FROM claims_inbox WHERE message_hash=$1 LIMIT 1', [hash]);
     if (dup.rows.length) {
         console.log('[Claims]   Duplicate, skipping');
         return [{ type: 'duplicate', from, subject }];
     }
 
-    // ── Find XLSX attachments ────────────────────────────────────────────────
+    // ── Find XLSX attachments ──────────────────────────────────────────────────
     const XLSX_TYPES = [
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-        'application/vnd.ms-excel',                                           // .xls
-        'application/octet-stream',                                           // generic binary (often xlsx)
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'application/octet-stream',
     ];
     const xlsxAtts = (parsed.attachments || []).filter(a => {
         if (!a.content || a.content.length === 0) return false;
         const fn = (a.filename || '').toLowerCase();
-        const isXlsxMime = XLSX_TYPES.includes(a.contentType);
-        const isXlsxExt  = fn.endsWith('.xlsx') || fn.endsWith('.xls');
-        return isXlsxMime || isXlsxExt;
+        return XLSX_TYPES.includes(a.contentType) || fn.endsWith('.xlsx') || fn.endsWith('.xls');
     });
 
-    console.log(`[Claims]   Total attachments: ${(parsed.attachments || []).length}, XLSX: ${xlsxAtts.length}`);
-    if (parsed.attachments?.length) {
-        parsed.attachments.forEach(a => console.log(`[Claims]     Att: ${a.filename} | type: ${a.contentType} | size: ${a.content?.length}`));
+    console.log(`[Claims]   Attachments: ${(parsed.attachments || []).length} total, ${xlsxAtts.length} XLSX`);
+
+    // ── PATH A: Process XLSX attachment(s) ─────────────────────────────────────
+    if (xlsxAtts.length > 0) {
+        const results = [];
+        for (const att of xlsxAtts) {
+            const filename = att.filename || 'attachment.xlsx';
+            console.log(`[Claims]   Parsing XLSX: ${filename} (${att.content.length} bytes)`);
+
+            const sheetText = xlsxToText(att.content);
+            if (!sheetText) {
+                results.push({ type: 'parse_failed', from, subject, file: filename });
+                continue;
+            }
+
+            const aiData = await parseViaAI(sheetText, filename, false);
+            if (!aiData) {
+                await pool.query(`
+                    INSERT INTO claims_inbox
+                      (received_at,sender_email,subject,message_id,message_hash,raw_body,attachment_filename,status)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,'UNMATCHED')
+                    ON CONFLICT (message_hash) DO NOTHING
+                `, [date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000), filename]);
+                results.push({ type: 'parse_failed', from, subject, file: filename });
+                continue;
+            }
+
+            await saveClaimRow(pool, {
+                date, fromAddr, subject, msgId, hash,
+                bodyText, filename, aiData, isBodyParsed: false
+            });
+
+            results.push({ type: 'claim', from, subject, claimType: aiData.form_type, file: filename });
+        }
+        return results;
     }
 
-    if (!xlsxAtts.length) {
+    // ── PATH B: No attachment — parse email body ────────────────────────────────
+    console.log('[Claims]   No XLSX — attempting body parse...');
+
+    if (!bodyText || bodyText.trim().length < 50) {
         await pool.query(`
             INSERT INTO claims_inbox
-              (received_at,sender_email,subject,message_id,message_hash,raw_body,status)
-            VALUES ($1,$2,$3,$4,$5,$6,'NO_ATTACHMENT')
+              (received_at,sender_email,subject,message_id,message_hash,raw_body,status,synopsis)
+            VALUES ($1,$2,$3,$4,$5,$6,'NO_CONTENT','Email body is empty or too short to parse.')
             ON CONFLICT (message_hash) DO NOTHING
-        `, [date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000)]);
-        console.log('[Claims]   No XLSX attachments — logged as NO_ATTACHMENT');
-        return [{ type: 'no_attachment', from, subject }];
+        `, [date, fromAddr, subject, msgId, hash, bodyText.slice(0, 500)]);
+        console.log('[Claims]   Body too short — NO_CONTENT');
+        return [{ type: 'no_content', from, subject }];
     }
 
-    const results = [];
+    const aiData = await parseViaAI(bodyText, subject, true);
 
-    for (const att of xlsxAtts) {
-        const filename = att.filename || 'attachment.xlsx';
-        console.log(`[Claims]   Parsing XLSX: ${filename} (${att.content.length} bytes)`);
+    if (!aiData || !aiData.has_claim_data) {
+        const synopsis = aiData?.synopsis || 'No recognizable claim data found in email body.';
+        await pool.query(`
+            INSERT INTO claims_inbox
+              (received_at,sender_email,subject,message_id,message_hash,raw_body,status,synopsis,body_parsed)
+            VALUES ($1,$2,$3,$4,$5,$6,'NO_CONTENT',$7,TRUE)
+            ON CONFLICT (message_hash) DO NOTHING
+        `, [date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000), synopsis]);
+        console.log(`[Claims]   Body parsed but no claim data — NO_CONTENT: ${synopsis}`);
+        return [{ type: 'no_content', from, subject }];
+    }
 
-        // Step 1: Extract text from Excel
-        const sheetText = xlsxToText(att.content);
-        if (!sheetText) {
-            console.warn(`[Claims]   Could not extract text from ${filename}`);
-            results.push({ type: 'parse_failed', from, subject, file: filename });
-            continue;
-        }
-        console.log(`[Claims]   Sheet text preview: ${sheetText.slice(0, 300).replace(/\n/g, ' | ')}`);
+    // Body has claim data — save as BODY_PARSED
+    await saveClaimRow(pool, {
+        date, fromAddr, subject, msgId, hash,
+        bodyText, filename: null, aiData, isBodyParsed: true,
+        overrideStatus: 'BODY_PARSED'
+    });
 
-        // Step 2: GPT extracts structured data from the text
-        const aiData = await parseXlsxViaAI(sheetText, filename);
-        if (!aiData) {
-            console.warn(`[Claims]   AI returned null for ${filename}`);
-            await pool.query(`
-                INSERT INTO claims_inbox
-                  (received_at,sender_email,subject,message_id,message_hash,raw_body,attachment_filename,status)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,'UNMATCHED')
-                ON CONFLICT (message_hash) DO NOTHING
-            `, [date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000), filename]);
-            results.push({ type: 'parse_failed', from, subject, file: filename });
-            continue;
-        }
+    console.log(`[Claims]   Body parsed successfully — ${aiData.form_type}`);
+    return [{ type: 'body_claim', from, subject, claimType: aiData.form_type }];
+}
 
-        // ── Month validation ─────────────────────────────────────────────────
-        if (!isMonthValid(aiData.claim_month)) {
-            console.warn(`[Claims]   Invalid/out-of-range month: ${aiData.claim_month}`);
-            await pool.query(`
-                INSERT INTO claims_inbox
-                  (received_at,sender_email,subject,message_id,message_hash,raw_body,
-                   parsed_data,claim_month,claim_type,attachment_filename,status)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'INVALID_MONTH')
-                ON CONFLICT (message_hash) DO NOTHING
-            `, [date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000),
-                JSON.stringify(aiData), aiData.claim_month, aiData.form_type, filename]);
-            results.push({ type: 'invalid_month', claim_month: aiData.claim_month, from });
-            continue;
-        }
+// ── Save a parsed claim row to DB ─────────────────────────────────────────────
+async function saveClaimRow(pool, { date, fromAddr, subject, msgId, hash, bodyText, filename, aiData, isBodyParsed, overrideStatus }) {
 
-        // ── Employee match ───────────────────────────────────────────────────
-        let empId = null, status = 'UNMATCHED';
-        if (aiData.employee_code) {
-            const empRow = await pool.query(
-                `SELECT id FROM employees
-                 WHERE LOWER(REPLACE(REPLACE(REPLACE(id,' ',''),'-',''),'/','')) =
-                       LOWER(REPLACE(REPLACE(REPLACE($1,' ',''),'-',''),'/',''))
-                 LIMIT 1`,
-                [aiData.employee_code]
-            );
-            if (empRow.rows.length) {
-                empId = empRow.rows[0].id;
-                status = 'PENDING';
-                console.log(`[Claims]   ✅ Matched employee: ${empId}`);
-            } else {
-                console.warn(`[Claims]   ⚠ No match for employee code: "${aiData.employee_code}"`);
-            }
-        } else {
-            console.warn('[Claims]   No employee_code extracted from form');
-        }
-
-        // ── Auto-update line manager ─────────────────────────────────────────
-        if (empId && (aiData.line_manager_name || aiData.line_manager_email)) {
-            await pool.query(
-                `UPDATE employees SET
-                    line_manager_name  = COALESCE(NULLIF($1,''), line_manager_name),
-                    line_manager_email = COALESCE(NULLIF($2,''), line_manager_email)
-                 WHERE id = $3`,
-                [aiData.line_manager_name || null, aiData.line_manager_email || null, empId]
-            );
-        }
-
-        const otHours1x   = parseFloat(aiData.ot_hours_single) || null;
-        const otHours2x   = parseFloat(aiData.ot_hours_double) || null;
-        const otHours3x   = parseFloat(aiData.ot_hours_triple) || null;
-        const claimAmount = parseFloat(aiData.total_expense_pkr) || null;
-
+    // Month validation
+    if (aiData.claim_month && !isMonthValid(aiData.claim_month)) {
+        console.warn(`[Claims]   Invalid/out-of-range month: ${aiData.claim_month}`);
         await pool.query(`
             INSERT INTO claims_inbox
               (received_at,sender_email,subject,message_id,message_hash,raw_body,
-               parsed_data,employee_id,claim_month,claim_type,
-               ot_hours_1x,ot_hours_2x,ot_hours_3x,claim_amount,
-               line_manager_name,line_manager_email,attachment_filename,status)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+               parsed_data,claim_month,claim_type,attachment_filename,status,synopsis,body_parsed)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'INVALID_MONTH',$11,$12)
             ON CONFLICT (message_hash) DO NOTHING
-        `, [
-            date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000),
-            JSON.stringify(aiData), empId, aiData.claim_month, aiData.form_type,
-            otHours1x, otHours2x, otHours3x, claimAmount,
-            aiData.line_manager_name || null, aiData.line_manager_email || null,
-            filename, status
-        ]);
-
-        console.log(`[Claims]   ✅ Saved: ${filename} | emp=${empId} | ${aiData.form_type} | ${status}`);
-        results.push({ type: 'claim', from, subject, status, empId, claimType: aiData.form_type, file: filename });
+        `, [date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000),
+            JSON.stringify(aiData), aiData.claim_month, aiData.form_type, filename || null,
+            aiData.synopsis || null, isBodyParsed || false]);
+        return;
     }
 
-    return results;
+    // Employee lookup
+    const { id: empId, name: empName, remark: matchRemark } = await findEmployee(
+        pool, aiData.employee_code, aiData.employee_name
+    );
+
+    let status = overrideStatus || (empId ? 'PENDING' : 'UNMATCHED');
+
+    // Auto-update line manager on employee record
+    if (empId && (aiData.line_manager_name || aiData.line_manager_email)) {
+        await pool.query(
+            `UPDATE employees SET
+                line_manager_name  = COALESCE(NULLIF($1,''), line_manager_name),
+                line_manager_email = COALESCE(NULLIF($2,''), line_manager_email)
+             WHERE id = $3`,
+            [aiData.line_manager_name || null, aiData.line_manager_email || null, empId]
+        );
+    }
+
+    const otHours1x   = parseFloat(aiData.ot_hours_single) || null;
+    const otHours2x   = parseFloat(aiData.ot_hours_double) || null;
+    const otHours3x   = parseFloat(aiData.ot_hours_triple) || null;
+    const claimAmount = parseFloat(aiData.total_expense_pkr) || null;
+
+    await pool.query(`
+        INSERT INTO claims_inbox
+          (received_at,sender_email,subject,message_id,message_hash,raw_body,
+           parsed_data,employee_id,employee_name,claim_month,claim_type,
+           ot_hours_1x,ot_hours_2x,ot_hours_3x,claim_amount,
+           line_manager_name,line_manager_email,attachment_filename,
+           status,synopsis,body_parsed,match_remark)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+        ON CONFLICT (message_hash) DO NOTHING
+    `, [
+        date, fromAddr, subject, msgId, hash, bodyText.slice(0, 2000),
+        JSON.stringify(aiData), empId, empName || aiData.employee_name,
+        aiData.claim_month || null, aiData.form_type,
+        otHours1x, otHours2x, otHours3x, claimAmount,
+        aiData.line_manager_name || null, aiData.line_manager_email || null,
+        filename || null,
+        status,
+        aiData.synopsis || null,
+        isBodyParsed || false,
+        matchRemark || null
+    ]);
+
+    console.log(`[Claims]   ✅ Saved: ${filename || 'body'} | emp=${empId || 'unmatched'} | ${aiData.form_type} | ${status}`);
 }
 
 // ── Main IMAP fetch ────────────────────────────────────────────────────────────
-// Processes each email inline as it streams in — never holds all 1000+ emails
-// in memory at once. A concurrency gate limits parallel async processing to 3.
 async function fetchAndProcess(pool) {
     const cfg = getImapConfig();
     if (!cfg.user || !cfg.password) {
@@ -337,7 +404,7 @@ async function fetchAndProcess(pool) {
     }
 
     console.log(`[Claims] ═══ Poll starting: ${cfg.user} | Cutoff: ${CUTOFF_DATE.toDateString()} | Domain: @${ALLOWED_SENDER_DOMAIN} ═══`);
-    const summary = { processed: 0, duplicates: 0, skippedSender: 0, skippedSubject: 0, skippedDate: 0, errors: 0, invalid_month: 0 };
+    const summary = { processed: 0, bodyParsed: 0, duplicates: 0, skippedSender: 0, skippedSubject: 0, skippedDate: 0, noContent: 0, errors: 0 };
 
     return new Promise((resolve) => {
         const imap = new Imap(cfg);
@@ -348,11 +415,9 @@ async function fetchAndProcess(pool) {
         });
 
         imap.once('ready', () => {
-            // READ-ONLY — emails will NOT be marked as read
             imap.openBox('INBOX', true, (err) => {
                 if (err) { imap.end(); resolve({ error: err.message }); return; }
 
-                // Search emails since 31 March 2026 (IMAP date is inclusive)
                 imap.search([['SINCE', 'March 31, 2026']], async (err, uids) => {
                     if (err || !uids?.length) {
                         console.log('[Claims] No emails found since April 2026');
@@ -363,21 +428,18 @@ async function fetchAndProcess(pool) {
 
                     console.log(`[Claims] ${uids.length} emails found since March 31 2026`);
 
-                    // ── Stream-and-process: handle each message inline, never buffering all at once ──
-                    const pending = []; // tracks in-flight promises
-                    const CONCURRENCY = 3; // max parallel emails being parsed/processed at once
+                    const pending = [];
+                    const CONCURRENCY = 3;
 
                     const fetcher = imap.fetch(uids, { bodies: '', markSeen: false });
 
                     fetcher.on('message', msg => {
-                        // Collect raw bytes for this single message only
                         let raw = '';
                         msg.on('body', stream => stream.on('data', c => { raw += c.toString('binary'); }));
 
                         msg.once('end', () => {
                             if (!raw) return;
 
-                            // Throttle: if already at concurrency limit, wait for oldest to finish
                             const task = (async () => {
                                 while (pending.filter(p => p.running).length >= CONCURRENCY) {
                                     await new Promise(r => setTimeout(r, 50));
@@ -386,25 +448,23 @@ async function fetchAndProcess(pool) {
                                 pending.push(slot);
                                 try {
                                     const parsed = await simpleParser(Buffer.from(raw, 'binary'));
-                                    raw = ''; // release raw bytes immediately after parse
+                                    raw = '';
 
                                     const fromAddr = parsed.from?.value?.[0]?.address || '';
                                     const subject  = parsed.subject || '';
                                     const emailDate = parsed.date || new Date();
 
-                                    // ── FILTER 1: Date ──────────────────────────────────────
                                     if (!isAfterCutoff(emailDate)) { summary.skippedDate++; return; }
-                                    // ── FILTER 2: Sender domain ─────────────────────────────
                                     if (!isAllowedSender(fromAddr)) { summary.skippedSender++; return; }
-                                    // ── FILTER 3: Subject keywords ───────────────────────────
-                                    if (!isClaimSubject(subject)) { summary.skippedSubject++; return; }
+                                    if (!isClaimSubject(subject))   { summary.skippedSubject++; return; }
 
                                     console.log(`[Claims] ✉ Qualifying: "${subject}" | ${fromAddr}`);
                                     const res = await processOneEmail(pool, parsed);
                                     for (const r of res) {
-                                        if      (r.type === 'claim')         summary.processed++;
-                                        else if (r.type === 'duplicate')     summary.duplicates++;
-                                        else if (r.type === 'invalid_month') summary.invalid_month++;
+                                        if      (r.type === 'claim')      summary.processed++;
+                                        else if (r.type === 'body_claim') summary.bodyParsed++;
+                                        else if (r.type === 'duplicate')  summary.duplicates++;
+                                        else if (r.type === 'no_content') summary.noContent++;
                                     }
                                 } catch (e) {
                                     console.error('[Claims] Email parse error:', e.message);
@@ -419,7 +479,6 @@ async function fetchAndProcess(pool) {
                     });
 
                     fetcher.once('end', async () => {
-                        // Wait for all in-flight processing tasks to complete
                         await Promise.allSettled(pending.filter(p => p instanceof Promise));
                         console.log('[Claims] ═══ Poll complete ═══', JSON.stringify(summary));
                         imap.end();
@@ -439,7 +498,7 @@ async function fetchAndProcess(pool) {
     });
 }
 
-// ── Schedule: once daily at 13:00 ─────────────────────────────────────────────
+// ── Schedule: once daily at 13:00 ────────────────────────────────────────────
 function scheduleDailyAt13(pool) {
     function msUntil13() {
         const now = new Date(), next = new Date(now);
@@ -458,7 +517,7 @@ function scheduleDailyAt13(pool) {
     scheduleNext();
 }
 
-// ── Entry points ───────────────────────────────────────────────────────────────
+// ── Entry points ──────────────────────────────────────────────────────────────
 function startEmailClaimsService(pool) {
     const cfg = getImapConfig();
     if (!cfg.user) { console.log('[Claims] Disabled — CLAIMS_EMAIL_USER not set'); return; }

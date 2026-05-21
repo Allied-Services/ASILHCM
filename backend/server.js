@@ -5266,9 +5266,20 @@ app.get('/api/claims/inbox', requireAuth, async (req, res) => {
         if (month) { vals.push(month); where += ` AND ci.claim_month = $${vals.length}::DATE`; }
         if (status && status !== 'ALL') { vals.push(status); where += ` AND ci.status = $${vals.length}`; }
         const { rows } = await pool.query(`
-            SELECT ci.*,
-                e.name AS employee_name, e.designation, e.dept, e.client AS employee_client,
-                e.line_manager_name, e.line_manager_email
+            SELECT
+                ci.id, ci.received_at, ci.sender_email, ci.subject,
+                ci.claim_month, ci.claim_type, ci.status,
+                ci.ot_hours_1x, ci.ot_hours_2x, ci.ot_hours_3x,
+                ci.claim_amount, ci.attachment_filename,
+                ci.line_manager_name AS lm_name_claim, ci.line_manager_email AS lm_email_claim,
+                ci.synopsis, ci.body_parsed, ci.match_remark,
+                ci.payroll_month, ci.payroll_year, ci.pushed_at,
+                ci.raw_body,
+                COALESCE(ci.employee_name, e.name) AS employee_name,
+                ci.employee_id,
+                e.designation, e.dept, e.client AS employee_client,
+                COALESCE(ci.line_manager_name, e.line_manager_name) AS line_manager_name,
+                COALESCE(ci.line_manager_email, e.line_manager_email) AS line_manager_email
             FROM claims_inbox ci
             LEFT JOIN employees e ON e.id = ci.employee_id
             ${where}
@@ -5278,11 +5289,10 @@ app.get('/api/claims/inbox', requireAuth, async (req, res) => {
         const stats = await pool.query(`
             SELECT
                 COUNT(*) FILTER (WHERE status NOT IN ('DUPLICATE')) AS total,
-                COUNT(*) FILTER (WHERE status = 'PENDING') AS pending,
+                COUNT(*) FILTER (WHERE status IN ('PENDING','BODY_PARSED')) AS pending,
                 COUNT(*) FILTER (WHERE status = 'UNMATCHED') AS unmatched,
                 COUNT(*) FILTER (WHERE status = 'DUPLICATE') AS duplicates,
-                COUNT(*) FILTER (WHERE status = 'APPROVED') AS approved,
-                COALESCE(SUM(claim_amount) FILTER (WHERE status = 'APPROVED'), 0) AS approved_amount
+                COUNT(*) FILTER (WHERE status IN ('APPROVED','PROCESSED')) AS approved
             FROM claims_inbox
         `);
         res.json({ claims: rows, stats: stats.rows[0] });
@@ -5302,23 +5312,25 @@ app.get('/api/claims/consolidation', requireAuth, async (req, res) => {
         const { rows } = await pool.query(`
             SELECT
                 ci.employee_id,
-                e.name AS employee_name, e.designation, e.dept, e.client AS employee_client,
-                e.line_manager_name, e.line_manager_email,
-                SUM(ci.ot_hours) FILTER (WHERE ci.claim_type = 'OT_2X') AS ot2_hours,
-                SUM(ci.ot_hours) FILTER (WHERE ci.claim_type = 'OT_3X') AS ot3_hours,
-                SUM(ci.claim_amount) FILTER (WHERE ci.claim_type = 'OPD') AS opd_amount,
-                SUM(ci.claim_amount) FILTER (WHERE ci.claim_type = 'EXPENSE') AS expense_amount,
-                SUM(ci.claim_amount) FILTER (WHERE ci.claim_type = 'ALLOWANCE') AS allowance_amount,
+                COALESCE(ci.employee_name, e.name) AS employee_name,
+                e.designation, e.dept, e.client AS employee_client,
+                COALESCE(ci.line_manager_name, e.line_manager_name) AS line_manager_name,
+                COALESCE(ci.line_manager_email, e.line_manager_email) AS line_manager_email,
+                SUM(ci.ot_hours_2x) AS ot2_hours,
+                SUM(ci.ot_hours_3x) AS ot3_hours,
+                SUM(ci.claim_amount) FILTER (WHERE ci.claim_type IN ('OPD','IPD')) AS opd_amount,
+                SUM(ci.claim_amount) FILTER (WHERE ci.claim_type IN ('EXPENSE','ALLOWANCE')) AS expense_amount,
                 MIN(ci.status) AS claim_status,
-                ARRAY_AGG(ci.id) AS claim_ids
+                ARRAY_AGG(ci.id) AS claim_ids,
+                COUNT(*) AS claim_count
             FROM claims_inbox ci
-            JOIN employees e ON e.id = ci.employee_id
+            LEFT JOIN employees e ON e.id = ci.employee_id
             WHERE ci.claim_month = $1::DATE
-              AND ci.status NOT IN ('DUPLICATE', 'REJECTED')
+              AND ci.status IN ('PENDING','BODY_PARSED','UNMATCHED')
               ${clientFilter}
-            GROUP BY ci.employee_id, e.name, e.designation, e.dept, e.client,
-                     e.line_manager_name, e.line_manager_email
-            ORDER BY e.name ASC
+            GROUP BY ci.employee_id, ci.employee_name, e.name, e.designation, e.dept, e.client,
+                     ci.line_manager_name, ci.line_manager_email, e.line_manager_name, e.line_manager_email
+            ORDER BY COALESCE(ci.employee_name, e.name) ASC
         `, vals);
 
         // Summary totals
@@ -5334,23 +5346,84 @@ app.get('/api/claims/consolidation', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PATCH /api/claims/:id/status — manually update a single claim status
+// PATCH /api/claims/:id/status — manually update a single claim status / corrections
 app.patch('/api/claims/:id/status', requireAuth, async (req, res) => {
     try {
-        const { status, employee_id, claim_type, ot_hours, claim_amount, claim_month } = req.body;
-        const VALID = ['PENDING', 'APPROVED', 'REJECTED', 'UNMATCHED'];
-        if (!VALID.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+        const { status, employee_id, claim_type, ot_hours_2x, ot_hours_3x, claim_amount, claim_month, match_remark } = req.body;
+        const VALID = ['PENDING', 'BODY_PARSED', 'APPROVED', 'REJECTED', 'UNMATCHED', 'PROCESSED'];
+        if (status && !VALID.includes(status)) return res.status(400).json({ error: 'Invalid status' });
         const { rows } = await pool.query(`
             UPDATE claims_inbox
-            SET status=$1, employee_id=COALESCE($2, employee_id),
-                claim_type=COALESCE($3, claim_type),
-                ot_hours=COALESCE($4, ot_hours),
-                claim_amount=COALESCE($5, claim_amount),
-                claim_month=COALESCE($6::DATE, claim_month)
-            WHERE id=$7 RETURNING *
-        `, [status, employee_id||null, claim_type||null, ot_hours||null, claim_amount||null, claim_month||null, req.params.id]);
+            SET status        = COALESCE($1, status),
+                employee_id   = COALESCE($2, employee_id),
+                claim_type    = COALESCE($3, claim_type),
+                ot_hours_2x   = COALESCE($4, ot_hours_2x),
+                ot_hours_3x   = COALESCE($5, ot_hours_3x),
+                claim_amount  = COALESCE($6, claim_amount),
+                claim_month   = COALESCE($7::DATE, claim_month),
+                match_remark  = COALESCE($8, match_remark)
+            WHERE id=$9 RETURNING *
+        `, [status||null, employee_id||null, claim_type||null,
+            ot_hours_2x!=null?parseFloat(ot_hours_2x):null,
+            ot_hours_3x!=null?parseFloat(ot_hours_3x):null,
+            claim_amount!=null?parseFloat(claim_amount):null,
+            claim_month||null, match_remark||null, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Claim not found' });
         res.json({ ok: true, claim: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/claims/:id/push-to-payroll — write claim data into payroll_transactions for a month
+app.post('/api/claims/:id/push-to-payroll', requireAuth, async (req, res) => {
+    try {
+        const { month, year } = req.body;
+        if (!month || !year) return res.status(400).json({ error: 'month and year are required' });
+
+        const { rows: [claim] } = await pool.query(
+            'SELECT * FROM claims_inbox WHERE id=$1', [req.params.id]
+        );
+        if (!claim) return res.status(404).json({ error: 'Claim not found' });
+        if (!claim.employee_id) return res.status(400).json({ error: 'Claim has no matched employee. Please match employee first.' });
+
+        const m = parseInt(month);
+        const y = parseInt(year);
+        const ot2 = parseFloat(claim.ot_hours_2x) || 0;
+        const ot3 = parseFloat(claim.ot_hours_3x) || 0;
+        const amt = parseFloat(claim.claim_amount) || 0;
+        const claimType = (claim.claim_type || '').toUpperCase();
+
+        // Determine which payroll column to write
+        const isOT      = claimType === 'OT';
+        const isOPD     = claimType === 'OPD' || claimType === 'IPD';
+        const isExpense = claimType === 'EXPENSE' || claimType === 'ALLOWANCE' || (!isOT && !isOPD);
+
+        // Upsert payroll_transactions — overwrite the specific columns for this claim type
+        await pool.query(`
+            INSERT INTO payroll_transactions (employee_id, month, year, ot2_hrs, ot3_hrs, opd_claim, reimbursement)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (employee_id, month, year) DO UPDATE SET
+                ot2_hrs       = CASE WHEN $8 THEN EXCLUDED.ot2_hrs       ELSE payroll_transactions.ot2_hrs END,
+                ot3_hrs       = CASE WHEN $8 THEN EXCLUDED.ot3_hrs       ELSE payroll_transactions.ot3_hrs END,
+                opd_claim     = CASE WHEN $9 THEN EXCLUDED.opd_claim     ELSE payroll_transactions.opd_claim END,
+                reimbursement = CASE WHEN $10 THEN EXCLUDED.reimbursement ELSE payroll_transactions.reimbursement END,
+                updated_at    = NOW()
+        `, [
+            claim.employee_id, m, y,
+            isOT ? ot2 : 0,
+            isOT ? ot3 : 0,
+            isOPD ? amt : 0,
+            isExpense ? amt : 0,
+            isOT, isOPD, isExpense
+        ]);
+
+        // Mark claim as PROCESSED
+        await pool.query(`
+            UPDATE claims_inbox
+            SET status='PROCESSED', payroll_month=$1, payroll_year=$2, pushed_at=NOW()
+            WHERE id=$3
+        `, [m, y, req.params.id]);
+
+        res.json({ ok: true, message: `Pushed to payroll ${y}-${m} for employee ${claim.employee_id}` });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -6227,6 +6300,14 @@ app.listen(PORT, async () => {
             'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS line_manager_name TEXT',
             'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS line_manager_email TEXT',
             'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS attachment_filename TEXT',
+            // v5 new columns
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS synopsis TEXT',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS body_parsed BOOLEAN DEFAULT FALSE',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS match_remark TEXT',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS employee_name TEXT',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS payroll_month INT',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS payroll_year INT',
+            'ALTER TABLE claims_inbox ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMPTZ',
         ]) { await pool.query(col).catch(() => {}); }
         await pool.query('CREATE INDEX IF NOT EXISTS idx_claims_status ON claims_inbox(status)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_claims_month ON claims_inbox(claim_month)');
