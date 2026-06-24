@@ -14,7 +14,8 @@ const XLSX        = require('xlsx');
 const { Resend }  = require('resend');
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const GMAIL_USER          = process.env.GMAIL_USER          || 'claims@asil.com.pk';
+const GMAIL_USER          = process.env.GMAIL_USER          || 'ops-support@asil.com.pk';
+const CLAIMS_EMAIL        = process.env.CLAIMS_EMAIL         || 'claims@asil.com.pk'; // alias to monitor
 const GMAIL_CLIENT_ID     = process.env.GMAIL_CLIENT_ID     || '';
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || '';
 const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || '';
@@ -913,21 +914,24 @@ async function pollGmail(pool) {
         return { skipped: true, reason: 'Gmail OAuth credentials not configured' };
     }
 
-    console.log(`[Wafi Claims] ═══ Poll starting: ${GMAIL_USER} | domain: @${SENDER_DOMAIN} ═══`);
+    console.log(`[Wafi Claims] ═══ Poll starting — monitoring: ${CLAIMS_EMAIL} ═══`);
     _lastPollAt = new Date();
     const summary = { processed: 0, skipped: 0, errors: 0 };
 
     try {
         await ensureLabels(gmail);
 
+        // Search for emails sent to the claims alias (any sender — content-signature is the real gate)
+        // We use the alias address in the TO filter, not the real account address
+        const q = `to:${CLAIMS_EMAIL} has:attachment`;
         const { data } = await gmail.users.messages.list({
             userId: 'me',
-            q: `is:unread from:@${SENDER_DOMAIN} to:${GMAIL_USER}`,
-            maxResults: 50,
+            q,
+            maxResults: 100,
         });
 
         const messages = data.messages || [];
-        console.log(`[Wafi Claims] Found ${messages.length} unread messages`);
+        console.log(`[Wafi Claims] Found ${messages.length} messages matching query: ${q}`);
 
         for (const msg of messages) {
             try {
