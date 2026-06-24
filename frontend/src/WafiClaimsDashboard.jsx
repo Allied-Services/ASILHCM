@@ -135,7 +135,7 @@ export default function WafiClaimsDashboard({ user }) {
       const [st, gs, rs] = await Promise.all([
         apiFetch('/api/wafi-claims/stats'),
         apiFetch('/api/wafi-claims/gmail-auth-status'),
-        apiFetch('/api/wafi-claims/sessions?limit=10'),
+        apiFetch('/api/wafi-claims/sessions?limit=25'),
       ]);
       setStats(st);
       setGmailStatus(gs);
@@ -340,7 +340,10 @@ export default function WafiClaimsDashboard({ user }) {
 
           {/* Recent sessions */}
           <div style={{ ...s.card, padding: 0, overflowX: 'auto' }}>
-            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontWeight: 700, fontSize: '0.88rem' }}>Recent Submissions (last 10)</div>
+            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.06)', fontWeight: 700, fontSize: '0.88rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Recent Submissions (last 25)</span>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 400 }}>See all → Sessions tab</span>
+            </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>
                 {['Received','Sender','File','Month','Status','OT','Exp','Med'].map(h => <th key={h} style={s.th}>{h}</th>)}

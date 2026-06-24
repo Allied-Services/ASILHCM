@@ -26,12 +26,13 @@ const POLL_INTERVAL_MS    = parseInt(process.env.WAFI_POLL_INTERVAL_MS) || 5 * 6
 
 const resend = new Resend(process.env.RESEND_API_KEY || '');
 
-// Required sheet names in exact order
-// Sheet names from the ASIL Consolidated Master Claims Template
-// Tab 1 is named 'Overtime Claims' (rename from default 'Sheet' in the template)
-// If the focal point sends a file where the first tab is still 'Sheet', we accept both
-const REQUIRED_SHEETS         = ['Overtime Claims', 'Expense Claims', 'Medical & IPD Claims'];
-const REQUIRED_SHEETS_LEGACY  = ['Sheet',           'Expense Claims', 'Medical & IPD Claims'];
+// Sheet keyword matchers — real files use names like 'Overtime (TR3)', 'Expense Claims (ER3)'
+// We detect by keyword so any location-suffixed variant is accepted automatically
+const SHEET_KEYWORDS = {
+    ot:      'overtime',
+    expense: 'expense',
+    medical: 'medical',
+};
 
 // OT multiplier mapping
 const OT_MULTIPLIER_MAP = { 'single': 1.0, 'double': 2.0, 'triple': 3.0 };
@@ -180,13 +181,13 @@ async function lookupEmployee(pool, codeRaw) {
 
 // ── Excel Parsing ─────────────────────────────────────────────────────────────
 /**
- * Returns null if not a Wafi file (wrong sheets).
- * Returns { otRows, expenseRows, medicalRows, errors, claimMonth }
- */
-/**
- * Returns null if buffer is not readable as Excel.
- * Returns { wb } if all 3 required sheets are present.
- * Returns { mismatch: true, found: [], missing: [] } if it IS an Excel but tabs don't match.
+ * Detects a Wafi claims workbook by keyword-matching tab names.
+ * Accepts any tab whose name CONTAINS the keyword (case-insensitive),
+ * so 'Overtime (TR3)', 'Expense Claims (ER3)', 'Medical & IPD Claims (ER1)' all match.
+ *
+ * Returns null            — not a valid Excel file (silently ignore)
+ * Returns { mismatch }    — valid Excel but missing required tab keywords (log to dashboard)
+ * Returns { wb, otSheet, expSheet, medSheet } — all 3 tabs found, ready to process
  */
 function parseWafiExcel(buffer, filename) {
     let wb;
@@ -198,29 +199,25 @@ function parseWafiExcel(buffer, filename) {
     }
 
     const sheetNames = wb.SheetNames;
-    const hasNew    = REQUIRED_SHEETS.every(r => sheetNames.includes(r));
-    const hasLegacy = REQUIRED_SHEETS_LEGACY.every(r => sheetNames.includes(r));
 
-    if (!hasNew && !hasLegacy) {
-        // It IS an Excel file but doesn't have the 3 required tabs
-        // Log which tabs are present vs missing so admin can see in dashboard
-        const missingNew    = REQUIRED_SHEETS.filter(r => !sheetNames.includes(r));
-        const missingLegacy = REQUIRED_SHEETS_LEGACY.filter(r => !sheetNames.includes(r));
-        const missing = missingNew.length <= missingLegacy.length ? missingNew : missingLegacy;
+    // Find each required sheet by keyword (case-insensitive contains)
+    const otSheet  = sheetNames.find(n => n.toLowerCase().includes(SHEET_KEYWORDS.ot));
+    const expSheet = sheetNames.find(n => n.toLowerCase().includes(SHEET_KEYWORDS.expense));
+    const medSheet = sheetNames.find(n => n.toLowerCase().includes(SHEET_KEYWORDS.medical));
+
+    if (!otSheet || !expSheet || !medSheet) {
+        // It IS a valid Excel but doesn't have the 3 required tab types
+        // Log to dashboard so admin can see which tabs are missing
+        const missing = [];
+        if (!otSheet)  missing.push('tab containing "Overtime"');
+        if (!expSheet) missing.push('tab containing "Expense"');
+        if (!medSheet) missing.push('tab containing "Medical"');
         console.log(`[Wafi Claims] "${filename}" — wrong format. Found: [${sheetNames.join(', ')}] | Missing: [${missing.join(', ')}]`);
         return { mismatch: true, found: sheetNames, missing };
     }
 
-    // Normalize legacy 'Sheet' tab name to 'Overtime Claims' in memory
-    if (hasLegacy && !hasNew) {
-        console.log(`[Wafi Claims] "${filename}" uses legacy tab name "Sheet" — normalizing to "Overtime Claims"`);
-        const ws = wb.Sheets['Sheet'];
-        wb.Sheets['Overtime Claims'] = ws;
-        wb.SheetNames = wb.SheetNames.map(n => n === 'Sheet' ? 'Overtime Claims' : n);
-        delete wb.Sheets['Sheet'];
-    }
-
-    return { wb };
+    console.log(`[Wafi Claims] "${filename}" matched — OT: "${otSheet}" | Expense: "${expSheet}" | Medical: "${medSheet}"`);
+    return { wb, otSheet, expSheet, medSheet };
 }
 
 function getSheetRows(wb, sheetName) {
@@ -849,13 +846,13 @@ async function processOneMessage(pool, gmail, msg) {
         return;
     }
 
-    const { wb } = parseResult;
+    const { wb, otSheet, expSheet, medSheet } = parseResult;
     const errors = [];
 
-    // Process each sheet
-    const otRawRows    = getSheetRows(wb, 'Overtime Claims');
-    const expRawRows   = getSheetRows(wb, 'Expense Claims');
-    const medRawRows   = getSheetRows(wb, 'Medical & IPD Claims');
+    // Process each sheet using the actual detected tab names (e.g. 'Overtime (TR3)')
+    const otRawRows  = getSheetRows(wb, otSheet);
+    const expRawRows = getSheetRows(wb, expSheet);
+    const medRawRows = getSheetRows(wb, medSheet);
 
     const [otItems, expItems, medItems] = await Promise.all([
         processOvertimeSheet(pool, otRawRows, errors),
