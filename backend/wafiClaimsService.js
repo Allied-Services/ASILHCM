@@ -960,7 +960,7 @@ async function pollGmail(pool) {
         // FROM: wafi-energy@asil.com.pk only
         // TO: claims@asil.com.pk OR ops-support@asil.com.pk (alias + real address)
         // Both read and unread — dedup via gmail_message_id prevents reprocessing
-        const q = `from:wafi-energy@asil.com.pk to:(${CLAIMS_EMAIL} OR ${GMAIL_USER}) has:attachment`;
+        const q = `from:@wafi-energy.com to:(${CLAIMS_EMAIL} OR ${GMAIL_USER}) has:attachment`;
         const { data } = await gmail.users.messages.list({
             userId: 'me',
             q,
