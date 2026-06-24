@@ -160,6 +160,31 @@ function parseNum(raw) {
     return isNaN(n) ? null : n;
 }
 
+// Parse hours from cell — handles decimal (1.5), HH:MM string ("1:30"), and Excel time serial (0.0625)
+function parseHours(raw) {
+    if (raw == null || raw === '') return null;
+    const s = String(raw).trim();
+
+    // HH:MM format e.g. "0:30" → 0.5, "1:30" → 1.5, "8:30" → 8.5
+    const timeMatch = s.match(/^(\d+):(\d{2})$/);
+    if (timeMatch) {
+        const h = parseInt(timeMatch[1], 10);
+        const m = parseInt(timeMatch[2], 10);
+        return parseFloat((h + m / 60).toFixed(4));
+    }
+
+    const n = parseFloat(s.replace(/,/g, ''));
+    if (isNaN(n)) return null;
+
+    // Excel time serial: stored as fraction of a day (e.g. 0.020833 = 30 min)
+    // Values like 0.5 = 12 hours, 0.020833 = 30 min
+    if (n > 0 && n < 1) {
+        return parseFloat((n * 24).toFixed(4));
+    }
+
+    return n;
+}
+
 // ── Employee DB Lookup ─────────────────────────────────────────────────────────
 async function lookupEmployee(pool, codeRaw) {
     const normalized = normalizeCode(codeRaw);
@@ -261,7 +286,7 @@ async function processOvertimeSheet(pool, rows, errors) {
         }
 
         // Required: hours
-        const hours = parseNum(hoursRaw);
+        const hours = parseHours(hoursRaw); // handles decimal, HH:MM ("0:30"), and Excel time serial
         if (hours == null || hours <= 0) {
             errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'J', error: 'Hours Worked must be a positive number', value: hoursRaw });
         }
