@@ -11,6 +11,7 @@ const { Resend } = require('resend');
 
 const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratuity } = require('./taxEngine');
 const { startEmailClaimsService, triggerManualPoll } = require('./emailClaimsService');
+const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt } = require('./wafiClaimsService');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -2565,7 +2566,7 @@ app.patch('/api/payroll/:year/:month/unlock', requireAuth, requireRole('finance_
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// DELETE /api/payroll/:year/:month/:employeeId ├óΓé¼ΓÇ¥ delete one employee's payroll row (superadmin only)
+// DELETE /api/payroll/:year/:month/:employeeId — delete one employee's payroll row (superadmin only)
 app.delete('/api/payroll/:year/:month/:employeeId', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         const { year, month, employeeId } = req.params;
@@ -2573,7 +2574,48 @@ app.delete('/api/payroll/:year/:month/:employeeId', requireAuth, requireRole('su
             'DELETE FROM payroll_transactions WHERE employee_id=$1 AND year=$2 AND month=$3 RETURNING employee_id',
             [employeeId, parseInt(year), parseInt(month)]
         );
-        // If 0 rows deleted the employee simply never had a saved override ├óΓé¼ΓÇ¥ treat as success
+        // If 0 rows deleted the employee simply never had a saved override — treat as success
+        res.json({ ok: true, deleted: result.rows.length });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/payroll/:year/:month — bulk-reset (erase all entered data) for a payroll month
+// Requires a password stored in the PAYROLL_RESET_PASSWORD env variable.
+// Refuses if any rows are locked (locked payroll cannot be erased without unlocking first).
+app.delete('/api/payroll/:year/:month', requireAuth, requireRole('superadmin', 'finance_approver'), async (req, res) => {
+    try {
+        const { year, month } = req.params;
+        const { password } = req.body || {};
+        const yr = parseInt(year), mo = parseInt(month);
+
+        // 1. Verify password
+        const RESET_PWD = process.env.PAYROLL_RESET_PASSWORD;
+        if (!RESET_PWD) {
+            return res.status(503).json({ error: 'PAYROLL_RESET_PASSWORD is not configured on the server. Set it in Render → Environment.' });
+        }
+        if (!password || password !== RESET_PWD) {
+            return res.status(403).json({ error: 'Incorrect reset password.' });
+        }
+
+        // 2. Refuse if any rows are locked
+        const lockCheck = await pool.query(
+            'SELECT COUNT(*) AS cnt FROM payroll_transactions WHERE year=$1 AND month=$2 AND locked=TRUE',
+            [yr, mo]
+        );
+        const lockedCount = parseInt(lockCheck.rows[0].cnt || '0');
+        if (lockedCount > 0) {
+            return res.status(409).json({
+                error: `Cannot reset: ${lockedCount} employee row(s) are locked. Please unlock the payroll first, then retry.`,
+            });
+        }
+
+        // 3. Delete all unlocked rows for this month
+        const result = await pool.query(
+            'DELETE FROM payroll_transactions WHERE year=$1 AND month=$2 AND (locked IS NULL OR locked=FALSE) RETURNING employee_id',
+            [yr, mo]
+        );
+
+        console.log(`[Payroll Reset] ${req.user?.email} erased ${result.rows.length} rows for ${yr}-${mo}`);
         res.json({ ok: true, deleted: result.rows.length });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -5610,6 +5652,294 @@ app.get('/api/claims/approve/:token', async (req, res) => {
     } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// WAFI CLAIMS MODULE — Routes
+// ══════════════════════════════════════════════════════════════════════════════
+
+const XLSX_wafi = require('xlsx');
+
+// GET /api/wafi-claims/sessions
+app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
+    try {
+        const { status, dateFrom, dateTo, location } = req.query;
+        const page  = Math.max(1, parseInt(req.query.page)  || 1);
+        const limit = Math.min(200, parseInt(req.query.limit) || 50);
+        const offset = (page - 1) * limit;
+
+        const vals = [];
+        let where = 'WHERE 1=1';
+        if (status)   { vals.push(status);   where += ` AND processing_status = $${vals.length}`; }
+        if (dateFrom) { vals.push(dateFrom); where += ` AND received_at >= $${vals.length}::timestamptz`; }
+        if (dateTo)   { vals.push(dateTo);   where += ` AND received_at <= $${vals.length}::timestamptz`; }
+        if (location) { vals.push(`%${location}%`); where += ` AND location_name ILIKE $${vals.length}`; }
+
+        const countVals = [...vals];
+        const { rows: countRows } = await pool.query(
+            `SELECT COUNT(*) FROM wafi_claims_sessions ${where}`, countVals
+        );
+        const total = parseInt(countRows[0].count);
+
+        vals.push(limit); vals.push(offset);
+        const { rows: sessions } = await pool.query(
+            `SELECT * FROM wafi_claims_sessions ${where}
+             ORDER BY received_at DESC
+             LIMIT $${vals.length - 1} OFFSET $${vals.length}`,
+            vals
+        );
+
+        const { rows: statsRows } = await pool.query(`
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED_SUCCESSFULLY') AS passed,
+                COUNT(*) FILTER (WHERE processing_status = 'VALIDATION_FAILED') AS failed,
+                COUNT(*) FILTER (WHERE processing_status = 'REVISED') AS revised,
+                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED_SUCCESSFULLY' AND pushed_to_payroll = FALSE) AS pending_payroll
+            FROM wafi_claims_sessions
+        `);
+
+        res.json({ sessions, total, page, limit, stats: statsRows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/wafi-claims/sessions/:id
+app.get('/api/wafi-claims/sessions/:id', requireAuth, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        const { rows: sessionRows } = await pool.query(
+            'SELECT * FROM wafi_claims_sessions WHERE id = $1', [id]
+        );
+        if (!sessionRows.length) return res.status(404).json({ error: 'Session not found' });
+
+        const { rows: items } = await pool.query(
+            'SELECT * FROM wafi_claims_items WHERE session_id = $1 ORDER BY tab_name, row_number', [id]
+        );
+        res.json({ session: sessionRows[0], items });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/wafi-claims/items
+app.get('/api/wafi-claims/items', requireAuth, async (req, res) => {
+    try {
+        const { dateFrom, dateTo, location, claimType, employeeCode } = req.query;
+        const page  = Math.max(1, parseInt(req.query.page)  || 1);
+        const limit = Math.min(500, parseInt(req.query.limit) || 50);
+        const offset = (page - 1) * limit;
+
+        const vals = [];
+        let where = 'WHERE wci.active = TRUE';
+        if (dateFrom)     { vals.push(dateFrom);       where += ` AND wci.claim_date >= $${vals.length}::date`; }
+        if (dateTo)       { vals.push(dateTo);         where += ` AND wci.claim_date <= $${vals.length}::date`; }
+        if (location)     { vals.push(`%${location}%`); where += ` AND wci.location ILIKE $${vals.length}`; }
+        if (claimType && claimType !== 'ALL') { vals.push(claimType); where += ` AND wci.claim_type = $${vals.length}`; }
+        if (employeeCode) { vals.push(`%${employeeCode}%`); where += ` AND (wci.employee_id ILIKE $${vals.length} OR wci.employee_code_raw ILIKE $${vals.length})`; }
+
+        const { rows: countRows } = await pool.query(
+            `SELECT COUNT(*) FROM wafi_claims_items wci ${where}`, vals
+        );
+        const total = parseInt(countRows[0].count);
+
+        vals.push(limit); vals.push(offset);
+        const { rows: items } = await pool.query(
+            `SELECT wci.*, wcs.sender_email, wcs.attachment_filename
+             FROM wafi_claims_items wci
+             JOIN wafi_claims_sessions wcs ON wcs.id = wci.session_id
+             ${where}
+             ORDER BY wci.claim_date DESC, wci.employee_name_db ASC
+             LIMIT $${vals.length - 1} OFFSET $${vals.length}`,
+            vals
+        );
+        res.json({ items, total, page, limit });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/wafi-claims/export
+app.get('/api/wafi-claims/export', requireAuth, async (req, res) => {
+    try {
+        const { dateFrom, dateTo, location, claimType, employeeCode } = req.query;
+        const vals = [];
+        let where = 'WHERE wci.active = TRUE';
+        if (dateFrom)     { vals.push(dateFrom);       where += ` AND wci.claim_date >= $${vals.length}::date`; }
+        if (dateTo)       { vals.push(dateTo);         where += ` AND wci.claim_date <= $${vals.length}::date`; }
+        if (location)     { vals.push(`%${location}%`); where += ` AND wci.location ILIKE $${vals.length}`; }
+        if (claimType && claimType !== 'ALL') { vals.push(claimType); where += ` AND wci.claim_type = $${vals.length}`; }
+        if (employeeCode) { vals.push(`%${employeeCode}%`); where += ` AND (wci.employee_id ILIKE $${vals.length} OR wci.employee_code_raw ILIKE $${vals.length})`; }
+
+        const { rows } = await pool.query(
+            `SELECT wci.id, wci.claim_type, wci.claim_date, wci.employee_id, wci.employee_name_db,
+                    wci.location, wci.department, wci.line_manager, wci.description,
+                    wci.ot_hours, wci.ot_multiplier, wci.raw_amount, wci.ot_payout
+             FROM wafi_claims_items wci
+             JOIN wafi_claims_sessions wcs ON wcs.id = wci.session_id
+             ${where}
+             ORDER BY wci.claim_date DESC, wci.claim_type, wci.employee_name_db`,
+            vals
+        );
+
+        const wb = XLSX_wafi.utils.book_new();
+        const ws = XLSX_wafi.utils.json_to_sheet(rows.map(r => ({
+            ID: r.id,
+            'Claim Type': r.claim_type,
+            'Claim Date': r.claim_date ? String(r.claim_date).slice(0,10) : '',
+            'Employee Code': r.employee_id,
+            'Employee Name': r.employee_name_db,
+            Location: r.location,
+            Department: r.department,
+            'Line Manager': r.line_manager,
+            Description: r.description,
+            'OT Hours': r.ot_hours,
+            'OT Multiplier': r.ot_multiplier,
+            'Amount (PKR)': r.raw_amount,
+            'OT Payout (PKR)': r.ot_payout,
+        })));
+        XLSX_wafi.utils.book_append_sheet(wb, ws, 'Wafi Claims');
+        const buf = XLSX_wafi.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+        const dateStr = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Disposition', `attachment; filename="wafi_claims_export_${dateStr}.xlsx"`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(buf);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/wafi-claims/sessions/:id/stage-payroll
+app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+        const { month, year } = req.body;
+        if (!month || !year) return res.status(400).json({ error: 'month and year are required' });
+
+        const { rows: sessionRows } = await pool.query(
+            'SELECT * FROM wafi_claims_sessions WHERE id = $1', [sessionId]
+        );
+        if (!sessionRows.length) return res.status(404).json({ error: 'Session not found' });
+        const session = sessionRows[0];
+        if (session.processing_status !== 'PROCESSED_SUCCESSFULLY') {
+            return res.status(400).json({ error: 'Only PROCESSED_SUCCESSFULLY sessions can be staged' });
+        }
+
+        const { rows: items } = await pool.query(
+            `SELECT wci.*, e.salary
+             FROM wafi_claims_items wci
+             LEFT JOIN employees e ON e.id = wci.employee_id
+             WHERE wci.session_id = $1 AND wci.active = TRUE`,
+            [sessionId]
+        );
+
+        const otPushMap    = {}; // employee_id -> ot_payout sum
+        const expPushMap   = {}; // employee_id -> expense sum
+        const medPushMap   = {}; // employee_id -> medical sum
+
+        for (const item of items) {
+            const empId = item.employee_id;
+            if (!empId) continue;
+            const salary     = parseFloat(item.salary) || 0;
+            const hourlyRate = salary / 26 / 8;
+
+            if (item.claim_type === 'OT') {
+                const hrs    = parseFloat(item.ot_hours)            || 0;
+                const factor = parseFloat(item.ot_multiplier_factor) || 1;
+                const payout = hrs * factor * hourlyRate;
+                otPushMap[empId] = (otPushMap[empId] || 0) + payout;
+            } else if (item.claim_type === 'EXPENSE') {
+                const amt = parseFloat(item.raw_amount) || 0;
+                expPushMap[empId] = (expPushMap[empId] || 0) + amt;
+            } else if (item.claim_type === 'MEDICAL') {
+                const amt = parseFloat(item.raw_amount) || 0;
+                medPushMap[empId] = (medPushMap[empId] || 0) + amt;
+            }
+        }
+
+        const affectedEmps = new Set([
+            ...Object.keys(otPushMap),
+            ...Object.keys(expPushMap),
+            ...Object.keys(medPushMap),
+        ]);
+
+        let upserted = 0;
+        for (const empId of affectedEmps) {
+            const otAmt  = parseFloat((otPushMap[empId]  || 0).toFixed(2));
+            const expAmt = parseFloat((expPushMap[empId] || 0).toFixed(2));
+            const medAmt = parseFloat((medPushMap[empId] || 0).toFixed(2));
+
+            await pool.query(`
+                INSERT INTO payroll_transactions (employee_id, month, year, ot, reimb, opd)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (employee_id, month, year) DO UPDATE
+                  SET ot    = payroll_transactions.ot    + EXCLUDED.ot,
+                      reimb = payroll_transactions.reimb + EXCLUDED.reimb,
+                      opd   = payroll_transactions.opd   + EXCLUDED.opd
+            `, [empId, parseInt(month), parseInt(year), otAmt, expAmt, medAmt]);
+            upserted++;
+        }
+
+        const payrollMonth = new Date(parseInt(year), parseInt(month) - 1, 1);
+        await pool.query(
+            `UPDATE wafi_claims_sessions
+             SET pushed_to_payroll = TRUE, payroll_month = $1
+             WHERE id = $2`,
+            [payrollMonth.toISOString().slice(0, 10), sessionId]
+        );
+
+        res.json({
+            ok: true,
+            message: `Staged ${upserted} employees to payroll ${year}-${String(month).padStart(2,'0')}`,
+            upserted,
+            breakdown: {
+                ot: Object.keys(otPushMap).length,
+                expense: Object.keys(expPushMap).length,
+                medical: Object.keys(medPushMap).length,
+            },
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/wafi-claims/stats
+app.get('/api/wafi-claims/stats', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT
+                COUNT(*) AS total_sessions,
+                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED_SUCCESSFULLY') AS passed,
+                COUNT(*) FILTER (WHERE processing_status = 'VALIDATION_FAILED') AS failed,
+                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED_SUCCESSFULLY' AND pushed_to_payroll = FALSE) AS pending_payroll,
+                SUM(total_ot_rows) AS total_ot_rows,
+                SUM(total_expense_rows) AS total_expense_rows,
+                SUM(total_medical_rows) AS total_medical_rows,
+                MAX(received_at) AS last_received_at
+            FROM wafi_claims_sessions
+        `);
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/wafi-claims/trigger-poll
+app.post('/api/wafi-claims/trigger-poll', requireAuth, async (req, res) => {
+    try {
+        const result = await triggerWafiManualPoll(pool);
+        res.json({ ok: true, result });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/wafi-claims/gmail-auth-status
+app.get('/api/wafi-claims/gmail-auth-status', requireAuth, async (req, res) => {
+    try {
+        const gmailUser = process.env.GMAIL_USER || '';
+        const configured = !!(process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN);
+        const { rows } = await pool.query(
+            'SELECT COUNT(*) AS total, MAX(received_at) AS last_received FROM wafi_claims_sessions'
+        ).catch(() => ({ rows: [{ total: 0, last_received: null }] }));
+        const maskedUser = gmailUser
+            ? `${gmailUser.split('@')[0].slice(0, 3)}***@${gmailUser.split('@')[1] || ''}`
+            : '(not set)';
+        res.json({
+            connected: configured,
+            gmail_user: maskedUser,
+            last_poll: getLastPollAt(),
+            total_captured: parseInt(rows[0]?.total) || 0,
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Central Error Handler ──────────────────────────────────────────────────
 
 // Catches errors passed via next(err). Sanitizes output in production.
@@ -6339,8 +6669,75 @@ app.listen(PORT, async () => {
         await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS line_manager_email TEXT');
         console.log('Migration OK: employees line_manager columns');
 
+        // ═══ Wafi Claims tables ═══════════════════════════════════════════════
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS wafi_claims_sessions (
+                id                   SERIAL PRIMARY KEY,
+                received_at          TIMESTAMPTZ NOT NULL,
+                sender_email         TEXT NOT NULL,
+                subject              TEXT,
+                gmail_message_id     TEXT UNIQUE,
+                gmail_thread_id      TEXT,
+                attachment_filename  TEXT,
+                location_name        TEXT,
+                claim_month          DATE,
+                processing_status    TEXT DEFAULT 'VALIDATING',
+                label_applied        TEXT,
+                validation_errors    JSONB DEFAULT '[]',
+                total_ot_rows        INT DEFAULT 0,
+                total_expense_rows   INT DEFAULT 0,
+                total_medical_rows   INT DEFAULT 0,
+                is_revision          BOOLEAN DEFAULT FALSE,
+                supersedes_session_id INT,
+                qc_email_sent        BOOLEAN DEFAULT FALSE,
+                confirm_email_sent   BOOLEAN DEFAULT FALSE,
+                pushed_to_payroll    BOOLEAN DEFAULT FALSE,
+                payroll_month        DATE,
+                created_at           TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS wafi_claims_items (
+                id                    SERIAL PRIMARY KEY,
+                session_id            INT REFERENCES wafi_claims_sessions(id) ON DELETE CASCADE,
+                tab_name              TEXT NOT NULL,
+                row_number            INT NOT NULL,
+                employee_id           TEXT REFERENCES employees(id) ON DELETE SET NULL,
+                employee_code_raw     TEXT,
+                employee_name_raw     TEXT,
+                employee_name_db      TEXT,
+                name_similarity       NUMERIC(4,3),
+                claim_date            DATE,
+                claim_type            TEXT,
+                ot_hours              NUMERIC(8,2),
+                ot_multiplier         TEXT,
+                ot_multiplier_factor  NUMERIC(4,2),
+                ot_payout             NUMERIC(12,2),
+                expense_type          TEXT,
+                description           TEXT,
+                raw_amount            NUMERIC(12,2),
+                location              TEXT,
+                department            TEXT,
+                line_manager          TEXT,
+                patient_name          TEXT,
+                payroll_transaction_id INT,
+                active                BOOLEAN DEFAULT TRUE,
+                created_at            TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_wafi_sessions_status ON wafi_claims_sessions(processing_status)').catch(() => {});
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_wafi_sessions_received ON wafi_claims_sessions(received_at DESC)').catch(() => {});
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_wafi_items_session ON wafi_claims_items(session_id)').catch(() => {});
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_wafi_items_employee ON wafi_claims_items(employee_id)').catch(() => {});
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_wafi_items_date ON wafi_claims_items(claim_date)').catch(() => {});
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_wafi_items_active ON wafi_claims_items(active)').catch(() => {});
+        console.log('Migration OK: wafi_claims_sessions + wafi_claims_items');
+
         // ═══ Start Email Claims Listener Service ══════════════════════════════
         startEmailClaimsService(pool);
+
+        // ═══ Start Wafi Claims Service ════════════════════════════════════════
+        startWafiClaimsService(pool);
 
     } catch (e) {
         console.warn('Migration warning (non-fatal):', e.message);
