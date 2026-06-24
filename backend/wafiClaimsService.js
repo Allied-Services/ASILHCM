@@ -732,15 +732,23 @@ async function processOneMessage(pool, gmail, msg) {
     const msgId = msg.id;
     const threadId = msg.threadId;
 
-    // Check dedup
+    // Check dedup — skip if already successfully processed or validated (failed)
+    // WRONG_FORMAT sessions are deleted and reprocessed so parser fixes take effect retroactively
     const dup = await pool.query(
-        'SELECT id FROM wafi_claims_sessions WHERE gmail_message_id = $1 LIMIT 1',
+        `SELECT id, processing_status FROM wafi_claims_sessions WHERE gmail_message_id = $1 LIMIT 1`,
         [msgId]
     );
     if (dup.rows.length) {
-        console.log(`[Wafi Claims] Duplicate message ${msgId}, skipping`);
-        await markAsRead(gmail, msgId);
-        return;
+        const existing = dup.rows[0];
+        if (existing.processing_status === 'WRONG_FORMAT') {
+            // Delete the wrong-format record so it gets reprocessed with the fixed parser
+            await pool.query('DELETE FROM wafi_claims_sessions WHERE id = $1', [existing.id]);
+            console.log(`[Wafi Claims] Reprocessing previously WRONG_FORMAT message ${msgId}`);
+        } else {
+            console.log(`[Wafi Claims] Duplicate message ${msgId} (${existing.processing_status}), skipping`);
+            await markAsRead(gmail, msgId);
+            return;
+        }
     }
 
     // Fetch full message
