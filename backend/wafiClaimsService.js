@@ -183,28 +183,37 @@ async function lookupEmployee(pool, codeRaw) {
  * Returns null if not a Wafi file (wrong sheets).
  * Returns { otRows, expenseRows, medicalRows, errors, claimMonth }
  */
+/**
+ * Returns null if buffer is not readable as Excel.
+ * Returns { wb } if all 3 required sheets are present.
+ * Returns { mismatch: true, found: [], missing: [] } if it IS an Excel but tabs don't match.
+ */
 function parseWafiExcel(buffer, filename) {
     let wb;
     try {
         wb = XLSX.read(buffer, { type: 'buffer', cellDates: false, raw: false });
     } catch (e) {
         console.error('[Wafi Claims] XLSX read error:', e.message);
-        return null;
+        return null; // not a valid Excel file — silently ignore
     }
 
-    // Content signature check — accept both 'Overtime Claims' (renamed) and 'Sheet' (legacy default name)
     const sheetNames = wb.SheetNames;
     const hasNew    = REQUIRED_SHEETS.every(r => sheetNames.includes(r));
     const hasLegacy = REQUIRED_SHEETS_LEGACY.every(r => sheetNames.includes(r));
 
     if (!hasNew && !hasLegacy) {
-        console.log(`[Wafi Claims] Skipping "${filename}" — not a Wafi claims file (sheets: ${sheetNames.join(', ')})`);
-        return null; // silently skip
+        // It IS an Excel file but doesn't have the 3 required tabs
+        // Log which tabs are present vs missing so admin can see in dashboard
+        const missingNew    = REQUIRED_SHEETS.filter(r => !sheetNames.includes(r));
+        const missingLegacy = REQUIRED_SHEETS_LEGACY.filter(r => !sheetNames.includes(r));
+        const missing = missingNew.length <= missingLegacy.length ? missingNew : missingLegacy;
+        console.log(`[Wafi Claims] "${filename}" — wrong format. Found: [${sheetNames.join(', ')}] | Missing: [${missing.join(', ')}]`);
+        return { mismatch: true, found: sheetNames, missing };
     }
 
-    // Normalize: if using legacy 'Sheet' tab name, rename it in memory so downstream code is consistent
+    // Normalize legacy 'Sheet' tab name to 'Overtime Claims' in memory
     if (hasLegacy && !hasNew) {
-        console.log(`[Wafi Claims] "${filename}" uses legacy tab name "Sheet" — treating as "Overtime Claims"`);
+        console.log(`[Wafi Claims] "${filename}" uses legacy tab name "Sheet" — normalizing to "Overtime Claims"`);
         const ws = wb.Sheets['Sheet'];
         wb.Sheets['Overtime Claims'] = ws;
         wb.SheetNames = wb.SheetNames.map(n => n === 'Sheet' ? 'Overtime Claims' : n);
@@ -765,9 +774,7 @@ async function processOneMessage(pool, gmail, msg) {
     const senderEmail = senderMatch ? senderMatch[1].toLowerCase() : fromHeader.toLowerCase();
 
     console.log(`[Wafi Claims] Processing: "${subject}" from ${senderEmail} (${msgId})`);
-
-    // Apply In-Progress label immediately
-    await applyLabel(gmail, msgId, 'Claims/In-Progress');
+    // NOTE: No label applied yet — only PROCESSED_SUCCESSFULLY emails get a label
 
     // Find XLSX attachments
     const attachments = [];
@@ -784,7 +791,8 @@ async function processOneMessage(pool, gmail, msg) {
     extractParts(fullMsg.payload);
 
     if (!attachments.length) {
-        console.log(`[Wafi Claims] No XLSX attachment in message ${msgId}, skipping`);
+        // No Excel attachment — silently ignore (could be a general email)
+        console.log(`[Wafi Claims] No XLSX attachment in message ${msgId} — ignoring`);
         await markAsRead(gmail, msgId);
         return;
     }
@@ -805,10 +813,38 @@ async function processOneMessage(pool, gmail, msg) {
         return;
     }
 
-    // Parse Excel — silently skip if not a Wafi file
+    // Parse Excel — check content signature
     const parseResult = parseWafiExcel(attBuffer, att.filename);
+
     if (!parseResult) {
-        console.log(`[Wafi Claims] "${att.filename}" is not a Wafi template — silently skipping`);
+        // Not a valid Excel file at all — silently ignore
+        console.log(`[Wafi Claims] "${att.filename}" is not a readable Excel file — ignoring`);
+        await markAsRead(gmail, msgId);
+        return;
+    }
+
+    if (parseResult.mismatch) {
+        // It IS an Excel file but missing required tabs — log to DB as WRONG_FORMAT so admin can see
+        console.log(`[Wafi Claims] "${att.filename}" logged as WRONG_FORMAT — missing tabs: ${parseResult.missing.join(', ')}`);
+        const mismatchError = [{
+            sheet: 'Template Structure',
+            row: '-',
+            column: '-',
+            error: `Wrong template format. Required tabs not found.`,
+            value: `Found: [${parseResult.found.join(', ')}] | Missing: [${parseResult.missing.join(', ')}]`,
+        }];
+        try {
+            await pool.query(`
+                INSERT INTO wafi_claims_sessions
+                    (received_at, sender_email, subject, gmail_message_id, gmail_thread_id,
+                     attachment_filename, processing_status, validation_errors,
+                     total_ot_rows, total_expense_rows, total_medical_rows)
+                VALUES ($1,$2,$3,$4,$5,$6,'WRONG_FORMAT',$7::jsonb,0,0,0)
+                ON CONFLICT (gmail_message_id) DO NOTHING
+            `, [receivedAt, senderEmail, subject, msgId, threadId, att.filename, JSON.stringify(mismatchError)]);
+        } catch (e) {
+            console.warn('[Wafi Claims] Failed to save WRONG_FORMAT session:', e.message);
+        }
         await markAsRead(gmail, msgId);
         return;
     }
@@ -872,11 +908,11 @@ async function processOneMessage(pool, gmail, msg) {
         return;
     }
 
-    // Update label
-    const labelName = status === 'PROCESSED_SUCCESSFULLY'
-        ? 'Claims/Processed-Successfully'
-        : 'Claims/Validation-Failed';
-    await applyLabel(gmail, msgId, labelName);
+    // Apply Gmail label ONLY on successful processing
+    if (status === 'PROCESSED_SUCCESSFULLY') {
+        await applyLabel(gmail, msgId, 'Claims/Processed-Successfully');
+    }
+    // VALIDATION_FAILED and other statuses get NO label — admin sees them in dashboard only
 
     // Update session with email send status
     try {
@@ -921,9 +957,10 @@ async function pollGmail(pool) {
     try {
         await ensureLabels(gmail);
 
-        // Search for emails sent to the claims alias (any sender — content-signature is the real gate)
-        // We use the alias address in the TO filter, not the real account address
-        const q = `to:${CLAIMS_EMAIL} has:attachment`;
+        // FROM: wafi-energy@asil.com.pk only
+        // TO: claims@asil.com.pk OR ops-support@asil.com.pk (alias + real address)
+        // Both read and unread — dedup via gmail_message_id prevents reprocessing
+        const q = `from:wafi-energy@asil.com.pk to:(${CLAIMS_EMAIL} OR ${GMAIL_USER}) has:attachment`;
         const { data } = await gmail.users.messages.list({
             userId: 'me',
             q,
