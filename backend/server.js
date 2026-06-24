@@ -5893,6 +5893,107 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/wafi-claims/sessions/:id/override-employee
+// Admin manually maps a wrong employee code to the correct employee.
+// If all validation errors are resolved the session flips to PROCESSED_SUCCESSFULLY.
+app.post('/api/wafi-claims/sessions/:id/override-employee', requireAuth, async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const sessionId   = parseInt(req.params.id);
+        const { rawCode, correctEmployeeId } = req.body;
+        if (!rawCode || !correctEmployeeId) {
+            return res.status(400).json({ error: 'rawCode and correctEmployeeId are required' });
+        }
+
+        await client.query('BEGIN');
+
+        // Verify session exists and is VALIDATION_FAILED
+        const { rows: sessRows } = await client.query(
+            `SELECT id, processing_status, validation_errors FROM wafi_claims_sessions WHERE id = $1`,
+            [sessionId]
+        );
+        if (!sessRows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Session not found' }); }
+        const sess = sessRows[0];
+        if (sess.processing_status !== 'VALIDATION_FAILED') {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: `Session is ${sess.processing_status} — only VALIDATION_FAILED sessions can be overridden` });
+        }
+
+        // Verify the correct employee exists
+        const { rows: empRows } = await client.query(
+            `SELECT id, name, salary FROM employees WHERE id = $1 LIMIT 1`,
+            [correctEmployeeId]
+        );
+        if (!empRows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: `Employee ${correctEmployeeId} not found in DB` }); }
+        const emp = empRows[0];
+
+        // Normalize the raw code to match what was stored
+        const normalize = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const rawNorm = normalize(rawCode);
+
+        // Update all items in this session that have this raw code
+        const { rowCount } = await client.query(`
+            UPDATE wafi_claims_items
+            SET employee_id       = $1,
+                employee_name_db  = $2,
+                name_similarity   = 1.000
+            WHERE session_id = $3
+              AND LOWER(REGEXP_REPLACE(employee_code_raw, '[^a-zA-Z0-9]', '', 'g')) = $4
+        `, [correctEmployeeId, emp.name, sessionId, rawNorm]);
+
+        if (rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: `No items found in session ${sessionId} with raw code "${rawCode}" (normalized: ${rawNorm})` });
+        }
+
+        // Remove validation errors that mention this raw code
+        const currentErrors = sess.validation_errors || [];
+        const remaining = currentErrors.filter(e =>
+            !(e.error && e.error.toLowerCase().includes('employee code not found') &&
+              normalize(String(e.value || '')) === rawNorm)
+        );
+
+        // If no errors remain → flip session to PROCESSED_SUCCESSFULLY
+        const newStatus = remaining.length === 0 ? 'PROCESSED_SUCCESSFULLY' : 'VALIDATION_FAILED';
+        await client.query(
+            `UPDATE wafi_claims_sessions SET validation_errors = $1::jsonb, processing_status = $2 WHERE id = $3`,
+            [JSON.stringify(remaining), newStatus, sessionId]
+        );
+
+        await client.query('COMMIT');
+
+        res.json({
+            ok: true,
+            itemsUpdated: rowCount,
+            errorsRemaining: remaining.length,
+            newStatus,
+            message: `Mapped "${rawCode}" → ${correctEmployeeId} (${emp.name}). ${rowCount} item(s) updated. Session is now ${newStatus}.`,
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// GET /api/wafi-claims/employee-search?q=...
+// Searchable employee dropdown for the override modal
+app.get('/api/wafi-claims/employee-search', requireAuth, async (req, res) => {
+    try {
+        const q = String(req.query.q || '').trim();
+        if (q.length < 2) return res.json({ employees: [] });
+        const { rows } = await pool.query(`
+            SELECT id, name, dept, location
+            FROM employees
+            WHERE name ILIKE $1 OR id ILIKE $1
+            ORDER BY name
+            LIMIT 20
+        `, [`%${q}%`]);
+        res.json({ employees: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /api/wafi-claims/stats
 app.get('/api/wafi-claims/stats', requireAuth, async (req, res) => {
     try {

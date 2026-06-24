@@ -117,6 +117,15 @@ export default function WafiClaimsDashboard({ user }) {
   const [stageLoading, setStageLoading] = useState(false);
   const [stageResult, setStageResult]   = useState(null);
 
+  // ── Override employee state ────────────────────────────────────────────────
+  const [overrideModal, setOverrideModal] = useState(null); // { sessionId, rawCode }
+  const [empSearch, setEmpSearch]         = useState('');
+  const [empResults, setEmpResults]       = useState([]);
+  const [empSearching, setEmpSearching]   = useState(false);
+  const [selectedEmp, setSelectedEmp]     = useState(null);
+  const [overrideLoading, setOverrideLoading] = useState(false);
+  const [overrideResult, setOverrideResult]   = useState(null);
+
   // ── Items state ───────────────────────────────────────────────────────────
   const [items, setItems]             = useState([]);
   const [itemsTotal, setItemsTotal]   = useState(0);
@@ -240,6 +249,39 @@ export default function WafiClaimsDashboard({ user }) {
     if (itemsFilter.claimType && itemsFilter.claimType !== 'ALL') params.set('claimType', itemsFilter.claimType);
     if (itemsFilter.employeeCode) params.set('employeeCode', itemsFilter.employeeCode);
     window.open(`${API}/api/wafi-claims/export?${params}&_tok=${tok()}`, '_blank');
+  };
+
+  const searchEmployees = useCallback(async (q) => {
+    setEmpSearch(q);
+    setSelectedEmp(null);
+    if (q.length < 2) { setEmpResults([]); return; }
+    setEmpSearching(true);
+    try {
+      const d = await apiFetch(`/api/wafi-claims/employee-search?q=${encodeURIComponent(q)}`);
+      setEmpResults(d.employees || []);
+    } catch {} finally { setEmpSearching(false); }
+  }, []);
+
+  const handleOverride = async () => {
+    if (!overrideModal || !selectedEmp) return;
+    setOverrideLoading(true); setOverrideResult(null);
+    try {
+      const d = await apiFetch(
+        `/api/wafi-claims/sessions/${overrideModal.sessionId}/override-employee`,
+        { method: 'POST', body: JSON.stringify({ rawCode: overrideModal.rawCode, correctEmployeeId: selectedEmp.id }) }
+      );
+      setOverrideResult(d);
+      if (d.ok) {
+        // Refresh the session detail and session list
+        await loadSessionDetail(overrideModal.sessionId);
+        await loadSessions();
+        await loadStats();
+        if (d.newStatus === 'PROCESSED_SUCCESSFULLY') {
+          setTimeout(() => setOverrideModal(null), 2200);
+        }
+      }
+    } catch (e) { setOverrideResult({ error: e.message }); }
+    setOverrideLoading(false);
   };
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
@@ -446,7 +488,7 @@ export default function WafiClaimsDashboard({ user }) {
                                   <div style={{ overflowX: 'auto' }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                                       <thead><tr>
-                                        {['Sheet','Row','Column','Error','Value'].map(h => <th key={h} style={{ ...s.th, fontSize: '0.68rem', background: 'rgba(239,68,68,0.06)' }}>{h}</th>)}
+                                        {['Sheet','Row','Column','Error','Value','Action'].map(h => <th key={h} style={{ ...s.th, fontSize: '0.68rem', background: 'rgba(239,68,68,0.06)' }}>{h}</th>)}
                                       </tr></thead>
                                       <tbody>
                                         {sessionDetail.session.validation_errors.map((e, i) => (
@@ -456,6 +498,19 @@ export default function WafiClaimsDashboard({ user }) {
                                             <td style={{ ...s.td, fontSize: '0.76rem', textAlign: 'center' }}>{e.column}</td>
                                             <td style={{ ...s.td, fontSize: '0.76rem', color: '#ef4444' }}>{e.error}</td>
                                             <td style={{ ...s.td, fontSize: '0.76rem', color: '#94a3b8', fontStyle: 'italic' }}>{String(e.value || '').slice(0, 50)}</td>
+                                            <td style={s.td}>
+                                              {e.error?.toLowerCase().includes('employee code not found') && (
+                                                <button
+                                                  onClick={() => {
+                                                    setOverrideModal({ sessionId: sess.id, rawCode: e.value });
+                                                    setEmpSearch(''); setEmpResults([]); setSelectedEmp(null); setOverrideResult(null);
+                                                  }}
+                                                  style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid #6366f1', color: '#6366f1', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, whiteSpace: 'nowrap' }}
+                                                >
+                                                  Override →
+                                                </button>
+                                              )}
+                                            </td>
                                           </tr>
                                         ))}
                                       </tbody>
@@ -667,7 +722,85 @@ export default function WafiClaimsDashboard({ user }) {
         </div>
       )}
 
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          Override Employee Modal
+      ══════════════════════════════════════════════════════════════════════ */}
+      {overrideModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
+          <div style={{ background: '#1e293b', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '14px', padding: '1.75rem', minWidth: '380px', maxWidth: '500px', width: '92%' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ fontWeight: 700, fontSize: '1rem', color: '#e2e8f0' }}>Override Employee Code</div>
+              <button onClick={() => setOverrideModal(null)} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+            </div>
+
+            {/* Wrong code info */}
+            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', padding: '10px 14px', marginBottom: '1.25rem', fontSize: '0.82rem' }}>
+              <span style={{ color: '#94a3b8' }}>Wrong code in Excel: </span>
+              <strong style={{ color: '#ef4444', fontFamily: 'monospace' }}>{overrideModal.rawCode}</strong>
+            </div>
+
+            {/* Employee search */}
+            <label style={{ fontSize: '0.78rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Search correct employee (name or code)</label>
+            <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
+              <input
+                value={empSearch}
+                onChange={e => searchEmployees(e.target.value)}
+                placeholder="e.g. Muhammad Awais or ASIL/SPL-85/21"
+                style={{ ...s.input, width: '100%', boxSizing: 'border-box' }}
+                autoFocus
+              />
+              {empSearching && <div style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)' }}><Spinner size={14} /></div>}
+            </div>
+
+            {/* Results dropdown */}
+            {empResults.length > 0 && !selectedEmp && (
+              <div style={{ border: '1px solid #334155', borderRadius: '8px', overflow: 'hidden', marginBottom: '0.75rem', maxHeight: '200px', overflowY: 'auto' }}>
+                {empResults.map(emp => (
+                  <div
+                    key={emp.id}
+                    onClick={() => { setSelectedEmp(emp); setEmpResults([]); }}
+                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.1s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.12)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#e2e8f0' }}>{emp.name}</div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{emp.id} · {emp.dept || '—'} · {emp.location || '—'}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Selected employee */}
+            {selectedEmp && (
+              <div style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '8px', padding: '10px 14px', marginBottom: '1rem', fontSize: '0.82rem' }}>
+                <div style={{ fontWeight: 700, color: '#22c55e', marginBottom: '2px' }}>✓ {selectedEmp.name}</div>
+                <div style={{ color: '#64748b' }}>{selectedEmp.id} · {selectedEmp.dept || '—'}</div>
+                <button onClick={() => { setSelectedEmp(null); setEmpSearch(''); }} style={{ marginTop: '6px', background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.72rem', padding: 0 }}>← Change</button>
+              </div>
+            )}
+
+            {/* Result feedback */}
+            {overrideResult && (
+              <div style={{ marginBottom: '1rem', padding: '10px 12px', borderRadius: '8px', background: overrideResult.error ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)', fontSize: '0.82rem', color: overrideResult.error ? '#ef4444' : '#22c55e' }}>
+                {overrideResult.error || overrideResult.message}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setOverrideModal(null)} style={{ ...btn('#64748b', 'rgba(100,116,139,0.1)') }}>Cancel</button>
+              <button onClick={handleOverride} disabled={!selectedEmp || overrideLoading} style={{ ...btn('#6366f1', 'rgba(99,102,241,0.15)'), opacity: (!selectedEmp || overrideLoading) ? 0.5 : 1 }}>
+                {overrideLoading ? <Spinner size={14} /> : null}
+                {overrideLoading ? 'Saving…' : 'Confirm Override'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`@keyframes wafi_spin { to { transform: rotate(360deg); } }`}</style>
     </div>
+
   );
 }
