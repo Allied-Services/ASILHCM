@@ -113,7 +113,7 @@ export default function WafiClaimsDashboard({ user }) {
   const [sessions, setSessions]         = useState([]);
   const [sessionTotal, setSessionTotal] = useState(0);
   const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [sessFilter, setSessFilter]     = useState({ status: '', dateFrom: '', dateTo: '' });
+  const [sessFilter, setSessFilter]     = useState({ status: '', dateFrom: '', dateTo: '', search: '' });
   const [sessPage, setSessPage]         = useState(1);
   const [expandedSession, setExpandedSession] = useState(null);
   const [sessionDetail, setSessionDetail]   = useState(null);
@@ -195,6 +195,7 @@ export default function WafiClaimsDashboard({ user }) {
       if (sessFilter.status)   params.set('status', sessFilter.status);
       if (sessFilter.dateFrom) params.set('dateFrom', sessFilter.dateFrom);
       if (sessFilter.dateTo)   params.set('dateTo', sessFilter.dateTo);
+      if (sessFilter.search)   params.set('search', sessFilter.search);
       const d = await apiFetch(`/api/wafi-claims/sessions?${params}`);
       setSessions(d.sessions || []);
       setSessionTotal(d.total || 0);
@@ -589,16 +590,33 @@ export default function WafiClaimsDashboard({ user }) {
       ══════════════════════════════════════════════════════════════════════ */}
       {tab === 'sessions' && (
         <div>
-          {/* Filters */}
-          <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <select value={sessFilter.status} onChange={e => { setSessFilter(f => ({ ...f, status: e.target.value })); setSessPage(1); }} style={s.sel}>
+        <div style={{ display:'flex', gap:'0.5rem', marginBottom:'0.75rem', flexWrap:'wrap', alignItems:'center' }}>
+            <input
+              value={sessFilter.search}
+              onChange={e => { setSessFilter(f => ({ ...f, search: e.target.value })); setSessPage(1); }}
+              placeholder="Search sender, filename…"
+              style={{ ...s.input, flex:'1', minWidth:'180px', fontSize:'0.82rem' }}
+            />
+            <select value={sessFilter.status} onChange={e => { setSessFilter(f => ({ ...f, status: e.target.value })); setSessPage(1); }} style={{ ...s.sel, fontSize:'0.82rem' }}>
               <option value="">All Statuses</option>
               {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
-            <input type="date" value={sessFilter.dateFrom} onChange={e => setSessFilter(f => ({ ...f, dateFrom: e.target.value }))} style={{ ...s.input, colorScheme: 'dark' }} placeholder="From" />
-            <input type="date" value={sessFilter.dateTo}   onChange={e => setSessFilter(f => ({ ...f, dateTo: e.target.value }))}   style={{ ...s.input, colorScheme: 'dark' }} placeholder="To" />
-            <button onClick={loadSessions} style={btn()}><RefreshCw size={14} /> Refresh</button>
-            <span style={{ color: '#64748b', fontSize: '0.8rem', marginLeft: 'auto' }}>{sessionTotal} total</span>
+            <input type="date" value={sessFilter.dateFrom} onChange={e => setSessFilter(f => ({ ...f, dateFrom: e.target.value }))} style={{ ...s.input, colorScheme:'dark', fontSize:'0.82rem' }} />
+            <input type="date" value={sessFilter.dateTo}   onChange={e => setSessFilter(f => ({ ...f, dateTo:   e.target.value }))} style={{ ...s.input, colorScheme:'dark', fontSize:'0.82rem' }} />
+            <button onClick={loadSessions} style={btn()}><RefreshCw size={13} /> Refresh</button>
+            <span style={{ color:'#64748b', fontSize:'0.78rem', marginLeft:'auto' }}>{sessionTotal} total</span>
+          </div>
+          {/* Quick filter chips */}
+          <div style={{ display:'flex', gap:'6px', marginBottom:'0.75rem', flexWrap:'wrap' }}>
+            {[['','All'],['PENDING_REVIEW','Pending'],['VALIDATION_FAILED','Failed'],['PROCESSED_SUCCESSFULLY','Passed'],['VERIFIED','Verified'],['IRRELEVANT','Not Relevant'],['SKIPPED','Skipped']].map(([val, label]) => (
+              <button key={val} onClick={() => { setSessFilter(f => ({ ...f, status: val })); setSessPage(1); }}
+                style={{ fontSize:'0.72rem', padding:'3px 10px', borderRadius:'20px', cursor:'pointer', border:'1px solid',
+                  background: sessFilter.status === val ? 'rgba(99,102,241,0.18)' : 'transparent',
+                  borderColor: sessFilter.status === val ? '#6366f1' : '#334155',
+                  color: sessFilter.status === val ? '#a5b4fc' : '#64748b',
+                  fontWeight: sessFilter.status === val ? 700 : 400,
+                }}>{label}</button>
+            ))}
           </div>
 
           {selectedSessions.size > 0 && (
@@ -640,8 +658,8 @@ export default function WafiClaimsDashboard({ user }) {
                             }} />
                         )}
                       </td>
-                      <td style={{ ...s.td, fontSize: '0.76rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>{fmtDT(sess.received_at)}</td>
-                      <td style={{ ...s.td, fontSize: '0.76rem', color: '#94a3b8', maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...s.td, fontSize: '0.74rem', color: '#94a3b8', whiteSpace: 'nowrap', padding:'6px 10px' }}>{fmtDT(sess.received_at)}</td>
+                      <td style={{ ...s.td, fontSize: '0.74rem', color: '#94a3b8', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding:'6px 10px' }}>
                         {sess.sender_email}
                         {sess.is_first_time_sender && (
                           <span style={{ fontSize:'0.65rem', background:'rgba(249,115,22,0.15)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'4px', padding:'1px 5px', marginLeft:'4px' }}>NEW</span>

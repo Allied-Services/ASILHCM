@@ -5673,7 +5673,7 @@ pool.query(`
 // GET /api/wafi-claims/sessions
 app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
     try {
-        const { status, dateFrom, dateTo, location } = req.query;
+        const { status, dateFrom, dateTo, location, search } = req.query;
         const page  = Math.max(1, parseInt(req.query.page)  || 1);
         const limit = Math.min(200, parseInt(req.query.limit) || 50);
         const offset = (page - 1) * limit;
@@ -5684,6 +5684,7 @@ app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
         if (dateFrom) { vals.push(dateFrom); where += ` AND wcs.received_at >= $${vals.length}::timestamptz`; }
         if (dateTo)   { vals.push(dateTo);   where += ` AND wcs.received_at <= $${vals.length}::timestamptz`; }
         if (location) { vals.push(`%${location}%`); where += ` AND wcs.location_name ILIKE $${vals.length}`; }
+        if (search)   { vals.push(`%${search}%`); where += ` AND (wcs.sender_email ILIKE $${vals.length} OR wcs.attachment_filename ILIKE $${vals.length} OR wcs.subject ILIKE $${vals.length})`; }
 
         const countVals = [...vals];
         const { rows: countRows } = await pool.query(
