@@ -1073,7 +1073,7 @@ async function sendDailyDigest(pool) {
 // ── Core: Process One Gmail Message ──────────────────────────────────────────
 async function processOneMessage(pool, gmail, msg) {
     const msgId = msg.id;
-    const threadId = msg.threadId;
+    let threadId = msg.threadId;
 
     // Dedup — IRRELEVANT and SKIPPED are permanent; WRONG_FORMAT and VALIDATION_FAILED reprocess
     const dup = await pool.query(
@@ -1098,10 +1098,13 @@ async function processOneMessage(pool, gmail, msg) {
     try {
         const { data } = await gmail.users.messages.get({ userId: 'me', id: msgId, format: 'full' });
         fullMsg = data;
+        // Always use real threadId from API — msg.threadId is null when from reprocess queue
+        threadId = fullMsg.threadId || threadId;
     } catch (e) {
         console.error(`[Wafi Claims] Failed to fetch message ${msgId}:`, e.message);
         return;
     }
+
 
     const headers = {};
     for (const h of (fullMsg.payload?.headers || [])) headers[h.name.toLowerCase()] = h.value;
