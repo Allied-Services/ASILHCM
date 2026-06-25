@@ -17,6 +17,7 @@
 const { google }  = require('googleapis');
 const XLSX        = require('xlsx');
 const { Resend }  = require('resend');
+const OpenAI      = require('openai');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const GMAIL_USER          = process.env.GMAIL_USER          || 'ops-support@asil.com.pk';
@@ -35,7 +36,9 @@ const DIGEST_RECIPIENTS = [
     'laiba.mughal@asil.com.pk',
 ];
 
-const resend = new Resend(process.env.RESEND_API_KEY || '');
+const resend    = new Resend(process.env.RESEND_API_KEY || '');
+const openaiKey = process.env.OPENAI_API_KEY || '';
+const openai    = openaiKey ? new OpenAI({ apiKey: openaiKey }) : null;
 
 // Sheet keyword matchers — accepts suffixed tab names like 'Overtime (TR3)'
 const SHEET_KEYWORDS = { ot: 'overtime', expense: 'expense', medical: 'medical' };
@@ -162,25 +165,98 @@ function isTotalRow(codeVal, nameVal) {
     return /total/.test(combined);
 }
 
-// Detect whether a set of raw date strings from a sheet uses DD-MM-YYYY or MM-DD-YYYY.
-// Strategy: scan all string dates. If any 2nd segment > 12 → it's MM-DD-YYYY (the day is >12, month can't be).
-//           If any 1st segment > 12 → it's DD-MM-YYYY (day > 12, so day is first).
-//           If ambiguous → default to DD-MM-YYYY.
-// Returns 'MM-DD-YYYY' or 'DD-MM-YYYY'.
+// Detect whether a set of raw date strings uses DD-MM-YYYY or MM-DD-YYYY.
+// Strategy (in priority order):
+//   1. Hard evidence: if any b > 12 → MM-DD-YYYY; if any a > 12 → DD-MM-YYYY.
+//   2. Variance heuristic: the segment that stays CONSTANT across rows is the month.
+//      e.g.  05-01, 05-02 ... 05-29  →  a always=5, b varies 1-29  →  a is month → MM-DD-YYYY
+//      e.g.  01-05, 02-05 ... 29-05  →  b always=5, a varies 1-29  →  b is month → DD-MM-YYYY
+//   3. Default: DD-MM-YYYY (Pakistan standard)
 function detectDateFormat(rawValues) {
     let mmddEvidence = 0, ddmmEvidence = 0;
+    const aVals = [], bVals = [];
+
     for (const raw of rawValues) {
         if (raw == null || raw === '' || typeof raw === 'number') continue;
         const s = String(raw).trim();
         const m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
         if (!m) continue;
         const a = parseInt(m[1]), b = parseInt(m[2]);
-        if (b > 12) mmddEvidence++;  // 2nd part > 12 → must be day → MM-DD-YYYY
-        if (a > 12) ddmmEvidence++;  // 1st part > 12 → must be day → DD-MM-YYYY
+        aVals.push(a);
+        bVals.push(b);
+        if (b > 12) mmddEvidence++;
+        if (a > 12) ddmmEvidence++;
     }
+
+
+    // Priority 1: hard numeric evidence
     if (mmddEvidence > 0 && ddmmEvidence === 0) return 'MM-DD-YYYY';
     if (ddmmEvidence > 0 && mmddEvidence === 0) return 'DD-MM-YYYY';
-    return 'DD-MM-YYYY'; // default / ambiguous
+
+    // Priority 2: variance heuristic (need >=3 string dates for reliability)
+    if (aVals.length >= 3) {
+        const aUnique = new Set(aVals).size;
+        const bUnique = new Set(bVals).size;
+        const aRange  = Math.max(...aVals) - Math.min(...aVals);
+        const bRange  = Math.max(...bVals) - Math.min(...bVals);
+
+        // a is near-constant, b varies widely → a is the month → MM-DD-YYYY
+        // Example: 05/01, 05/02, ..., 05/29  →  a=5 always, b spans 28 days
+        if (aUnique <= 2 && bRange > aRange && bRange >= 5) {
+            console.log(`[Wafi Claims] Date fmt heuristic → MM-DD-YYYY (aUnique=${aUnique}, bRange=${bRange})`);
+            return 'MM-DD-YYYY';
+        }
+        // b is near-constant, a varies widely → b is the month → DD-MM-YYYY
+        if (bUnique <= 2 && aRange > bRange && aRange >= 5) {
+            console.log(`[Wafi Claims] Date fmt heuristic → DD-MM-YYYY (bUnique=${bUnique}, aRange=${aRange})`);
+            return 'DD-MM-YYYY';
+        }
+    }
+
+    return 'DD-MM-YYYY'; // default — Pakistan standard
+}
+
+// ── AI: smart date format + claim month validation via GPT-4o-mini ─────────────
+// Fallback when rule-based detection is still ambiguous (very few rows, all parts ≤12).
+// Cost: ~$0.001 per call — negligible.
+async function aiAnalyzeClaimsDates(sampleRows, currentFormat, currentMonth, sheetName) {
+    if (!openai) return null;
+    try {
+        const sample = sampleRows
+            .filter(r => r && (r[0] || r[1]))
+            .slice(0, 15)
+            .map((r, i) => `Row ${i + 2}: date="${r[0]}", empCode="${r[1]}", name="${r[2]}"`)
+            .join('\n');
+
+        const prompt = `You are analyzing an Excel "${sheetName}" sheet submitted by a contractor in Pakistan (PKT timezone).
+All rows belong to the SAME calendar month — this is a monthly claims submission.
+
+Sample rows:
+${sample}
+
+Current system interpretation: format=${currentFormat}, detected claim month=${currentMonth || 'unknown'}
+
+Determine the correct date format and true claim month.
+Key rule: whichever date segment repeats consistently across ALL rows is the MONTH; the varying segment is the DAY.
+
+Respond ONLY with valid JSON, no extra text:
+{"format":"MM-DD-YYYY","claimMonth":"2026-05","confidence":"high","reason":"First segment 05 is constant — it is the month (May)"}`;
+
+        const resp = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 150,
+            temperature: 0,
+            response_format: { type: 'json_object' },
+        });
+
+        const result = JSON.parse(resp.choices[0].message.content);
+        console.log(`[Wafi Claims] AI date analysis [${sheetName}]: fmt=${result.format} month=${result.claimMonth} confidence=${result.confidence} — ${result.reason}`);
+        return result;
+    } catch (e) {
+        console.warn('[Wafi Claims] AI date analysis failed (non-fatal):', e.message);
+        return null;
+    }
 }
 
 // Parse date string with optional format override ('DD-MM-YYYY' or 'MM-DD-YYYY')
