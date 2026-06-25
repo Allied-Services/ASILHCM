@@ -6389,6 +6389,51 @@ app.post('/api/wafi-claims/sessions/:id/reject', requireAuth, async (req, res) =
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/wafi-claims/sessions/:id/admin-override
+// Admin-verified override: promotes VALIDATION_FAILED → PROCESSED_SUCCESSFULLY.
+// Use when errors (e.g. duplicate rows) have been reviewed and the data is confirmed correct.
+// Stores an audit note with who overrode and the provided reason.
+app.post('/api/wafi-claims/sessions/:id/admin-override', requireAuth, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+        const overriddenBy = req.user?.email || req.user?.name || 'admin';
+        const reason = (req.body?.reason || 'Admin verified — errors acknowledged').trim();
+
+        const { rows } = await pool.query(
+            `UPDATE wafi_claims_sessions
+             SET processing_status  = 'PROCESSED_SUCCESSFULLY',
+                 override_note      = $2,
+                 updated_at         = NOW()
+             WHERE id = $1
+               AND processing_status IN ('VALIDATION_FAILED', 'PENDING_REVIEW', 'WRONG_FORMAT')
+             RETURNING id, sender_email, payroll_month`,
+            [sessionId, `Overridden by ${overriddenBy} at ${new Date().toISOString()}: ${reason}`]
+        );
+        if (!rows.length) {
+            return res.status(404).json({ error: 'Session not found or cannot be overridden in its current state' });
+        }
+        console.log(`[Wafi Claims] Admin override: session ${sessionId} promoted to PROCESSED_SUCCESSFULLY by ${overriddenBy}`);
+        res.json({ ok: true, sessionId, message: `Session overridden and marked as Passed. You can now Stage it to payroll.` });
+    } catch (err) {
+        // If override_note column doesn't exist, add it on the fly
+        if (err.message.includes('override_note')) {
+            try {
+                await pool.query(`ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS override_note TEXT`);
+                const { rows } = await pool.query(
+                    `UPDATE wafi_claims_sessions
+                     SET processing_status = 'PROCESSED_SUCCESSFULLY', updated_at = NOW()
+                     WHERE id = $1 AND processing_status IN ('VALIDATION_FAILED','PENDING_REVIEW','WRONG_FORMAT')
+                     RETURNING id`,
+                    [parseInt(req.params.id)]
+                );
+                if (!rows.length) return res.status(404).json({ error: 'Session not found' });
+                return res.json({ ok: true, sessionId: parseInt(req.params.id), message: 'Session overridden. You can now Stage it to payroll.' });
+            } catch (e2) { return res.status(500).json({ error: e2.message }); }
+        }
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST /api/wafi-claims/sessions/:id/qc-draft
 // Creates a Gmail draft in the original email thread with human-readable error list
 // Based on the user-provided rejection email template

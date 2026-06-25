@@ -394,6 +394,32 @@ export default function WafiClaimsDashboard({ user }) {
     setReprocessing(null);
   };
 
+  // Admin Override: promote VALIDATION_FAILED → PROCESSED_SUCCESSFULLY after manual review
+  const [adminOverrideLoading, setAdminOverrideLoading] = useState(false);
+  const handleAdminOverride = async (sessionId) => {
+    const reason = window.prompt(
+      'You are overriding validation errors and marking this session as Passed.\n\nOptional: enter a reason (or leave blank):',
+      'Errors reviewed and confirmed acceptable'
+    );
+    if (reason === null) return; // cancelled
+    setAdminOverrideLoading(sessionId);
+    try {
+      const d = await apiFetch(`/api/wafi-claims/sessions/${sessionId}/admin-override`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason || 'Admin verified' }),
+      });
+      if (d.ok) {
+        alert(`✓ ${d.message}`);
+        await loadSessions();
+        await loadStats();
+        if (sessionDetail?.session?.id === sessionId) await loadSessionDetail(sessionId);
+      } else {
+        alert('Error: ' + (d.error || 'Unknown error'));
+      }
+    } catch (e) { alert('Error: ' + e.message); }
+    setAdminOverrideLoading(null);
+  };
+
   // SUPERADMIN only — undo a staged payroll push
   const handleUndoStage = async (sess) => {
     const month = sess.payroll_month
@@ -840,6 +866,22 @@ export default function WafiClaimsDashboard({ user }) {
                                 <div style={{ fontSize:'0.82rem', marginTop:'10px', marginBottom:'8px' }}>
                                   <span style={{ color:'#64748b' }}>Settlement Month: </span>
                                   <strong style={{ color:'#10b981' }}>{fmtD(sessionDetail.session.settlement_month)}</strong>
+                                </div>
+                              )}
+
+                              {/* Admin Override button — for VALIDATION_FAILED sessions that have been manually reviewed */}
+                              {sessionDetail.session?.processing_status === 'VALIDATION_FAILED' && (
+                                <div style={{ background:'rgba(99,102,241,0.08)', border:'1px solid rgba(99,102,241,0.25)', borderRadius:'8px', padding:'10px 14px', marginBottom:'10px', display:'flex', alignItems:'center', gap:'12px', flexWrap:'wrap' }}>
+                                  <div style={{ flex:1, fontSize:'0.78rem', color:'#a5b4fc' }}>
+                                    <strong style={{ color:'#818cf8' }}>✓ Reviewed the errors below?</strong> If the data is correct, override to mark it as Passed and stage to payroll.
+                                  </div>
+                                  <button
+                                    onClick={() => handleAdminOverride(sessionDetail.session.id)}
+                                    disabled={adminOverrideLoading === sessionDetail.session.id}
+                                    style={{ ...btn('#6366f1','rgba(99,102,241,0.2)'), fontSize:'0.8rem', padding:'6px 14px', whiteSpace:'nowrap' }}
+                                  >
+                                    {adminOverrideLoading === sessionDetail.session.id ? <Spinner size={13}/> : '✓'} Admin Override — Mark as Passed
+                                  </button>
                                 </div>
                               )}
 
