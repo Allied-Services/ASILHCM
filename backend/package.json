@@ -21,7 +21,8 @@
     "pg": "^8.11.3",
     "resend": "^4.5.1",
     "xlsx": "^0.18.5",
-    "googleapis": "^144.0.0"
+    "googleapis": "^144.0.0",
+    "openai": "^4.104.0"
   },
   "license": "ISC",
   "type": "commonjs"
