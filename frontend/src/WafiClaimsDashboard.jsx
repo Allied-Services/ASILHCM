@@ -748,14 +748,23 @@ export default function WafiClaimsDashboard({ user }) {
                             <div style={{ color: '#ef4444', fontSize: '0.82rem', padding: '12px 0' }}>⚠ Failed to load details: {sessionDetail._error}</div>
                           ) : (
                             <div>
-                              {/* IRRELEVANT email summary */}
-                              {sessionDetail.session?.processing_status === 'IRRELEVANT' && sessionDetail.session?.email_summary && (
-                                <div style={{ background:'rgba(100,116,139,0.08)', border:'1px solid rgba(100,116,139,0.2)', borderRadius:'8px', padding:'12px 14px', marginBottom:'1rem', marginTop:'10px' }}>
-                                  <div style={{ fontSize:'0.72rem', color:'#64748b', fontWeight:600, marginBottom:'4px', textTransform:'uppercase' }}>Email Content Preview</div>
-                                  <div style={{ fontSize:'0.82rem', color:'#94a3b8', fontStyle:'italic', lineHeight:1.5 }}>{sessionDetail.session.email_summary}</div>
-                                  <button onClick={() => handleSkip(sessionDetail.session.id)} style={{ ...btn('#64748b','rgba(100,116,139,0.1)'), marginTop:'8px', fontSize:'0.75rem', padding:'4px 10px' }}><X size={12}/> Mark as Skipped</button>
-                                </div>
-                              )}
+                              {/* IRRELEVANT / DUPLICATE email summary */}
+                              {sessionDetail.session?.processing_status === 'IRRELEVANT' && sessionDetail.session?.email_summary && (() => {
+                                const isDuplicate = sessionDetail.session.email_summary.startsWith('DUPLICATE');
+                                const isEmpty     = sessionDetail.session.email_summary.startsWith('EMPTY FILE');
+                                const borderColor = isDuplicate ? '#f59e0b' : '#64748b';
+                                const labelColor  = isDuplicate ? '#d97706' : '#64748b';
+                                const textColor   = isDuplicate ? '#fbbf24' : '#94a3b8';
+                                const bgColor     = isDuplicate ? 'rgba(245,158,11,0.06)' : 'rgba(100,116,139,0.08)';
+                                const label       = isDuplicate ? '⚠ Duplicate Detected' : isEmpty ? 'Empty File' : 'Email Content Preview';
+                                return (
+                                  <div style={{ background: bgColor, border: `1px solid ${borderColor}40`, borderLeft: `3px solid ${borderColor}`, borderRadius:'8px', padding:'12px 14px', marginBottom:'1rem', marginTop:'10px' }}>
+                                    <div style={{ fontSize:'0.72rem', color: labelColor, fontWeight:700, marginBottom:'4px', textTransform:'uppercase', letterSpacing:'0.05em' }}>{label}</div>
+                                    <div style={{ fontSize:'0.82rem', color: textColor, lineHeight:1.6 }}>{sessionDetail.session.email_summary}</div>
+                                    <button onClick={() => handleSkip(sessionDetail.session.id)} style={{ ...btn('#64748b','rgba(100,116,139,0.1)'), marginTop:'8px', fontSize:'0.75rem', padding:'4px 10px' }}><X size={12}/> Mark as Skipped</button>
+                                  </div>
+                                );
+                              })()}
 
                               {/* Settlement month */}
                               {sessionDetail.session?.settlement_month && (
@@ -804,6 +813,21 @@ export default function WafiClaimsDashboard({ user }) {
                                   </div>
                                 </div>
                               )}
+
+                              {/* Similarity / Duplicate warning banner */}
+                              {(() => {
+                                const simWarn = sessionDetail.session?.name_warnings?.find(w => w.type === 'SIMILARITY');
+                                if (!simWarn) return null;
+                                const isPossibleDup = simWarn.note?.includes('POSSIBLE DUPLICATE');
+                                return (
+                                  <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderLeft: '3px solid #f59e0b', borderRadius:'8px', padding:'12px 14px', marginBottom:'12px' }}>
+                                    <div style={{ fontSize:'0.72rem', color:'#d97706', fontWeight:700, marginBottom:'4px', textTransform:'uppercase', letterSpacing:'0.05em' }}>
+                                      {isPossibleDup ? '⚠ Possible Duplicate Submission' : '⚠ Similar to Previous Submission'}
+                                    </div>
+                                    <div style={{ fontSize:'0.82rem', color:'#fbbf24', lineHeight:1.6 }}>{simWarn.note}</div>
+                                  </div>
+                                );
+                              })()}
 
                               {/* Name warnings */}
                               {sessionDetail.session?.name_warnings?.length > 0 && (

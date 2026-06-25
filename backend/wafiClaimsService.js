@@ -1027,6 +1027,38 @@ async function processOneMessage(pool, gmail, msg) {
             lastMismatch = { att, result };
             continue; // valid Excel but wrong tabs, try next
         }
+
+        // ── Pre-parse duplicate check: same sender + same filename already processed? ──
+        const { rows: prevByFilename } = await pool.query(`
+            SELECT id, received_at, processing_status
+            FROM wafi_claims_sessions
+            WHERE sender_email = $1 AND attachment_filename = $2
+              AND processing_status IN ('PROCESSED_SUCCESSFULLY','PENDING_REVIEW','VERIFIED','VALIDATION_FAILED')
+            ORDER BY received_at DESC LIMIT 1
+        `, [senderEmail, att.filename]);
+
+        if (prevByFilename.length) {
+            const prev = prevByFilename[0];
+            const prevDate = new Date(prev.received_at).toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
+            const dupReason = `DUPLICATE FILE: The exact same file "${att.filename}" was already submitted by this sender and ` +
+                `logged on ${prevDate} (Session #${prev.id}, status: ${prev.processing_status}). No new data has been recorded.`;
+            console.log(`[Wafi Claims] Duplicate filename detected for ${senderEmail}: "${att.filename}" → session #${prev.id}`);
+            try {
+                await pool.query(`
+                    INSERT INTO wafi_claims_sessions
+                        (received_at, sender_email, subject, gmail_message_id, gmail_thread_id,
+                         attachment_filename, processing_status, email_summary, is_first_time_sender,
+                         total_ot_rows, total_expense_rows, total_medical_rows,
+                         validation_errors, name_warnings)
+                    VALUES ($1,$2,$3,$4,$5,$6,'IRRELEVANT',$7,$8,0,0,0,'[]'::jsonb,'[]'::jsonb)
+                    ON CONFLICT (gmail_message_id) DO NOTHING
+                `, [receivedAt, senderEmail, subject, msgId, threadId, att.filename, dupReason, isFirstTimeSender]);
+            } catch (e) { console.warn('[Wafi Claims] Failed to save DUPLICATE session:', e.message); }
+            await applyLabel(gmail, msgId, 'Claims/Not-Relevant');
+            await markAsRead(gmail, msgId);
+            return;
+        }
+
         // Found valid claims file
         validAttachment = { att, buf };
         parseResult = result;
@@ -1095,6 +1127,23 @@ async function processOneMessage(pool, gmail, msg) {
 
     // ── Empty file check → IRRELEVANT ────────────────────────────────────────
     if (validItems.length === 0 && errors.length === 0) {
+        // Check if same sender+filename was previously logged (it's a repeated blank submission)
+        const { rows: prevBlank } = await pool.query(`
+            SELECT id, received_at FROM wafi_claims_sessions
+            WHERE sender_email = $1 AND attachment_filename = $2 AND id != 0
+            ORDER BY received_at DESC LIMIT 1
+        `, [senderEmail, att.filename]);
+
+        let blankReason;
+        if (prevBlank.length) {
+            const prevDate = new Date(prevBlank[0].received_at).toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
+            blankReason = `DUPLICATE FILE: "${att.filename}" was already submitted on ${prevDate} (Session #${prevBlank[0].id}). ` +
+                `This copy also contains no claim rows — no action taken.`;
+        } else {
+            blankReason = `EMPTY FILE: "${att.filename}" has the correct tab structure (Overtime Claims, Expense Claims, Medical & IPD Claims) ` +
+                `but contains no data rows. Nothing was logged.`;
+        }
+
         console.log(`[Wafi Claims] "${att.filename}" has correct tabs but 0 rows — logging as IRRELEVANT`);
         try {
             await pool.query(`
@@ -1105,7 +1154,7 @@ async function processOneMessage(pool, gmail, msg) {
                      validation_errors, name_warnings)
                 VALUES ($1,$2,$3,$4,$5,$6,'IRRELEVANT',$7,$8,0,0,0,'[]'::jsonb,'[]'::jsonb)
                 ON CONFLICT (gmail_message_id) DO NOTHING
-            `, [receivedAt, senderEmail, subject, msgId, threadId, att.filename, emailSummary, isFirstTimeSender]);
+            `, [receivedAt, senderEmail, subject, msgId, threadId, att.filename, blankReason, isFirstTimeSender]);
         } catch (e) { console.warn('[Wafi Claims] Failed to save IRRELEVANT session:', e.message); }
         await applyLabel(gmail, msgId, 'Claims/Not-Relevant');
         await markAsRead(gmail, msgId);
@@ -1116,6 +1165,56 @@ async function processOneMessage(pool, gmail, msg) {
     // Clean validation → PENDING_REVIEW; has errors → VALIDATION_FAILED
     const status = hasErrors ? 'VALIDATION_FAILED' : 'PENDING_REVIEW';
     console.log(`[Wafi Claims] "${att.filename}": ${validItems.length} valid, ${errors.length} errors, ${warnings.length} warnings → ${status}`);
+
+    // ── Similarity check against existing sessions for same sender + same claim month ──
+    // Runs even if there are validation errors — helps identify duplicates early.
+    let similarityNote = '';
+    try {
+        const newEmpIds  = new Set(validItems.map(r => r.employee_id).filter(Boolean));
+        const firstDate  = validItems.find(r => r.claim_date)?.claim_date || new Date();
+        if (newEmpIds.size > 0) {
+            const { rows: prevEmpRows } = await pool.query(`
+                SELECT DISTINCT wci.employee_id, wci.ot_hours, wci.raw_amount, wci.claim_type,
+                                wcs.id AS session_id, wcs.received_at, wcs.attachment_filename
+                FROM wafi_claims_items wci
+                JOIN wafi_claims_sessions wcs ON wcs.id = wci.session_id
+                WHERE wcs.sender_email = $1
+                  AND DATE_TRUNC('month', wci.claim_date) = DATE_TRUNC('month', $2::date)
+                  AND wci.active = TRUE
+                  AND wcs.processing_status IN ('PROCESSED_SUCCESSFULLY','PENDING_REVIEW','VERIFIED')
+            `, [senderEmail, firstDate]);
+
+            if (prevEmpRows.length > 0) {
+                const prevEmpIds     = new Set(prevEmpRows.map(r => r.employee_id).filter(Boolean));
+                const prevSessionIds = [...new Set(prevEmpRows.map(r => r.session_id))];
+                const overlap        = [...newEmpIds].filter(id => prevEmpIds.has(id));
+                const overlapPct     = Math.round((overlap.length / Math.max(newEmpIds.size, prevEmpIds.size)) * 100);
+                const newOnly        = [...newEmpIds].filter(id => !prevEmpIds.has(id));
+                const removedOnly    = [...prevEmpIds].filter(id => !newEmpIds.has(id));
+                const prevDate       = new Date(prevEmpRows[0].received_at).toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
+                const prevFile       = prevEmpRows[0].attachment_filename || '';
+
+                if (overlapPct === 100 && newOnly.length === 0 && removedOnly.length === 0) {
+                    similarityNote = `⚠ POSSIBLE DUPLICATE: All ${newEmpIds.size} employee(s) in this submission ` +
+                        `were already logged for this claim month in Session #${prevSessionIds[0]} ` +
+                        `(${prevDate}, file: "${prevFile}"). Please verify before staging.`;
+                } else if (overlapPct >= 60) {
+                    similarityNote = `⚠ SIMILAR TO PREVIOUS SUBMISSION (${overlapPct}% overlap with Session #${prevSessionIds[0]}, ${prevDate}): ` +
+                        `${overlap.length} employee(s) match, ` +
+                        (newOnly.length   ? `${newOnly.length} new employee(s) added, ` : '') +
+                        (removedOnly.length ? `${removedOnly.length} employee(s) removed. ` : '') +
+                        `Manual review recommended before staging.`;
+                }
+
+                if (similarityNote) {
+                    console.log(`[Wafi Claims] Similarity alert for session from ${senderEmail}: ${overlapPct}% overlap`);
+                    warnings.push({ type: 'SIMILARITY', note: similarityNote });
+                }
+            }
+        }
+    } catch (simErr) {
+        console.warn('[Wafi Claims] Similarity check error:', simErr.message);
+    }
 
     // Revision detection (only if no errors)
     let isRevision = false, supersedesSessionId = null;
