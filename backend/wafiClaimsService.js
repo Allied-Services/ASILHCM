@@ -1532,9 +1532,38 @@ async function pollGmail(pool) {
 
     try {
         await ensureLabels(gmail);
-        // Only fetch UNREAD emails not yet labelled with any Claims/* label.
-        // This prevents re-fetching already-processed emails on every poll.
-        // The DB message ID dedup is a secondary safety net for edge cases.
+
+        // ── Process requeue'd message IDs first (these bypass the label filter) ──
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS wafi_claims_reprocess_queue (
+                    gmail_message_id TEXT PRIMARY KEY,
+                    queued_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            `);
+            const { rows: queued } = await pool.query(
+                `SELECT gmail_message_id FROM wafi_claims_reprocess_queue ORDER BY queued_at`
+            );
+            if (queued.length > 0) {
+                console.log(`[Wafi Claims] Reprocess queue: ${queued.length} message(s) to reprocess directly`);
+                for (const row of queued) {
+                    const qMsgId = row.gmail_message_id;
+                    try {
+                        await processOneMessage(pool, gmail, { id: qMsgId, threadId: null });
+                        summary.processed++;
+                    } catch (e) {
+                        console.error(`[Wafi Claims] Requeue error for ${qMsgId}:`, e.message);
+                        summary.errors++;
+                    }
+                    // Remove from queue regardless of success/fail — don't loop forever
+                    await pool.query(`DELETE FROM wafi_claims_reprocess_queue WHERE gmail_message_id = $1`, [qMsgId]);
+                }
+            }
+        } catch (e) {
+            console.warn('[Wafi Claims] Reprocess queue processing warning:', e.message);
+        }
+
+        // ── Normal poll: unread emails not yet labelled ──
         const q = `from:@${SENDER_DOMAIN} to:(${CLAIMS_EMAIL} OR ${GMAIL_USER}) has:attachment is:unread -label:Claims`;
         const { data } = await gmail.users.messages.list({ userId: 'me', q, maxResults: 50 });
         const messages = data.messages || [];
@@ -1628,30 +1657,30 @@ async function reprocessSession(pool, sessionId) {
     await pool.query('DELETE FROM wafi_claims_sessions WHERE id = $1', [sessionId]);
     console.log(`[Wafi Claims] Reprocess: deleted session ${sessionId} (${session.processing_status})`);
 
-    // Reset Gmail message: mark unread + remove all Claims/* labels so poll picks it up
+    // Queue the message ID for direct reprocessing on next poll.
+    // NOTE: We cannot rely on Gmail label removal — the poll uses -label:Claims which
+    // matches the parent "Claims" label. Even removing all child labels, the parent persists.
+    // Solution: store message ID in a reprocess queue; poll fetches it directly by ID.
     if (msgId) {
         try {
-            const gmail = createGmailClient();
-            if (gmail) {
-                await ensureLabels(gmail);
-                const removeLabelIds = ['UNREAD', ...Object.values(_labelCache)].filter(Boolean);
-                // Mark as UNREAD so it appears in the poll query
-                await gmail.users.messages.modify({
-                    userId: 'me',
-                    id: msgId,
-                    requestBody: {
-                        addLabelIds: ['UNREAD'],
-                        removeLabelIds: Object.values(_labelCache).filter(Boolean),
-                    },
-                });
-                console.log(`[Wafi Claims] Reprocess: message ${msgId} marked unread + labels removed`);
-            }
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS wafi_claims_reprocess_queue (
+                    gmail_message_id TEXT PRIMARY KEY,
+                    queued_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            `);
+            await pool.query(
+                `INSERT INTO wafi_claims_reprocess_queue (gmail_message_id)
+                 VALUES ($1) ON CONFLICT (gmail_message_id) DO UPDATE SET queued_at = NOW()`,
+                [msgId]
+            );
+            console.log(`[Wafi Claims] Reprocess: queued message ${msgId} — will process on next poll`);
         } catch (e) {
-            console.warn(`[Wafi Claims] Reprocess Gmail reset warning (non-fatal):`, e.message);
+            console.warn(`[Wafi Claims] Reprocess queue warning (non-fatal):`, e.message);
         }
     }
 
-    return { success: true, sessionId, previousStatus: session.processing_status, msgId };
+    return { success: true, sessionId, previousStatus: session.processing_status, msgId, note: 'Run Poll Now to reprocess.' };
 }
 
 module.exports = {
