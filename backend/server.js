@@ -6398,38 +6398,27 @@ app.post('/api/wafi-claims/sessions/:id/admin-override', requireAuth, async (req
         const sessionId = parseInt(req.params.id);
         const overriddenBy = req.user?.email || req.user?.name || 'admin';
         const reason = (req.body?.reason || 'Admin verified — errors acknowledged').trim();
+        const note = `Overridden by ${overriddenBy} at ${new Date().toISOString()}: ${reason}`;
+
+        // Safely add override_note column if it doesn't exist yet
+        await pool.query(`ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS override_note TEXT`);
 
         const { rows } = await pool.query(
             `UPDATE wafi_claims_sessions
-             SET processing_status  = 'PROCESSED_SUCCESSFULLY',
-                 override_note      = $2,
-                 updated_at         = NOW()
+             SET processing_status = 'PROCESSED_SUCCESSFULLY',
+                 override_note     = $2
              WHERE id = $1
                AND processing_status IN ('VALIDATION_FAILED', 'PENDING_REVIEW', 'WRONG_FORMAT')
              RETURNING id, sender_email, payroll_month`,
-            [sessionId, `Overridden by ${overriddenBy} at ${new Date().toISOString()}: ${reason}`]
+            [sessionId, note]
         );
         if (!rows.length) {
             return res.status(404).json({ error: 'Session not found or cannot be overridden in its current state' });
         }
-        console.log(`[Wafi Claims] Admin override: session ${sessionId} promoted to PROCESSED_SUCCESSFULLY by ${overriddenBy}`);
-        res.json({ ok: true, sessionId, message: `Session overridden and marked as Passed. You can now Stage it to payroll.` });
+        console.log(`[Wafi Claims] Admin override: session ${sessionId} → PROCESSED_SUCCESSFULLY by ${overriddenBy}`);
+        res.json({ ok: true, sessionId, message: `Session marked as Passed. You can now Stage it to payroll.` });
     } catch (err) {
-        // If override_note column doesn't exist, add it on the fly
-        if (err.message.includes('override_note')) {
-            try {
-                await pool.query(`ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS override_note TEXT`);
-                const { rows } = await pool.query(
-                    `UPDATE wafi_claims_sessions
-                     SET processing_status = 'PROCESSED_SUCCESSFULLY', updated_at = NOW()
-                     WHERE id = $1 AND processing_status IN ('VALIDATION_FAILED','PENDING_REVIEW','WRONG_FORMAT')
-                     RETURNING id`,
-                    [parseInt(req.params.id)]
-                );
-                if (!rows.length) return res.status(404).json({ error: 'Session not found' });
-                return res.json({ ok: true, sessionId: parseInt(req.params.id), message: 'Session overridden. You can now Stage it to payroll.' });
-            } catch (e2) { return res.status(500).json({ error: e2.message }); }
-        }
+        console.error('[Wafi Claims] Admin override error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
