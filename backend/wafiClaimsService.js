@@ -1249,9 +1249,13 @@ async function processOneMessage(pool, gmail, msg) {
         return;
     }
 
-    // Apply label
+    // Apply label based on final status
     if (status === 'PENDING_REVIEW') {
         await applyLabel(gmail, msgId, 'Claims/Pending-Review');
+    } else if (status === 'VALIDATION_FAILED') {
+        // Apply label so future polls skip this email — it won't be reprocessed
+        // unless manually retriggered or the email is marked unread again.
+        await applyLabel(gmail, msgId, 'Claims/Validation-Failed');
     }
 
     // ── Draft: Revision acknowledgment ────────────────────────────────────────
@@ -1335,10 +1339,13 @@ async function pollGmail(pool) {
 
     try {
         await ensureLabels(gmail);
-        const q = `from:@${SENDER_DOMAIN} to:(${CLAIMS_EMAIL} OR ${GMAIL_USER}) has:attachment`;
-        const { data } = await gmail.users.messages.list({ userId: 'me', q, maxResults: 100 });
+        // Only fetch UNREAD emails not yet labelled with any Claims/* label.
+        // This prevents re-fetching already-processed emails on every poll.
+        // The DB message ID dedup is a secondary safety net for edge cases.
+        const q = `from:@${SENDER_DOMAIN} to:(${CLAIMS_EMAIL} OR ${GMAIL_USER}) has:attachment is:unread -label:Claims`;
+        const { data } = await gmail.users.messages.list({ userId: 'me', q, maxResults: 50 });
         const messages = data.messages || [];
-        console.log(`[Wafi Claims] Found ${messages.length} messages`);
+        console.log(`[Wafi Claims] Found ${messages.length} new unprocessed messages`);
 
         for (const msg of messages) {
             try {
