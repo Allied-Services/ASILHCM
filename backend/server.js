@@ -5989,6 +5989,72 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/wafi-claims/sessions/:id/resend-draft
+// Recreates the Gmail confirmation draft for a staged session where the draft was not created originally.
+// Fetches the real threadId directly from Gmail API using the stored gmail_message_id.
+app.post('/api/wafi-claims/sessions/:id/resend-draft', requireAuth, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+
+        const { rows: sessionRows } = await pool.query(
+            'SELECT * FROM wafi_claims_sessions WHERE id = $1', [sessionId]
+        );
+        if (!sessionRows.length) return res.status(404).json({ error: 'Session not found' });
+        const session = sessionRows[0];
+        if (!session.pushed_to_payroll) return res.status(400).json({ error: 'Session is not yet staged — stage it first' });
+
+        const { rows: items } = await pool.query(
+            `SELECT * FROM wafi_claims_items WHERE session_id = $1 AND active = TRUE`, [sessionId]
+        );
+
+        const gmail = createGmailClient();
+        if (!gmail) return res.status(503).json({ error: 'Gmail not configured' });
+
+        // Get real threadId from Gmail API using the stored message ID
+        let threadId = session.gmail_thread_id;
+        if (!threadId && session.gmail_message_id) {
+            try {
+                const { data } = await gmail.users.messages.get({
+                    userId: 'me', id: session.gmail_message_id, format: 'metadata', metadataHeaders: ['Subject'],
+                });
+                threadId = data.threadId;
+                // Save it for future use
+                if (threadId) {
+                    await pool.query('UPDATE wafi_claims_sessions SET gmail_thread_id = $1 WHERE id = $2', [threadId, sessionId]);
+                }
+            } catch (e) {
+                console.warn('[Wafi Claims] resend-draft: could not fetch threadId from Gmail:', e.message);
+            }
+        }
+
+        if (!threadId) return res.status(400).json({ error: 'Could not determine Gmail thread ID for this session' });
+
+        const html = buildConfirmationHtml({
+            sessionId,
+            filename: session.attachment_filename,
+            claimMonth: session.claim_month,
+            settlementMonth: session.payroll_month,
+            items,
+        });
+
+        const draftId = await createGmailDraft(
+            gmail, threadId, session.sender_email,
+            session.subject || 'Re: Claims Submission', html
+        );
+
+        if (draftId) {
+            await pool.query('UPDATE wafi_claims_sessions SET confirm_email_sent = TRUE WHERE id = $1', [sessionId]);
+            console.log(`[Wafi Claims] Resend draft: draft ${draftId} created for session ${sessionId}`);
+            res.json({ ok: true, draftId, message: 'Confirmation draft created in Gmail. Open Gmail Drafts to review and send.' });
+        } else {
+            res.status(500).json({ error: 'Draft creation failed — check Gmail credentials' });
+        }
+    } catch (err) {
+        console.error('[Wafi Claims] resend-draft error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST /api/wafi-claims/sessions/:id/reprocess
 // Resets an IRRELEVANT/WRONG_FORMAT/VALIDATION_FAILED/SKIPPED session so the next poll re-ingests it.
 app.post('/api/wafi-claims/sessions/:id/reprocess', requireAuth, async (req, res) => {

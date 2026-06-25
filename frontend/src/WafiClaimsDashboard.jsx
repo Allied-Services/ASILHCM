@@ -435,6 +435,20 @@ export default function WafiClaimsDashboard({ user }) {
     setUndoLoading(null);
   };
 
+  // Resend confirmation draft for staged sessions where draft was never created
+  const [resendDraftLoading, setResendDraftLoading] = useState(null);
+  const [resendDraftResult, setResendDraftResult]   = useState({});
+  const handleResendDraft = async (sessId) => {
+    if (!window.confirm('Create the Gmail confirmation draft for this staged session?')) return;
+    setResendDraftLoading(sessId);
+    try {
+      const d = await apiFetch(`/api/wafi-claims/sessions/${sessId}/resend-draft`, { method: 'POST' });
+      setResendDraftResult(prev => ({ ...prev, [sessId]: d }));
+      if (d.ok) await loadSessions();
+    } catch (e) { setResendDraftResult(prev => ({ ...prev, [sessId]: { error: e.message } })); }
+    setResendDraftLoading(null);
+  };
+
   // Batch verify handler
   const handleBatchVerify = async () => {
     if (!selectedSessions.size) return;
@@ -820,6 +834,21 @@ export default function WafiClaimsDashboard({ user }) {
                           {undoResult[sess.id] && (
                             <div style={{ fontSize: '0.7rem', color: undoResult[sess.id].error ? '#ef4444' : '#f59e0b', marginTop: '2px' }}>
                               {undoResult[sess.id].error || undoResult[sess.id].message || 'Undone ✓'}
+                            </div>
+                          )}
+                          {sess.pushed_to_payroll && !sess.confirm_email_sent && (
+                            <button
+                              onClick={() => handleResendDraft(sess.id)}
+                              disabled={resendDraftLoading === sess.id}
+                              style={{ ...btn('#f59e0b','rgba(245,158,11,0.12)'), fontSize:'0.75rem', padding:'4px 8px' }}
+                              title="Create Gmail confirmation draft"
+                            >
+                              {resendDraftLoading === sess.id ? <Spinner size={12}/> : '✉'} Draft Email
+                            </button>
+                          )}
+                          {resendDraftResult[sess.id] && (
+                            <div style={{ fontSize:'0.7rem', color: resendDraftResult[sess.id].error ? '#ef4444' : '#10b981', marginTop:'2px' }}>
+                              {resendDraftResult[sess.id].error || resendDraftResult[sess.id].message || 'Draft created ✓'}
                             </div>
                           )}
                         </div>
