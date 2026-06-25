@@ -230,8 +230,6 @@ export default function WafiClaimsDashboard({ user }) {
   useEffect(() => { if (tab === 'sessions') loadSessions(); }, [tab, loadSessions]);
   useEffect(() => { if (tab === 'items') loadItems(); }, [tab, loadItems]);
   useEffect(() => { if (tab === 'queue') loadQueue(); }, [tab, loadQueue]);
-  useEffect(() => { if (tab === 'focal') loadFocalPoints(); }, [tab, loadFocalPoints]);
-  useEffect(() => { if (tab === 'employees') loadEmpClaims(); }, [tab, loadEmpClaims]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const runPoll = async () => {
@@ -398,6 +396,10 @@ export default function WafiClaimsDashboard({ user }) {
       setEmpClaimsData(d.employees || []);
     } catch {} finally { setEmpClaimsLoading(false); }
   }, [empClaimsSearch, empClaimsFilter]);
+
+  // These useEffects must come AFTER loadFocalPoints and loadEmpClaims are defined
+  useEffect(() => { if (tab === 'focal')     loadFocalPoints(); }, [tab, loadFocalPoints]);
+  useEffect(() => { if (tab === 'employees') loadEmpClaims();   }, [tab, loadEmpClaims]);
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
   const TABS = [
