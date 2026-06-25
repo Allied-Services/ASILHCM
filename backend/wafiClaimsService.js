@@ -1079,6 +1079,62 @@ async function processOneMessage(pool, gmail, msg) {
         await applyLabel(gmail, msgId, 'Claims/Pending-Review');
     }
 
+    // ── Draft: Revision acknowledgment ────────────────────────────────────────
+    // When a second (or later) email comes in with claims for the same employee+month,
+    // create a draft in the NEW email's thread confirming receipt and that previous records were updated.
+    if (isRevision && threadId) {
+        try {
+            const claimMonthLabel = deriveClaimMonth(validItems)
+                ? new Date(deriveClaimMonth(validItems)).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+                : 'the submitted period';
+
+            const empNames = [...new Set(validItems.map(r => r.employee_name_db || r.employee_name_raw).filter(Boolean))];
+            const empList = empNames.slice(0, 5).join(', ') + (empNames.length > 5 ? ` and ${empNames.length - 5} others` : '');
+
+            const firstName = (empNames[0] || senderEmail.split('@')[0]).split(' ')[0];
+
+            const revHtml = `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:20px;">
+<div style="max-width:660px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);padding:24px 32px;">
+    <h1 style="color:#fff;margin:0;font-size:1.1rem;">ASIL HCM — Updated Claims Received</h1>
+    <p style="color:#bfdbfe;margin:6px 0 0;font-size:0.85rem;">Revision for ${claimMonthLabel} · Ref: #${sessionId}</p>
+  </div>
+  <div style="padding:28px 32px;">
+    <p style="color:#374151;margin:0 0 16px;">Dear ${firstName},</p>
+    <p style="color:#374151;margin:0 0 16px;font-size:0.92rem;">Thank you for your updated submission. We have received your revised claims file (<strong>${att.filename}</strong>) for <strong>${claimMonthLabel}</strong>.</p>
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:16px;margin-bottom:20px;">
+      <p style="color:#1d4ed8;font-weight:600;margin:0 0 8px;font-size:0.88rem;">📋 UPDATED RECORDS</p>
+      <p style="color:#374151;margin:0 0 8px;font-size:0.88rem;">The previous claims on record for <strong>${empList}</strong> for ${claimMonthLabel} have been superseded by this submission.</p>
+      <ul style="margin:0;padding-left:18px;color:#374151;font-size:0.85rem;line-height:1.8;">
+        ${otItems.filter(r => !r._error).length > 0 ? `<li>${otItems.filter(r => !r._error).length} Overtime claim row(s) updated</li>` : ''}
+        ${expItems.filter(r => !r._error).length > 0 ? `<li>${expItems.filter(r => !r._error).length} Expense claim row(s) updated</li>` : ''}
+        ${medItems.filter(r => !r._error).length > 0 ? `<li>${medItems.filter(r => !r._error).length} Medical & IPD claim row(s) updated</li>` : ''}
+      </ul>
+    </div>
+    <p style="color:#374151;font-size:0.9rem;margin:0 0 8px;">Your revised submission is now pending review by the ASIL HR team. No further action is required from you unless you are contacted.</p>
+    <p style="color:#374151;margin:16px 0 4px;font-size:0.9rem;">Regards,<br><strong>ASIL HR Team</strong></p>
+  </div>
+  <div style="background:#f8fafc;padding:14px 32px;border-top:1px solid #e2e8f0;">
+    <p style="color:#94a3b8;font-size:0.75rem;margin:0;">Allied Services International (Pvt.) Ltd. · ASIL HCM · ${new Date().getFullYear()}</p>
+  </div>
+</div></body></html>`;
+
+            const draftId = await createGmailDraft(gmail, threadId, senderEmail, subject || 'Re: Claims Submission', revHtml);
+            if (draftId) {
+                await pool.query('UPDATE wafi_claims_sessions SET confirm_email_sent = TRUE WHERE id = $1', [sessionId]);
+                console.log(`[Wafi Claims] Revision acknowledgment draft created (session ${sessionId})`);
+            }
+        } catch (draftErr) {
+            console.warn('[Wafi Claims] Revision draft warning:', draftErr.message);
+        }
+    }
+
+    // ── Draft: Already-logged duplicate submission ─────────────────────────────
+    // If the SAME employee's claims for the SAME month were already VERIFIED/STAGED
+    // but revision detection didn't fire (e.g. same email resent), create a "already logged" draft.
+    // This is handled by the revision detection marking old session REVISED above.
+    // For PENDING_REVIEW (no errors, first time), no draft needed here — the Verify action creates it.
+
     // Send QC rejection email if errors
     if (hasErrors) {
         try {

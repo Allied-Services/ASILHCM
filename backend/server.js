@@ -5943,10 +5943,42 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
             [payrollMonth.toISOString().slice(0, 10), sessionId]
         );
 
+        // Create Gmail confirmation draft in the original thread
+        let draftId = null;
+        try {
+            const gmail = createGmailClient();
+            if (gmail && session.gmail_thread_id) {
+                const otCount  = items.filter(i => i.claim_type === 'OT').length;
+                const expCount = items.filter(i => i.claim_type === 'EXPENSE').length;
+                const medCount = items.filter(i => i.claim_type === 'MEDICAL').length;
+                const html = buildConfirmationHtml({
+                    sessionId,
+                    filename: session.attachment_filename,
+                    otCount, expCount, medCount,
+                    claimMonth: session.claim_month,
+                    settlementMonth: payrollMonth.toISOString(),
+                });
+                draftId = await createGmailDraft(
+                    gmail,
+                    session.gmail_thread_id,
+                    session.sender_email,
+                    session.subject || 'Re: Claims Submission',
+                    html
+                );
+                if (draftId) {
+                    await pool.query('UPDATE wafi_claims_sessions SET confirm_email_sent = TRUE WHERE id = $1', [sessionId]);
+                }
+                console.log(`[Wafi Claims] Stage draft ${draftId ? 'created' : 'failed'} for session ${sessionId}`);
+            }
+        } catch (draftErr) {
+            console.warn('[Wafi Claims] Stage: draft creation failed:', draftErr.message);
+        }
+
         res.json({
             ok: true,
             message: `Staged ${upserted} employees to payroll ${year}-${String(month).padStart(2,'0')}`,
             upserted,
+            draftCreated: !!draftId,
             breakdown: {
                 ot: Object.keys(otPushMap).length,
                 expense: Object.keys(expPushMap).length,
