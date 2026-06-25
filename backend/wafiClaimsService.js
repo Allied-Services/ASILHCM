@@ -162,8 +162,29 @@ function isTotalRow(codeVal, nameVal) {
     return /total/.test(combined);
 }
 
-// Parse DD-MM-YYYY or Excel date serial
-function parseDate(raw) {
+// Detect whether a set of raw date strings from a sheet uses DD-MM-YYYY or MM-DD-YYYY.
+// Strategy: scan all string dates. If any 2nd segment > 12 → it's MM-DD-YYYY (the day is >12, month can't be).
+//           If any 1st segment > 12 → it's DD-MM-YYYY (day > 12, so day is first).
+//           If ambiguous → default to DD-MM-YYYY.
+// Returns 'MM-DD-YYYY' or 'DD-MM-YYYY'.
+function detectDateFormat(rawValues) {
+    let mmddEvidence = 0, ddmmEvidence = 0;
+    for (const raw of rawValues) {
+        if (raw == null || raw === '' || typeof raw === 'number') continue;
+        const s = String(raw).trim();
+        const m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
+        if (!m) continue;
+        const a = parseInt(m[1]), b = parseInt(m[2]);
+        if (b > 12) mmddEvidence++;  // 2nd part > 12 → must be day → MM-DD-YYYY
+        if (a > 12) ddmmEvidence++;  // 1st part > 12 → must be day → DD-MM-YYYY
+    }
+    if (mmddEvidence > 0 && ddmmEvidence === 0) return 'MM-DD-YYYY';
+    if (ddmmEvidence > 0 && mmddEvidence === 0) return 'DD-MM-YYYY';
+    return 'DD-MM-YYYY'; // default / ambiguous
+}
+
+// Parse date string with optional format override ('DD-MM-YYYY' or 'MM-DD-YYYY')
+function parseDate(raw, fmt) {
     if (raw == null || raw === '') return null;
     if (typeof raw === 'number') {
         const d = new Date(new Date(1899, 11, 30).getTime() + raw * 86400000);
@@ -172,10 +193,16 @@ function parseDate(raw) {
     const s = String(raw).trim();
     const m1 = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
     if (m1) {
-        const day = parseInt(m1[1]), month = parseInt(m1[2]) - 1, year = parseInt(m1[3]);
-        const fullYear = year < 100 ? 2000 + year : year;
+        let day, month, year;
+        const a = parseInt(m1[1]), b = parseInt(m1[2]), c = parseInt(m1[3]);
+        const fullYear = c < 100 ? 2000 + c : c;
+        if (fmt === 'MM-DD-YYYY') {
+            month = a - 1; day = b; // a=month, b=day
+        } else {
+            day = a; month = b - 1; // a=day, b=month (default DD-MM-YYYY)
+        }
         const d = new Date(fullYear, month, day);
-        return isNaN(d) ? null : d;
+        return isNaN(d.getTime()) || month < 0 || month > 11 || day < 1 || day > 31 ? null : d;
     }
     const d = new Date(s);
     return isNaN(d) ? null : d;
@@ -304,7 +331,14 @@ function getSheetRows(wb, sheetName) {
 
 async function processOvertimeSheet(pool, rows, errors, warnings) {
     const items = [];
-    const seenKeys = new Set(); // for duplicate detection: `normalizedCode|dateStr`
+    const seenKeys = new Set();
+
+    // Auto-detect date format from all date values in column A (skip header row 0)
+    const dateFmt = detectDateFormat(rows.slice(1).map(r => r[0]));
+    if (dateFmt === 'MM-DD-YYYY') {
+        warnings.push({ type: 'DATE_FORMAT', sheet: 'Overtime Claims', note: 'Date format auto-detected as MM-DD-YYYY (e.g. 05-24-2026). Dates have been interpreted accordingly.' });
+        console.log('[Wafi Claims] OT sheet: MM-DD-YYYY date format auto-detected');
+    }
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
@@ -329,7 +363,7 @@ async function processOvertimeSheet(pool, rows, errors, warnings) {
         }
 
         // Duplicate row detection
-        const claimDate = parseDate(dateRaw);
+        const claimDate = parseDate(dateRaw, dateFmt);
         const dupKey = `${normalizeCode(rawCode)}|${claimDate ? claimDate.toISOString().slice(0, 10) : rowNum}`;
         if (seenKeys.has(dupKey)) {
             errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'B', error: 'Duplicate row: same employee and date already appears earlier in this sheet', value: rawCode });
@@ -397,6 +431,12 @@ async function processExpenseSheet(pool, rows, errors, warnings) {
     const items = [];
     const seenKeys = new Set();
 
+    // Auto-detect date format
+    const dateFmt = detectDateFormat(rows.slice(1).map(r => r[0]));
+    if (dateFmt === 'MM-DD-YYYY') {
+        warnings.push({ type: 'DATE_FORMAT', sheet: 'Expense Claims', note: 'Date format auto-detected as MM-DD-YYYY. Dates have been interpreted accordingly.' });
+    }
+
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
         const rawCode = String(row[1] || '').trim();
@@ -419,7 +459,7 @@ async function processExpenseSheet(pool, rows, errors, warnings) {
             continue;
         }
 
-        const claimDate = parseDate(dateRaw);
+        const claimDate = parseDate(dateRaw, dateFmt);
         const dupKey = `${normalizeCode(rawCode)}|${expenseType}|${claimDate ? claimDate.toISOString().slice(0,10) : rowNum}`;
         if (seenKeys.has(dupKey)) {
             errors.push({ sheet: 'Expense Claims', row: rowNum, column: 'B', error: 'Duplicate row: same employee, expense type, and date appears earlier', value: rawCode });
@@ -471,6 +511,12 @@ async function processMedicalSheet(pool, rows, errors, warnings) {
     const items = [];
     const seenKeys = new Set();
 
+    // Auto-detect date format
+    const dateFmt = detectDateFormat(rows.slice(1).map(r => r[0]));
+    if (dateFmt === 'MM-DD-YYYY') {
+        warnings.push({ type: 'DATE_FORMAT', sheet: 'Medical & IPD Claims', note: 'Date format auto-detected as MM-DD-YYYY. Dates have been interpreted accordingly.' });
+    }
+
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
         const rawCode = String(row[1] || '').trim();
@@ -494,7 +540,7 @@ async function processMedicalSheet(pool, rows, errors, warnings) {
             continue;
         }
 
-        const claimDate = parseDate(dateRaw);
+        const claimDate = parseDate(dateRaw, dateFmt);
         const dupKey = `${normalizeCode(rawCode)}|${claimType}|${claimDate ? claimDate.toISOString().slice(0,10) : rowNum}`;
         if (seenKeys.has(dupKey)) {
             errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'B', error: 'Duplicate row: same employee, claim type, and date appears earlier', value: rawCode });
