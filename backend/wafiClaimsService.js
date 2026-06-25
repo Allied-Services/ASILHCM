@@ -714,30 +714,106 @@ async function sendQCRejectionEmail(toEmail, errors, filename) {
 }
 
 // Build confirmation HTML (used both for draft and direct send)
-function buildConfirmationHtml({ sessionId, filename, otCount, expCount, medCount, claimMonth, settlementMonth }) {
+// items = array of wafi_claims_items rows (optional — falls back to counts if not provided)
+function buildConfirmationHtml({ sessionId, filename, otCount, expCount, medCount, claimMonth, settlementMonth, items }) {
     const claimMonthLabel = claimMonth
         ? new Date(claimMonth).toLocaleString('en-US', { month: 'long', year: 'numeric' })
-        : 'the submitted period';
+        : '—';
     const settlementMonthLabel = settlementMonth
         ? new Date(settlementMonth).toLocaleString('en-US', { month: 'long', year: 'numeric' })
-        : 'the upcoming payroll';
+        : '—';
+
+    // Build per-employee summary from items if available
+    let employeeTableHtml = '';
+    if (items && items.length > 0) {
+        // Group by employee
+        const empMap = {};
+        for (const item of items) {
+            const empId = item.employee_id || item.employee_code_raw || '—';
+            if (!empMap[empId]) {
+                empMap[empId] = {
+                    id: empId,
+                    name: item.employee_name_db || item.employee_name_raw || '—',
+                    ot1x: 0, ot2x: 0, ot3x: 0,
+                    expense: 0, medical: 0,
+                };
+            }
+            const mult = (item.ot_multiplier || '').toLowerCase().trim();
+            if (item.claim_type === 'OT') {
+                const hrs = parseFloat(item.ot_hours) || 0;
+                if (mult === 'single') empMap[empId].ot1x += hrs;
+                else if (mult === 'double') empMap[empId].ot2x += hrs;
+                else if (mult === 'triple') empMap[empId].ot3x += hrs;
+                else empMap[empId].ot1x += hrs; // default to 1x if unknown
+            } else if (item.claim_type === 'EXPENSE') {
+                empMap[empId].expense += parseFloat(item.raw_amount) || 0;
+            } else if (item.claim_type === 'MEDICAL') {
+                empMap[empId].medical += parseFloat(item.raw_amount) || 0;
+            }
+        }
+
+        const empRows = Object.values(empMap).map((e, i) => {
+            const bg = i % 2 === 0 ? '#f0fdf4' : '#fff';
+            const fmt = (n) => n > 0 ? n % 1 === 0 ? String(n) : n.toFixed(1) : '—';
+            const fmtPKR = (n) => n > 0 ? 'PKR ' + Math.round(n).toLocaleString('en-PK') : '—';
+            return `
+            <tr style="background:${bg};">
+              <td style="padding:9px 12px;font-size:0.8rem;color:#374151;border-bottom:1px solid #e2e8f0;font-family:monospace;">${e.id}</td>
+              <td style="padding:9px 12px;font-size:0.82rem;color:#14532d;font-weight:600;border-bottom:1px solid #e2e8f0;">${e.name}</td>
+              <td style="padding:9px 12px;font-size:0.82rem;text-align:center;color:#374151;border-bottom:1px solid #e2e8f0;">${fmt(e.ot1x)}</td>
+              <td style="padding:9px 12px;font-size:0.82rem;text-align:center;color:#374151;border-bottom:1px solid #e2e8f0;">${fmt(e.ot2x)}</td>
+              <td style="padding:9px 12px;font-size:0.82rem;text-align:center;color:#374151;border-bottom:1px solid #e2e8f0;">${fmt(e.ot3x)}</td>
+              <td style="padding:9px 12px;font-size:0.82rem;text-align:right;color:#374151;border-bottom:1px solid #e2e8f0;">${fmtPKR(e.expense)}</td>
+              <td style="padding:9px 12px;font-size:0.82rem;text-align:right;color:#374151;border-bottom:1px solid #e2e8f0;">${fmtPKR(e.medical)}</td>
+            </tr>`;
+        }).join('');
+
+        employeeTableHtml = `
+        <div style="overflow-x:auto;margin-bottom:20px;">
+          <table style="width:100%;border-collapse:collapse;min-width:560px;">
+            <thead>
+              <tr style="background:#14532d;">
+                <th style="padding:10px 12px;text-align:left;color:#bbf7d0;font-size:0.75rem;font-weight:600;letter-spacing:0.04em;">EMP ID</th>
+                <th style="padding:10px 12px;text-align:left;color:#bbf7d0;font-size:0.75rem;font-weight:600;">NAME</th>
+                <th style="padding:10px 12px;text-align:center;color:#bbf7d0;font-size:0.75rem;font-weight:600;">OT 1×<br><span style="font-weight:400;font-size:0.7rem;">hrs</span></th>
+                <th style="padding:10px 12px;text-align:center;color:#bbf7d0;font-size:0.75rem;font-weight:600;">OT 2×<br><span style="font-weight:400;font-size:0.7rem;">hrs</span></th>
+                <th style="padding:10px 12px;text-align:center;color:#bbf7d0;font-size:0.75rem;font-weight:600;">OT 3×<br><span style="font-weight:400;font-size:0.7rem;">hrs</span></th>
+                <th style="padding:10px 12px;text-align:right;color:#bbf7d0;font-size:0.75rem;font-weight:600;">EXPENSE</th>
+                <th style="padding:10px 12px;text-align:right;color:#bbf7d0;font-size:0.75rem;font-weight:600;">MEDICAL</th>
+              </tr>
+            </thead>
+            <tbody>${empRows}</tbody>
+          </table>
+        </div>`;
+    } else {
+        // Fallback: simple row counts (no items available)
+        employeeTableHtml = `
+        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+          <tr style="background:#f0fdf4;"><td style="padding:10px 14px;color:#166534;font-weight:600;">Overtime Claims</td><td style="padding:10px 14px;text-align:right;font-weight:700;color:#15803d;">${otCount || 0} rows</td></tr>
+          <tr><td style="padding:10px 14px;color:#166534;font-weight:600;">Expense Claims</td><td style="padding:10px 14px;text-align:right;font-weight:700;color:#15803d;">${expCount || 0} rows</td></tr>
+          <tr style="background:#f0fdf4;"><td style="padding:10px 14px;color:#166534;font-weight:600;">Medical &amp; IPD Claims</td><td style="padding:10px 14px;text-align:right;font-weight:700;color:#15803d;">${medCount || 0} rows</td></tr>
+        </table>`;
+    }
 
     return `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:20px;">
-<div style="max-width:680px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-  <div style="background:linear-gradient(135deg,#14532d,#16a34a);padding:28px 32px;">
-    <h1 style="color:#fff;margin:0;font-size:1.2rem;">ASIL HCM — Claims Successfully Logged</h1>
-    <p style="color:#bbf7d0;margin:6px 0 0;font-size:0.88rem;">File: ${filename || 'Attachment'} · Ref: #${sessionId}</p>
+<div style="max-width:720px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#14532d,#16a34a);padding:24px 32px;">
+    <h1 style="color:#fff;margin:0;font-size:1.1rem;">ASIL HCM — Claims Successfully Logged</h1>
+    <p style="color:#bbf7d0;margin:6px 0 0;font-size:0.85rem;">File: ${filename || 'Attachment'} · Ref: #${sessionId}</p>
   </div>
-  <div style="padding:28px 32px;">
-    <h2 style="color:#14532d;margin:0 0 16px;font-size:1rem;">Your submission has been received and validated</h2>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
-      <tr style="background:#f0fdf4;"><td style="padding:10px 14px;color:#166534;font-weight:600;">Claim Period</td><td style="padding:10px 14px;text-align:right;font-weight:700;color:#15803d;">${claimMonthLabel}</td></tr>
-      <tr><td style="padding:10px 14px;color:#166534;font-weight:600;">Overtime Claims Logged</td><td style="padding:10px 14px;text-align:right;font-size:1.1rem;font-weight:700;color:#15803d;">${otCount} rows</td></tr>
-      <tr style="background:#f0fdf4;"><td style="padding:10px 14px;color:#166534;font-weight:600;">Expense Claims Logged</td><td style="padding:10px 14px;text-align:right;font-size:1.1rem;font-weight:700;color:#15803d;">${expCount} rows</td></tr>
-      <tr><td style="padding:10px 14px;color:#166534;font-weight:600;">Medical & IPD Claims Logged</td><td style="padding:10px 14px;text-align:right;font-size:1.1rem;font-weight:700;color:#15803d;">${medCount} rows</td></tr>
-      <tr style="background:#f0fdf4;"><td style="padding:10px 14px;color:#166534;font-weight:600;">Settlement in Payroll</td><td style="padding:10px 14px;text-align:right;font-weight:700;color:#15803d;">${settlementMonthLabel}</td></tr>
+  <div style="padding:24px 32px;">
+    <p style="color:#374151;margin:0 0 16px;font-size:0.9rem;">Your submission has been received, validated, and logged. Please review the details below:</p>
+    ${employeeTableHtml}
+    <table style="width:100%;border-collapse:collapse;border:1px solid #d1fae5;border-radius:8px;overflow:hidden;">
+      <tr style="background:#f0fdf4;">
+        <td style="padding:12px 16px;color:#166534;font-weight:700;font-size:0.9rem;border-bottom:1px solid #d1fae5;">Claims for Month</td>
+        <td style="padding:12px 16px;text-align:right;font-weight:800;color:#15803d;font-size:1rem;border-bottom:1px solid #d1fae5;">${claimMonthLabel}</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 16px;color:#166534;font-weight:700;font-size:0.9rem;">Processed in Payroll</td>
+        <td style="padding:12px 16px;text-align:right;font-weight:800;color:#15803d;font-size:1rem;">${settlementMonthLabel}</td>
+      </tr>
     </table>
-    <div style="padding:14px;background:#f0fdf4;border-left:4px solid #22c55e;border-radius:6px;">
       <p style="margin:0;color:#166534;font-size:0.88rem;">These claims are now in ASIL's payroll processing queue for <strong>${settlementMonthLabel}</strong>. No further action is required from you.</p>
     </div>
   </div>

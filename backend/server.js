@@ -5954,9 +5954,9 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
                 const html = buildConfirmationHtml({
                     sessionId,
                     filename: session.attachment_filename,
-                    otCount, expCount, medCount,
                     claimMonth: session.claim_month,
                     settlementMonth: payrollMonth.toISOString(),
+                    items,
                 });
                 draftId = await createGmailDraft(
                     gmail,
@@ -6300,14 +6300,17 @@ app.post('/api/wafi-claims/sessions/:id/verify', requireAuth, async (req, res) =
         try {
             const gmail = createGmailClient();
             if (gmail && sess.gmail_thread_id) {
+                // Load items for per-employee table
+                const { rows: verifyItems } = await pool.query(
+                    'SELECT * FROM wafi_claims_items WHERE session_id = $1 AND active = TRUE ORDER BY tab_name, row_number',
+                    [sessionId]
+                ).catch(() => ({ rows: [] }));
                 const html = buildConfirmationHtml({
                     sessionId,
                     filename: sess.attachment_filename,
-                    otCount:  sess.total_ot_rows,
-                    expCount: sess.total_expense_rows,
-                    medCount: sess.total_medical_rows,
                     claimMonth: sess.claim_month,
                     settlementMonth: settlementDate,
+                    items: verifyItems,
                 });
                 draftId = await createGmailDraft(gmail, sess.gmail_thread_id, sess.sender_email, sess.subject || 'Claims Submission', html);
                 if (draftId) {
