@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon, Lock, Unlock, Save } from 'lucide-react';
+import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon, Lock, Unlock, Save, RefreshCw } from 'lucide-react';
 import {
     PAYROLL_CONTRACT_CFG as CONTRACT_CFG,
     calcEmployeeRow, downloadCSV,
@@ -354,6 +354,145 @@ function ExportMenu({ month, isLocked, filterClient, filterContract, filterLoc, 
     );
 }
 
+// ─── Refresh Payroll Modal ───────────────────────────────────────────────────
+function RefreshPayrollModal({ month, onClose, onSuccess }) {
+    const [step, setStep] = useState(1); // 1 = confirm, 2 = password, 3 = done
+    const [password, setPassword] = useState('');
+    const [loading, setLoading]   = useState(false);
+    const [error, setError]       = useState('');
+    const [deletedCount, setDeletedCount] = useState(0);
+
+    const monthLabel = (() => {
+        const [y, m] = month.split('-');
+        return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
+    })();
+
+    const doReset = async () => {
+        setError(''); setLoading(true);
+        try {
+            const [yr, mo] = month.split('-');
+            const result = await api.resetPayroll(yr, mo, password);
+            setDeletedCount(result.deleted || 0);
+            setStep(3);
+            onSuccess && onSuccess();
+        } catch (e) {
+            setError(e.message);
+        } finally { setLoading(false); }
+    };
+
+    const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '2rem' };
+    const card    = { background: 'linear-gradient(135deg,#1a1f2e,#0f1520)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: '20px', width: '100%', maxWidth: '500px', boxShadow: '0 30px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(239,68,68,0.1) inset' };
+
+    // Step indicator
+    const StepDot = ({ n }) => (
+        <div style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.78rem',
+            background: step >= n ? (n === 3 ? '#22c55e' : '#ef4444') : 'rgba(255,255,255,0.08)',
+            color: step >= n ? 'white' : '#64748b', border: step === n ? '2px solid currentColor' : '2px solid transparent', transition: 'all 0.3s' }}>{n}</div>
+    );
+
+    return (
+        <div style={overlay}>
+            <div style={card}>
+                {/* Header */}
+                <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid rgba(239,68,68,0.2)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                                <div style={{ width: 36, height: 36, borderRadius: '10px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <RefreshCw size={18} color="#f87171" />
+                                </div>
+                                <h3 style={{ margin: 0, color: '#f87171', fontSize: '1.1rem' }}>Refresh Payroll</h3>
+                            </div>
+                            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem' }}>Erase entered data for {monthLabel}</p>
+                        </div>
+                        <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.4rem', lineHeight: 1 }}>×</button>
+                    </div>
+                    {/* Step pills */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '1.25rem' }}>
+                        <StepDot n={1} />
+                        <div style={{ flex: 1, height: 2, background: step > 1 ? '#ef4444' : 'rgba(255,255,255,0.08)', borderRadius: 2, transition: 'background 0.3s' }} />
+                        <StepDot n={2} />
+                        <div style={{ flex: 1, height: 2, background: step > 2 ? '#22c55e' : 'rgba(255,255,255,0.08)', borderRadius: 2, transition: 'background 0.3s' }} />
+                        <StepDot n={3} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                        <span>Confirm</span><span style={{ marginRight: '-8px' }}>Password</span><span>Done</span>
+                    </div>
+                </div>
+
+                {/* Body */}
+                <div style={{ padding: '1.75rem 2rem' }}>
+                    {step === 1 && (
+                        <div>
+                            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' }}>
+                                <div style={{ fontWeight: 700, color: '#f87171', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                    <AlertCircle size={16} /> Warning — Destructive Action
+                                </div>
+                                <ul style={{ margin: 0, paddingLeft: '1.25rem', color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.8 }}>
+                                    <li>All <strong style={{ color: 'var(--text)' }}>entered attendance, OT, adjustments and bonuses</strong> for <strong style={{ color: '#f87171' }}>{monthLabel}</strong> will be permanently erased.</li>
+                                    <li>Locked rows <strong>cannot</strong> be erased — unlock them first.</li>
+                                    <li>This action is logged on the server.</li>
+                                </ul>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                                <button onClick={onClose} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 20px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                                <button onClick={() => setStep(2)} style={{ background: 'linear-gradient(135deg,#ef4444,#dc2626)', border: 'none', color: 'white', padding: '8px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <RefreshCw size={15} /> Proceed with Erase
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {step === 2 && (
+                        <div>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: '1.25rem' }}>
+                                Enter the <strong>Payroll Reset Password</strong> to confirm this action. This password is set by your system administrator in the server environment.
+                            </p>
+                            <div style={{ marginBottom: '1rem' }}>
+                                <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>Reset Password</label>
+                                <input
+                                    type="password"
+                                    value={password}
+                                    onChange={e => { setPassword(e.target.value); setError(''); }}
+                                    onKeyDown={e => { if (e.key === 'Enter' && password.trim()) doReset(); }}
+                                    placeholder="Enter reset password…"
+                                    autoFocus
+                                    style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '10px 14px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none' }}
+                                />
+                            </div>
+                            {error && (
+                                <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.85rem', color: '#f87171', display: 'flex', alignItems: 'flex-start', gap: '7px' }}>
+                                    <AlertCircle size={15} style={{ marginTop: 2, flexShrink: 0 }} /> {error}
+                                </div>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                                <button onClick={() => { setStep(1); setError(''); setPassword(''); }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 20px', borderRadius: '8px', cursor: 'pointer' }}>Back</button>
+                                <button onClick={doReset} disabled={!password.trim() || loading}
+                                    style={{ background: loading ? '#374151' : 'linear-gradient(135deg,#ef4444,#dc2626)', border: 'none', color: 'white', padding: '8px 24px', borderRadius: '8px', cursor: (!password.trim() || loading) ? 'not-allowed' : 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', opacity: (!password.trim() || loading) ? 0.7 : 1 }}>
+                                    {loading ? <><RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} /> Erasing…</> : <><RefreshCw size={15} /> Confirm Erase</>}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {step === 3 && (
+                        <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+                            <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(34,197,94,0.15)', border: '2px solid #22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
+                                <CheckCircle size={32} color="#22c55e" />
+                            </div>
+                            <h4 style={{ margin: '0 0 0.5rem', color: '#22c55e' }}>Payroll Reset Complete</h4>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: '0 0 1.5rem' }}>
+                                {deletedCount} employee row(s) erased for <strong style={{ color: 'var(--text)' }}>{monthLabel}</strong>. The sheet will reload with fresh defaults.
+                            </p>
+                            <button onClick={onClose} style={{ background: 'linear-gradient(135deg,#22c55e,#16a34a)', border: 'none', color: 'white', padding: '9px 28px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>Close</button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // EditableCell — module-level so React.memo works (no re-creation each render)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -407,6 +546,7 @@ export default function PayrollSheet({ user }) {
     const [approvalSent, setApprovalSent] = useState({});
     const [showExport, setShowExport] = useState(false);
     const [showImport, setShowImport] = useState(false);
+    const [showRefresh, setShowRefresh] = useState(false);
     const [EMPLOYEES, setEMPLOYEES] = useState([]);
     const [CONTRACT_MAP, setCONTRACT_MAP] = useState({});
     // ── Lock / DB state ─────────────────────────────────────────────────────────
@@ -1083,6 +1223,13 @@ export default function PayrollSheet({ user }) {
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                     {isSaving && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={13} />Saving…</span>}
+                    {canManageLock && (
+                        <button onClick={() => setShowRefresh(true)} disabled={isLocked}
+                            title={isLocked ? 'Unlock payroll before refreshing' : 'Erase entered payroll data for this month'}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? 'transparent' : 'rgba(239,68,68,0.1)', border: isLocked ? '1px solid #333' : '1px solid rgba(239,68,68,0.35)', color: isLocked ? '#555' : '#f87171', padding: '8px 16px', borderRadius: '8px', cursor: isLocked ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
+                            <RefreshCw size={15} /> Refresh
+                        </button>
+                    )}
                     <button onClick={() => setShowImport(true)} disabled={isLocked}
                         style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? '#333' : 'var(--bg-card)', border: '1px solid var(--border)', color: isLocked ? '#555' : 'var(--text)', padding: '8px 16px', borderRadius: '8px', cursor: isLocked ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
                         <Upload size={15} /> Import
@@ -1116,6 +1263,30 @@ export default function PayrollSheet({ user }) {
                     )}
                 </div>
             </div>
+
+            {/* Refresh Payroll Modal */}
+            {showRefresh && (
+                <RefreshPayrollModal
+                    month={month}
+                    onClose={() => setShowRefresh(false)}
+                    onSuccess={() => {
+                        // Reload DB data for this month (same effect as changing month)
+                        const [yr, mo] = month.split('-');
+                        overridesRef.current = {};
+                        setOverrides({});
+                        setLockedIds(new Set());
+                        setLockedBy(null);
+                        api.getPayroll(yr, mo).then(data => {
+                            if (!data.rows || !data.rows.length) return;
+                            const ov = {};
+                            data.rows.forEach(r => { ov[r.employee_id] = { ...r }; });
+                            overridesRef.current = ov;
+                            setOverrides(ov);
+                        }).catch(() => {});
+                        setTimeout(() => setShowRefresh(false), 1800);
+                    }}
+                />
+            )}
 
             {/* Bulk action bar — shown when any rows are selected */}
             {selectedIds.size > 0 && (

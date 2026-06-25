@@ -45,12 +45,17 @@ const STATUS = {
   VALIDATION_FAILED:      { label: 'Failed QC',    color: '#ef4444', bg: 'rgba(239,68,68,0.12)'  },
   PROCESSED_SUCCESSFULLY: { label: 'Passed',       color: '#22c55e', bg: 'rgba(34,197,94,0.12)'  },
   REVISED:                { label: 'Revised',      color: '#38bdf8', bg: 'rgba(56,189,248,0.12)' },
+  PENDING_REVIEW: { label: 'Pending Review', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)', pulse: true },
+  IRRELEVANT:    { label: 'Not Relevant',   color: '#64748b', bg: 'rgba(100,116,139,0.1)' },
+  VERIFIED:      { label: 'Verified ✓',     color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
+  SKIPPED:       { label: 'Skipped',        color: '#475569', bg: 'rgba(71,85,105,0.1)'  },
+  WRONG_FORMAT:  { label: 'Wrong Format',   color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
 };
 
 function StatusBadge({ status }) {
   const cfg = STATUS[status] || { label: status || '—', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' };
   return (
-    <span style={{ padding: '3px 10px', borderRadius: '99px', fontSize: '0.73rem', fontWeight: 700, color: cfg.color, background: cfg.bg, whiteSpace: 'nowrap' }}>
+    <span style={{ padding: '3px 10px', borderRadius: '99px', fontSize: '0.73rem', fontWeight: 700, color: cfg.color, background: cfg.bg, whiteSpace: 'nowrap', animation: cfg.pulse ? 'wafi_pulse 2s ease-in-out infinite' : 'none' }}>
       {cfg.label}
     </span>
   );
@@ -88,7 +93,7 @@ function StatCard({ label, value, icon, color }) {
 
 // ── Month selector helper ─────────────────────────────────────────────────────
 const MONTHS = Array.from({ length: 12 }, (_, i) => {
-  const d = new Date(); d.setMonth(d.getMonth() - i);
+  const d = new Date(); d.setMonth(d.getMonth() + 1 - i);
   return { label: d.toLocaleString('en-PK', { month: 'long', year: 'numeric' }), month: d.getMonth() + 1, year: d.getFullYear() };
 });
 
@@ -125,6 +130,28 @@ export default function WafiClaimsDashboard({ user }) {
   const [selectedEmp, setSelectedEmp]     = useState(null);
   const [overrideLoading, setOverrideLoading] = useState(false);
   const [overrideResult, setOverrideResult]   = useState(null);
+
+  // ── Verify modal state
+  const [verifyModal, setVerifyModal]     = useState(null); // { sessionId, sender, filename, otCount, expCount, medCount }
+  const [verifyMonth, setVerifyMonth]     = useState(MONTHS[1]); // default: next month (index 1)
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyResult, setVerifyResult]   = useState(null);
+
+  // ── Batch verify state
+  const [selectedSessions, setSelectedSessions] = useState(new Set());
+  const [batchVerifyLoading, setBatchVerifyLoading] = useState(false);
+
+  // ── Focal points state
+  const [focalPoints, setFocalPoints]     = useState([]);
+  const [fpLoading, setFpLoading]         = useState(false);
+  const [fpForm, setFpForm]               = useState({ email: '', name: '', location: '', role: 'claimed_by' });
+  const [fpSaving, setFpSaving]           = useState(false);
+
+  // ── Employee claims tab state
+  const [empClaimsSearch, setEmpClaimsSearch] = useState('');
+  const [empClaimsData, setEmpClaimsData]     = useState([]);
+  const [empClaimsLoading, setEmpClaimsLoading] = useState(false);
+  const [empClaimsFilter, setEmpClaimsFilter] = useState({ claimType: 'ALL', dateFrom: '', dateTo: '' });
 
   // ── Items state ───────────────────────────────────────────────────────────
   const [items, setItems]             = useState([]);
@@ -203,6 +230,8 @@ export default function WafiClaimsDashboard({ user }) {
   useEffect(() => { if (tab === 'sessions') loadSessions(); }, [tab, loadSessions]);
   useEffect(() => { if (tab === 'items') loadItems(); }, [tab, loadItems]);
   useEffect(() => { if (tab === 'queue') loadQueue(); }, [tab, loadQueue]);
+  useEffect(() => { if (tab === 'focal') loadFocalPoints(); }, [tab, loadFocalPoints]);
+  useEffect(() => { if (tab === 'employees') loadEmpClaims(); }, [tab, loadEmpClaims]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const runPoll = async () => {
@@ -284,12 +313,100 @@ export default function WafiClaimsDashboard({ user }) {
     setOverrideLoading(false);
   };
 
+  // Verify handler
+  const handleVerify = async () => {
+    if (!verifyModal) return;
+    setVerifyLoading(true); setVerifyResult(null);
+    try {
+      const d = await apiFetch(`/api/wafi-claims/sessions/${verifyModal.sessionId}/verify`, {
+        method: 'POST',
+        body: JSON.stringify({ month: verifyMonth.month, year: verifyMonth.year }),
+      });
+      setVerifyResult(d);
+      if (d.ok) {
+        await loadSessionDetail(verifyModal.sessionId);
+        await loadSessions();
+        await loadStats();
+        setTimeout(() => setVerifyModal(null), 2200);
+      }
+    } catch (e) { setVerifyResult({ error: e.message }); }
+    setVerifyLoading(false);
+  };
+
+  // Skip session handler
+  const handleSkip = async (sessionId) => {
+    try {
+      await apiFetch(`/api/wafi-claims/sessions/${sessionId}/skip`, { method: 'POST' });
+      await loadSessions();
+      await loadStats();
+    } catch (e) { console.error('Skip failed:', e); }
+  };
+
+  // Batch verify handler
+  const handleBatchVerify = async () => {
+    if (!selectedSessions.size) return;
+    const month = MONTHS[1]; // next month by default
+    setBatchVerifyLoading(true);
+    try {
+      await apiFetch('/api/wafi-claims/sessions/batch-verify', {
+        method: 'POST',
+        body: JSON.stringify({ sessionIds: [...selectedSessions], month: month.month, year: month.year }),
+      });
+      setSelectedSessions(new Set());
+      await loadSessions();
+      await loadStats();
+    } catch (e) { console.error('Batch verify failed:', e); }
+    setBatchVerifyLoading(false);
+  };
+
+  // Load focal points
+  const loadFocalPoints = useCallback(async () => {
+    setFpLoading(true);
+    try {
+      const d = await apiFetch('/api/wafi-claims/focal-points');
+      setFocalPoints(d.focalPoints || []);
+    } catch {} finally { setFpLoading(false); }
+  }, []);
+
+  // Add focal point
+  const addFocalPoint = async () => {
+    if (!fpForm.email) return;
+    setFpSaving(true);
+    try {
+      await apiFetch('/api/wafi-claims/focal-points', { method: 'POST', body: JSON.stringify(fpForm) });
+      setFpForm({ email: '', name: '', location: '', role: 'claimed_by' });
+      await loadFocalPoints();
+    } catch {} finally { setFpSaving(false); }
+  };
+
+  // Remove focal point
+  const removeFocalPoint = async (id) => {
+    await apiFetch(`/api/wafi-claims/focal-points/${id}`, { method: 'DELETE' });
+    await loadFocalPoints();
+  };
+
+  // Load employee claims
+  const loadEmpClaims = useCallback(async () => {
+    setEmpClaimsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (empClaimsSearch) params.set('employeeCode', empClaimsSearch);
+      if (empClaimsFilter.claimType !== 'ALL') params.set('claimType', empClaimsFilter.claimType);
+      if (empClaimsFilter.dateFrom) params.set('dateFrom', empClaimsFilter.dateFrom);
+      if (empClaimsFilter.dateTo)   params.set('dateTo', empClaimsFilter.dateTo);
+      const d = await apiFetch(`/api/wafi-claims/employee-claims?${params}`);
+      setEmpClaimsData(d.employees || []);
+    } catch {} finally { setEmpClaimsLoading(false); }
+  }, [empClaimsSearch, empClaimsFilter]);
+
   // ── Tabs ──────────────────────────────────────────────────────────────────
   const TABS = [
     ['overview', 'Overview & Gmail'],
     ['sessions', 'Sessions'],
-    ['items', 'Items Ledger'],
-    ['queue', 'Payroll Queue'],
+    ['items',    'Items Ledger'],
+    ['queue',    'Payroll Queue'],
+    ['employees','Employee Claims'],
+    ['focal',    'Focal Points'],
   ];
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -351,6 +468,8 @@ export default function WafiClaimsDashboard({ user }) {
             <StatCard label="Passed (Valid)"    value={stats?.passed ?? 0}            icon={<CheckCircle size={15} />} color="#22c55e" />
             <StatCard label="Failed (QC)"       value={stats?.failed ?? 0}            icon={<XCircle size={15} />}     color="#ef4444" />
             <StatCard label="Pending Payroll"   value={stats?.pending_payroll ?? 0}   icon={<Clock size={15} />}       color="#f59e0b" />
+            <StatCard label="Pending Review"    value={stats?.pending_review || 0}    icon={<Clock size={14}/>}        color="#f59e0b" />
+            <StatCard label="Not Relevant"      value={stats?.irrelevant || 0}        icon={<Inbox size={14}/>}        color="#64748b" />
             <StatCard label="OT Rows"           value={stats?.total_ot_rows ?? 0}     icon={<FileText size={15} />}    color="#a78bfa" />
             <StatCard label="Expense Rows"      value={stats?.total_expense_rows ?? 0} icon={<Package size={15} />}   color="#f59e0b" />
             <StatCard label="Medical Rows"      value={stats?.total_medical_rows ?? 0} icon={<Layers size={15} />}    color="#38bdf8" />
@@ -430,23 +549,52 @@ export default function WafiClaimsDashboard({ user }) {
             <span style={{ color: '#64748b', fontSize: '0.8rem', marginLeft: 'auto' }}>{sessionTotal} total</span>
           </div>
 
+          {selectedSessions.size > 0 && (
+            <div style={{ display:'flex', alignItems:'center', gap:'12px', padding:'10px 14px', background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.2)', borderRadius:'8px', marginBottom:'12px' }}>
+              <span style={{ fontSize:'0.84rem', color:'#f59e0b', fontWeight:600 }}>{selectedSessions.size} session(s) selected</span>
+              <button onClick={handleBatchVerify} disabled={batchVerifyLoading} style={btn('#10b981','rgba(16,185,129,0.12)')}>
+                {batchVerifyLoading ? <Spinner size={14}/> : <CheckCircle size={14}/>} Verify Selected
+              </button>
+              <button onClick={() => setSelectedSessions(new Set())} style={btn('#64748b','rgba(100,116,139,0.1)')}><X size={14}/> Clear</button>
+            </div>
+          )}
+
           <div style={{ ...s.card, padding: 0, overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>
+                <th style={s.th}><input type="checkbox" onChange={e => {
+                  if (e.target.checked) setSelectedSessions(new Set(sessions.filter(s => s.processing_status === 'PENDING_REVIEW').map(s => s.id)));
+                  else setSelectedSessions(new Set());
+                }} /></th>
                 {['Received','Sender','Filename','Month','Status','OT','Exp','Med','Rev?','Actions'].map(h => <th key={h} style={s.th}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {sessionsLoading ? (
-                  <tr><td colSpan={10} style={{ ...s.td, textAlign: 'center', padding: '2rem' }}><div style={{ display: 'flex', justifyContent: 'center', gap: '8px', color: '#64748b' }}><Spinner /> Loading sessions…</div></td></tr>
+                  <tr><td colSpan={11} style={{ ...s.td, textAlign: 'center', padding: '2rem' }}><div style={{ display: 'flex', justifyContent: 'center', gap: '8px', color: '#64748b' }}><Spinner /> Loading sessions…</div></td></tr>
                 ) : sessions.length === 0 ? (
-                  <tr><td colSpan={10} style={{ ...s.td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>No sessions found.</td></tr>
+                  <tr><td colSpan={11} style={{ ...s.td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>No sessions found.</td></tr>
                 ) : sessions.map(sess => (
                   <React.Fragment key={sess.id}>
                     <tr style={{ transition: 'background 0.15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.025)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <td style={s.td}>
+                        {sess.processing_status === 'PENDING_REVIEW' && (
+                          <input type="checkbox" checked={selectedSessions.has(sess.id)}
+                            onChange={e => {
+                              const next = new Set(selectedSessions);
+                              if (e.target.checked) next.add(sess.id); else next.delete(sess.id);
+                              setSelectedSessions(next);
+                            }} />
+                        )}
+                      </td>
                       <td style={{ ...s.td, fontSize: '0.76rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>{fmtDT(sess.received_at)}</td>
-                      <td style={{ ...s.td, fontSize: '0.76rem', color: '#94a3b8', maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sess.sender_email}</td>
+                      <td style={{ ...s.td, fontSize: '0.76rem', color: '#94a3b8', maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {sess.sender_email}
+                        {sess.is_first_time_sender && (
+                          <span style={{ fontSize:'0.65rem', background:'rgba(249,115,22,0.15)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'4px', padding:'1px 5px', marginLeft:'4px' }}>NEW</span>
+                        )}
+                      </td>
                       <td style={{ ...s.td, fontSize: '0.78rem', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sess.attachment_filename || '—'}</td>
                       <td style={{ ...s.td, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{sess.claim_month ? new Date(sess.claim_month).toLocaleString('en-PK',{month:'short',year:'numeric'}) : '—'}</td>
                       <td style={s.td}><StatusBadge status={sess.processing_status} /></td>
@@ -455,10 +603,26 @@ export default function WafiClaimsDashboard({ user }) {
                       <td style={{ ...s.td, textAlign: 'center', color: '#38bdf8', fontSize: '0.8rem' }}>{sess.total_medical_rows || 0}</td>
                       <td style={{ ...s.td, textAlign: 'center', fontSize: '0.76rem' }}>{sess.is_revision ? <span style={{ color: '#38bdf8' }}>Yes</span> : <span style={{ color: '#475569' }}>—</span>}</td>
                       <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           <button onClick={() => handleExpandSession(sess.id)} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             {expandedSession === sess.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Details
                           </button>
+                          {sess.processing_status === 'PENDING_REVIEW' && (
+                            <button
+                              onClick={() => setVerifyModal({ sessionId: sess.id, sender: sess.sender_email, filename: sess.attachment_filename, otCount: sess.total_ot_rows, expCount: sess.total_expense_rows, medCount: sess.total_medical_rows })}
+                              style={{ ...btn('#10b981','rgba(16,185,129,0.12)'), fontSize:'0.78rem', padding:'5px 10px' }}
+                            >
+                              <CheckCircle size={13}/> Verify
+                            </button>
+                          )}
+                          {sess.processing_status === 'IRRELEVANT' && (
+                            <button
+                              onClick={() => handleSkip(sess.id)}
+                              style={{ ...btn('#64748b','rgba(100,116,139,0.1)'), fontSize:'0.78rem', padding:'5px 10px' }}
+                            >
+                              <X size={13}/> Skip
+                            </button>
+                          )}
                           {sess.processing_status === 'PROCESSED_SUCCESSFULLY' && !sess.pushed_to_payroll && (
                             <button onClick={() => { setStageModal({ sessionId: sess.id, sender: sess.sender_email }); setStageResult(null); }} style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid #22c55e', color: '#22c55e', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem' }}>
                               Stage →
@@ -472,13 +636,30 @@ export default function WafiClaimsDashboard({ user }) {
                     {/* Expanded detail: validation errors + items */}
                     {expandedSession === sess.id && (
                       <tr>
-                        <td colSpan={10} style={{ padding: '0 12px 12px', background: 'rgba(0,0,0,0.2)' }}>
+                        <td colSpan={11} style={{ padding: '0 12px 12px', background: 'rgba(0,0,0,0.2)' }}>
                           {!sessionDetail ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', padding: '12px 0', fontSize: '0.82rem' }}>
                               <Spinner size={14} /> Loading details…
                             </div>
                           ) : (
                             <div>
+                              {/* IRRELEVANT email summary */}
+                              {sessionDetail.session?.processing_status === 'IRRELEVANT' && sessionDetail.session?.email_summary && (
+                                <div style={{ background:'rgba(100,116,139,0.08)', border:'1px solid rgba(100,116,139,0.2)', borderRadius:'8px', padding:'12px 14px', marginBottom:'1rem', marginTop:'10px' }}>
+                                  <div style={{ fontSize:'0.72rem', color:'#64748b', fontWeight:600, marginBottom:'4px', textTransform:'uppercase' }}>Email Content Preview</div>
+                                  <div style={{ fontSize:'0.82rem', color:'#94a3b8', fontStyle:'italic', lineHeight:1.5 }}>{sessionDetail.session.email_summary}</div>
+                                  <button onClick={() => handleSkip(sessionDetail.session.id)} style={{ ...btn('#64748b','rgba(100,116,139,0.1)'), marginTop:'8px', fontSize:'0.75rem', padding:'4px 10px' }}><X size={12}/> Mark as Skipped</button>
+                                </div>
+                              )}
+
+                              {/* Settlement month */}
+                              {sessionDetail.session?.settlement_month && (
+                                <div style={{ fontSize:'0.82rem', marginTop:'10px', marginBottom:'8px' }}>
+                                  <span style={{ color:'#64748b' }}>Settlement Month: </span>
+                                  <strong style={{ color:'#10b981' }}>{fmtD(sessionDetail.session.settlement_month)}</strong>
+                                </div>
+                              )}
+
                               {/* Validation errors */}
                               {(sessionDetail.session?.validation_errors?.length > 0) && (
                                 <div style={{ marginTop: '10px', marginBottom: '10px' }}>
@@ -519,6 +700,29 @@ export default function WafiClaimsDashboard({ user }) {
                                 </div>
                               )}
 
+                              {/* Name warnings */}
+                              {sessionDetail.session?.name_warnings?.length > 0 && (
+                                <div style={{ marginBottom:'1rem' }}>
+                                  <div style={{ color:'#f59e0b', fontWeight:700, fontSize:'0.85rem', marginBottom:'6px' }}>⚠ Name Match Warnings ({sessionDetail.session.name_warnings.length})</div>
+                                  <div style={{ fontSize:'0.78rem', color:'#94a3b8' }}>These rows were accepted but have partial name matches. Verify manually if needed.</div>
+                                  <div style={{ overflowX:'auto', marginTop:'8px' }}>
+                                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.78rem' }}>
+                                      <thead><tr>{['Sheet','Row','Warning','Value'].map(h => <th key={h} style={{ ...s.th, fontSize:'0.68rem', background:'rgba(245,158,11,0.06)' }}>{h}</th>)}</tr></thead>
+                                      <tbody>
+                                        {sessionDetail.session.name_warnings.map((w, i) => (
+                                          <tr key={i}>
+                                            <td style={{ ...s.td, fontSize:'0.76rem' }}>{w.sheet}</td>
+                                            <td style={{ ...s.td, fontSize:'0.76rem', textAlign:'center' }}>{w.row}</td>
+                                            <td style={{ ...s.td, fontSize:'0.76rem', color:'#f59e0b' }}>{w.warning}</td>
+                                            <td style={{ ...s.td, fontSize:'0.76rem', color:'#94a3b8', fontStyle:'italic' }}>{String(w.value||'').slice(0,40)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
+
                               {/* Items */}
                               {sessionDetail.items?.length > 0 && (
                                 <div>
@@ -528,7 +732,7 @@ export default function WafiClaimsDashboard({ user }) {
                                   <div style={{ overflowX: 'auto' }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                                       <thead><tr>
-                                        {['Tab','Row','Code','Name DB','Date','Type','OT Hrs','Mult','Amount','Payout'].map(h => <th key={h} style={{ ...s.th, fontSize: '0.68rem' }}>{h}</th>)}
+                                        {['Tab','Row','Code','Name DB','Date','Type','OT Hrs','Mult','Amount','Payout','Match'].map(h => <th key={h} style={{ ...s.th, fontSize: '0.68rem' }}>{h}</th>)}
                                       </tr></thead>
                                       <tbody>
                                         {sessionDetail.items.map(item => (
@@ -543,6 +747,13 @@ export default function WafiClaimsDashboard({ user }) {
                                             <td style={{ ...s.td, fontSize: '0.72rem', color: '#94a3b8' }}>{item.ot_multiplier || '—'}</td>
                                             <td style={{ ...s.td, textAlign: 'right', color: '#f59e0b' }}>{item.raw_amount ? `PKR ${fmt(item.raw_amount)}` : '—'}</td>
                                             <td style={{ ...s.td, textAlign: 'right', color: '#22c55e' }}>{item.ot_payout ? `PKR ${fmt(item.ot_payout)}` : '—'}</td>
+                                            <td style={s.td}>
+                                              {item.name_similarity != null && parseFloat(item.name_similarity) < 0.8 ? (
+                                                <span style={{ color:'#f59e0b', fontSize:'0.72rem', fontWeight:700 }}>⚠ {(parseFloat(item.name_similarity)*100).toFixed(0)}%</span>
+                                              ) : (
+                                                <span style={{ color:'#22c55e', fontSize:'0.72rem' }}>✓</span>
+                                              )}
+                                            </td>
                                           </tr>
                                         ))}
                                       </tbody>
@@ -687,6 +898,201 @@ export default function WafiClaimsDashboard({ user }) {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════
+          TAB 5: Employee Claims
+      ══════════════════════════════════════════════════════════════════════ */}
+      {tab === 'employees' && (
+        <div>
+          {/* Search + Filter bar */}
+          <div style={{ display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'1.5rem', alignItems:'center' }}>
+            <input
+              value={empClaimsSearch}
+              onChange={e => setEmpClaimsSearch(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && loadEmpClaims()}
+              placeholder="Search by name, employee code…"
+              style={{ ...s.input, minWidth:'240px', flex:1 }}
+            />
+            <select value={empClaimsFilter.claimType} onChange={e => setEmpClaimsFilter(f => ({...f, claimType: e.target.value}))} style={s.sel}>
+              <option value="ALL">All Types</option>
+              <option value="OT">Overtime</option>
+              <option value="EXPENSE">Expense</option>
+              <option value="MEDICAL">Medical</option>
+            </select>
+            <input type="date" value={empClaimsFilter.dateFrom} onChange={e => setEmpClaimsFilter(f => ({...f, dateFrom: e.target.value}))} style={s.input} />
+            <input type="date" value={empClaimsFilter.dateTo}   onChange={e => setEmpClaimsFilter(f => ({...f, dateTo:   e.target.value}))} style={s.input} />
+            <button onClick={loadEmpClaims} style={btn('#6366f1')}><Search size={14}/> Search</button>
+          </div>
+
+          {empClaimsLoading ? (
+            <div style={{ textAlign:'center', padding:'3rem' }}><Spinner size={32}/></div>
+          ) : empClaimsData.length === 0 ? (
+            <div style={{ ...s.card, textAlign:'center', color:'#64748b', padding:'3rem' }}>No employee claims found. Search by name or code above.</div>
+          ) : (
+            empClaimsData.map(emp => (
+              <div key={emp.employee_id || emp.name} style={{ ...s.card, marginBottom:'1rem' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:'0.95rem', color:'#e2e8f0' }}>{emp.name || 'Unknown'}</div>
+                    <div style={{ fontSize:'0.75rem', color:'#64748b' }}>{emp.employee_id || '—'}</div>
+                  </div>
+                  <div style={{ fontSize:'0.75rem', color:'#64748b' }}>{emp.months.length} month(s) on record</div>
+                </div>
+                {emp.months.map(mo => (
+                  <div key={mo.month} style={{ marginBottom:'0.75rem', borderLeft:'3px solid #334155', paddingLeft:'12px' }}>
+                    <div style={{ fontWeight:600, fontSize:'0.82rem', color:'#94a3b8', marginBottom:'6px' }}>
+                      {new Date(mo.month + '-01').toLocaleString('en-US', { month:'long', year:'numeric' })}
+                    </div>
+                    <div style={{ display:'flex', gap:'10px', flexWrap:'wrap' }}>
+                      {mo.claims.map((c, ci) => (
+                        <div key={ci} style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:'8px', padding:'8px 12px', minWidth:'140px' }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'4px' }}>
+                            <ClaimTypeBadge type={c.claim_type} />
+                            <StatusBadge status={c.status} />
+                          </div>
+                          {c.claim_type === 'OT' ? (
+                            <>
+                              <div style={{ fontSize:'0.78rem', color:'#94a3b8' }}>{c.row_count} rows · {c.total_ot_hours.toFixed(1)}h</div>
+                              <div style={{ fontSize:'0.85rem', fontWeight:700, color:'#a78bfa' }}>PKR {fmt(c.total_ot_payout)}</div>
+                            </>
+                          ) : (
+                            <>
+                              <div style={{ fontSize:'0.78rem', color:'#94a3b8' }}>{c.row_count} rows</div>
+                              <div style={{ fontSize:'0.85rem', fontWeight:700, color: c.claim_type==='EXPENSE' ? '#f59e0b' : '#38bdf8' }}>PKR {fmt(c.total_amount)}</div>
+                            </>
+                          )}
+                          {c.settlement_month && (
+                            <div style={{ fontSize:'0.68rem', color:'#10b981', marginTop:'2px' }}>Settles: {new Date(c.settlement_month).toLocaleString('en-US',{month:'short',year:'numeric'})}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          TAB 6: Focal Points
+      ══════════════════════════════════════════════════════════════════════ */}
+      {tab === 'focal' && (
+        <div>
+          {/* Add new focal point form */}
+          <div style={{ ...s.card, marginBottom:'1.5rem' }}>
+            <div style={{ fontWeight:700, fontSize:'0.9rem', marginBottom:'1rem', color:'#e2e8f0' }}>Add Focal Point</div>
+            <div style={{ display:'flex', gap:'10px', flexWrap:'wrap', alignItems:'flex-end' }}>
+              <div style={{ flex:2, minWidth:'180px' }}>
+                <label style={{ fontSize:'0.72rem', color:'#64748b', display:'block', marginBottom:'4px' }}>Email *</label>
+                <input value={fpForm.email} onChange={e => setFpForm(f => ({...f, email:e.target.value}))} placeholder="focal@wafi-energy.com" style={{ ...s.input, width:'100%', boxSizing:'border-box' }} />
+              </div>
+              <div style={{ flex:2, minWidth:'140px' }}>
+                <label style={{ fontSize:'0.72rem', color:'#64748b', display:'block', marginBottom:'4px' }}>Name</label>
+                <input value={fpForm.name} onChange={e => setFpForm(f => ({...f, name:e.target.value}))} placeholder="Full Name" style={{ ...s.input, width:'100%', boxSizing:'border-box' }} />
+              </div>
+              <div style={{ flex:2, minWidth:'130px' }}>
+                <label style={{ fontSize:'0.72rem', color:'#64748b', display:'block', marginBottom:'4px' }}>Location</label>
+                <input value={fpForm.location} onChange={e => setFpForm(f => ({...f, location:e.target.value}))} placeholder="LOBP Keamari" style={{ ...s.input, width:'100%', boxSizing:'border-box' }} />
+              </div>
+              <div style={{ flex:1, minWidth:'130px' }}>
+                <label style={{ fontSize:'0.72rem', color:'#64748b', display:'block', marginBottom:'4px' }}>Role</label>
+                <select value={fpForm.role} onChange={e => setFpForm(f => ({...f, role:e.target.value}))} style={{ ...s.sel, width:'100%' }}>
+                  <option value="claimed_by">Claimed By</option>
+                  <option value="approved_by">Approved By</option>
+                </select>
+              </div>
+              <button onClick={addFocalPoint} disabled={fpSaving || !fpForm.email} style={{ ...btn('#6366f1'), alignSelf:'flex-end' }}>
+                {fpSaving ? <Spinner size={14}/> : null} Add
+              </button>
+            </div>
+          </div>
+
+          {/* Focal points list */}
+          <div style={s.card}>
+            <div style={{ fontWeight:700, fontSize:'0.9rem', marginBottom:'1rem', color:'#e2e8f0' }}>Registered Focal Points</div>
+            {fpLoading ? <Spinner size={20}/> : (
+              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                <thead><tr>
+                  {['Email','Name','Location','Role','Action'].map(h => <th key={h} style={s.th}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {focalPoints.length === 0 && (
+                    <tr><td colSpan={5} style={{ ...s.td, textAlign:'center', color:'#64748b' }}>No focal points registered yet</td></tr>
+                  )}
+                  {focalPoints.map(fp => (
+                    <tr key={fp.id}>
+                      <td style={s.td}><span style={{ fontFamily:'monospace', fontSize:'0.8rem', color:'#e2e8f0' }}>{fp.email}</span></td>
+                      <td style={s.td}>{fp.name || '—'}</td>
+                      <td style={s.td}>{fp.location || '—'}</td>
+                      <td style={s.td}>
+                        <span style={{ fontSize:'0.72rem', fontWeight:600, padding:'2px 8px', borderRadius:'4px', background: fp.role==='approved_by' ? 'rgba(56,189,248,0.12)' : 'rgba(99,102,241,0.12)', color: fp.role==='approved_by' ? '#38bdf8' : '#6366f1' }}>
+                          {fp.role === 'approved_by' ? 'Approved By' : 'Claimed By'}
+                        </span>
+                      </td>
+                      <td style={s.td}>
+                        <button onClick={() => removeFocalPoint(fp.id)} style={{ background:'transparent', border:'1px solid rgba(239,68,68,0.3)', color:'#ef4444', padding:'3px 8px', borderRadius:'5px', cursor:'pointer', fontSize:'0.72rem' }}>Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          Verify Modal
+      ══════════════════════════════════════════════════════════════════════ */}
+      {verifyModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1050 }}>
+          <div style={{ background:'#1e293b', border:'1px solid rgba(16,185,129,0.3)', borderRadius:'14px', padding:'1.75rem', minWidth:'380px', maxWidth:'480px', width:'92%' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
+              <div style={{ fontWeight:700, fontSize:'1rem', color:'#e2e8f0' }}>Verify & Push to Payroll</div>
+              <button onClick={() => setVerifyModal(null)} style={{ background:'transparent', border:'none', color:'#64748b', cursor:'pointer', display:'flex' }}><X size={18}/></button>
+            </div>
+
+            {/* Summary */}
+            <div style={{ background:'rgba(16,185,129,0.06)', border:'1px solid rgba(16,185,129,0.15)', borderRadius:'8px', padding:'10px 14px', marginBottom:'1.25rem' }}>
+              <div style={{ fontSize:'0.82rem', color:'#94a3b8', marginBottom:'6px' }}>Session from <strong style={{ color:'#e2e8f0' }}>{verifyModal.sender}</strong></div>
+              <div style={{ fontSize:'0.78rem', color:'#64748b' }}>{verifyModal.filename}</div>
+              <div style={{ display:'flex', gap:'16px', marginTop:'8px' }}>
+                <span style={{ fontSize:'0.8rem', color:'#a78bfa' }}>⏱ {verifyModal.otCount} OT</span>
+                <span style={{ fontSize:'0.8rem', color:'#f59e0b' }}>💳 {verifyModal.expCount} Expense</span>
+                <span style={{ fontSize:'0.8rem', color:'#38bdf8' }}>🏥 {verifyModal.medCount} Medical</span>
+              </div>
+            </div>
+
+            {/* Settlement month picker */}
+            <label style={{ fontSize:'0.78rem', color:'#64748b', display:'block', marginBottom:'6px' }}>Settlement Payroll Month</label>
+            <select
+              value={`${verifyMonth.year}-${verifyMonth.month}`}
+              onChange={e => { const sel = MONTHS.find(m => `${m.year}-${m.month}` === e.target.value); if (sel) setVerifyMonth(sel); }}
+              style={{ ...s.sel, width:'100%', marginBottom:'0.5rem' }}
+            >
+              {MONTHS.map(m => <option key={`${m.year}-${m.month}`} value={`${m.year}-${m.month}`}>{m.label}</option>)}
+            </select>
+            <div style={{ fontSize:'0.72rem', color:'#64748b', marginBottom:'1.25rem' }}>A confirmation draft email will be created in Gmail for this month's settlement.</div>
+
+            {/* Result feedback */}
+            {verifyResult && (
+              <div style={{ marginBottom:'1rem', padding:'10px 12px', borderRadius:'8px', background: verifyResult.error ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)', fontSize:'0.82rem', color: verifyResult.error ? '#ef4444' : '#10b981' }}>
+                {verifyResult.error || verifyResult.message}
+              </div>
+            )}
+
+            <div style={{ display:'flex', gap:'10px', justifyContent:'flex-end' }}>
+              <button onClick={() => setVerifyModal(null)} style={btn('#64748b','rgba(100,116,139,0.1)')}>Cancel</button>
+              <button onClick={handleVerify} disabled={verifyLoading} style={{ ...btn('#10b981','rgba(16,185,129,0.15)'), opacity: verifyLoading ? 0.7 : 1 }}>
+                {verifyLoading ? <Spinner size={14}/> : <CheckCircle size={14}/>}
+                {verifyLoading ? 'Verifying…' : 'Confirm & Push to Payroll'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
           Stage to Payroll Modal
       ══════════════════════════════════════════════════════════════════════ */}
       {stageModal && (
@@ -799,7 +1205,7 @@ export default function WafiClaimsDashboard({ user }) {
         </div>
       )}
 
-      <style>{`@keyframes wafi_spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`@keyframes wafi_spin { to { transform: rotate(360deg); } } @keyframes wafi_pulse { 0%,100% { opacity:1 } 50% { opacity:0.6 } }`}</style>
     </div>
 
   );

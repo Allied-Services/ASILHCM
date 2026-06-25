@@ -5,17 +5,30 @@ import {
 } from 'lucide-react';
 import { api } from './api';
 
-const fmt = n => Math.round(parseFloat(n) || 0).toLocaleString('en-PK');
-const Rs  = n => `Rs. ${fmt(n)}`;
-const today = () => new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' });
+const fmt    = n => Math.round(parseFloat(n) || 0).toLocaleString('en-PK');
+const fmtDec = n => (parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const Rs     = n => `Rs. ${fmt(n)}`;
+const today  = () => new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'long', year: 'numeric' });
 
 const CO = {
-    name:    'Allied Services (Pvt.) Ltd.',
-    address: '301, 3rd Floor, Business Avenue, Shahrah-e-Faisal, Karachi – 75350',
-    ntn:     '7483900-1',
-    strn:    'SRB-02-2024-XXXXX',
-    phone:   '(021) 3456-7890',
-    email:   'accounts@alliedservices.com.pk',
+    name:         'Allied Services International (Pvt) Ltd',
+    address1:     '6 Hilltop Arcade',
+    address2:     '4D/2 Gizri Boulevard,',
+    address3:     'Phase 4',
+    address4:     'Karachi 75500,',
+    address5:     'Pakistan',
+    ntn:          '0520872-6',
+    strn:         'S0520872-6',
+    phone:        '(021) 3456-7890',
+    email:        'accounts@alliedservices.com.pk',
+    bankTitle:    'M S ALLIED SERVICES INT LTD',
+    bankAccount:  '00270036548503',
+    bankIBAN:     'PK32 HABB 0000 2700 3654 8503',
+    bankCode:     '0027',
+    bankName:     'Habib Bank Limited',
+    bankBranch:   '49-A Block 6 P.E.C.H.S Shahrah-e-Faisal Karachi',
+    signatory:    'Asif Awan',
+    signatoryTitle: 'Manager Finance',
 };
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -43,77 +56,242 @@ const STATUS_NEXT = {
     'Void':          'Voided',
 };
 
-// ─── Invoice HTML renderer (print/PDF) ───────────────────────────────────────
+// ─── Invoice HTML renderer (print/PDF) — matches ASIL letterhead layout ───────
 function renderInvoiceHTML(inv) {
-    const items = (inv.line_items || []);
-    const subtotal     = parseFloat(inv.subtotal)        || 0;
-    const svcCharges   = parseFloat(inv.service_charges) || 0;
-    const salesTax     = parseFloat(inv.sales_tax)       || 0;
-    const wht          = parseFloat(inv.wht)             || 0;
-    const grandTotal   = parseFloat(inv.grand_total)     || (subtotal + svcCharges + salesTax - wht);
+    const items      = (inv.line_items || []);
+    const subtotal   = parseFloat(inv.subtotal)        || 0;
+    const svcCharges = parseFloat(inv.service_charges) || 0;
+    const salesTax   = parseFloat(inv.sales_tax)       || 0;
+    const wht        = parseFloat(inv.wht)             || 0;
+    const grandTotal = parseFloat(inv.grand_total)     || (subtotal + svcCharges + salesTax - wht);
+    const taxRate    = salesTax > 0 && subtotal > 0 ? Math.round((salesTax / subtotal) * 100) : 15;
 
-    return `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-<style>
-body{font-family:Arial,sans-serif;font-size:11pt;color:#000;margin:0;padding:0}
-.page{max-width:800px;margin:0 auto;padding:30px 40px}
-.hdr{display:flex;justify-content:space-between;border-bottom:3px solid #1e3a5f;padding-bottom:16px;margin-bottom:20px}
-.co{font-size:15pt;font-weight:bold;color:#1e3a5f}.co-sub{font-size:9pt;color:#555;margin-top:2px}
-.inv-title{text-align:right}.inv-title h2{font-size:20pt;color:#1e3a5f;margin:0}
-.inv-title p{font-size:9pt;color:#555;margin:2px 0}
-.bill-section{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}
-.bill-to h4,.bill-from h4{font-size:8pt;text-transform:uppercase;letter-spacing:.06em;color:#888;margin:0 0 4px}
-.bill-to p,.bill-from p{margin:2px 0;font-size:10pt}
-table{width:100%;border-collapse:collapse;margin-bottom:16px}
-th{background:#1e3a5f;color:#fff;padding:8px 10px;font-size:9pt;text-align:left}
-td{padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:10pt}
-.num{text-align:right}
-.totals tr td{border:none;padding:4px 10px}
-.grand{background:#1e3a5f;color:#fff;font-weight:bold;font-size:12pt}
-.footer{margin-top:30px;font-size:9pt;color:#888;border-top:1px solid #e2e8f0;padding-top:12px}
-</style></head><body><div class="page">
-<div class="hdr">
-  <div><div class="co">${CO.name}</div><div class="co-sub">${CO.address}</div>
-  <div class="co-sub">NTN: ${CO.ntn} | STRN: ${CO.strn}</div>
-  <div class="co-sub">${CO.phone} | ${CO.email}</div></div>
-  <div class="inv-title"><h2>INVOICE</h2>
-    <p><strong>${inv.invoice_number}</strong></p>
-    <p>Date: ${today()}</p>
-    <p>${inv.due_date ? 'Due: ' + inv.due_date : ''}</p>
-    <p>Status: ${inv.status}</p></div>
-</div>
-<div class="bill-section">
-  <div class="bill-to"><h4>Bill To</h4>
-    <p><strong>${inv.client}</strong></p>
-    ${inv.contract ? `<p>${inv.contract}</p>` : ''}
-    ${inv.po_number ? `<p>PO/Ref: ${inv.po_number}</p>` : ''}
-  </div>
-  <div class="bill-from"><h4>Billing Period</h4>
-    <p>${inv.period_month ? MONTH_NAMES[inv.period_month - 1] + ' ' + inv.period_year : '—'}</p>
-  </div>
-</div>
-<table>
-  <thead><tr><th>Description</th><th class="num">Amount (PKR)</th></tr></thead>
-  <tbody>
-    ${items.length > 0
-        ? items.map(li => `<tr><td>${li.description || li.desc || ''}</td><td class="num">${Rs(li.amount || li.unit_amount || 0)}</td></tr>`).join('')
-        : `<tr><td>Services — ${inv.contract || inv.client}</td><td class="num">${Rs(subtotal)}</td></tr>`
+    // Invoice date from record or today
+    const invDate = inv.created_at
+        ? new Date(inv.created_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })
+        : today();
+
+    // Per-line tax and unit price (line items may carry explicit qty/unit_price or we derive)
+    const renderRows = items.length > 0
+        ? items.map(li => {
+            const qty       = li.quantity      || 1;
+            const amount    = parseFloat(li.amount || li.unit_amount || 0);
+            const unitPrice = li.unit_price    || (qty ? amount / qty : amount);
+            const lineTax   = li.tax_rate      != null ? li.tax_rate : taxRate;
+            return `<tr>
+              <td style="color:#1155CC">${li.description || li.desc || ''}</td>
+              <td class="num">${fmtDec(qty)}</td>
+              <td class="num">${fmtDec(unitPrice)}</td>
+              <td class="num">${lineTax}%</td>
+              <td class="num">${fmtDec(amount)}</td>
+            </tr>`;
+          }).join('')
+        : `<tr>
+              <td style="color:#1155CC">Services — ${inv.contract || inv.client}</td>
+              <td class="num">1.00</td>
+              <td class="num">${fmtDec(subtotal)}</td>
+              <td class="num">${taxRate}%</td>
+              <td class="num">${fmtDec(subtotal)}</td>
+           </tr>`;
+
+    // ── Region-aware tax label (matches Xero CSV format) ─────────────────────
+    const region = (inv.region || '').toLowerCase();
+    let taxLabel, taxRateActual;
+    if (region.includes('sindh')) {
+        taxLabel = 'SINDH SALES TAX'; taxRateActual = 15;
+    } else if (region.includes('punjab')) {
+        taxLabel = 'PUNJAB SERVICES TAX'; taxRateActual = 16;
+    } else if (region.includes('kpk') || region.includes('khyber')) {
+        taxLabel = 'KPK SERVICES TAX'; taxRateActual = 15;
+    } else if (region.includes('baloch')) {
+        taxLabel = 'BALOCHISTAN SERVICES TAX'; taxRateActual = 15;
+    } else if (region.includes('federal') || region.includes('islamabad')) {
+        taxLabel = 'FEDERAL EXCISE DUTY'; taxRateActual = 13;
+    } else {
+        // Fall back to computed rate from sales_tax/subtotal
+        taxRateActual = salesTax > 0 && (subtotal + svcCharges) > 0
+            ? Math.round((salesTax / (subtotal + svcCharges)) * 100)
+            : taxRate;
+        taxLabel = taxRateActual === 16 ? 'PUNJAB SERVICES TAX' : 'SINDH SALES TAX';
     }
-  </tbody>
-</table>
-<table class="totals"><tbody>
-  <tr><td colspan="3" style="text-align:right">Sub-Total</td><td class="num" style="width:150px">${Rs(subtotal)}</td></tr>
-  ${svcCharges > 0 ? `<tr><td colspan="3" style="text-align:right">Service Charges</td><td class="num">${Rs(svcCharges)}</td></tr>` : ''}
-  ${salesTax   > 0 ? `<tr><td colspan="3" style="text-align:right">Sales Tax on Service Charges</td><td class="num">${Rs(salesTax)}</td></tr>` : ''}
-  ${wht        > 0 ? `<tr><td colspan="3" style="text-align:right;color:#dc2626">WHT Deduction (by client)</td><td class="num" style="color:#dc2626">- ${Rs(wht)}</td></tr>` : ''}
-  <tr class="grand"><td colspan="3" style="text-align:right">TOTAL PAYABLE</td><td class="num">${Rs(grandTotal)}</td></tr>
-</tbody></table>
-<div style="background:#f8fafc;border-radius:8px;padding:16px;font-size:10pt;margin-bottom:20px">
-  <strong>Bank Details for Payment:</strong><br/>
-  Bank: Habib Bank Ltd. (HBL) | Account Title: Allied Services (Pvt.) Ltd.<br/>
-  IBAN: PK36HABB0000010379000000 | Branch: Shahrah-e-Faisal, Karachi
+    const taxLabelFull = `TOTAL ${taxLabel} ${taxRateActual}%`;
+
+    // ── Client address from enriched JOIN or fallback ─────────────────────────
+    const clientAttn = inv.client_attention || '';
+    const clientAddr = inv.client_hq        || inv.client_address || '';
+    const clientNtn  = inv.client_ntn       || '';
+    const clientStrn = inv.client_strn      || '';
+    const poRef      = inv.po_number        || inv.reference || '';
+
+
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Invoice ${inv.invoice_number || ''}</title>
+<style>
+  @page { margin: 0; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; color: #000; margin: 0; padding: 0; }
+  .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 0 18mm; display: flex; flex-direction: column; }
+  /* Letterhead gap — top and bottom reserved for printed letterhead */
+  .lh-top    { height: 42mm; flex-shrink: 0; }
+  .lh-bottom { height: 28mm; flex-shrink: 0; margin-top: auto; }
+  .body-content { flex: 1; padding-bottom: 10mm; }
+
+  /* ── Header block ── */
+  .inv-header { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; margin-bottom: 18pt; }
+  .inv-title-cell { font-size: 28pt; font-weight: bold; color: #000; line-height: 1; display: flex; align-items: flex-end; padding-bottom: 4pt; }
+  .inv-meta-cell  { font-size: 9pt; color: #000; }
+  .inv-meta-cell .meta-label { font-weight: bold; margin-top: 6pt; }
+  .inv-meta-cell .meta-label:first-child { margin-top: 0; }
+  .inv-co-cell    { font-size: 9pt; color: #1155CC; text-align: left; }
+  .inv-co-cell .co-name { color: #1155CC; font-weight: normal; }
+
+  /* ── Bill-to block ── */
+  .bill-to { margin-bottom: 18pt; font-size: 10pt; }
+  .bill-to .client-name  { font-weight: bold; }
+  .bill-to p { margin: 0; line-height: 1.5; }
+
+  /* ── Items table ── */
+  table.items { width: 100%; border-collapse: collapse; margin-bottom: 0; }
+  table.items thead tr { border-bottom: 2px solid #000; }
+  table.items th { font-size: 9pt; font-weight: bold; padding: 5pt 6pt; text-align: left; border: none; background: none; color: #000; }
+  table.items th.num { text-align: right; }
+  table.items td { font-size: 10pt; padding: 5pt 6pt; border: none; border-bottom: 1px solid #d0d0d0; }
+  table.items td.num { text-align: right; }
+  table.items tbody tr:last-child td { border-bottom: none; }
+
+  /* ── Totals ── */
+  table.totals { width: 100%; border-collapse: collapse; border-top: 1px solid #000; margin-top: 2pt; }
+  table.totals td { font-size: 10pt; padding: 4pt 6pt; border: none; }
+  table.totals td.num { text-align: right; }
+  .subtotal-row td { padding-top: 6pt; }
+  .tax-row td  { color: #000; }
+  .grand-row td { font-weight: bold; font-size: 11pt; border-top: 2px solid #000; padding-top: 6pt; }
+
+  /* ── Footer ── */
+  .inv-footer { font-size: 10pt; margin-top: 20pt; }
+  .due-date   { font-weight: bold; color: #1155CC; font-size: 11pt; margin-bottom: 6pt; }
+  .bank-details { font-size: 9.5pt; line-height: 1.6; margin-bottom: 16pt; }
+  .bank-details strong { display: block; }
+  .signature  { margin-top: 16pt; font-size: 10pt; }
+  .signature .sig-name  { color: #1155CC; font-weight: normal; }
+  .signature .sig-title { color: #1155CC; font-size: 9.5pt; }
+
+  @media print {
+    .page { width: 100%; }
+    body  { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style></head><body>
+<div class="page">
+  <div class="lh-top"></div>
+  <div class="body-content">
+
+    <!-- ── Header: INVOICE | Meta | Company ── -->
+    <div class="inv-header">
+      <div class="inv-title-cell">INVOICE</div>
+
+      <div class="inv-meta-cell">
+        <div class="meta-label">Invoice Date</div>
+        <div>${invDate}</div>
+        <div class="meta-label">Invoice Number</div>
+        <div>${inv.invoice_number || '—'}</div>
+        ${poRef ? `<div class="meta-label">Reference</div><div>${poRef}</div>` : ''}
+        <div class="meta-label">NTN</div>
+        <div>${CO.ntn}</div>
+      </div>
+
+      <div class="inv-co-cell">
+        <div class="co-name">${CO.name}</div>
+        <div>${CO.address1}</div>
+        <div>${CO.address2}</div>
+        <div>${CO.address3}</div>
+        <div>${CO.address4}</div>
+        <div>${CO.address5}</div>
+        <div>NTN: ${CO.ntn}</div>
+        <div>SNTN: ${CO.strn}</div>
+      </div>
+    </div>
+
+    <!-- ── Bill-to: client block ── -->
+    <div class="bill-to">
+      <p class="client-name">${inv.client || '—'}</p>
+      ${clientAttn ? `<p>Attention: ${clientAttn}</p>` : ''}
+      ${clientAddr ? `<p>${clientAddr.replace(/\n/g,'<br/>')}</p>` : ''}
+      ${clientNtn  ? `<p>NTN: ${clientNtn}${clientStrn ? ' / STRN ' + clientStrn : ''}</p>` : ''}
+    </div>
+
+    <!-- ── Line Items ── -->
+    <table class="items">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th class="num">Quantity</th>
+          <th class="num">Unit Price</th>
+          <th class="num">Tax</th>
+          <th class="num">Amount PKR</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${renderRows}
+      </tbody>
+    </table>
+
+    <!-- ── Totals ── -->
+    <table class="totals">
+      <tbody>
+        <tr class="subtotal-row">
+          <td colspan="3"></td>
+          <td class="num" style="width:120pt;font-weight:bold">Subtotal</td>
+          <td class="num" style="width:100pt">${fmtDec(subtotal)}</td>
+        </tr>
+        ${svcCharges > 0
+          ? `<tr class="tax-row">
+               <td colspan="3"></td>
+               <td class="num">TOTAL SERVICE CHARGES</td>
+               <td class="num">${fmtDec(svcCharges)}</td>
+             </tr>` : ''}
+        ${salesTax > 0
+          ? `<tr class="tax-row">
+               <td colspan="3"></td>
+               <td class="num">${taxLabelFull}</td>
+               <td class="num">${fmtDec(salesTax)}</td>
+             </tr>` : ''}
+
+        ${wht > 0
+          ? `<tr class="tax-row">
+               <td colspan="3"></td>
+               <td class="num" style="color:#c00">WHT Deduction</td>
+               <td class="num" style="color:#c00">- ${fmtDec(wht)}</td>
+             </tr>` : ''}
+        <tr class="grand-row">
+          <td colspan="3"></td>
+          <td class="num">TOTAL PKR</td>
+          <td class="num">${fmtDec(grandTotal)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ── Footer ── -->
+    <div class="inv-footer">
+      ${inv.due_date ? `<div class="due-date">Due Date: ${inv.due_date}</div>` : ''}
+      <div class="bank-details">
+        <strong>Bank Details:</strong>
+        Account Title: ${CO.bankTitle}<br/>
+        Account No.: ${CO.bankAccount}<br/>
+        IBAN #: ${CO.bankIBAN}<br/>
+        Branch Code: ${CO.bankCode}<br/>
+        Bank Name: ${CO.bankName}<br/>
+        Branch Address: ${CO.bankBranch}
+      </div>
+      <div class="signature">
+        <p style="margin:0 0 24pt">Yours Truly</p>
+        <p style="margin:0" class="sig-name">${CO.signatory}</p>
+        <p style="margin:0" class="sig-title">${CO.signatoryTitle}</p>
+      </div>
+    </div>
+
+  </div>
+  <div class="lh-bottom"></div>
 </div>
-<div class="footer">Computer-generated invoice. No. ${inv.invoice_number} | Generated: ${today()} | Quote invoice number in all correspondence.</div>
-</div></body></html>`;
+</body></html>`;
 }
 
 function printInvoice(inv) {
@@ -213,17 +391,25 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
         try {
             for (const grp of groups) {
                 const t = grp.totals;
+                // ── Xero-compatible line descriptions ──────────────────────────────
                 const lineItems = [];
+                const moFull = `${MONTH_NAMES[parseInt(month) - 1]} ${year}`;
+                const regionLabel = grp.region && grp.region !== 'ALL' ? grp.region : null;
+
                 if (grp.component === 'overtime') {
-                    lineItems.push({ description: `Overtime — ${grp.label}`, amount: t.overtime });
+                    lineItems.push({ description: `Overtime${regionLabel ? ' in ' + regionLabel : ''} for the month of ${moFull}`, amount: t.overtime });
                 } else if (grp.component === 'overheads') {
-                    lineItems.push({ description: `Overheads — ${grp.label}`, amount: t.overhead });
+                    lineItems.push({ description: `Overheads${regionLabel ? ' in ' + regionLabel : ''} for the month of ${moFull}`, amount: t.overhead });
                 } else {
-                    if (t.gross > 0)         lineItems.push({ description: `Payroll — Gross Salaries (${grp.employee_count} employees)${grp.label !== 'Combined Invoice' ? ' — ' + grp.label : ''}`, amount: t.gross });
+                    const svcDesc = regionLabel
+                        ? `Services in ${regionLabel} for the month of ${moFull}`
+                        : `Services for the month of ${moFull}`;
+                    if (t.gross > 0)         lineItems.push({ description: svcDesc, amount: t.gross });
                     if (t.eobi_ee > 0)       lineItems.push({ description: 'EOBI Employer Contribution', amount: t.eobi_ee });
                     if (t.opd_claim > 0)     lineItems.push({ description: 'OPD / Medical Claims', amount: t.opd_claim });
                     if (t.reimbursement > 0) lineItems.push({ description: 'Reimbursements', amount: t.reimbursement });
                     if (t.arrears > 0)       lineItems.push({ description: 'Arrears', amount: t.arrears });
+                    if ((t.service_charges || 0) > 0) lineItems.push({ description: 'Service Charges', amount: t.service_charges });
                 }
                 const payload = {
                     client, contract: contractName,
@@ -231,16 +417,20 @@ function PayrollInvoiceWizard({ clients = [], contracts = [], onSave, onClose })
                     period_month: parseInt(month), period_year: parseInt(year),
                     po_number: grp.po_number || null,
                     po_id:     grp.po_id     || null,
-                    due_date: grp.due_date || null,
-                    notes: [notes, grp.label !== 'Combined Invoice' ? grp.label : ''].filter(Boolean).join(' | ') || null,
-                    region: grp.region || null, bu: grp.bu || null, component: grp.component,
+                    due_date:  grp.due_date  || null,
+                    notes:     [notes, grp.label !== 'Combined Invoice' ? grp.label : ''].filter(Boolean).join(' | ') || null,
+                    region:    grp.region    || null,
+                    bu:        grp.bu        || null,
+                    component: grp.component,
                     line_items: lineItems.filter(l => l.amount > 0),
                     subtotal: t.gross + (t.eobi_ee||0) + (t.opd_claim||0) + (t.reimbursement||0) + (t.arrears||0) + (t.overtime||0) + (t.overhead||0),
                     service_charges: t.service_charges || 0,
                     sales_tax: t.sales_tax || 0,
-                    wht: t.wht || 0,
+                    wht:       t.wht        || 0,
                     grand_total: t.total_invoice,
                 };
+
+
                 const inv = await api.createClientInvoice(payload);
                 created.push(inv);
             }

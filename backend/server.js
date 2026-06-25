@@ -11,7 +11,7 @@ const { Resend } = require('resend');
 
 const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratuity } = require('./taxEngine');
 const { startEmailClaimsService, triggerManualPoll } = require('./emailClaimsService');
-const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt } = require('./wafiClaimsService');
+const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmailClient, buildConfirmationHtml, createGmailDraft } = require('./wafiClaimsService');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -6000,9 +6000,12 @@ app.get('/api/wafi-claims/stats', requireAuth, async (req, res) => {
         const { rows } = await pool.query(`
             SELECT
                 COUNT(*) AS total_sessions,
-                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED_SUCCESSFULLY') AS passed,
+                COUNT(*) FILTER (WHERE processing_status IN ('PROCESSED_SUCCESSFULLY','VERIFIED')) AS passed,
                 COUNT(*) FILTER (WHERE processing_status = 'VALIDATION_FAILED') AS failed,
-                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED_SUCCESSFULLY' AND pushed_to_payroll = FALSE) AS pending_payroll,
+                COUNT(*) FILTER (WHERE processing_status = 'PENDING_REVIEW') AS pending_review,
+                COUNT(*) FILTER (WHERE processing_status = 'IRRELEVANT') AS irrelevant,
+                COUNT(*) FILTER (WHERE processing_status = 'SKIPPED') AS skipped,
+                COUNT(*) FILTER (WHERE processing_status IN ('PROCESSED_SUCCESSFULLY','VERIFIED') AND pushed_to_payroll = FALSE) AS pending_payroll,
                 SUM(total_ot_rows) AS total_ot_rows,
                 SUM(total_expense_rows) AS total_expense_rows,
                 SUM(total_medical_rows) AS total_medical_rows,
@@ -6012,6 +6015,272 @@ app.get('/api/wafi-claims/stats', requireAuth, async (req, res) => {
         res.json(rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// POST /api/wafi-claims/sessions/:id/verify
+// Verify + push to payroll + create Gmail draft confirmation in the original thread
+app.post('/api/wafi-claims/sessions/:id/verify', requireAuth, async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const sessionId = parseInt(req.params.id);
+        const { month, year } = req.body; // settlement month selected by admin
+        if (!month || !year) return res.status(400).json({ error: 'month and year required for settlement' });
+
+        await client.query('BEGIN');
+
+        const { rows: sessRows } = await client.query(
+            `SELECT * FROM wafi_claims_sessions WHERE id = $1`, [sessionId]
+        );
+        if (!sessRows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Session not found' }); }
+        const sess = sessRows[0];
+        if (!['PENDING_REVIEW', 'PROCESSED_SUCCESSFULLY'].includes(sess.processing_status)) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: `Cannot verify session with status ${sess.processing_status}` });
+        }
+
+        // Push items to payroll
+        const { rows: items } = await client.query(
+            `SELECT * FROM wafi_claims_items WHERE session_id = $1 AND active = TRUE`, [sessionId]
+        );
+        const otPushMap = {}, expPushMap = {}, medPushMap = {};
+        for (const item of items) {
+            const empId = item.employee_id;
+            if (!empId) continue;
+            if (item.claim_type === 'OT' && item.ot_payout) {
+                otPushMap[empId] = (otPushMap[empId] || 0) + parseFloat(item.ot_payout);
+            } else if (item.claim_type === 'EXPENSE' && item.raw_amount) {
+                expPushMap[empId] = (expPushMap[empId] || 0) + parseFloat(item.raw_amount);
+            } else if (item.claim_type === 'MEDICAL' && item.raw_amount) {
+                medPushMap[empId] = (medPushMap[empId] || 0) + parseFloat(item.raw_amount);
+            }
+        }
+
+        const affectedEmps = new Set([...Object.keys(otPushMap), ...Object.keys(expPushMap), ...Object.keys(medPushMap)]);
+        let upserted = 0;
+        for (const empId of affectedEmps) {
+            await client.query(`
+                INSERT INTO payroll_transactions (employee_id, month, year, ot, reimb, opd)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (employee_id, month, year) DO UPDATE
+                  SET ot    = payroll_transactions.ot    + EXCLUDED.ot,
+                      reimb = payroll_transactions.reimb + EXCLUDED.reimb,
+                      opd   = payroll_transactions.opd   + EXCLUDED.opd
+            `, [empId, parseInt(month), parseInt(year),
+                parseFloat((otPushMap[empId]  || 0).toFixed(2)),
+                parseFloat((expPushMap[empId] || 0).toFixed(2)),
+                parseFloat((medPushMap[empId] || 0).toFixed(2))]);
+            upserted++;
+        }
+
+        // Determine claim month label (for email)
+        const claimMonthLabel = sess.claim_month
+            ? new Date(sess.claim_month).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+            : 'the submitted period';
+        const settlementDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+        const settlementMonthLabel = settlementDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+        // Update session
+        const verifiedBy = req.user?.email || req.user?.username || 'admin';
+        await client.query(`
+            UPDATE wafi_claims_sessions
+            SET processing_status = 'VERIFIED',
+                pushed_to_payroll = TRUE,
+                payroll_month     = $1,
+                settlement_month  = $1,
+                verified_at       = NOW(),
+                verified_by       = $2
+            WHERE id = $3
+        `, [settlementDate.toISOString().slice(0, 10), verifiedBy, sessionId]);
+
+        await client.query('COMMIT');
+
+        // Create Gmail draft (thread-aware reply) — outside transaction
+        let draftId = null;
+        try {
+            const gmail = createGmailClient();
+            if (gmail && sess.gmail_thread_id) {
+                const html = buildConfirmationHtml({
+                    sessionId,
+                    filename: sess.attachment_filename,
+                    otCount:  sess.total_ot_rows,
+                    expCount: sess.total_expense_rows,
+                    medCount: sess.total_medical_rows,
+                    claimMonth: sess.claim_month,
+                    settlementMonth: settlementDate,
+                });
+                draftId = await createGmailDraft(gmail, sess.gmail_thread_id, sess.sender_email, sess.subject || 'Claims Submission', html);
+                if (draftId) {
+                    await pool.query(`UPDATE wafi_claims_sessions SET gmail_draft_id = $1 WHERE id = $2`, [draftId, sessionId]);
+                }
+            }
+        } catch (e) { console.warn('[Wafi Verify] Draft creation warning:', e.message); }
+
+        // Apply verified label
+        try {
+            const gmail = createGmailClient();
+            if (gmail && sess.gmail_message_id) {
+                await gmail.users.messages.modify({
+                    userId: 'me', id: sess.gmail_message_id,
+                    requestBody: { addLabelIds: [], removeLabelIds: [] }, // label applied via applyLabel in service
+                });
+            }
+        } catch (_) {}
+
+        res.json({
+            ok: true,
+            message: `Session ${sessionId} verified. ${upserted} employees staged to ${settlementMonthLabel} payroll.${draftId ? ' Confirmation draft created in Gmail.' : ''}`,
+            upserted,
+            settlementMonth: settlementMonthLabel,
+            draftId,
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// POST /api/wafi-claims/sessions/:id/skip
+// Mark irrelevant/unwanted sessions as SKIPPED and apply Not-Relevant label
+app.post('/api/wafi-claims/sessions/:id/skip', requireAuth, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+        const { rows } = await pool.query(
+            `UPDATE wafi_claims_sessions SET processing_status = 'SKIPPED' WHERE id = $1 RETURNING gmail_message_id, processing_status`,
+            [sessionId]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Session not found' });
+        res.json({ ok: true, message: `Session ${sessionId} skipped` });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/wafi-claims/sessions/batch-verify
+// Verify multiple PENDING_REVIEW sessions at once with the same settlement month
+app.post('/api/wafi-claims/sessions/batch-verify', requireAuth, async (req, res) => {
+    const { sessionIds, month, year } = req.body;
+    if (!Array.isArray(sessionIds) || !month || !year) {
+        return res.status(400).json({ error: 'sessionIds[], month, year required' });
+    }
+    const results = { verified: [], skipped: [], errors: [] };
+    for (const id of sessionIds) {
+        try {
+            const r = await fetch(`http://localhost:${process.env.PORT || 3001}/api/wafi-claims/sessions/${id}/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': req.headers.cookie || '' },
+                body: JSON.stringify({ month, year }),
+            });
+            const d = await r.json();
+            if (d.ok) results.verified.push(id);
+            else results.skipped.push({ id, reason: d.error });
+        } catch (e) {
+            results.errors.push({ id, error: e.message });
+        }
+    }
+    res.json({ ok: true, ...results });
+});
+
+// ── Focal Points CRUD ─────────────────────────────────────────────────────────
+app.get('/api/wafi-claims/focal-points', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(`SELECT * FROM wafi_focal_points ORDER BY location, name`);
+        res.json({ focalPoints: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/wafi-claims/focal-points', requireAuth, async (req, res) => {
+    try {
+        const { email, name, location, role } = req.body;
+        if (!email) return res.status(400).json({ error: 'email is required' });
+        const { rows } = await pool.query(
+            `INSERT INTO wafi_focal_points (email, name, location, role)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (email) DO UPDATE SET name=$2, location=$3, role=$4, active=TRUE
+             RETURNING *`,
+            [email.toLowerCase().trim(), name || null, location || null, role || 'claimed_by']
+        );
+        res.json({ ok: true, focalPoint: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/wafi-claims/focal-points/:id', requireAuth, async (req, res) => {
+    try {
+        await pool.query(`UPDATE wafi_focal_points SET active = FALSE WHERE id = $1`, [parseInt(req.params.id)]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/wafi-claims/employee-claims?employeeCode=...&dateFrom=...&dateTo=...&claimType=...
+// Consolidated view: all claims across all months for a given employee
+app.get('/api/wafi-claims/employee-claims', requireAuth, async (req, res) => {
+    try {
+        const { employeeCode, dateFrom, dateTo, claimType } = req.query;
+        const vals = [];
+        let where = `WHERE wci.active = TRUE AND wcs.processing_status IN ('PENDING_REVIEW','VERIFIED','PROCESSED_SUCCESSFULLY')`;
+
+        if (employeeCode) {
+            vals.push(`%${employeeCode}%`);
+            where += ` AND (wci.employee_id ILIKE $${vals.length} OR wci.employee_code_raw ILIKE $${vals.length} OR wci.employee_name_db ILIKE $${vals.length})`;
+        }
+        if (dateFrom) { vals.push(dateFrom); where += ` AND wci.claim_date >= $${vals.length}::date`; }
+        if (dateTo)   { vals.push(dateTo);   where += ` AND wci.claim_date <= $${vals.length}::date`; }
+        if (claimType && claimType !== 'ALL') { vals.push(claimType); where += ` AND wci.claim_type = $${vals.length}`; }
+
+        const { rows } = await pool.query(`
+            SELECT
+                wci.employee_id,
+                wci.employee_name_db,
+                wci.claim_type,
+                DATE_TRUNC('month', wci.claim_date) AS claim_month,
+                COUNT(*) AS row_count,
+                SUM(wci.ot_hours) AS total_ot_hours,
+                SUM(wci.ot_payout) AS total_ot_payout,
+                SUM(wci.raw_amount) AS total_amount,
+                wcs.processing_status,
+                wcs.id AS session_id,
+                wcs.attachment_filename,
+                wcs.settlement_month
+            FROM wafi_claims_items wci
+            JOIN wafi_claims_sessions wcs ON wcs.id = wci.session_id
+            ${where}
+            GROUP BY wci.employee_id, wci.employee_name_db, wci.claim_type,
+                     DATE_TRUNC('month', wci.claim_date), wcs.processing_status,
+                     wcs.id, wcs.attachment_filename, wcs.settlement_month
+            ORDER BY claim_month DESC, wci.employee_name_db, wci.claim_type
+        `, vals);
+
+        // Group by employee then by month
+        const byEmployee = {};
+        for (const row of rows) {
+            const empKey = row.employee_id || row.employee_name_db || 'Unknown';
+            if (!byEmployee[empKey]) {
+                byEmployee[empKey] = { employee_id: row.employee_id, name: row.employee_name_db, months: {} };
+            }
+            const mKey = row.claim_month ? row.claim_month.toISOString().slice(0, 7) : 'unknown';
+            if (!byEmployee[empKey].months[mKey]) {
+                byEmployee[empKey].months[mKey] = { month: mKey, claims: [] };
+            }
+            byEmployee[empKey].months[mKey].claims.push({
+                claim_type: row.claim_type,
+                row_count: parseInt(row.row_count),
+                total_ot_hours: parseFloat(row.total_ot_hours) || 0,
+                total_ot_payout: parseFloat(row.total_ot_payout) || 0,
+                total_amount: parseFloat(row.total_amount) || 0,
+                status: row.processing_status,
+                session_id: row.session_id,
+                attachment_filename: row.attachment_filename,
+                settlement_month: row.settlement_month,
+            });
+        }
+
+        const employees = Object.values(byEmployee).map(e => ({
+            ...e,
+            months: Object.values(e.months).sort((a, b) => b.month.localeCompare(a.month)),
+        }));
+
+        res.json({ employees, total: employees.length });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // POST /api/wafi-claims/trigger-poll
 app.post('/api/wafi-claims/trigger-poll', requireAuth, async (req, res) => {
@@ -6834,11 +7103,53 @@ app.listen(PORT, async () => {
         await pool.query('CREATE INDEX IF NOT EXISTS idx_wafi_items_active ON wafi_claims_items(active)').catch(() => {});
         console.log('Migration OK: wafi_claims_sessions + wafi_claims_items');
 
+        // ─── Phase 1: new columns on wafi_claims_sessions ───────────────────────
+        const wafiSessionCols = [
+            `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS name_warnings        JSONB DEFAULT '[]'`,
+            `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS email_summary         TEXT`,
+            `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS is_first_time_sender  BOOLEAN DEFAULT FALSE`,
+            `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS verified_at           TIMESTAMPTZ`,
+            `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS verified_by           TEXT`,
+            `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS gmail_draft_id        TEXT`,
+            `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS settlement_month      DATE`,
+        ];
+        for (const sql of wafiSessionCols) {
+            try { await pool.query(sql); } catch (e) { /* already exists */ }
+        }
+        console.log('Migration OK: wafi_claims_sessions Phase 1 columns');
+
+        // ─── Focal Points table ──────────────────────────────────────────────────
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS wafi_focal_points (
+                id           SERIAL PRIMARY KEY,
+                email        TEXT UNIQUE NOT NULL,
+                name         TEXT,
+                location     TEXT,
+                role         TEXT DEFAULT 'claimed_by',
+                active       BOOLEAN DEFAULT TRUE,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        // Pre-seed known focal points
+        const knownFocalPoints = [
+            { email: 'm.mustafa-contractor@wafi-energy.com', name: 'M. Mustafa', location: 'LOBP Keamari', role: 'claimed_by' },
+            { email: 'mustafa.contractor@wafi-energy.com',   name: 'Mustafa',    location: 'LOBP Keamari', role: 'claimed_by' },
+        ];
+        for (const fp of knownFocalPoints) {
+            await pool.query(`
+                INSERT INTO wafi_focal_points (email, name, location, role)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (email) DO NOTHING
+            `, [fp.email, fp.name, fp.location, fp.role]).catch(() => {});
+        }
+        console.log('Migration OK: wafi_focal_points table ready');
+
         // ═══ Start Email Claims Listener Service ══════════════════════════════
         startEmailClaimsService(pool);
 
         // ═══ Start Wafi Claims Service ════════════════════════════════════════
         startWafiClaimsService(pool);
+
 
     } catch (e) {
         console.warn('Migration warning (non-fatal):', e.message);

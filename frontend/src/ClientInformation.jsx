@@ -1211,11 +1211,17 @@ export default function ClientInformation() {
     const [form, setForm] = useState(EMPTY_CLIENT);
     const [editingClient, setEditingClient] = useState(null); // client being edited
     const [editForm, setEditForm] = useState(EMPTY_CLIENT);
+    const [showInactive, setShowInactive] = useState(false);
+
+    const API_BASE = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+    const token = () => localStorage.getItem('asil_hcm_token');
 
     const loadClients = () => {
         setLoading(true);
-        api.getClients()
-            .then(data => { setClients(data.clients); setLoading(false); })
+        // fetch ALL clients (active + inactive) so admin can manage them
+        fetch(`${API_BASE}/api/clients?all=true`, { headers: { Authorization: `Bearer ${token()}` } })
+            .then(r => r.json())
+            .then(data => { setClients(data.clients || []); setLoading(false); })
             .catch(() => setLoading(false));
     };
 
@@ -1229,12 +1235,25 @@ export default function ClientInformation() {
     };
 
     const deleteClient = async (cl) => {
-        if (!window.confirm(`Delete client "${cl.name}" and ALL their contracts? This cannot be undone.`)) return;
+        if (!window.confirm(`Permanently delete client "${cl.name}" and ALL their contracts? This cannot be undone.\n\nConsider "Deactivate" instead to keep historical data.`)) return;
         try {
             await api.deleteClient(cl.id);
             setClients(p => p.filter(c => c.id !== cl.id));
             if (selected?.id === cl.id) setSelected(null);
         } catch (err) { alert('Delete failed: ' + err.message); }
+    };
+
+    const toggleActive = async (cl, e) => {
+        e.stopPropagation();
+        try {
+            const r = await fetch(`${API_BASE}/api/clients/${cl.id}/toggle-active`, {
+                method: 'PATCH',
+                headers: { Authorization: `Bearer ${token()}` },
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error);
+            setClients(p => p.map(c => c.id === cl.id ? { ...c, isActive: d.isActive } : c));
+        } catch (err) { alert('Toggle failed: ' + err.message); }
     };
 
     const openEditClient = (cl, e) => {
@@ -1263,9 +1282,11 @@ export default function ClientInformation() {
         } catch (err) { alert('Save failed: ' + err.message); }
     };
 
-    if (selected) return <ClientProfile client={selected} onChange={updateClient} onBack={() => setSelected(null)} allClients={clients} onContractReassigned={loadClients} />;
+    if (selected) return <ClientProfile client={selected} onChange={updateClient} onBack={() => setSelected(null)} allClients={clients.filter(c => c.isActive !== false)} onContractReassigned={loadClients} />;
 
-    const filtered = clients.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.ntn.includes(search));
+    const filtered = clients
+        .filter(c => showInactive ? true : c.isActive !== false)
+        .filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || (c.ntn || '').includes(search));
 
     return (
         <div className="dashboard">
@@ -1274,22 +1295,36 @@ export default function ClientInformation() {
                 <p>Manage corporate clients. Click a client to view their profile, contacts, and contracts.</p>
             </header>
 
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ flex: 1, minWidth: '200px', display: 'flex', alignItems: 'center', background: 'var(--bg-card)', padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
                     <Search size={18} color="var(--text-muted)" style={{ marginRight: '0.5rem', flexShrink: 0 }} />
                     <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search clients by name or NTN..." style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', outline: 'none' }} />
                 </div>
-                <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--primary)', color: 'white', border: 'none', padding: '0 1.25rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                <button onClick={() => setShowInactive(p => !p)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', background: showInactive ? 'rgba(245,158,11,0.1)' : 'var(--bg-card)', border: `1px solid ${showInactive ? '#f59e0b' : 'var(--border)'}`, color: showInactive ? '#f59e0b' : 'var(--text-muted)', padding: '0.55rem 1rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
+                    {showInactive ? '👁 Hiding Inactive' : '👁 Show Inactive'}
+                </button>
+                <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--primary)', color: 'white', border: 'none', padding: '0 1.25rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, height: '40px' }}>
                     <Plus size={18} /> Add Client
                 </button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: '1.5rem' }}>
-                {filtered.map(cl => (
-                    <div key={cl.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '14px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', transition: 'border-color 0.2s,box-shadow 0.2s' }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.boxShadow = '0 0 0 1px var(--primary)'; }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}>
+                {filtered.map(cl => {
+                    const isActive = cl.isActive !== false;
+                    return (
+                    <div key={cl.id} style={{ background: 'var(--bg-card)', border: `1px solid ${isActive ? 'var(--border)' : 'rgba(245,158,11,0.25)'}`, borderRadius: '14px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', transition: 'border-color 0.2s,box-shadow 0.2s', opacity: isActive ? 1 : 0.65 }}
+                        onMouseEnter={e => { if (isActive) { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.boxShadow = '0 0 0 1px var(--primary)'; } }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = isActive ? 'var(--border)' : 'rgba(245,158,11,0.25)'; e.currentTarget.style.boxShadow = 'none'; }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                            <div style={{ width: '48px', height: '48px', borderRadius: '10px', background: 'linear-gradient(135deg,var(--primary),#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: '1.2rem', flexShrink: 0 }}>{cl.name[0]}</div>
-                            <div><h3 style={{ margin: 0, fontSize: '1.1rem' }}>{cl.name}</h3><span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{cl.industry}</span></div>
+                            <div style={{ width: '48px', height: '48px', borderRadius: '10px', background: isActive ? 'linear-gradient(135deg,var(--primary),#6366f1)' : 'linear-gradient(135deg,#64748b,#475569)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: '1.2rem', flexShrink: 0 }}>{cl.name[0]}</div>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{cl.name}</h3>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{cl.industry}</span>
+                                    {!isActive && <span style={{ fontSize: '0.7rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)', padding: '1px 7px', borderRadius: '8px', fontWeight: 700 }}>INACTIVE</span>}
+                                </div>
+                            </div>
                         </div>
                         <div style={{ background: 'var(--bg-dark)', borderRadius: '8px', padding: '1rem', fontSize: '0.88rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}><MapPin size={13} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> HQ</span><span>{cl.hq}</span></div>
@@ -1299,18 +1334,28 @@ export default function ClientInformation() {
                         </div>
                         {/* Action row */}
                         <div style={{ display: 'flex', gap: '0.6rem' }}>
-                            <button onClick={(e) => openEditClient(cl, e)} title="Edit Client" style={{ flex: '0 0 auto', background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '0.55rem 0.9rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.85rem', fontWeight: 600 }}>
-                                <Edit2 size={14} /> Edit
+                            {isActive && (
+                                <button onClick={(e) => openEditClient(cl, e)} title="Edit Client" style={{ flex: '0 0 auto', background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '0.55rem 0.9rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.85rem', fontWeight: 600 }}>
+                                    <Edit2 size={14} /> Edit
+                                </button>
+                            )}
+                            <button onClick={(e) => toggleActive(cl, e)}
+                                title={isActive ? 'Deactivate client' : 'Reactivate client'}
+                                style={{ flex: '0 0 auto', background: 'transparent', border: `1px solid ${isActive ? '#f59e0b' : '#22c55e'}`, color: isActive ? '#f59e0b' : '#22c55e', padding: '0.55rem 0.9rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.85rem', fontWeight: 600 }}>
+                                {isActive ? '⏸ Deactivate' : '▶ Reactivate'}
                             </button>
-                            <button onClick={(e) => { e.stopPropagation(); deleteClient(cl); }} title="Delete Client" style={{ flex: '0 0 auto', background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '0.55rem 0.9rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.85rem' }}>
+                            <button onClick={(e) => { e.stopPropagation(); deleteClient(cl); }} title="Permanently delete" style={{ flex: '0 0 auto', background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '0.55rem 0.9rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.85rem' }}>
                                 <Trash2 size={14} />
                             </button>
-                            <button onClick={() => setSelected(cl)} style={{ flex: 1, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '0.55rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                Open Profile →
-                            </button>
+                            {isActive && (
+                                <button onClick={() => setSelected(cl)} style={{ flex: 1, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '0.55rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                    Open Profile →
+                                </button>
+                            )}
                         </div>
                     </div>
-                ))}
+                    );
+                })}
             </div>
 
             {/* Add Client Modal */}

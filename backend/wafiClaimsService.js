@@ -1,12 +1,17 @@
 'use strict';
 
 /**
- * wafiClaimsService.js — Wafi Claims Ingestion Engine (ASIL HCM)
+ * wafiClaimsService.js — Wafi Claims Ingestion Engine (ASIL HCM) — Phase 1
  *
- * Polls Gmail via OAuth2 for unread claim emails from wafi-energy.com,
- * parses Excel attachments against the 3-sheet Wafi template,
- * validates all rows, stores results in wafi_claims_sessions + wafi_claims_items,
- * and sends QC/success/revision notification emails via Resend.
+ * Status lifecycle:
+ *   IRRELEVANT        → no Excel / empty / wrong file  (labelled Claims/Not-Relevant)
+ *   WRONG_FORMAT      → Excel found, missing required tabs
+ *   VALIDATION_FAILED → right tabs, but hard errors (bad codes, missing amounts)
+ *   PENDING_REVIEW    → all valid, waiting for admin to verify
+ *   VERIFIED          → admin verified, pushed to payroll, draft email created
+ *   PROCESSED_SUCCESSFULLY → legacy / confirmed
+ *   REVISED           → superseded by newer submission
+ *   SKIPPED           → admin dismissed irrelevant email
  */
 
 const { google }  = require('googleapis');
@@ -15,52 +20,47 @@ const { Resend }  = require('resend');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const GMAIL_USER          = process.env.GMAIL_USER          || 'ops-support@asil.com.pk';
-const CLAIMS_EMAIL        = process.env.CLAIMS_EMAIL         || 'claims@asil.com.pk'; // alias to monitor
+const CLAIMS_EMAIL        = process.env.CLAIMS_EMAIL         || 'claims@asil.com.pk';
 const GMAIL_CLIENT_ID     = process.env.GMAIL_CLIENT_ID     || '';
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || '';
 const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || '';
 const SENDER_DOMAIN       = (process.env.CLAIMS_SENDER_DOMAIN || 'wafi-energy.com').toLowerCase();
 const EMAILS_ENABLED      = (process.env.EMAILS_ENABLED || 'false') === 'true';
 const EMAIL_FROM          = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
-const POLL_INTERVAL_MS    = parseInt(process.env.WAFI_POLL_INTERVAL_MS) || 5 * 60 * 1000; // 5 minutes
+const POLL_INTERVAL_MS    = parseInt(process.env.WAFI_POLL_INTERVAL_MS) || 5 * 60 * 1000;
+
+// Daily digest recipients
+const DIGEST_RECIPIENTS = [
+    'huzaifa.rafaqat@asil.com.pk',
+    'laiba.mughal@asil.com.pk',
+];
 
 const resend = new Resend(process.env.RESEND_API_KEY || '');
 
-// Sheet keyword matchers — real files use names like 'Overtime (TR3)', 'Expense Claims (ER3)'
-// We detect by keyword so any location-suffixed variant is accepted automatically
-const SHEET_KEYWORDS = {
-    ot:      'overtime',
-    expense: 'expense',
-    medical: 'medical',
-};
+// Sheet keyword matchers — accepts suffixed tab names like 'Overtime (TR3)'
+const SHEET_KEYWORDS = { ot: 'overtime', expense: 'expense', medical: 'medical' };
 
 // OT multiplier mapping
 const OT_MULTIPLIER_MAP = { 'single': 1.0, 'double': 2.0, 'triple': 3.0 };
 
-// Last poll timestamp for status endpoint
 let _lastPollAt = null;
 
-// ── Gmail OAuth2 Client ────────────────────────────────────────────────────────
+// ── Gmail OAuth2 Client ───────────────────────────────────────────────────────
 function createGmailClient() {
-    if (!GMAIL_CLIENT_ID || !GMAIL_CLIENT_SECRET || !GMAIL_REFRESH_TOKEN) {
-        return null;
-    }
-    const auth = new google.auth.OAuth2(
-        GMAIL_CLIENT_ID,
-        GMAIL_CLIENT_SECRET,
-        'urn:ietf:wg:oauth:2.0:oob'
-    );
+    if (!GMAIL_CLIENT_ID || !GMAIL_CLIENT_SECRET || !GMAIL_REFRESH_TOKEN) return null;
+    const auth = new google.auth.OAuth2(GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, 'urn:ietf:wg:oauth:2.0:oob');
     auth.setCredentials({ refresh_token: GMAIL_REFRESH_TOKEN });
     return google.gmail({ version: 'v1', auth });
 }
 
-// ── Required Label Management ─────────────────────────────────────────────────
+// ── Label Management ──────────────────────────────────────────────────────────
 const LABEL_NAMES = [
-    'Claims/In-Progress',
-    'Claims/Validation-Failed',
     'Claims/Processed-Successfully',
+    'Claims/Not-Relevant',
+    'Claims/Verified-HCM',
+    'Claims/Pending-Review',
 ];
-const _labelCache = {}; // name → id
+const _labelCache = {};
 
 async function ensureLabels(gmail) {
     try {
@@ -84,7 +84,7 @@ async function ensureLabels(gmail) {
     }
 }
 
-async function applyLabel(gmail, messageId, labelName) {
+async function applyLabel(gmail, messageId, labelName, removeUnread = true) {
     const labelId = _labelCache[labelName];
     if (!labelId) return;
     try {
@@ -93,7 +93,7 @@ async function applyLabel(gmail, messageId, labelName) {
             id: messageId,
             requestBody: {
                 addLabelIds: [labelId],
-                removeLabelIds: ['UNREAD'],
+                removeLabelIds: removeUnread ? ['UNREAD'] : [],
             },
         });
     } catch (e) {
@@ -104,12 +104,43 @@ async function applyLabel(gmail, messageId, labelName) {
 async function markAsRead(gmail, messageId) {
     try {
         await gmail.users.messages.modify({
-            userId: 'me',
-            id: messageId,
+            userId: 'me', id: messageId,
             requestBody: { removeLabelIds: ['UNREAD'] },
         });
     } catch (e) {
         console.warn('[Wafi Claims] markAsRead warning:', e.message);
+    }
+}
+
+// ── Gmail Draft (thread-aware reply) ─────────────────────────────────────────
+async function createGmailDraft(gmail, threadId, toEmail, subject, htmlBody) {
+    try {
+        const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+        const raw = [
+            `To: ${toEmail}`,
+            `Subject: ${replySubject}`,
+            'MIME-Version: 1.0',
+            'Content-Type: text/html; charset=utf-8',
+            '',
+            htmlBody,
+        ].join('\r\n');
+
+        const encoded = Buffer.from(raw).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+        const { data } = await gmail.users.drafts.create({
+            userId: 'me',
+            requestBody: {
+                message: {
+                    threadId,
+                    raw: encoded,
+                },
+            },
+        });
+        console.log(`[Wafi Claims] Draft created: ${data.id} in thread ${threadId}`);
+        return data.id;
+    } catch (e) {
+        console.warn('[Wafi Claims] Failed to create Gmail draft:', e.message);
+        return null;
     }
 }
 
@@ -130,17 +161,14 @@ function isTotalRow(codeVal, nameVal) {
     return /total/.test(combined);
 }
 
-// Parse DD-MM-YYYY or Excel date serial into JS Date
+// Parse DD-MM-YYYY or Excel date serial
 function parseDate(raw) {
     if (raw == null || raw === '') return null;
-    // Excel serial date
     if (typeof raw === 'number') {
-        const excelEpoch = new Date(1899, 11, 30);
-        const d = new Date(excelEpoch.getTime() + raw * 86400000);
+        const d = new Date(new Date(1899, 11, 30).getTime() + raw * 86400000);
         return isNaN(d) ? null : d;
     }
     const s = String(raw).trim();
-    // DD-MM-YYYY
     const m1 = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
     if (m1) {
         const day = parseInt(m1[1]), month = parseInt(m1[2]) - 1, year = parseInt(m1[3]);
@@ -148,44 +176,66 @@ function parseDate(raw) {
         const d = new Date(fullYear, month, day);
         return isNaN(d) ? null : d;
     }
-    // ISO
     const d = new Date(s);
     return isNaN(d) ? null : d;
 }
 
-// Parse numeric value from cell (could be string with commas)
+// Parse numeric value
 function parseNum(raw) {
     if (raw == null || raw === '') return null;
     const n = parseFloat(String(raw).replace(/,/g, ''));
     return isNaN(n) ? null : n;
 }
 
-// Parse hours from cell — handles decimal (1.5), HH:MM string ("1:30"), and Excel time serial (0.0625)
+// Parse hours — handles decimal, HH:MM, Excel time serial
 function parseHours(raw) {
     if (raw == null || raw === '') return null;
     const s = String(raw).trim();
-
-    // HH:MM format e.g. "0:30" → 0.5, "1:30" → 1.5, "8:30" → 8.5
     const timeMatch = s.match(/^(\d+):(\d{2})$/);
     if (timeMatch) {
         const h = parseInt(timeMatch[1], 10);
         const m = parseInt(timeMatch[2], 10);
         return parseFloat((h + m / 60).toFixed(4));
     }
-
     const n = parseFloat(s.replace(/,/g, ''));
     if (isNaN(n)) return null;
-
-    // Excel time serial: stored as fraction of a day (e.g. 0.020833 = 30 min)
-    // Values like 0.5 = 12 hours, 0.020833 = 30 min
-    if (n > 0 && n < 1) {
-        return parseFloat((n * 24).toFixed(4));
-    }
-
+    if (n > 0 && n < 1) return parseFloat((n * 24).toFixed(4)); // Excel time serial
     return n;
 }
 
-// ── Employee DB Lookup ─────────────────────────────────────────────────────────
+// Extract plain text from Gmail message parts (for email_summary)
+function extractEmailBody(payload) {
+    let text = '';
+    function walk(part) {
+        if (!part) return;
+        if (part.mimeType === 'text/plain' && part.body?.data) {
+            text += Buffer.from(part.body.data, 'base64').toString('utf-8');
+        }
+        if (part.parts) part.parts.forEach(walk);
+    }
+    walk(payload);
+    return text.replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+// Derive most common claim month from a set of items
+function deriveClaimMonth(allItems) {
+    const monthCounts = {};
+    for (const item of allItems) {
+        if (item.claim_date) {
+            const d = item.claim_date instanceof Date ? item.claim_date : new Date(item.claim_date);
+            if (!isNaN(d)) {
+                const key = `${d.getFullYear()}-${d.getMonth()}`;
+                monthCounts[key] = (monthCounts[key] || 0) + 1;
+            }
+        }
+    }
+    const top = Object.entries(monthCounts).sort((a, b) => b[1] - a[1])[0];
+    if (!top) return null;
+    const [y, m] = top[0].split('-').map(Number);
+    return new Date(y, m, 1);
+}
+
+// ── Employee DB Lookup ────────────────────────────────────────────────────────
 async function lookupEmployee(pool, codeRaw) {
     const normalized = normalizeCode(codeRaw);
     if (!normalized) return null;
@@ -204,98 +254,97 @@ async function lookupEmployee(pool, codeRaw) {
     }
 }
 
+// ── Focal Point Lookup ────────────────────────────────────────────────────────
+async function checkFocalPoint(pool, email) {
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, name, location FROM wafi_focal_points WHERE LOWER(email) = LOWER($1) AND active = TRUE LIMIT 1`,
+            [email]
+        );
+        return rows[0] || null;
+    } catch (e) {
+        return null;
+    }
+}
+
 // ── Excel Parsing ─────────────────────────────────────────────────────────────
-/**
- * Detects a Wafi claims workbook by keyword-matching tab names.
- * Accepts any tab whose name CONTAINS the keyword (case-insensitive),
- * so 'Overtime (TR3)', 'Expense Claims (ER3)', 'Medical & IPD Claims (ER1)' all match.
- *
- * Returns null            — not a valid Excel file (silently ignore)
- * Returns { mismatch }    — valid Excel but missing required tab keywords (log to dashboard)
- * Returns { wb, otSheet, expSheet, medSheet } — all 3 tabs found, ready to process
- */
 function parseWafiExcel(buffer, filename) {
     let wb;
     try {
         wb = XLSX.read(buffer, { type: 'buffer', cellDates: false, raw: false });
     } catch (e) {
-        console.error('[Wafi Claims] XLSX read error:', e.message);
-        return null; // not a valid Excel file — silently ignore
+        return null;
     }
-
     const sheetNames = wb.SheetNames;
-
-    // Find each required sheet by keyword (case-insensitive contains)
     const otSheet  = sheetNames.find(n => n.toLowerCase().includes(SHEET_KEYWORDS.ot));
     const expSheet = sheetNames.find(n => n.toLowerCase().includes(SHEET_KEYWORDS.expense));
     const medSheet = sheetNames.find(n => n.toLowerCase().includes(SHEET_KEYWORDS.medical));
 
     if (!otSheet || !expSheet || !medSheet) {
-        // It IS a valid Excel but doesn't have the 3 required tab types
-        // Log to dashboard so admin can see which tabs are missing
         const missing = [];
-        if (!otSheet)  missing.push('tab containing "Overtime"');
-        if (!expSheet) missing.push('tab containing "Expense"');
-        if (!medSheet) missing.push('tab containing "Medical"');
-        console.log(`[Wafi Claims] "${filename}" — wrong format. Found: [${sheetNames.join(', ')}] | Missing: [${missing.join(', ')}]`);
+        if (!otSheet)  missing.push('"Overtime"');
+        if (!expSheet) missing.push('"Expense"');
+        if (!medSheet) missing.push('"Medical"');
         return { mismatch: true, found: sheetNames, missing };
     }
-
-    console.log(`[Wafi Claims] "${filename}" matched — OT: "${otSheet}" | Expense: "${expSheet}" | Medical: "${medSheet}"`);
     return { wb, otSheet, expSheet, medSheet };
 }
 
 function getSheetRows(wb, sheetName) {
     const ws = wb.Sheets[sheetName];
     if (!ws) return [];
-    return XLSX.utils.sheet_to_json(ws, {
-        header: 1,
-        defval: '',
-        blankrows: false,
-        raw: false,
-    });
+    return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false });
 }
 
 // ── Sheet Processors ──────────────────────────────────────────────────────────
-async function processOvertimeSheet(pool, rows, errors) {
-    // Skip header row (row index 0)
+// Returns { items, errors, warnings }
+// warnings = name similarity 0.5–0.79 (shown in UI but don't fail session)
+// errors   = hard failures (bad code, missing hours, etc.)
+
+async function processOvertimeSheet(pool, rows, errors, warnings) {
     const items = [];
+    const seenKeys = new Set(); // for duplicate detection: `normalizedCode|dateStr`
+
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
         const rawCode = String(row[1] || '').trim();
         const rawName = String(row[2] || '').trim();
 
         if (isTotalRow(rawCode, rawName)) break;
-        if (!rawCode && !rawName) continue; // blank row
+        if (!rawCode && !rawName) continue;
 
         const rowNum = i + 1;
-        const dateRaw   = row[0];
-        const dept      = String(row[3] || '').trim();
-        const location  = String(row[4] || '').trim();
-        const lineMgr   = String(row[5] || '').trim();
-        const nature    = String(row[6] || '').trim();
-        const timeFrom  = String(row[7] || '').trim();
-        const timeTo    = String(row[8] || '').trim();
-        const hoursRaw  = row[9];
-        const multRaw   = String(row[10] || '').trim();
+        const dateRaw  = row[0];
+        const dept     = String(row[3] || '').trim();
+        const location = String(row[4] || '').trim();
+        const lineMgr  = String(row[5] || '').trim();
+        const nature   = String(row[6] || '').trim();
+        const hoursRaw = row[9];
+        const multRaw  = String(row[10] || '').trim();
 
-        // Required: employee code
         if (!rawCode) {
             errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'B', error: 'Employee code is required', value: '' });
             continue;
         }
 
-        // Required: hours
-        const hours = parseHours(hoursRaw); // handles decimal, HH:MM ("0:30"), and Excel time serial
+        // Duplicate row detection
+        const claimDate = parseDate(dateRaw);
+        const dupKey = `${normalizeCode(rawCode)}|${claimDate ? claimDate.toISOString().slice(0, 10) : rowNum}`;
+        if (seenKeys.has(dupKey)) {
+            errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'B', error: 'Duplicate row: same employee and date already appears earlier in this sheet', value: rawCode });
+        } else {
+            seenKeys.add(dupKey);
+        }
+
+        const hours = parseHours(hoursRaw);
         if (hours == null || hours <= 0) {
             errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'J', error: 'Hours Worked must be a positive number', value: hoursRaw });
         }
 
-        // Required: multiplier if hours > 0
         let multiplierFactor = null;
         if (hours != null && hours > 0) {
             if (!multRaw) {
-                errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'K', error: 'Overtime Multiplier is required when hours > 0', value: '' });
+                errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'K', error: 'Overtime Multiplier is required', value: '' });
             } else {
                 const multKey = multRaw.toLowerCase().trim();
                 multiplierFactor = OT_MULTIPLIER_MAP[multKey];
@@ -305,7 +354,6 @@ async function processOvertimeSheet(pool, rows, errors) {
             }
         }
 
-        // Lookup employee
         const emp = await lookupEmployee(pool, rawCode);
         if (!emp) {
             errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'B', error: 'Employee code not found. Please ensure all ASIL codes are correct and resubmit.', value: rawCode });
@@ -313,9 +361,13 @@ async function processOvertimeSheet(pool, rows, errors) {
             continue;
         }
 
-        // Name similarity warning
         const sim = tokenSimilarity(rawName, emp.name);
-        const nameWarning = sim < 0.5 ? `Name mismatch: submitted "${rawName}", DB has "${emp.name}" (similarity: ${(sim * 100).toFixed(0)}%)` : null;
+        // < 0.5 = hard error (very different name); 0.5–0.79 = warning; ≥ 0.8 = fine
+        if (sim < 0.5 && rawName) {
+            errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'C', error: `Name mismatch — submitted: "${rawName}", DB: "${emp.name}"`, value: rawCode });
+        } else if (sim < 0.8 && rawName) {
+            warnings.push({ sheet: 'Overtime Claims', row: rowNum, column: 'C', warning: `Partial name match — submitted: "${rawName}", DB: "${emp.name}" (${(sim*100).toFixed(0)}%)`, value: rawCode });
+        }
 
         items.push({
             tab_name: 'Overtime Claims',
@@ -325,8 +377,7 @@ async function processOvertimeSheet(pool, rows, errors) {
             employee_name_raw: rawName,
             employee_name_db: emp.name,
             name_similarity: sim,
-            name_warning: nameWarning,
-            claim_date: parseDate(dateRaw),
+            claim_date: claimDate,
             ot_hours: hours,
             ot_multiplier: multRaw || null,
             ot_multiplier_factor: multiplierFactor,
@@ -341,8 +392,10 @@ async function processOvertimeSheet(pool, rows, errors) {
     return items;
 }
 
-async function processExpenseSheet(pool, rows, errors) {
+async function processExpenseSheet(pool, rows, errors, warnings) {
     const items = [];
+    const seenKeys = new Set();
+
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
         const rawCode = String(row[1] || '').trim();
@@ -365,6 +418,14 @@ async function processExpenseSheet(pool, rows, errors) {
             continue;
         }
 
+        const claimDate = parseDate(dateRaw);
+        const dupKey = `${normalizeCode(rawCode)}|${expenseType}|${claimDate ? claimDate.toISOString().slice(0,10) : rowNum}`;
+        if (seenKeys.has(dupKey)) {
+            errors.push({ sheet: 'Expense Claims', row: rowNum, column: 'B', error: 'Duplicate row: same employee, expense type, and date appears earlier', value: rawCode });
+        } else {
+            seenKeys.add(dupKey);
+        }
+
         const amount = parseNum(amountRaw);
         if (amount == null) {
             errors.push({ sheet: 'Expense Claims', row: rowNum, column: 'I', error: 'Total Expense Amount must be a valid number', value: amountRaw });
@@ -378,7 +439,11 @@ async function processExpenseSheet(pool, rows, errors) {
         }
 
         const sim = tokenSimilarity(rawName, emp.name);
-        const nameWarning = sim < 0.5 ? `Name mismatch: submitted "${rawName}", DB has "${emp.name}" (similarity: ${(sim * 100).toFixed(0)}%)` : null;
+        if (sim < 0.5 && rawName) {
+            errors.push({ sheet: 'Expense Claims', row: rowNum, column: 'C', error: `Name mismatch — submitted: "${rawName}", DB: "${emp.name}"`, value: rawCode });
+        } else if (sim < 0.8 && rawName) {
+            warnings.push({ sheet: 'Expense Claims', row: rowNum, column: 'C', warning: `Partial name match — submitted: "${rawName}", DB: "${emp.name}" (${(sim*100).toFixed(0)}%)`, value: rawCode });
+        }
 
         items.push({
             tab_name: 'Expense Claims',
@@ -388,8 +453,7 @@ async function processExpenseSheet(pool, rows, errors) {
             employee_name_raw: rawName,
             employee_name_db: emp.name,
             name_similarity: sim,
-            name_warning: nameWarning,
-            claim_date: parseDate(dateRaw),
+            claim_date: claimDate,
             expense_type: expenseType || null,
             description: description || null,
             raw_amount: amount,
@@ -402,8 +466,10 @@ async function processExpenseSheet(pool, rows, errors) {
     return items;
 }
 
-async function processMedicalSheet(pool, rows, errors) {
+async function processMedicalSheet(pool, rows, errors, warnings) {
     const items = [];
+    const seenKeys = new Set();
+
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
         const rawCode = String(row[1] || '').trim();
@@ -427,6 +493,14 @@ async function processMedicalSheet(pool, rows, errors) {
             continue;
         }
 
+        const claimDate = parseDate(dateRaw);
+        const dupKey = `${normalizeCode(rawCode)}|${claimType}|${claimDate ? claimDate.toISOString().slice(0,10) : rowNum}`;
+        if (seenKeys.has(dupKey)) {
+            errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'B', error: 'Duplicate row: same employee, claim type, and date appears earlier', value: rawCode });
+        } else {
+            seenKeys.add(dupKey);
+        }
+
         const amount = parseNum(amountRaw);
         if (amount == null) {
             errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'J', error: 'Total Claim Amount must be a valid number', value: amountRaw });
@@ -440,7 +514,11 @@ async function processMedicalSheet(pool, rows, errors) {
         }
 
         const sim = tokenSimilarity(rawName, emp.name);
-        const nameWarning = sim < 0.5 ? `Name mismatch: submitted "${rawName}", DB has "${emp.name}" (similarity: ${(sim * 100).toFixed(0)}%)` : null;
+        if (sim < 0.5 && rawName) {
+            errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'C', error: `Name mismatch — submitted: "${rawName}", DB: "${emp.name}"`, value: rawCode });
+        } else if (sim < 0.8 && rawName) {
+            warnings.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'C', warning: `Partial name match — submitted: "${rawName}", DB: "${emp.name}" (${(sim*100).toFixed(0)}%)`, value: rawCode });
+        }
 
         items.push({
             tab_name: 'Medical & IPD Claims',
@@ -450,8 +528,7 @@ async function processMedicalSheet(pool, rows, errors) {
             employee_name_raw: rawName,
             employee_name_db: emp.name,
             name_similarity: sim,
-            name_warning: nameWarning,
-            claim_date: parseDate(dateRaw),
+            claim_date: claimDate,
             claim_type: claimType || null,
             patient_name: patientName || null,
             description: description || null,
@@ -470,30 +547,20 @@ async function detectAndMarkRevisions(pool, employeeIds, claimDate) {
     if (!employeeIds.length || !claimDate) return { revised: false, oldSessionId: null };
     try {
         const { rows } = await pool.query(`
-            SELECT wci.session_id, wci.employee_id
+            SELECT wci.session_id
             FROM wafi_claims_items wci
             JOIN wafi_claims_sessions wcs ON wcs.id = wci.session_id
             WHERE wci.employee_id = ANY($1::text[])
               AND wci.active = TRUE
               AND DATE_TRUNC('month', wci.claim_date) = DATE_TRUNC('month', $2::date)
-              AND wcs.processing_status = 'PROCESSED_SUCCESSFULLY'
+              AND wcs.processing_status IN ('PROCESSED_SUCCESSFULLY','VERIFIED')
             LIMIT 1
         `, [employeeIds, claimDate.toISOString().slice(0, 10)]);
 
         if (!rows.length) return { revised: false, oldSessionId: null };
-
         const oldSessionId = rows[0].session_id;
-        // Mark old items as inactive
-        await pool.query(
-            `UPDATE wafi_claims_items SET active = FALSE
-             WHERE session_id = $1 AND employee_id = ANY($2::text[])`,
-            [oldSessionId, employeeIds]
-        );
-        // Mark old session as revised
-        await pool.query(
-            `UPDATE wafi_claims_sessions SET processing_status = 'REVISED' WHERE id = $1`,
-            [oldSessionId]
-        );
+        await pool.query(`UPDATE wafi_claims_items SET active = FALSE WHERE session_id = $1 AND employee_id = ANY($2::text[])`, [oldSessionId, employeeIds]);
+        await pool.query(`UPDATE wafi_claims_sessions SET processing_status = 'REVISED' WHERE id = $1`, [oldSessionId]);
         console.log(`[Wafi Claims] Marked session ${oldSessionId} as REVISED`);
         return { revised: true, oldSessionId };
     } catch (e) {
@@ -506,30 +573,21 @@ async function detectAndMarkRevisions(pool, employeeIds, claimDate) {
 async function saveSession(pool, sessionData) {
     const {
         receivedAt, senderEmail, subject, gmailMessageId, gmailThreadId,
-        attachmentFilename, processingStatus, validationErrors,
+        attachmentFilename, processingStatus, validationErrors, nameWarnings,
         otRows, expenseRows, medicalRows, isRevision, supersedesSessionId,
+        emailSummary, isFirstTimeSender,
     } = sessionData;
 
-    // Infer claim_month from first date found in items
-    let claimMonth = null;
     const allItems = [...(otRows || []), ...(expenseRows || []), ...(medicalRows || [])];
-    for (const item of allItems) {
-        if (item.claim_date) {
-            const d = item.claim_date instanceof Date ? item.claim_date : new Date(item.claim_date);
-            if (!isNaN(d)) {
-                claimMonth = new Date(d.getFullYear(), d.getMonth(), 1);
-                break;
-            }
-        }
-    }
+    const claimMonth = deriveClaimMonth(allItems);
 
     const { rows } = await pool.query(`
         INSERT INTO wafi_claims_sessions
             (received_at, sender_email, subject, gmail_message_id, gmail_thread_id,
              attachment_filename, claim_month, processing_status, label_applied,
-             validation_errors, total_ot_rows, total_expense_rows, total_medical_rows,
-             is_revision, supersedes_session_id)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15)
+             validation_errors, name_warnings, total_ot_rows, total_expense_rows, total_medical_rows,
+             is_revision, supersedes_session_id, email_summary, is_first_time_sender)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16,$17,$18)
         RETURNING id
     `, [
         receivedAt,
@@ -541,31 +599,31 @@ async function saveSession(pool, sessionData) {
         claimMonth || null,
         processingStatus,
         processingStatus === 'PROCESSED_SUCCESSFULLY' ? 'Claims/Processed-Successfully'
-            : processingStatus === 'VALIDATION_FAILED' ? 'Claims/Validation-Failed'
-            : 'Claims/In-Progress',
+            : processingStatus === 'PENDING_REVIEW'   ? 'Claims/Pending-Review'
+            : null,
         JSON.stringify(validationErrors || []),
+        JSON.stringify(nameWarnings || []),
         (otRows || []).filter(r => !r._error).length,
         (expenseRows || []).filter(r => !r._error).length,
         (medicalRows || []).filter(r => !r._error).length,
         isRevision || false,
         supersedesSessionId || null,
+        emailSummary || null,
+        isFirstTimeSender || false,
     ]);
     const sessionId = rows[0].id;
 
-    // Insert items
     for (const item of allItems) {
-        if (item._error) continue; // skip rows that had hard errors
+        if (item._error) continue;
         const d = item.claim_date instanceof Date ? item.claim_date : (item.claim_date ? new Date(item.claim_date) : null);
         const claimDateStr = d && !isNaN(d) ? d.toISOString().slice(0, 10) : null;
 
-        // Compute OT payout if applicable
         let otPayout = null;
         if (item.ot_hours != null && item.ot_multiplier_factor != null && item.salary) {
             const hourlyRate = item.salary / 26 / 8;
             otPayout = parseFloat((item.ot_hours * item.ot_multiplier_factor * hourlyRate).toFixed(2));
         }
 
-        // Determine claim_type for item
         let claimTypeField = null;
         if (item.tab_name === 'Overtime Claims') claimTypeField = 'OT';
         else if (item.tab_name === 'Expense Claims') claimTypeField = 'EXPENSE';
@@ -580,30 +638,18 @@ async function saveSession(pool, sessionData) {
                  location, department, line_manager, patient_name, active)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,TRUE)
         `, [
-            sessionId,
-            item.tab_name,
-            item.row_number,
-            item.employee_id || null,
-            item.employee_code_raw || null,
-            item.employee_name_raw || null,
-            item.employee_name_db || null,
+            sessionId, item.tab_name, item.row_number,
+            item.employee_id || null, item.employee_code_raw || null,
+            item.employee_name_raw || null, item.employee_name_db || null,
             item.name_similarity != null ? item.name_similarity.toFixed(3) : null,
-            claimDateStr,
-            claimTypeField,
-            item.ot_hours || null,
-            item.ot_multiplier || null,
-            item.ot_multiplier_factor || null,
+            claimDateStr, claimTypeField,
+            item.ot_hours || null, item.ot_multiplier || null, item.ot_multiplier_factor || null,
             otPayout,
-            item.expense_type || null,
-            item.description || null,
-            item.raw_amount || null,
-            item.location || null,
-            item.department || null,
-            item.line_manager || null,
+            item.expense_type || null, item.description || null, item.raw_amount || null,
+            item.location || null, item.department || null, item.line_manager || null,
             item.patient_name || null,
         ]);
     }
-
     return sessionId;
 }
 
@@ -631,29 +677,26 @@ async function sendQCRejectionEmail(toEmail, errors, filename) {
   </div>
   <div style="padding:28px 32px;">
     <h2 style="color:#7f1d1d;margin:0 0 8px;font-size:1rem;">Your submission has been rejected</h2>
-    <p style="color:#64748b;margin:0 0 20px;font-size:0.9rem;">The following errors were found. Please correct all issues and resubmit the complete file.</p>
+    <p style="color:#64748b;margin:0 0 20px;font-size:0.9rem;">Please correct all issues below and resubmit the complete file.</p>
     <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
-      <thead>
-        <tr style="background:#fef2f2;">
-          <th style="padding:10px;text-align:left;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Sheet</th>
-          <th style="padding:10px;text-align:center;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Row</th>
-          <th style="padding:10px;text-align:center;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Column</th>
-          <th style="padding:10px;text-align:left;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Error</th>
-          <th style="padding:10px;text-align:left;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Value Found</th>
-        </tr>
-      </thead>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:#fef2f2;">
+        <th style="padding:10px;text-align:left;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Sheet</th>
+        <th style="padding:10px;text-align:center;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Row</th>
+        <th style="padding:10px;text-align:center;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Col</th>
+        <th style="padding:10px;text-align:left;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Error</th>
+        <th style="padding:10px;text-align:left;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Value Found</th>
+      </tr></thead>
       <tbody>${tableRows}</tbody>
-    </table>
-    </div>
+    </table></div>
     <div style="margin:24px 0 0;padding:16px;background:#fef9ec;border-left:4px solid #f59e0b;border-radius:6px;">
-      <p style="margin:0 0 6px;color:#92400e;font-weight:700;font-size:0.88rem;">Submission SOP Reminders:</p>
+      <p style="margin:0 0 6px;color:#92400e;font-weight:700;font-size:0.88rem;">Submission SOP:</p>
       <ul style="margin:0;padding-left:18px;color:#78350f;font-size:0.83rem;line-height:1.8;">
-        <li>All ASIL employee codes must exactly match the official HR records (format: ASIL/XXX/NNN/YY).</li>
-        <li>Hours Worked must be a positive number; Overtime Multiplier is required for all OT rows.</li>
-        <li>All monetary amounts must be numeric — remove PKR symbols, commas, or text.</li>
-        <li>Do not modify the sheet names or column structure of the template.</li>
-        <li>Once corrected, resubmit the complete file as an attachment to this email.</li>
+        <li>All ASIL employee codes must match HR records (format: ASIL/XXX/NNN/YY).</li>
+        <li>Hours Worked must be a positive number; Multiplier required for all OT rows.</li>
+        <li>All amounts must be numeric — remove PKR symbols, commas, text.</li>
+        <li>Do not modify sheet names or column structure of the template.</li>
+        <li>Once corrected, resubmit as an attachment in reply to this email.</li>
       </ul>
     </div>
   </div>
@@ -663,61 +706,23 @@ async function sendQCRejectionEmail(toEmail, errors, filename) {
 </div></body></html>`;
 
     try {
-        await resend.emails.send({
-            from: EMAIL_FROM,
-            to: toEmail,
-            subject: 'REJECTED: Claims Submission Fails Quality Check — Please Resubmit',
-            html,
-        });
+        await resend.emails.send({ from: EMAIL_FROM, to: toEmail, subject: 'REJECTED: Claims Submission Fails Quality Check — Please Resubmit', html });
         console.log(`[Wafi Claims] QC rejection email sent to ${toEmail}`);
     } catch (e) {
         console.error('[Wafi Claims] Failed to send QC rejection email:', e.message);
     }
 }
 
-async function sendRevisionAcknowledgmentEmail(toEmail, employeeNames, claimMonth) {
-    if (!EMAILS_ENABLED) {
-        console.log(`[Wafi Claims] [TEST MODE] Would send revision acknowledgment to ${toEmail}`);
-        return;
-    }
-    const monthLabel = claimMonth ? new Date(claimMonth).toLocaleString('en-PK', { month: 'long', year: 'numeric' }) : 'the previous period';
-    const empList = employeeNames.length ? employeeNames.join(', ') : 'the listed employees';
+// Build confirmation HTML (used both for draft and direct send)
+function buildConfirmationHtml({ sessionId, filename, otCount, expCount, medCount, claimMonth, settlementMonth }) {
+    const claimMonthLabel = claimMonth
+        ? new Date(claimMonth).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+        : 'the submitted period';
+    const settlementMonthLabel = settlementMonth
+        ? new Date(settlementMonth).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+        : 'the upcoming payroll';
 
-    const html = `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:20px;">
-<div style="max-width:680px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-  <div style="background:linear-gradient(135deg,#1e3a5f,#2d5f8a);padding:28px 32px;">
-    <h1 style="color:#fff;margin:0;font-size:1.2rem;">ASIL HCM — Revision Received</h1>
-  </div>
-  <div style="padding:28px 32px;">
-    <p style="color:#334155;">We have received your revised claims submission for <strong>${monthLabel}</strong>.</p>
-    <p style="color:#334155;">The previous records for <strong>${empList}</strong> for <strong>${monthLabel}</strong> have been superseded and marked as revised in our system.</p>
-    <p style="color:#334155;">Your new submission is now being processed and validated. You will receive a separate confirmation once it has been successfully logged.</p>
-    <p style="color:#94a3b8;font-size:0.83rem;margin-top:20px;">If you believe this is an error, please contact HR immediately.</p>
-  </div>
-  <div style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;">
-    <p style="color:#94a3b8;font-size:0.78rem;margin:0;">Allied Services International (Pvt.) Ltd. · ASIL HCM · ${new Date().getFullYear()}</p>
-  </div>
-</div></body></html>`;
-
-    try {
-        await resend.emails.send({
-            from: EMAIL_FROM,
-            to: toEmail,
-            subject: 'UPDATE RECEIVED: Previous claims being superseded',
-            html,
-        });
-        console.log(`[Wafi Claims] Revision acknowledgment sent to ${toEmail}`);
-    } catch (e) {
-        console.error('[Wafi Claims] Failed to send revision ack email:', e.message);
-    }
-}
-
-async function sendSuccessConfirmationEmail(toEmail, sessionId, otCount, expenseCount, medicalCount, filename) {
-    if (!EMAILS_ENABLED) {
-        console.log(`[Wafi Claims] [TEST MODE] Would send success confirmation to ${toEmail} — OT:${otCount} EXP:${expenseCount} MED:${medicalCount}`);
-        return;
-    }
-    const html = `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:20px;">
+    return `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:20px;">
 <div style="max-width:680px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
   <div style="background:linear-gradient(135deg,#14532d,#16a34a);padding:28px 32px;">
     <h1 style="color:#fff;margin:0;font-size:1.2rem;">ASIL HCM — Claims Successfully Logged</h1>
@@ -726,29 +731,116 @@ async function sendSuccessConfirmationEmail(toEmail, sessionId, otCount, expense
   <div style="padding:28px 32px;">
     <h2 style="color:#14532d;margin:0 0 16px;font-size:1rem;">Your submission has been received and validated</h2>
     <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
-      <tr style="background:#f0fdf4;"><td style="padding:10px 14px;color:#166534;font-weight:600;">Overtime Claims Logged</td><td style="padding:10px 14px;text-align:right;font-size:1.1rem;font-weight:700;color:#15803d;">${otCount} rows</td></tr>
-      <tr><td style="padding:10px 14px;color:#166534;font-weight:600;">Expense Claims Logged</td><td style="padding:10px 14px;text-align:right;font-size:1.1rem;font-weight:700;color:#15803d;">${expenseCount} rows</td></tr>
-      <tr style="background:#f0fdf4;"><td style="padding:10px 14px;color:#166534;font-weight:600;">Medical & IPD Claims Logged</td><td style="padding:10px 14px;text-align:right;font-size:1.1rem;font-weight:700;color:#15803d;">${medicalCount} rows</td></tr>
+      <tr style="background:#f0fdf4;"><td style="padding:10px 14px;color:#166534;font-weight:600;">Claim Period</td><td style="padding:10px 14px;text-align:right;font-weight:700;color:#15803d;">${claimMonthLabel}</td></tr>
+      <tr><td style="padding:10px 14px;color:#166534;font-weight:600;">Overtime Claims Logged</td><td style="padding:10px 14px;text-align:right;font-size:1.1rem;font-weight:700;color:#15803d;">${otCount} rows</td></tr>
+      <tr style="background:#f0fdf4;"><td style="padding:10px 14px;color:#166534;font-weight:600;">Expense Claims Logged</td><td style="padding:10px 14px;text-align:right;font-size:1.1rem;font-weight:700;color:#15803d;">${expCount} rows</td></tr>
+      <tr><td style="padding:10px 14px;color:#166534;font-weight:600;">Medical & IPD Claims Logged</td><td style="padding:10px 14px;text-align:right;font-size:1.1rem;font-weight:700;color:#15803d;">${medCount} rows</td></tr>
+      <tr style="background:#f0fdf4;"><td style="padding:10px 14px;color:#166534;font-weight:600;">Settlement in Payroll</td><td style="padding:10px 14px;text-align:right;font-weight:700;color:#15803d;">${settlementMonthLabel}</td></tr>
     </table>
     <div style="padding:14px;background:#f0fdf4;border-left:4px solid #22c55e;border-radius:6px;">
-      <p style="margin:0;color:#166534;font-size:0.88rem;">These claims are now in ASIL's payroll processing queue. No further action is required from you at this stage. You will be contacted if any review is needed.</p>
+      <p style="margin:0;color:#166534;font-size:0.88rem;">These claims are now in ASIL's payroll processing queue for <strong>${settlementMonthLabel}</strong>. No further action is required from you.</p>
     </div>
   </div>
   <div style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;">
     <p style="color:#94a3b8;font-size:0.78rem;margin:0;">Allied Services International (Pvt.) Ltd. · ASIL HCM · ${new Date().getFullYear()}</p>
   </div>
 </div></body></html>`;
+}
 
+// ── Daily Digest ──────────────────────────────────────────────────────────────
+async function sendDailyDigest(pool) {
+    if (!EMAILS_ENABLED) {
+        console.log('[Wafi Claims] [TEST MODE] Daily digest would be sent');
+        return;
+    }
     try {
+        const { rows } = await pool.query(`
+            SELECT
+                COUNT(*) FILTER (WHERE processing_status = 'PENDING_REVIEW') AS pending,
+                COUNT(*) FILTER (WHERE processing_status = 'VALIDATION_FAILED') AS failed,
+                COUNT(*) FILTER (WHERE processing_status = 'IRRELEVANT' AND created_at > NOW() - INTERVAL '24 hours') AS new_irrelevant,
+                COUNT(*) FILTER (WHERE DATE_TRUNC('month', received_at) = DATE_TRUNC('month', NOW())) AS this_month,
+                COUNT(*) FILTER (WHERE processing_status IN ('PROCESSED_SUCCESSFULLY','VERIFIED') AND DATE_TRUNC('month', received_at) = DATE_TRUNC('month', NOW())) AS passed_month
+            FROM wafi_claims_sessions
+        `);
+        const stats = rows[0];
+
+        const pendingSessions = await pool.query(`
+            SELECT id, sender_email, attachment_filename, total_ot_rows, total_expense_rows, total_medical_rows, received_at
+            FROM wafi_claims_sessions
+            WHERE processing_status = 'PENDING_REVIEW'
+            ORDER BY received_at DESC
+            LIMIT 10
+        `);
+
+        const pendingRows = pendingSessions.rows.map(s => `
+            <tr style="border-bottom:1px solid #e2e8f0;">
+              <td style="padding:8px 12px;font-size:0.82rem;color:#374151;">#${s.id}</td>
+              <td style="padding:8px 12px;font-size:0.82rem;">${s.sender_email}</td>
+              <td style="padding:8px 12px;font-size:0.82rem;color:#6b7280;">${s.attachment_filename || '—'}</td>
+              <td style="padding:8px 12px;font-size:0.82rem;color:#7c3aed;">${s.total_ot_rows} OT</td>
+              <td style="padding:8px 12px;font-size:0.82rem;color:#d97706;">${s.total_expense_rows} Exp</td>
+              <td style="padding:8px 12px;font-size:0.82rem;color:#0891b2;">${s.total_medical_rows} Med</td>
+            </tr>
+        `).join('');
+
+        const html = `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:20px;">
+<div style="max-width:760px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#1e293b,#334155);padding:24px 32px;">
+    <h1 style="color:#fff;margin:0;font-size:1.1rem;">ASIL Claims — Daily Summary</h1>
+    <p style="color:#94a3b8;margin:4px 0 0;font-size:0.84rem;">${new Date().toLocaleDateString('en-PK', { weekday:'long', day:'2-digit', month:'long', year:'numeric' })}</p>
+  </div>
+  <div style="padding:24px 32px;">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;">
+      <div style="flex:1;min-width:120px;background:#fef9ec;border-left:4px solid #f59e0b;border-radius:8px;padding:14px;">
+        <div style="font-size:1.6rem;font-weight:800;color:#d97706;">${stats.pending}</div>
+        <div style="font-size:0.78rem;color:#92400e;font-weight:600;">Pending Review</div>
+      </div>
+      <div style="flex:1;min-width:120px;background:#fef2f2;border-left:4px solid #ef4444;border-radius:8px;padding:14px;">
+        <div style="font-size:1.6rem;font-weight:800;color:#dc2626;">${stats.failed}</div>
+        <div style="font-size:0.78rem;color:#991b1b;font-weight:600;">Validation Failed</div>
+      </div>
+      <div style="flex:1;min-width:120px;background:#f0fdf4;border-left:4px solid #22c55e;border-radius:8px;padding:14px;">
+        <div style="font-size:1.6rem;font-weight:800;color:#16a34a;">${stats.passed_month}</div>
+        <div style="font-size:0.78rem;color:#166534;font-weight:600;">Passed This Month</div>
+      </div>
+      <div style="flex:1;min-width:120px;background:#f8fafc;border-left:4px solid #94a3b8;border-radius:8px;padding:14px;">
+        <div style="font-size:1.6rem;font-weight:800;color:#475569;">${stats.new_irrelevant}</div>
+        <div style="font-size:0.78rem;color:#64748b;font-weight:600;">Irrelevant (24h)</div>
+      </div>
+    </div>
+    ${pendingSessions.rows.length ? `
+    <h3 style="color:#1e293b;font-size:0.9rem;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em;">⏳ Pending Review — Action Required</h3>
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:#f8fafc;">
+        <th style="padding:8px 12px;text-align:left;font-size:0.72rem;color:#64748b;border-bottom:1px solid #e2e8f0;">ID</th>
+        <th style="padding:8px 12px;text-align:left;font-size:0.72rem;color:#64748b;border-bottom:1px solid #e2e8f0;">Sender</th>
+        <th style="padding:8px 12px;text-align:left;font-size:0.72rem;color:#64748b;border-bottom:1px solid #e2e8f0;">File</th>
+        <th style="padding:8px 12px;text-align:left;font-size:0.72rem;color:#64748b;border-bottom:1px solid #e2e8f0;">OT</th>
+        <th style="padding:8px 12px;text-align:left;font-size:0.72rem;color:#64748b;border-bottom:1px solid #e2e8f0;">Exp</th>
+        <th style="padding:8px 12px;text-align:left;font-size:0.72rem;color:#64748b;border-bottom:1px solid #e2e8f0;">Med</th>
+      </tr></thead>
+      <tbody>${pendingRows}</tbody>
+    </table></div>` : '<p style="color:#22c55e;font-weight:600;">✓ No sessions pending review — all clear!</p>'}
+    <div style="margin-top:20px;text-align:center;">
+      <a href="https://asilhcm.onrender.com" style="display:inline-block;background:#6366f1;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.88rem;">Open Dashboard →</a>
+    </div>
+  </div>
+  <div style="background:#f8fafc;padding:14px 32px;border-top:1px solid #e2e8f0;">
+    <p style="color:#94a3b8;font-size:0.75rem;margin:0;">ASIL HCM · Automated Daily Digest · Do not reply to this email</p>
+  </div>
+</div></body></html>`;
+
         await resend.emails.send({
             from: EMAIL_FROM,
-            to: toEmail,
-            subject: 'LOGGED: Claims Submission Received & Validated',
+            to: DIGEST_RECIPIENTS,
+            subject: `[ASIL Claims] Daily Summary — ${new Date().toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' })}`,
             html,
         });
-        console.log(`[Wafi Claims] Success confirmation sent to ${toEmail}`);
+        console.log('[Wafi Claims] Daily digest sent to', DIGEST_RECIPIENTS.join(', '));
     } catch (e) {
-        console.error('[Wafi Claims] Failed to send success email:', e.message);
+        console.error('[Wafi Claims] Daily digest error:', e.message);
     }
 }
 
@@ -757,8 +849,7 @@ async function processOneMessage(pool, gmail, msg) {
     const msgId = msg.id;
     const threadId = msg.threadId;
 
-    // Check dedup — only PROCESSED_SUCCESSFULLY and REVISED are permanently locked
-    // WRONG_FORMAT and VALIDATION_FAILED are deleted and reprocessed so parser/data fixes take effect
+    // Dedup — IRRELEVANT and SKIPPED are permanent; WRONG_FORMAT and VALIDATION_FAILED reprocess
     const dup = await pool.query(
         `SELECT id, processing_status FROM wafi_claims_sessions WHERE gmail_message_id = $1 LIMIT 1`,
         [msgId]
@@ -779,11 +870,7 @@ async function processOneMessage(pool, gmail, msg) {
     // Fetch full message
     let fullMsg;
     try {
-        const { data } = await gmail.users.messages.get({
-            userId: 'me',
-            id: msgId,
-            format: 'full',
-        });
+        const { data } = await gmail.users.messages.get({ userId: 'me', id: msgId, format: 'full' });
         fullMsg = data;
     } catch (e) {
         console.error(`[Wafi Claims] Failed to fetch message ${msgId}:`, e.message);
@@ -791,22 +878,25 @@ async function processOneMessage(pool, gmail, msg) {
     }
 
     const headers = {};
-    for (const h of (fullMsg.payload?.headers || [])) {
-        headers[h.name.toLowerCase()] = h.value;
-    }
+    for (const h of (fullMsg.payload?.headers || [])) headers[h.name.toLowerCase()] = h.value;
 
     const subject    = headers.subject || '';
     const fromHeader = headers.from    || '';
     const receivedAt = fullMsg.internalDate ? new Date(parseInt(fullMsg.internalDate)) : new Date();
 
-    // Extract sender email address
     const senderMatch = fromHeader.match(/<([^>]+)>/) || fromHeader.match(/([^\s<>]+@[^\s<>]+)/);
     const senderEmail = senderMatch ? senderMatch[1].toLowerCase() : fromHeader.toLowerCase();
 
     console.log(`[Wafi Claims] Processing: "${subject}" from ${senderEmail} (${msgId})`);
-    // NOTE: No label applied yet — only PROCESSED_SUCCESSFULLY emails get a label
 
-    // Find XLSX attachments
+    // Check focal point
+    const focalPoint = await checkFocalPoint(pool, senderEmail);
+    const isFirstTimeSender = !focalPoint;
+
+    // Extract email body snippet for IRRELEVANT logs
+    const emailSummary = extractEmailBody(fullMsg.payload);
+
+    // Find ALL XLSX attachments
     const attachments = [];
     function extractParts(part) {
         if (!part) return;
@@ -820,153 +910,181 @@ async function processOneMessage(pool, gmail, msg) {
     }
     extractParts(fullMsg.payload);
 
+    // ── No Excel at all → IRRELEVANT ────────────────────────────────────────
     if (!attachments.length) {
-        // No Excel attachment — silently ignore (could be a general email)
-        console.log(`[Wafi Claims] No XLSX attachment in message ${msgId} — ignoring`);
-        await markAsRead(gmail, msgId);
-        return;
-    }
-
-    // Process first XLSX attachment
-    const att = attachments[0];
-    let attBuffer;
-    try {
-        const { data: attData } = await gmail.users.messages.attachments.get({
-            userId: 'me',
-            messageId: msgId,
-            id: att.attachmentId,
-        });
-        attBuffer = Buffer.from(attData.data, 'base64');
-    } catch (e) {
-        console.error(`[Wafi Claims] Failed to download attachment "${att.filename}":`, e.message);
-        await markAsRead(gmail, msgId);
-        return;
-    }
-
-    // Parse Excel — check content signature
-    const parseResult = parseWafiExcel(attBuffer, att.filename);
-
-    if (!parseResult) {
-        // Not a valid Excel file at all — silently ignore
-        console.log(`[Wafi Claims] "${att.filename}" is not a readable Excel file — ignoring`);
-        await markAsRead(gmail, msgId);
-        return;
-    }
-
-    if (parseResult.mismatch) {
-        // It IS an Excel file but missing required tabs — log to DB as WRONG_FORMAT so admin can see
-        console.log(`[Wafi Claims] "${att.filename}" logged as WRONG_FORMAT — missing tabs: ${parseResult.missing.join(', ')}`);
-        const mismatchError = [{
-            sheet: 'Template Structure',
-            row: '-',
-            column: '-',
-            error: `Wrong template format. Required tabs not found.`,
-            value: `Found: [${parseResult.found.join(', ')}] | Missing: [${parseResult.missing.join(', ')}]`,
-        }];
+        console.log(`[Wafi Claims] No XLSX attachment in ${msgId} — logging as IRRELEVANT`);
         try {
             await pool.query(`
                 INSERT INTO wafi_claims_sessions
                     (received_at, sender_email, subject, gmail_message_id, gmail_thread_id,
-                     attachment_filename, processing_status, validation_errors,
-                     total_ot_rows, total_expense_rows, total_medical_rows)
-                VALUES ($1,$2,$3,$4,$5,$6,'WRONG_FORMAT',$7::jsonb,0,0,0)
+                     processing_status, email_summary, is_first_time_sender,
+                     total_ot_rows, total_expense_rows, total_medical_rows,
+                     validation_errors, name_warnings)
+                VALUES ($1,$2,$3,$4,$5,'IRRELEVANT',$6,$7,0,0,0,'[]'::jsonb,'[]'::jsonb)
                 ON CONFLICT (gmail_message_id) DO NOTHING
-            `, [receivedAt, senderEmail, subject, msgId, threadId, att.filename, JSON.stringify(mismatchError)]);
+            `, [receivedAt, senderEmail, subject, msgId, threadId, emailSummary, isFirstTimeSender]);
+        } catch (e) { console.warn('[Wafi Claims] Failed to save IRRELEVANT session:', e.message); }
+        await applyLabel(gmail, msgId, 'Claims/Not-Relevant');
+        return;
+    }
+
+    // ── Try each attachment, pick first with valid claims tabs ───────────────
+    let validAttachment = null;
+    let parseResult = null;
+    let lastMismatch = null;
+
+    for (const att of attachments) {
+        let buf;
+        try {
+            const { data: attData } = await gmail.users.messages.attachments.get({
+                userId: 'me', messageId: msgId, id: att.attachmentId,
+            });
+            buf = Buffer.from(attData.data, 'base64');
         } catch (e) {
-            console.warn('[Wafi Claims] Failed to save WRONG_FORMAT session:', e.message);
+            console.warn(`[Wafi Claims] Failed to download "${att.filename}":`, e.message);
+            continue;
+        }
+
+        const result = parseWafiExcel(buf, att.filename);
+        if (!result) continue; // not readable Excel, try next
+        if (result.mismatch) {
+            lastMismatch = { att, result };
+            continue; // valid Excel but wrong tabs, try next
+        }
+        // Found valid claims file
+        validAttachment = { att, buf };
+        parseResult = result;
+        break;
+    }
+
+    // ── None of the attachments had claims tabs ──────────────────────────────
+    if (!parseResult) {
+        if (lastMismatch) {
+            // At least one Excel found but wrong format
+            console.log(`[Wafi Claims] "${lastMismatch.att.filename}" logged as WRONG_FORMAT`);
+            const mismatchError = [{
+                sheet: 'Template Structure', row: '-', column: '-',
+                error: 'Wrong template — required tabs not found.',
+                value: `Found: [${lastMismatch.result.found.join(', ')}] | Missing: [${lastMismatch.result.missing.join(', ')}]`,
+            }];
+            try {
+                await pool.query(`
+                    INSERT INTO wafi_claims_sessions
+                        (received_at, sender_email, subject, gmail_message_id, gmail_thread_id,
+                         attachment_filename, processing_status, validation_errors, name_warnings,
+                         email_summary, is_first_time_sender, total_ot_rows, total_expense_rows, total_medical_rows)
+                    VALUES ($1,$2,$3,$4,$5,$6,'WRONG_FORMAT',$7::jsonb,'[]'::jsonb,$8,$9,0,0,0)
+                    ON CONFLICT (gmail_message_id) DO NOTHING
+                `, [receivedAt, senderEmail, subject, msgId, threadId,
+                    lastMismatch.att.filename, JSON.stringify(mismatchError), emailSummary, isFirstTimeSender]);
+            } catch (e) { console.warn('[Wafi Claims] Failed to save WRONG_FORMAT session:', e.message); }
+        } else {
+            // Only non-Excel attachments (PDFs, images, etc.) → IRRELEVANT
+            console.log(`[Wafi Claims] No parseable Excel in ${msgId} — logging as IRRELEVANT`);
+            try {
+                await pool.query(`
+                    INSERT INTO wafi_claims_sessions
+                        (received_at, sender_email, subject, gmail_message_id, gmail_thread_id,
+                         processing_status, email_summary, is_first_time_sender,
+                         total_ot_rows, total_expense_rows, total_medical_rows,
+                         validation_errors, name_warnings)
+                    VALUES ($1,$2,$3,$4,$5,'IRRELEVANT',$6,$7,0,0,0,'[]'::jsonb,'[]'::jsonb)
+                    ON CONFLICT (gmail_message_id) DO NOTHING
+                `, [receivedAt, senderEmail, subject, msgId, threadId, emailSummary, isFirstTimeSender]);
+            } catch (e) { console.warn('[Wafi Claims] Failed to save IRRELEVANT session:', e.message); }
+            await applyLabel(gmail, msgId, 'Claims/Not-Relevant');
         }
         await markAsRead(gmail, msgId);
         return;
     }
 
+    // ── Valid claims file found → parse all 3 sheets ─────────────────────────
     const { wb, otSheet, expSheet, medSheet } = parseResult;
+    const att = validAttachment.att;
     const errors = [];
+    const warnings = [];
 
-    // Process each sheet using the actual detected tab names (e.g. 'Overtime (TR3)')
     const otRawRows  = getSheetRows(wb, otSheet);
     const expRawRows = getSheetRows(wb, expSheet);
     const medRawRows = getSheetRows(wb, medSheet);
 
     const [otItems, expItems, medItems] = await Promise.all([
-        processOvertimeSheet(pool, otRawRows, errors),
-        processExpenseSheet(pool, expRawRows, errors),
-        processMedicalSheet(pool, medRawRows, errors),
+        processOvertimeSheet(pool, otRawRows, errors, warnings),
+        processExpenseSheet(pool, expRawRows, errors, warnings),
+        processMedicalSheet(pool, medRawRows, errors, warnings),
     ]);
 
-    const allItems     = [...otItems, ...expItems, ...medItems];
-    const validItems   = allItems.filter(r => !r._error);
-    const hasErrors    = errors.length > 0;
-    const status       = hasErrors ? 'VALIDATION_FAILED' : 'PROCESSED_SUCCESSFULLY';
+    const allItems   = [...otItems, ...expItems, ...medItems];
+    const validItems = allItems.filter(r => !r._error);
 
-    console.log(`[Wafi Claims] "${att.filename}": ${validItems.length} valid rows, ${errors.length} errors → ${status}`);
+    // ── Empty file check → IRRELEVANT ────────────────────────────────────────
+    if (validItems.length === 0 && errors.length === 0) {
+        console.log(`[Wafi Claims] "${att.filename}" has correct tabs but 0 rows — logging as IRRELEVANT`);
+        try {
+            await pool.query(`
+                INSERT INTO wafi_claims_sessions
+                    (received_at, sender_email, subject, gmail_message_id, gmail_thread_id,
+                     attachment_filename, processing_status, email_summary, is_first_time_sender,
+                     total_ot_rows, total_expense_rows, total_medical_rows,
+                     validation_errors, name_warnings)
+                VALUES ($1,$2,$3,$4,$5,$6,'IRRELEVANT',$7,$8,0,0,0,'[]'::jsonb,'[]'::jsonb)
+                ON CONFLICT (gmail_message_id) DO NOTHING
+            `, [receivedAt, senderEmail, subject, msgId, threadId, att.filename, emailSummary, isFirstTimeSender]);
+        } catch (e) { console.warn('[Wafi Claims] Failed to save IRRELEVANT session:', e.message); }
+        await applyLabel(gmail, msgId, 'Claims/Not-Relevant');
+        await markAsRead(gmail, msgId);
+        return;
+    }
 
-    // Revision detection (only if passing)
-    let isRevision = false;
-    let supersedesSessionId = null;
+    const hasErrors = errors.length > 0;
+    // Clean validation → PENDING_REVIEW; has errors → VALIDATION_FAILED
+    const status = hasErrors ? 'VALIDATION_FAILED' : 'PENDING_REVIEW';
+    console.log(`[Wafi Claims] "${att.filename}": ${validItems.length} valid, ${errors.length} errors, ${warnings.length} warnings → ${status}`);
+
+    // Revision detection (only if no errors)
+    let isRevision = false, supersedesSessionId = null;
     if (!hasErrors && validItems.length) {
         const employeeIds = [...new Set(validItems.map(r => r.employee_id).filter(Boolean))];
         const firstDate   = validItems.find(r => r.claim_date)?.claim_date;
         if (employeeIds.length && firstDate) {
-            const revResult = await detectAndMarkRevisions(pool, employeeIds, firstDate);
-            isRevision         = revResult.revised;
-            supersedesSessionId = revResult.oldSessionId;
+            const rev = await detectAndMarkRevisions(pool, employeeIds, firstDate);
+            isRevision = rev.revised;
+            supersedesSessionId = rev.oldSessionId;
         }
     }
 
-    // Save to DB
+    // Save session
     let sessionId;
     try {
         sessionId = await saveSession(pool, {
-            receivedAt,
-            senderEmail,
-            subject,
-            gmailMessageId: msgId,
-            gmailThreadId: threadId,
+            receivedAt, senderEmail, subject,
+            gmailMessageId: msgId, gmailThreadId: threadId,
             attachmentFilename: att.filename,
             processingStatus: status,
             validationErrors: errors,
-            otRows: otItems,
-            expenseRows: expItems,
-            medicalRows: medItems,
-            isRevision,
-            supersedesSessionId,
+            nameWarnings: warnings,
+            otRows: otItems, expenseRows: expItems, medicalRows: medItems,
+            isRevision, supersedesSessionId,
+            emailSummary, isFirstTimeSender,
         });
-        console.log(`[Wafi Claims] Session ${sessionId} saved`);
+        console.log(`[Wafi Claims] Session ${sessionId} saved (${status})`);
     } catch (e) {
         console.error('[Wafi Claims] Failed to save session:', e.message);
         await markAsRead(gmail, msgId);
         return;
     }
 
-    // Apply Gmail label ONLY on successful processing
-    if (status === 'PROCESSED_SUCCESSFULLY') {
-        await applyLabel(gmail, msgId, 'Claims/Processed-Successfully');
+    // Apply label
+    if (status === 'PENDING_REVIEW') {
+        await applyLabel(gmail, msgId, 'Claims/Pending-Review');
     }
-    // VALIDATION_FAILED and other statuses get NO label — admin sees them in dashboard only
 
-    // Update session with email send status
-    try {
-        if (hasErrors) {
+    // Send QC rejection email if errors
+    if (hasErrors) {
+        try {
             await sendQCRejectionEmail(senderEmail, errors, att.filename);
             await pool.query('UPDATE wafi_claims_sessions SET qc_email_sent=TRUE WHERE id=$1', [sessionId]);
-        } else {
-            if (isRevision) {
-                const empNames = validItems.map(r => r.employee_name_db || r.employee_name_raw).filter(Boolean);
-                const firstDate = validItems.find(r => r.claim_date)?.claim_date;
-                await sendRevisionAcknowledgmentEmail(senderEmail, [...new Set(empNames)], firstDate);
-            }
-            await sendSuccessConfirmationEmail(
-                senderEmail,
-                sessionId,
-                otItems.filter(r => !r._error).length,
-                expItems.filter(r => !r._error).length,
-                medItems.filter(r => !r._error).length,
-                att.filename
-            );
-            await pool.query('UPDATE wafi_claims_sessions SET confirm_email_sent=TRUE WHERE id=$1', [sessionId]);
-        }
-    } catch (e) {
-        console.warn('[Wafi Claims] Email send warning:', e.message);
+        } catch (e) { console.warn('[Wafi Claims] QC email warning:', e.message); }
     }
 
     await markAsRead(gmail, msgId);
@@ -976,29 +1094,20 @@ async function processOneMessage(pool, gmail, msg) {
 async function pollGmail(pool) {
     const gmail = createGmailClient();
     if (!gmail) {
-        console.log('[Wafi Claims] Gmail not configured (missing OAuth credentials) — skipping poll');
+        console.log('[Wafi Claims] Gmail not configured — skipping poll');
         return { skipped: true, reason: 'Gmail OAuth credentials not configured' };
     }
 
-    console.log(`[Wafi Claims] ═══ Poll starting — monitoring: ${CLAIMS_EMAIL} ═══`);
+    console.log(`[Wafi Claims] ═══ Poll starting — monitoring: ${GMAIL_USER} ═══`);
     _lastPollAt = new Date();
     const summary = { processed: 0, skipped: 0, errors: 0 };
 
     try {
         await ensureLabels(gmail);
-
-        // FROM: wafi-energy@asil.com.pk only
-        // TO: claims@asil.com.pk OR ops-support@asil.com.pk (alias + real address)
-        // Both read and unread — dedup via gmail_message_id prevents reprocessing
-        const q = `from:@wafi-energy.com to:(${CLAIMS_EMAIL} OR ${GMAIL_USER}) has:attachment`;
-        const { data } = await gmail.users.messages.list({
-            userId: 'me',
-            q,
-            maxResults: 100,
-        });
-
+        const q = `from:@${SENDER_DOMAIN} to:(${CLAIMS_EMAIL} OR ${GMAIL_USER}) has:attachment`;
+        const { data } = await gmail.users.messages.list({ userId: 'me', q, maxResults: 100 });
         const messages = data.messages || [];
-        console.log(`[Wafi Claims] Found ${messages.length} messages matching query: ${q}`);
+        console.log(`[Wafi Claims] Found ${messages.length} messages`);
 
         for (const msg of messages) {
             try {
@@ -1018,30 +1127,48 @@ async function pollGmail(pool) {
     return summary;
 }
 
+// ── Daily Digest Scheduler ────────────────────────────────────────────────────
+function scheduleDailyDigest(pool) {
+    // Check every minute if it's 8:00 AM PKT (UTC+5 = UTC 03:00)
+    let lastDigestDate = null;
+    setInterval(async () => {
+        const now = new Date();
+        const pkTime = new Date(now.getTime() + 5 * 60 * 60 * 1000);
+        const hour = pkTime.getUTCHours();
+        const minute = pkTime.getUTCMinutes();
+        const today = pkTime.toISOString().slice(0, 10);
+
+        if (hour === 8 && minute === 0 && lastDigestDate !== today) {
+            lastDigestDate = today;
+            console.log('[Wafi Claims] Sending daily digest...');
+            await sendDailyDigest(pool).catch(e => console.error('[Wafi Claims] Digest error:', e.message));
+        }
+    }, 60 * 1000);
+}
+
 // ── Entry Points ──────────────────────────────────────────────────────────────
 function startWafiClaimsService(pool) {
     if (!GMAIL_CLIENT_ID || !GMAIL_CLIENT_SECRET || !GMAIL_REFRESH_TOKEN) {
-        console.log('[Wafi Claims] Service disabled — GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN not set');
-        console.log('[Wafi Claims] Run: node gmail-auth-setup.js to generate OAuth credentials');
+        console.log('[Wafi Claims] Service disabled — OAuth credentials not set');
         return;
     }
-    console.log(`[Wafi Claims] Service started | user: ${GMAIL_USER} | domain: @${SENDER_DOMAIN} | interval: ${POLL_INTERVAL_MS / 60000}min | emails: ${EMAILS_ENABLED ? 'ON' : 'OFF (test mode)'}`);
-
-    // Initial poll after 10 seconds
+    console.log(`[Wafi Claims] Service started | user: ${GMAIL_USER} | emails: ${EMAILS_ENABLED ? 'ON' : 'OFF'}`);
     setTimeout(() => pollGmail(pool).catch(e => console.error('[Wafi Claims] Initial poll error:', e.message)), 10000);
-
-    // Recurring poll every 5 minutes
-    setInterval(() => {
-        pollGmail(pool).catch(e => console.error('[Wafi Claims] Scheduled poll error:', e.message));
-    }, POLL_INTERVAL_MS);
+    setInterval(() => pollGmail(pool).catch(e => console.error('[Wafi Claims] Poll error:', e.message)), POLL_INTERVAL_MS);
+    scheduleDailyDigest(pool);
 }
 
 async function triggerWafiManualPoll(pool) {
     return pollGmail(pool);
 }
 
-function getLastPollAt() {
-    return _lastPollAt;
-}
+function getLastPollAt() { return _lastPollAt; }
 
-module.exports = { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt };
+module.exports = {
+    startWafiClaimsService,
+    triggerWafiManualPoll,
+    getLastPollAt,
+    createGmailClient,
+    buildConfirmationHtml,
+    createGmailDraft,
+};
