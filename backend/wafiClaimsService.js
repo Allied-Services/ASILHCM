@@ -167,29 +167,83 @@ function isTotalRow(codeVal, nameVal) {
 
 // Detect whether a set of raw date strings uses DD-MM-YYYY or MM-DD-YYYY.
 // Strategy (in priority order):
+//   0. Filename month hint: if filename says "May_2026", expected month=5.
+//      If a-segment consistently = 5 → MM-DD-YYYY. If b-segment = 5 → DD-MM-YYYY.
 //   1. Hard evidence: if any b > 12 → MM-DD-YYYY; if any a > 12 → DD-MM-YYYY.
-//   2. Variance heuristic: the segment that stays CONSTANT across rows is the month.
-//      e.g.  05-01, 05-02 ... 05-29  →  a always=5, b varies 1-29  →  a is month → MM-DD-YYYY
-//      e.g.  01-05, 02-05 ... 29-05  →  b always=5, a varies 1-29  →  b is month → DD-MM-YYYY
-//   3. Default: DD-MM-YYYY (Pakistan standard)
-function detectDateFormat(rawValues) {
+//   2. Variance heuristic: the segment that stays CONSTANT is the month.
+//   3. Default: DD-MM-YYYY (Pakistan standard), confident=false → AI fallback.
+function detectDateFormat(rawValues, filename) {
+    // Priority 0: Extract expected month from filename (e.g. "Wafi_Claims_Shikarpur_May_2026.xlsx" → 5)
+    let filenameMonth = null;
+    if (filename) {
+        const monthMap = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
+        const fn = String(filename).toLowerCase();
+        for (const [abbr, num] of Object.entries(monthMap)) {
+            if (fn.includes(abbr)) { filenameMonth = num; break; }
+        }
+    }
+
     let mmddEvidence = 0, ddmmEvidence = 0;
     const aVals = [], bVals = [];
 
     for (const raw of rawValues) {
-        if (raw == null || raw === '' || typeof raw === 'number') continue;
+        if (raw == null || raw === '') continue;
+
+        // Handle Excel serial numbers — extract month directly for filename comparison
+        if (typeof raw === 'number' && raw > 1000) {
+            const d = new Date(new Date(1899, 11, 30).getTime() + raw * 86400000);
+            if (!isNaN(d)) {
+                // We can't tell a/b from serials, but we can note the parsed month
+                // These are handled separately in Priority 0 below via serialMonth
+            }
+            continue; // serials fall through to Priority 0 check
+        }
+
         const s = String(raw).trim();
-        const m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
-        if (!m) continue;
-        const a = parseInt(m[1]), b = parseInt(m[2]);
-        aVals.push(a);
-        bVals.push(b);
+        const match = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
+        if (!match) continue;
+        const a = parseInt(match[1]), b = parseInt(match[2]);
+        aVals.push(a); bVals.push(b);
         if (b > 12) mmddEvidence++;
         if (a > 12) ddmmEvidence++;
     }
 
+    // Priority 0: Filename month match against string date segments
+    if (filenameMonth && aVals.length > 0) {
+        const aMatchesMonth = aVals.every(v => v === filenameMonth) || (new Set(aVals).size === 1 && aVals[0] === filenameMonth);
+        const bMatchesMonth = bVals.every(v => v === filenameMonth) || (new Set(bVals).size === 1 && bVals[0] === filenameMonth);
+        if (aMatchesMonth && !bMatchesMonth) {
+            console.log(`[Wafi Claims] Date fmt: filename says month=${filenameMonth}, a-segment matches → MM-DD-YYYY (confident)`);
+            return { fmt: 'MM-DD-YYYY', confident: true };
+        }
+        if (bMatchesMonth && !aMatchesMonth) {
+            console.log(`[Wafi Claims] Date fmt: filename says month=${filenameMonth}, b-segment matches → DD-MM-YYYY (confident)`);
+            return { fmt: 'DD-MM-YYYY', confident: true };
+        }
+    }
 
-// Priority 1: hard numeric evidence
+    // Priority 0b: All dates are Excel serials — check if the parsed month matches filename
+    // If ALL raw values are numeric serials, we have no a/b to compare; use filename to set fmt
+    const allNumeric = rawValues.filter(r => r != null && r !== '').every(r => typeof r === 'number' && r > 1000);
+    if (allNumeric && filenameMonth) {
+        // Parse each serial → get their months
+        const serialMonths = rawValues
+            .filter(r => typeof r === 'number' && r > 1000)
+            .map(r => new Date(new Date(1899, 11, 30).getTime() + r * 86400000).getMonth() + 1);
+        const uniqueSerialMonths = [...new Set(serialMonths)];
+        if (uniqueSerialMonths.length === 1 && uniqueSerialMonths[0] !== filenameMonth) {
+            // Parsed month ≠ filename month → Excel stored dates wrong → flag for AI
+            console.log(`[Wafi Claims] Date fmt: Excel serials give month=${uniqueSerialMonths[0]} but filename says month=${filenameMonth} — dates may have been stored with wrong locale`);
+            // Return as not-confident so AI can attempt to resolve via other signals
+            return { fmt: 'DD-MM-YYYY', confident: false, serialMonthMismatch: true, filenameMonth };
+        }
+        if (uniqueSerialMonths.length === 1 && uniqueSerialMonths[0] === filenameMonth) {
+            // Serial month matches filename — dates are stored correctly
+            return { fmt: 'DD-MM-YYYY', confident: true };
+        }
+    }
+
+    // Priority 1: hard numeric evidence from string dates
     if (mmddEvidence > 0 && ddmmEvidence === 0) return { fmt: 'MM-DD-YYYY', confident: true };
     if (ddmmEvidence > 0 && mmddEvidence === 0) return { fmt: 'DD-MM-YYYY', confident: true };
 
@@ -200,19 +254,17 @@ function detectDateFormat(rawValues) {
         const aRange  = Math.max(...aVals) - Math.min(...aVals);
         const bRange  = Math.max(...bVals) - Math.min(...bVals);
 
-        // a is near-constant, b varies widely → a is the month → MM-DD-YYYY
         if (aUnique <= 2 && bRange > aRange && bRange >= 5) {
             console.log(`[Wafi Claims] Date fmt heuristic → MM-DD-YYYY (aUnique=${aUnique}, bRange=${bRange})`);
             return { fmt: 'MM-DD-YYYY', confident: true };
         }
-        // b is near-constant, a varies widely → b is the month → DD-MM-YYYY
         if (bUnique <= 2 && aRange > bRange && aRange >= 5) {
             console.log(`[Wafi Claims] Date fmt heuristic → DD-MM-YYYY (bUnique=${bUnique}, aRange=${aRange})`);
             return { fmt: 'DD-MM-YYYY', confident: true };
         }
     }
 
-    // Default — not confident, AI fallback should be used
+    // Default — not confident, AI fallback will be used
     return { fmt: 'DD-MM-YYYY', confident: false };
 }
 
@@ -455,7 +507,7 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
     const seenKeys = new Set();
 
     // Step 1: rule-based date format detection
-    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]));
+    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]), filename);
     let dateFmt = fmtGuess;
 
     // Step 2: if not confident, call AI with filename context (key signal: 'May_2026' in name)
@@ -563,7 +615,7 @@ async function processExpenseSheet(pool, rows, errors, warnings, filename) {
     const seenKeys = new Set();
 
     // Step 1: rule-based date format detection
-    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]));
+    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]), filename);
     let dateFmt = fmtGuess;
 
     // Step 2: AI fallback when ambiguous
@@ -653,7 +705,7 @@ async function processMedicalSheet(pool, rows, errors, warnings, filename) {
     const seenKeys = new Set();
 
     // Step 1: rule-based date format detection
-    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]));
+    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]), filename);
     let dateFmt = fmtGuess;
 
     // Step 2: AI fallback when ambiguous
