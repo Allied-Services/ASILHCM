@@ -122,6 +122,10 @@ export default function WafiClaimsDashboard({ user }) {
   const [stageLoading, setStageLoading] = useState(false);
   const [stageResult, setStageResult]   = useState(null);
 
+  // QC Draft state
+  const [qcDraftLoading, setQcDraftLoading] = useState(null); // sessionId being drafted
+  const [qcDraftResult, setQcDraftResult]   = useState({});
+
   // ── Override employee state ────────────────────────────────────────────────
   const [overrideModal, setOverrideModal] = useState(null); // { sessionId, rawCode }
   const [empSearch, setEmpSearch]         = useState('');
@@ -197,8 +201,14 @@ export default function WafiClaimsDashboard({ user }) {
   const loadSessionDetail = useCallback(async (id) => {
     try {
       const d = await apiFetch(`/api/wafi-claims/sessions/${id}`);
-      setSessionDetail(d);
-    } catch {}
+      if (d && !d.error) {
+        setSessionDetail(d);
+      } else {
+        setSessionDetail({ session: null, items: [], _error: d?.error || 'Failed to load' });
+      }
+    } catch (e) {
+      setSessionDetail({ session: null, items: [], _error: e.message });
+    }
   }, []);
 
   const loadItems = useCallback(async () => {
@@ -338,6 +348,27 @@ export default function WafiClaimsDashboard({ user }) {
       await loadSessions();
       await loadStats();
     } catch (e) { console.error('Skip failed:', e); }
+  };
+
+  // Create QC rejection draft email
+  const handleQcDraft = async (sess) => {
+    setQcDraftLoading(sess.id);
+    try {
+      const d = await apiFetch(`/api/wafi-claims/sessions/${sess.id}/qc-draft`, { method: 'POST' });
+      setQcDraftResult(prev => ({ ...prev, [sess.id]: d }));
+      if (d.ok) { await loadSessions(); await loadStats(); }
+    } catch (e) { setQcDraftResult(prev => ({ ...prev, [sess.id]: { error: e.message } })); }
+    setQcDraftLoading(null);
+  };
+
+  // Reject session (admin dismisses permanently)
+  const handleReject = async (sessionId) => {
+    if (!window.confirm('Mark this session as REJECTED? It will be removed from the pending list.')) return;
+    try {
+      await apiFetch(`/api/wafi-claims/sessions/${sessionId}/reject`, { method: 'POST' });
+      await loadSessions();
+      await loadStats();
+    } catch (e) { console.error('Reject failed:', e); }
   };
 
   // Batch verify handler
@@ -568,13 +599,13 @@ export default function WafiClaimsDashboard({ user }) {
                   if (e.target.checked) setSelectedSessions(new Set(sessions.filter(s => s.processing_status === 'PENDING_REVIEW').map(s => s.id)));
                   else setSelectedSessions(new Set());
                 }} /></th>
-                {['Received','Sender','Filename','Month','Status','OT','Exp','Med','Rev?','Actions'].map(h => <th key={h} style={s.th}>{h}</th>)}
+                {['Received','Sender','Filename','Month','Status','OT 1x','OT 2x','OT 3x','Exp','Med','Rev?','Actions'].map(h => <th key={h} style={s.th}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {sessionsLoading ? (
-                  <tr><td colSpan={11} style={{ ...s.td, textAlign: 'center', padding: '2rem' }}><div style={{ display: 'flex', justifyContent: 'center', gap: '8px', color: '#64748b' }}><Spinner /> Loading sessions…</div></td></tr>
+                  <tr><td colSpan={13} style={{ ...s.td, textAlign: 'center', padding: '2rem' }}><div style={{ display: 'flex', justifyContent: 'center', gap: '8px', color: '#64748b' }}><Spinner /> Loading sessions…</div></td></tr>
                 ) : sessions.length === 0 ? (
-                  <tr><td colSpan={11} style={{ ...s.td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>No sessions found.</td></tr>
+                  <tr><td colSpan={13} style={{ ...s.td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>No sessions found.</td></tr>
                 ) : sessions.map(sess => (
                   <React.Fragment key={sess.id}>
                     <tr style={{ transition: 'background 0.15s' }}
@@ -600,7 +631,9 @@ export default function WafiClaimsDashboard({ user }) {
                       <td style={{ ...s.td, fontSize: '0.78rem', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sess.attachment_filename || '—'}</td>
                       <td style={{ ...s.td, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{sess.claim_month ? new Date(sess.claim_month).toLocaleString('en-PK',{month:'short',year:'numeric'}) : '—'}</td>
                       <td style={s.td}><StatusBadge status={sess.processing_status} /></td>
-                      <td style={{ ...s.td, textAlign: 'center', color: '#a78bfa', fontSize: '0.8rem' }}>{sess.total_ot_rows || 0}</td>
+                      <td style={{ ...s.td, textAlign: 'center', color: '#a78bfa', fontSize: '0.8rem' }}>{sess.ot_single_count || 0}</td>
+                      <td style={{ ...s.td, textAlign: 'center', color: '#c084fc', fontSize: '0.8rem' }}>{sess.ot_double_count || 0}</td>
+                      <td style={{ ...s.td, textAlign: 'center', color: '#7c3aed', fontSize: '0.8rem' }}>{sess.ot_triple_count || 0}</td>
                       <td style={{ ...s.td, textAlign: 'center', color: '#f59e0b', fontSize: '0.8rem' }}>{sess.total_expense_rows || 0}</td>
                       <td style={{ ...s.td, textAlign: 'center', color: '#38bdf8', fontSize: '0.8rem' }}>{sess.total_medical_rows || 0}</td>
                       <td style={{ ...s.td, textAlign: 'center', fontSize: '0.76rem' }}>{sess.is_revision ? <span style={{ color: '#38bdf8' }}>Yes</span> : <span style={{ color: '#475569' }}>—</span>}</td>
@@ -625,24 +658,50 @@ export default function WafiClaimsDashboard({ user }) {
                               <X size={13}/> Skip
                             </button>
                           )}
-                          {sess.processing_status === 'PROCESSED_SUCCESSFULLY' && !sess.pushed_to_payroll && (
+                          {sess.processing_status === 'VALIDATION_FAILED' && (
+                            <>
+                              <button
+                                onClick={() => handleQcDraft(sess)}
+                                disabled={qcDraftLoading === sess.id}
+                                style={{ ...btn('#f59e0b','rgba(245,158,11,0.12)'), fontSize:'0.78rem', padding:'5px 10px' }}
+                                title="Create QC rejection draft email in Gmail"
+                              >
+                                {qcDraftLoading === sess.id ? <Spinner size={13}/> : '✉'} QC Draft
+                              </button>
+                              <button
+                                onClick={() => handleReject(sess.id)}
+                                style={{ ...btn('#ef4444','rgba(239,68,68,0.1)'), fontSize:'0.78rem', padding:'5px 10px' }}
+                                title="Mark as rejected and remove from pending list"
+                              >
+                                ✕ Reject
+                              </button>
+                            </>
+                          )}
+                          {sess.processing_status === 'PROCESSED_SUCCESSFULLY' && !sess.pushed_to_payroll && ((sess.total_ot_rows || 0) + (sess.total_expense_rows || 0) + (sess.total_medical_rows || 0)) > 0 && (
                             <button onClick={() => { setStageModal({ sessionId: sess.id, sender: sess.sender_email }); setStageResult(null); }} style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid #22c55e', color: '#22c55e', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem' }}>
                               Stage →
                             </button>
                           )}
                           {sess.pushed_to_payroll && <span style={{ fontSize: '0.72rem', color: '#22c55e', padding: '4px 0' }}>✓ Staged</span>}
                         </div>
+                        {qcDraftResult[sess.id] && (
+                          <div style={{ fontSize:'0.7rem', color: qcDraftResult[sess.id].error ? '#ef4444' : '#10b981', marginTop:'3px' }}>
+                            {qcDraftResult[sess.id].error || 'Draft created ✓'}
+                          </div>
+                        )}
                       </td>
                     </tr>
 
                     {/* Expanded detail: validation errors + items */}
                     {expandedSession === sess.id && (
                       <tr>
-                        <td colSpan={11} style={{ padding: '0 12px 12px', background: 'rgba(0,0,0,0.2)' }}>
+                        <td colSpan={13} style={{ padding: '0 12px 12px', background: 'rgba(0,0,0,0.2)' }}>
                           {!sessionDetail ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', padding: '12px 0', fontSize: '0.82rem' }}>
                               <Spinner size={14} /> Loading details…
                             </div>
+                          ) : sessionDetail._error ? (
+                            <div style={{ color: '#ef4444', fontSize: '0.82rem', padding: '12px 0' }}>⚠ Failed to load details: {sessionDetail._error}</div>
                           ) : (
                             <div>
                               {/* IRRELEVANT email summary */}
@@ -722,6 +781,44 @@ export default function WafiClaimsDashboard({ user }) {
                                       </tbody>
                                     </table>
                                   </div>
+                                </div>
+                              )}
+
+                              {/* Claims totals summary */}
+                              {(sessionDetail.session?.total_ot_rows > 0 || sessionDetail.session?.total_expense_rows > 0 || sessionDetail.session?.total_medical_rows > 0) && (
+                                <div style={{ display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'12px', marginTop:'8px' }}>
+                                  {sessionDetail.session.total_ot_rows > 0 && (
+                                    <div style={{ background:'rgba(167,139,250,0.1)', border:'1px solid rgba(167,139,250,0.2)', borderRadius:'8px', padding:'8px 14px' }}>
+                                      <div style={{ fontSize:'0.7rem', color:'#a78bfa', fontWeight:600, textTransform:'uppercase' }}>OT Single</div>
+                                      <div style={{ fontSize:'1.1rem', fontWeight:800, color:'#a78bfa' }}>{sessionDetail.session.ot_single_count || 0} rows</div>
+                                    </div>
+                                  )}
+                                  {(sessionDetail.session.ot_double_count > 0) && (
+                                    <div style={{ background:'rgba(192,132,252,0.1)', border:'1px solid rgba(192,132,252,0.2)', borderRadius:'8px', padding:'8px 14px' }}>
+                                      <div style={{ fontSize:'0.7rem', color:'#c084fc', fontWeight:600, textTransform:'uppercase' }}>OT 2× Hours</div>
+                                      <div style={{ fontSize:'1.1rem', fontWeight:800, color:'#c084fc' }}>{sessionDetail.session.ot_double_count || 0} rows</div>
+                                    </div>
+                                  )}
+                                  {(sessionDetail.session.ot_triple_count > 0) && (
+                                    <div style={{ background:'rgba(124,58,237,0.1)', border:'1px solid rgba(124,58,237,0.2)', borderRadius:'8px', padding:'8px 14px' }}>
+                                      <div style={{ fontSize:'0.7rem', color:'#7c3aed', fontWeight:600, textTransform:'uppercase' }}>OT 3× Hours</div>
+                                      <div style={{ fontSize:'1.1rem', fontWeight:800, color:'#7c3aed' }}>{sessionDetail.session.ot_triple_count || 0} rows</div>
+                                    </div>
+                                  )}
+                                  {sessionDetail.session.total_expense_rows > 0 && (
+                                    <div style={{ background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', borderRadius:'8px', padding:'8px 14px' }}>
+                                      <div style={{ fontSize:'0.7rem', color:'#f59e0b', fontWeight:600, textTransform:'uppercase' }}>Expense Claims</div>
+                                      <div style={{ fontSize:'1.1rem', fontWeight:800, color:'#f59e0b' }}>{sessionDetail.session.total_expense_rows} rows</div>
+                                      <div style={{ fontSize:'0.75rem', color:'#d97706' }}>PKR {(sessionDetail.items?.filter(i=>i.claim_type==='EXPENSE').reduce((s,i)=>s+parseFloat(i.raw_amount||0),0)||0).toLocaleString('en-PK')}</div>
+                                    </div>
+                                  )}
+                                  {sessionDetail.session.total_medical_rows > 0 && (
+                                    <div style={{ background:'rgba(56,189,248,0.1)', border:'1px solid rgba(56,189,248,0.2)', borderRadius:'8px', padding:'8px 14px' }}>
+                                      <div style={{ fontSize:'0.7rem', color:'#38bdf8', fontWeight:600, textTransform:'uppercase' }}>Medical Claims</div>
+                                      <div style={{ fontSize:'1.1rem', fontWeight:800, color:'#38bdf8' }}>{sessionDetail.session.total_medical_rows} rows</div>
+                                      <div style={{ fontSize:'0.75rem', color:'#0891b2' }}>PKR {(sessionDetail.items?.filter(i=>i.claim_type==='MEDICAL').reduce((s,i)=>s+parseFloat(i.raw_amount||0),0)||0).toLocaleString('en-PK')}</div>
+                                    </div>
+                                  )}
                                 </div>
                               )}
 

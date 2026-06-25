@@ -5658,6 +5658,18 @@ app.get('/api/claims/approve/:token', async (req, res) => {
 
 const XLSX_wafi = require('xlsx');
 
+// One-time data fix: sessions marked PROCESSED_SUCCESSFULLY with 0 rows are IRRELEVANT
+// (e.g. Mustafa's blank Excel that had correct tabs but no data rows)
+pool.query(`
+    UPDATE wafi_claims_sessions
+    SET processing_status = 'IRRELEVANT',
+        email_summary = COALESCE(email_summary, 'No claim rows found in the submitted file. Email classified as not relevant.')
+    WHERE processing_status = 'PROCESSED_SUCCESSFULLY'
+      AND total_ot_rows = 0 AND total_expense_rows = 0 AND total_medical_rows = 0
+`).then(r => {
+    if (r.rowCount > 0) console.log(`[Wafi Claims] Data fix: reclassified ${r.rowCount} empty PROCESSED_SUCCESSFULLY session(s) as IRRELEVANT`);
+}).catch(e => console.warn('[Wafi Claims] Data fix warning:', e.message));
+
 // GET /api/wafi-claims/sessions
 app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
     try {
@@ -5668,21 +5680,46 @@ app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
 
         const vals = [];
         let where = 'WHERE 1=1';
-        if (status)   { vals.push(status);   where += ` AND processing_status = $${vals.length}`; }
-        if (dateFrom) { vals.push(dateFrom); where += ` AND received_at >= $${vals.length}::timestamptz`; }
-        if (dateTo)   { vals.push(dateTo);   where += ` AND received_at <= $${vals.length}::timestamptz`; }
-        if (location) { vals.push(`%${location}%`); where += ` AND location_name ILIKE $${vals.length}`; }
+        if (status)   { vals.push(status);   where += ` AND wcs.processing_status = $${vals.length}`; }
+        if (dateFrom) { vals.push(dateFrom); where += ` AND wcs.received_at >= $${vals.length}::timestamptz`; }
+        if (dateTo)   { vals.push(dateTo);   where += ` AND wcs.received_at <= $${vals.length}::timestamptz`; }
+        if (location) { vals.push(`%${location}%`); where += ` AND wcs.location_name ILIKE $${vals.length}`; }
 
         const countVals = [...vals];
         const { rows: countRows } = await pool.query(
-            `SELECT COUNT(*) FROM wafi_claims_sessions ${where}`, countVals
+            `SELECT COUNT(*) FROM wafi_claims_sessions wcs ${where}`, countVals
         );
         const total = parseInt(countRows[0].count);
 
         vals.push(limit); vals.push(offset);
         const { rows: sessions } = await pool.query(
-            `SELECT * FROM wafi_claims_sessions ${where}
-             ORDER BY received_at DESC
+            `SELECT wcs.*,
+                COALESCE(ot_counts.single_rows, 0)  AS ot_single_count,
+                COALESCE(ot_counts.double_rows, 0)  AS ot_double_count,
+                COALESCE(ot_counts.triple_rows, 0)  AS ot_triple_count,
+                COALESCE(exp_counts.exp_total, 0)   AS expense_total_amount,
+                COALESCE(med_counts.med_total, 0)   AS medical_total_amount
+             FROM wafi_claims_sessions wcs
+             LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*) FILTER (WHERE LOWER(ot_multiplier) = 'single') AS single_rows,
+                    COUNT(*) FILTER (WHERE LOWER(ot_multiplier) = 'double') AS double_rows,
+                    COUNT(*) FILTER (WHERE LOWER(ot_multiplier) = 'triple') AS triple_rows
+                FROM wafi_claims_items
+                WHERE session_id = wcs.id AND claim_type = 'OT' AND active = TRUE
+             ) ot_counts ON TRUE
+             LEFT JOIN LATERAL (
+                SELECT COALESCE(SUM(raw_amount), 0) AS exp_total
+                FROM wafi_claims_items
+                WHERE session_id = wcs.id AND claim_type = 'EXPENSE' AND active = TRUE
+             ) exp_counts ON TRUE
+             LEFT JOIN LATERAL (
+                SELECT COALESCE(SUM(raw_amount), 0) AS med_total
+                FROM wafi_claims_items
+                WHERE session_id = wcs.id AND claim_type = 'MEDICAL' AND active = TRUE
+             ) med_counts ON TRUE
+             ${where}
+             ORDER BY wcs.received_at DESC
              LIMIT $${vals.length - 1} OFFSET $${vals.length}`,
             vals
         );
@@ -5690,10 +5727,11 @@ app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
         const { rows: statsRows } = await pool.query(`
             SELECT
                 COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED_SUCCESSFULLY') AS passed,
+                COUNT(*) FILTER (WHERE processing_status IN ('PROCESSED_SUCCESSFULLY','VERIFIED')) AS passed,
                 COUNT(*) FILTER (WHERE processing_status = 'VALIDATION_FAILED') AS failed,
                 COUNT(*) FILTER (WHERE processing_status = 'REVISED') AS revised,
-                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED_SUCCESSFULLY' AND pushed_to_payroll = FALSE) AS pending_payroll
+                COUNT(*) FILTER (WHERE processing_status = 'PENDING_REVIEW') AS pending_review,
+                COUNT(*) FILTER (WHERE processing_status IN ('PROCESSED_SUCCESSFULLY','VERIFIED') AND pushed_to_payroll = FALSE) AS pending_payroll
             FROM wafi_claims_sessions
         `);
 
@@ -5705,9 +5743,34 @@ app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
 app.get('/api/wafi-claims/sessions/:id', requireAuth, async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        const { rows: sessionRows } = await pool.query(
-            'SELECT * FROM wafi_claims_sessions WHERE id = $1', [id]
-        );
+        const { rows: sessionRows } = await pool.query(`
+            SELECT wcs.*,
+                COALESCE(ot_counts.single_rows, 0)  AS ot_single_count,
+                COALESCE(ot_counts.double_rows, 0)  AS ot_double_count,
+                COALESCE(ot_counts.triple_rows, 0)  AS ot_triple_count,
+                COALESCE(exp_counts.exp_total, 0)   AS expense_total_amount,
+                COALESCE(med_counts.med_total, 0)   AS medical_total_amount
+            FROM wafi_claims_sessions wcs
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*) FILTER (WHERE LOWER(ot_multiplier) = 'single') AS single_rows,
+                    COUNT(*) FILTER (WHERE LOWER(ot_multiplier) = 'double') AS double_rows,
+                    COUNT(*) FILTER (WHERE LOWER(ot_multiplier) = 'triple') AS triple_rows
+                FROM wafi_claims_items
+                WHERE session_id = wcs.id AND claim_type = 'OT' AND active = TRUE
+            ) ot_counts ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(SUM(raw_amount), 0) AS exp_total
+                FROM wafi_claims_items
+                WHERE session_id = wcs.id AND claim_type = 'EXPENSE' AND active = TRUE
+            ) exp_counts ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(SUM(raw_amount), 0) AS med_total
+                FROM wafi_claims_items
+                WHERE session_id = wcs.id AND claim_type = 'MEDICAL' AND active = TRUE
+            ) med_counts ON TRUE
+            WHERE wcs.id = $1
+        `, [id]);
         if (!sessionRows.length) return res.status(404).json({ error: 'Session not found' });
 
         const { rows: items } = await pool.query(
@@ -6151,6 +6214,144 @@ app.post('/api/wafi-claims/sessions/:id/skip', requireAuth, async (req, res) => 
         );
         if (!rows.length) return res.status(404).json({ error: 'Session not found' });
         res.json({ ok: true, message: `Session ${sessionId} skipped` });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/wafi-claims/sessions/:id/reject
+// Admin permanently rejects a VALIDATION_FAILED session (removes from pending queue)
+app.post('/api/wafi-claims/sessions/:id/reject', requireAuth, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+        const { rows } = await pool.query(
+            `UPDATE wafi_claims_sessions SET processing_status = 'REJECTED'
+             WHERE id = $1 AND processing_status IN ('VALIDATION_FAILED','PENDING_REVIEW','WRONG_FORMAT')
+             RETURNING id`,
+            [sessionId]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Session not found or cannot be rejected in its current state' });
+        res.json({ ok: true, message: `Session ${sessionId} marked REJECTED` });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/wafi-claims/sessions/:id/qc-draft
+// Creates a Gmail draft in the original email thread with human-readable error list
+// Based on the user-provided rejection email template
+app.post('/api/wafi-claims/sessions/:id/qc-draft', requireAuth, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+        const { rows: sessionRows } = await pool.query(
+            'SELECT * FROM wafi_claims_sessions WHERE id = $1', [sessionId]
+        );
+        if (!sessionRows.length) return res.status(404).json({ error: 'Session not found' });
+        const sess = sessionRows[0];
+        if (!sess.processing_status.includes('FAILED') && sess.processing_status !== 'VALIDATION_FAILED') {
+            return res.status(400).json({ error: 'Only VALIDATION_FAILED sessions can get a QC draft' });
+        }
+
+        // Load items to split into accepted vs errored
+        const { rows: items } = await pool.query(
+            'SELECT * FROM wafi_claims_items WHERE session_id = $1 AND active = TRUE ORDER BY tab_name, row_number',
+            [sessionId]
+        );
+        const errors = Array.isArray(sess.validation_errors) ? sess.validation_errors : [];
+
+        // Group errors by sheet for human-readable summary
+        const errorsBySheet = {};
+        for (const e of errors) {
+            const sheet = e.sheet || 'Unknown';
+            if (!errorsBySheet[sheet]) errorsBySheet[sheet] = [];
+            errorsBySheet[sheet].push(e);
+        }
+
+        // Accepted items by type
+        const otItems  = items.filter(i => i.claim_type === 'OT');
+        const expItems = items.filter(i => i.claim_type === 'EXPENSE');
+        const medItems = items.filter(i => i.claim_type === 'MEDICAL');
+
+        // Build employee name from first item
+        const empName = items[0]?.employee_name_db || items[0]?.employee_name_raw || 'Team Member';
+        const firstName = empName.split(' ')[0];
+
+        // Build error bullets grouped by sheet
+        const errorSheetsHtml = Object.entries(errorsBySheet).map(([sheet, errs]) => `
+            <div style="margin-bottom:12px;">
+              <strong style="color:#b91c1c;">${sheet} (${errs.length} issue${errs.length > 1 ? 's' : ''}):</strong>
+              <ul style="margin:4px 0 0 0;padding-left:18px;color:#374151;font-size:0.88rem;line-height:1.8;">
+                ${errs.map(e => `<li>Row ${e.row}, Col ${e.column}: ${e.error}${e.value ? ` — <em>"${String(e.value).slice(0,60)}"</em>` : ''}</li>`).join('')}
+              </ul>
+            </div>
+        `).join('');
+
+        // Accepted claims summary
+        const otAccepted  = otItems.length  > 0 ? `<li>${otItems.length} Overtime claim row(s) were accepted.</li>` : '';
+        const expAccepted = expItems.length > 0 ? `<li>${expItems.length} Expense claim row(s) were accepted (PKR ${expItems.reduce((s,i) => s + parseFloat(i.raw_amount||0), 0).toLocaleString('en-PK')}).</li>` : '';
+        const medAccepted = medItems.filter(i => i.raw_amount > 0).length > 0
+            ? `<li>${medItems.filter(i=>i.raw_amount>0).length} Medical claim row(s) were accepted.</li>` : '';
+        const acceptedHtml = (otAccepted || expAccepted || medAccepted)
+            ? `<ul style="color:#166534;margin:6px 0;padding-left:18px;font-size:0.88rem;line-height:1.8;">${otAccepted}${expAccepted}${medAccepted}</ul>`
+            : '<p style="color:#6b7280;font-size:0.88rem;">No items could be accepted due to the issues above.</p>';
+
+        const claimMonthLabel = sess.claim_month
+            ? new Date(sess.claim_month).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+            : 'the submitted period';
+
+        const html = `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:20px;">
+<div style="max-width:680px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#7c2d12,#c2410c);padding:24px 32px;">
+    <h1 style="color:#fff;margin:0;font-size:1.1rem;">ASIL HCM — Claims Submission: Action Required</h1>
+    <p style="color:#fed7aa;margin:6px 0 0;font-size:0.85rem;">Ref: #${sessionId} · ${claimMonthLabel}</p>
+  </div>
+  <div style="padding:28px 32px;">
+    <p style="color:#374151;margin:0 0 16px;">Dear ${firstName},</p>
+    <p style="color:#374151;margin:0 0 16px;font-size:0.92rem;">We have reviewed your claims submission (${sess.attachment_filename || 'attachment'}). While some claims were accepted, we found the following issues that require your attention:</p>
+    
+    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:20px;">
+      <h3 style="color:#b91c1c;margin:0 0 12px;font-size:0.9rem;text-transform:uppercase;letter-spacing:0.04em;">Issues Found</h3>
+      ${errorSheetsHtml}
+    </div>
+
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:20px;">
+      <h3 style="color:#166534;margin:0 0 8px;font-size:0.9rem;text-transform:uppercase;letter-spacing:0.04em;">Claims Accepted ✓</h3>
+      ${acceptedHtml}
+    </div>
+
+    <p style="color:#374151;font-size:0.9rem;margin:0 0 16px;">Please reply with the corrected sheet attached. The earlier submission will be disregarded for the errored entries. We look forward to receiving the complete and corrected submission.</p>
+    
+    <div style="background:#fef9ec;border-left:4px solid #f59e0b;border-radius:6px;padding:12px 16px;margin-bottom:8px;">
+      <p style="margin:0;color:#92400e;font-size:0.84rem;"><strong>Next Steps:</strong> Correct the highlighted issues and reply to this email with the updated file. Ensure all amounts are numeric and all ASIL employee codes are correct.</p>
+    </div>
+
+    <p style="color:#374151;margin:16px 0 4px;font-size:0.9rem;">Regards,<br><strong>ASIL HR Team</strong></p>
+  </div>
+  <div style="background:#f8fafc;padding:14px 32px;border-top:1px solid #e2e8f0;">
+    <p style="color:#94a3b8;font-size:0.75rem;margin:0;">Allied Services International (Pvt.) Ltd. · ASIL HCM · ${new Date().getFullYear()}</p>
+  </div>
+</div></body></html>`;
+
+        // Create Gmail draft in the original thread
+        const { createGmailClient, createGmailDraft } = require('./wafiClaimsService');
+        const gmail = createGmailClient();
+        let draftId = null;
+        if (gmail && sess.gmail_thread_id) {
+            draftId = await createGmailDraft(gmail, sess.gmail_thread_id, sess.sender_email,
+                sess.subject || 'Re: Claims Submission',
+                html);
+        } else {
+            console.log(`[Wafi Claims] QC Draft: No Gmail client or thread ID for session ${sessionId}`);
+        }
+
+        // Mark qc_email_sent
+        await pool.query('UPDATE wafi_claims_sessions SET qc_email_sent = TRUE WHERE id = $1', [sessionId]);
+
+        res.json({
+            ok: true,
+            draftId,
+            message: draftId ? 'QC rejection draft created in Gmail' : 'Draft would be created (Gmail not configured or no thread ID)',
+            errorsFound: errors.length,
+            acceptedOt: otItems.length,
+            acceptedExpense: expItems.length,
+            acceptedMedical: medItems.filter(i=>i.raw_amount>0).length,
+        });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
