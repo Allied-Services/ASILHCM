@@ -59,6 +59,7 @@ const LABEL_NAMES = [
     'Claims/Not-Relevant',
     'Claims/Verified-HCM',
     'Claims/Pending-Review',
+    'Claims/Validation-Failed',
 ];
 const _labelCache = {};
 
