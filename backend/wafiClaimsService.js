@@ -184,6 +184,7 @@ function detectDateFormat(rawValues) {
 }
 
 // Parse date string with optional format override ('DD-MM-YYYY' or 'MM-DD-YYYY')
+// Also handles natural language dates like "12th May 2026", "14 May 2026", "May 12 2026"
 function parseDate(raw, fmt) {
     if (raw == null || raw === '') return null;
     if (typeof raw === 'number') {
@@ -191,19 +192,45 @@ function parseDate(raw, fmt) {
         return isNaN(d) ? null : d;
     }
     const s = String(raw).trim();
+
+    // Try DD-MM-YYYY / MM-DD-YYYY numeric format
     const m1 = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
     if (m1) {
-        let day, month, year;
+        let day, month;
         const a = parseInt(m1[1]), b = parseInt(m1[2]), c = parseInt(m1[3]);
         const fullYear = c < 100 ? 2000 + c : c;
-        if (fmt === 'MM-DD-YYYY') {
-            month = a - 1; day = b; // a=month, b=day
-        } else {
-            day = a; month = b - 1; // a=day, b=month (default DD-MM-YYYY)
-        }
+        if (fmt === 'MM-DD-YYYY') { month = a - 1; day = b; }
+        else { day = a; month = b - 1; }
         const d = new Date(fullYear, month, day);
         return isNaN(d.getTime()) || month < 0 || month > 11 || day < 1 || day > 31 ? null : d;
     }
+
+    // Handle natural language: "12th May 2026", "14 May 2026", "May 12, 2026"
+    const MONTHS_NL = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+    // Pattern: [day][st|nd|rd|th] [MonthName] [year]  OR  [MonthName] [day][,] [year]
+    const m2 = s.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3,9})\s+(\d{4})$/i);
+    if (m2) {
+        const day = parseInt(m2[1]);
+        const mon = MONTHS_NL[m2[2].toLowerCase().slice(0,3)];
+        const year = parseInt(m2[3]);
+        if (mon !== undefined) {
+            const d = new Date(year, mon, day);
+            return isNaN(d.getTime()) ? null : d;
+        }
+    }
+    // Pattern: [MonthName] [day][,] [year]
+    const m3 = s.match(/^([a-z]{3,9})\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/i);
+    if (m3) {
+        const mon = MONTHS_NL[m3[1].toLowerCase().slice(0,3)];
+        const day = parseInt(m3[2]);
+        const year = parseInt(m3[3]);
+        if (mon !== undefined) {
+            const d = new Date(year, mon, day);
+            return isNaN(d.getTime()) ? null : d;
+        }
+    }
+
+    // Fallback to JS native (handles ISO, RFC etc.)
     const d = new Date(s);
     return isNaN(d) ? null : d;
 }
@@ -1172,26 +1199,69 @@ async function processOneMessage(pool, gmail, msg) {
     const allItems   = [...otItems, ...expItems, ...medItems];
     const validItems = allItems.filter(r => !r._error);
 
+    // ── Multi-month detection ─────────────────────────────────────────────────
+    // If the file contains dates spanning more than one calendar month, reject it.
+    const monthsFound = new Set();
+    for (const item of allItems) {
+        if (item.claim_date) {
+            const d = item.claim_date instanceof Date ? item.claim_date : new Date(item.claim_date);
+            if (!isNaN(d)) monthsFound.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+        }
+    }
+    if (monthsFound.size > 1) {
+        const monthLabels = [...monthsFound].sort().map(m => {
+            const [y, mo] = m.split('-');
+            return new Date(parseInt(y), parseInt(mo)-1, 1).toLocaleString('en-PK', { month:'long', year:'numeric' });
+        });
+        errors.push({
+            sheet: 'All Sheets',
+            row: '-',
+            column: 'Date',
+            error: `Claims span ${monthsFound.size} months (${monthLabels.join(', ')}). ` +
+                   `Please submit one file per claim month and resubmit.`,
+            value: monthLabels.join(', '),
+        });
+        console.log(`[Wafi Claims] Multi-month file detected: ${monthLabels.join(', ')} — rejecting`);
+    }
+
     // ── Empty file check → IRRELEVANT ────────────────────────────────────────
     if (validItems.length === 0 && errors.length === 0) {
-        // Check if same sender+filename was previously logged (it's a repeated blank submission)
-        const { rows: prevBlank } = await pool.query(`
-            SELECT id, received_at FROM wafi_claims_sessions
-            WHERE sender_email = $1 AND attachment_filename = $2 AND id != 0
-            ORDER BY received_at DESC LIMIT 1
-        `, [senderEmail, att.filename]);
+        // Produce a diagnostic breakdown of WHY there are no valid items
+        const otParsed  = otRawRows.length  > 1 ? otRawRows.length  - 1 : 0;
+        const expParsed = expRawRows.length > 1 ? expRawRows.length - 1 : 0;
+        const medParsed = medRawRows.length > 1 ? medRawRows.length - 1 : 0;
+        const totalParsedRows = otParsed + expParsed + medParsed;
 
         let blankReason;
+        if (totalParsedRows === 0) {
+            blankReason = `EMPTY FILE: "${att.filename}" has the correct tab structure ` +
+                `(Overtime Claims, Expense Claims, Medical & IPD Claims) but all sheets are empty. Nothing was logged.`;
+        } else {
+            // Rows exist but were all skipped — explain why
+            const parts = [];
+            if (otParsed > 0)  parts.push(`Overtime: ${otParsed} row(s) found`);
+            if (expParsed > 0) parts.push(`Expense: ${expParsed} row(s) found`);
+            if (medParsed > 0) parts.push(`Medical: ${medParsed} row(s) found`);
+            blankReason = `COULD NOT PROCESS: "${att.filename}" has data rows (${parts.join('; ')}) but ` +
+                `all rows were skipped — likely due to missing employee codes or unrecognised date format. ` +
+                `Please check that: (1) ASIL Employee Code (column B) is filled for every row, ` +
+                `(2) dates are in DD-MM-YYYY format (e.g. 14-05-2026). Expense and Medical rows missing employee ` +
+                `information cannot be processed.`;
+        }
+
+        // Check previous submission
+        const { rows: prevBlank } = await pool.query(`
+            SELECT id, received_at FROM wafi_claims_sessions
+            WHERE sender_email = $1 AND attachment_filename = $2
+            ORDER BY received_at DESC LIMIT 1
+        `, [senderEmail, att.filename]);
         if (prevBlank.length) {
             const prevDate = new Date(prevBlank[0].received_at).toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
             blankReason = `DUPLICATE FILE: "${att.filename}" was already submitted on ${prevDate} (Session #${prevBlank[0].id}). ` +
-                `This copy also contains no claim rows — no action taken.`;
-        } else {
-            blankReason = `EMPTY FILE: "${att.filename}" has the correct tab structure (Overtime Claims, Expense Claims, Medical & IPD Claims) ` +
-                `but contains no data rows. Nothing was logged.`;
+                blankReason;
         }
 
-        console.log(`[Wafi Claims] "${att.filename}" has correct tabs but 0 rows — logging as IRRELEVANT`);
+        console.log(`[Wafi Claims] "${att.filename}" — 0 valid rows, 0 errors → IRRELEVANT`);
         try {
             await pool.query(`
                 INSERT INTO wafi_claims_sessions

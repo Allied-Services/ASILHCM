@@ -41,15 +41,15 @@ const btn = (col = '#6366f1', bg = 'rgba(99,102,241,0.15)') => ({
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
 const STATUS = {
-  VALIDATING:             { label: 'Validating',   color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-  VALIDATION_FAILED:      { label: 'Failed QC',    color: '#ef4444', bg: 'rgba(239,68,68,0.12)'  },
-  PROCESSED_SUCCESSFULLY: { label: 'Passed',       color: '#22c55e', bg: 'rgba(34,197,94,0.12)'  },
-  REVISED:                { label: 'Revised',      color: '#38bdf8', bg: 'rgba(56,189,248,0.12)' },
-  PENDING_REVIEW: { label: 'Pending Review', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)', pulse: true },
-  IRRELEVANT:    { label: 'Not Relevant',   color: '#64748b', bg: 'rgba(100,116,139,0.1)' },
-  VERIFIED:      { label: 'Verified ✓',     color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
-  SKIPPED:       { label: 'Skipped',        color: '#475569', bg: 'rgba(71,85,105,0.1)'  },
-  WRONG_FORMAT:  { label: 'Wrong Format',   color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+  VALIDATING:             { label: 'Validating',      color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',   rowBg: 'rgba(245,158,11,0.03)', rowBorder: '#f59e0b' },
+  VALIDATION_FAILED:      { label: 'Failed QC',       color: '#ef4444', bg: 'rgba(239,68,68,0.15)',    rowBg: 'rgba(239,68,68,0.04)',  rowBorder: '#ef4444' },
+  PROCESSED_SUCCESSFULLY: { label: 'Passed',          color: '#22c55e', bg: 'rgba(34,197,94,0.14)',    rowBg: 'rgba(34,197,94,0.03)',  rowBorder: '#22c55e' },
+  REVISED:                { label: 'Revised',         color: '#38bdf8', bg: 'rgba(56,189,248,0.12)',   rowBg: 'rgba(56,189,248,0.03)', rowBorder: '#38bdf8' },
+  PENDING_REVIEW:         { label: '⏳ Pending',      color: '#f59e0b', bg: 'rgba(245,158,11,0.18)',   rowBg: 'rgba(245,158,11,0.05)', rowBorder: '#f59e0b', pulse: true },
+  IRRELEVANT:             { label: 'Not Relevant',    color: '#64748b', bg: 'rgba(100,116,139,0.1)',   rowBg: 'transparent',           rowBorder: '#334155' },
+  VERIFIED:               { label: '✓ Verified',      color: '#10b981', bg: 'rgba(16,185,129,0.16)',   rowBg: 'rgba(16,185,129,0.04)', rowBorder: '#10b981' },
+  SKIPPED:                { label: 'Skipped',         color: '#475569', bg: 'rgba(71,85,105,0.1)',     rowBg: 'transparent',           rowBorder: '#1e293b' },
+  WRONG_FORMAT:           { label: 'Wrong Format',    color: '#f97316', bg: 'rgba(249,115,22,0.15)',   rowBg: 'rgba(249,115,22,0.04)', rowBorder: '#f97316' },
 };
 
 function StatusBadge({ status }) {
@@ -643,11 +643,13 @@ export default function WafiClaimsDashboard({ user }) {
                   <tr><td colSpan={13} style={{ ...s.td, textAlign: 'center', padding: '2rem' }}><div style={{ display: 'flex', justifyContent: 'center', gap: '8px', color: '#64748b' }}><Spinner /> Loading sessions…</div></td></tr>
                 ) : sessions.length === 0 ? (
                   <tr><td colSpan={13} style={{ ...s.td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>No sessions found.</td></tr>
-                ) : sessions.map(sess => (
+                ) : sessions.map(sess => {
+                  const stCfg = STATUS[sess.processing_status] || {};
+                  return (
                   <React.Fragment key={sess.id}>
-                    <tr style={{ transition: 'background 0.15s' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.025)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <tr style={{ borderLeft: `3px solid ${stCfg.rowBorder || '#334155'}`, background: stCfg.rowBg || 'transparent', transition: 'background 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = (stCfg.rowBg ? stCfg.rowBg.replace('0.0', '0.08') : 'rgba(255,255,255,0.025)')}
+                      onMouseLeave={e => e.currentTarget.style.background = stCfg.rowBg || 'transparent'}>
                       <td style={s.td}>
                         {sess.processing_status === 'PENDING_REVIEW' && (
                           <input type="checkbox" checked={selectedSessions.has(sess.id)}
@@ -954,8 +956,10 @@ export default function WafiClaimsDashboard({ user }) {
                         </td>
                       </tr>
                     )}
-                  </React.Fragment>
-                ))}
+                   </React.Fragment>
+                  );
+                })}
+
               </tbody>
             </table>
           </div>
