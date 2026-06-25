@@ -165,6 +165,90 @@ function isTotalRow(codeVal, nameVal) {
     return /total/.test(combined);
 }
 
+// ── AI: Analyze email body to understand intent, months, and template rows ───
+// Called before Excel processing. Uses GPT-4o-mini to understand:
+//   - What months are being claimed
+//   - Whether expense/medical sheets contain only template/example rows
+//   - Whether the sender explicitly requested multi-month segregation
+// Cost: ~$0.001-0.002 per email — negligible.
+async function aiAnalyzeEmailContext(emailBody, subject, senderEmail, filename) {
+    if (!openai || !emailBody) return null;
+    try {
+        const prompt = `You are analyzing an email sent by a contractor in Pakistan to an HR department (ASIL HR).
+The contractor is submitting an Excel file with overtime, expense, and medical claims.
+
+Subject: "${subject}"
+Sender: ${senderEmail}
+Attachment filename: "${filename}"
+Email body:
+---
+${String(emailBody).slice(0, 2000)}
+---
+
+Analyze this email and respond ONLY with valid JSON (no extra text):
+{
+  "isClaimsEmail": true,
+  "detectedMonths": ["2026-04","2026-05"],
+  "templateSheetsDetected": ["Expense Claims","Medical & IPD Claims"],
+  "shouldSegregate": true,
+  "segregationReason": "Sender explicitly says April and May overtime in one file",
+  "expenseMedicalHasRealData": false,
+  "expenseMedicalNote": "Expense and Medical sheets appear to contain only example/template rows, not actual claims",
+  "confidence": "high",
+  "notes": "Sender is submitting 2 months of OT in one file. Expense and medical have no real claims."
+}
+
+Rules:
+- detectedMonths: list of YYYY-MM strings for any months mentioned in email/subject/filename
+- templateSheetsDetected: sheets where the sender explicitly says there are no real claims, or the filename/body suggests example rows only
+- shouldSegregate: true if multiple months of claims in one file, false if single month
+- expenseMedicalHasRealData: false if sender says no expense/medical claims, or only template rows
+- confidence: high/medium/low`;
+
+        const resp = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 300,
+            temperature: 0,
+            response_format: { type: 'json_object' },
+        });
+
+        const result = JSON.parse(resp.choices[0].message.content);
+        console.log(`[Wafi Claims] AI email analysis: months=${JSON.stringify(result.detectedMonths)} segregate=${result.shouldSegregate} templateSheets=${JSON.stringify(result.templateSheetsDetected)} confidence=${result.confidence}`);
+        return result;
+    } catch (e) {
+        console.warn('[Wafi Claims] AI email analysis failed (non-fatal):', e.message);
+        return null;
+    }
+}
+
+// ── Template row detection — rule-based ──────────────────────────────────────
+// Returns true if a row appears to be an example/template row inserted by the
+// sender to demonstrate the format, not an actual claim.
+function isTemplateRow(row, sheetType) {
+    const code   = String(row[1] || '').trim().toLowerCase();
+    const name   = String(row[2] || '').trim().toLowerCase();
+    const desc   = String(row[sheetType === 'expense' ? 7 : sheetType === 'medical' ? 8 : 6] || '').trim().toLowerCase();
+    const amount = parseFloat(row[sheetType === 'expense' ? 8 : sheetType === 'medical' ? 9 : -1]) || 0;
+
+    // Template code patterns
+    const codeTemplatePatterns = /^(asil\/spl-xxx|xxx|example|sample|emp|employee|code|your code|enter|fill|abc)$/i;
+    if (codeTemplatePatterns.test(code)) return true;
+
+    // Template name patterns
+    const nameTemplatePatterns = /^(employee name|name here|your name|emp name|name|enter name|example|sample|full name|first last|john doe|xyz|abc)$/i;
+    if (nameTemplatePatterns.test(name)) return true;
+
+    // Template description patterns
+    const descTemplatePatterns = /(example|sample|type here|enter here|as above|fill in|description here|your description|e\.g\.|eg\.|for example)/i;
+    if (descTemplatePatterns.test(desc)) return true;
+
+    // Amount = exactly 0 with template-like code
+    if (amount === 0 && code.length < 4) return true;
+
+    return false;
+}
+
 // Detect whether a set of raw date strings uses DD-MM-YYYY or MM-DD-YYYY.
 // Strategy (in priority order):
 //   0. Filename month hint: if filename says "May_2026", expected month=5.
@@ -531,6 +615,12 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
         if (isTotalRow(rawCode, rawName)) break;
         if (!rawCode && !rawName) continue;
 
+        // Skip template/example rows (pre-filled by sender to show format, not actual claims)
+        if (isTemplateRow(row, 'expense')) {
+            warnings.push({ type: 'TEMPLATE_ROW', sheet: 'Expense Claims', row: i + 1, note: `Row ${i + 1} appears to be a template/example row — skipped automatically.` });
+            continue;
+        }
+
         const rowNum = i + 1;
         const dateRaw  = row[0];
         const dept     = String(row[3] || '').trim();
@@ -727,6 +817,12 @@ async function processMedicalSheet(pool, rows, errors, warnings, filename) {
 
         if (isTotalRow(rawCode, rawName)) break;
         if (!rawCode && !rawName) continue;
+
+        // Skip template/example rows (pre-filled by sender to show format, not actual claims)
+        if (isTemplateRow(row, 'medical')) {
+            warnings.push({ type: 'TEMPLATE_ROW', sheet: 'Medical & IPD Claims', row: i + 1, note: `Row ${i + 1} appears to be a template/example row — skipped automatically.` });
+            continue;
+        }
 
         const rowNum      = i + 1;
         const dateRaw     = row[0];
@@ -1249,6 +1345,15 @@ async function processOneMessage(pool, gmail, msg) {
     }
     extractParts(fullMsg.payload);
 
+    // ── AI Email Context Analysis ────────────────────────────────────────────
+    // Understand what the sender is saying: months, template rows, segregation intent.
+    // Run early (before sheet processing) so it can influence multi-month decision.
+    let aiEmailContext = null;
+    if (attachments.length > 0) {
+        const firstFilename = attachments[0]?.filename || '';
+        aiEmailContext = await aiAnalyzeEmailContext(emailSummary, subject, senderEmail, firstFilename);
+    }
+
     // ── No Excel at all → IRRELEVANT ────────────────────────────────────────
     if (!attachments.length) {
         console.log(`[Wafi Claims] No XLSX attachment in ${msgId} — logging as IRRELEVANT`);
@@ -1389,8 +1494,7 @@ async function processOneMessage(pool, gmail, msg) {
     const allItems   = [...otItems, ...expItems, ...medItems];
     const validItems = allItems.filter(r => !r._error);
 
-    // ── Multi-month detection ─────────────────────────────────────────────────
-    // If the file contains dates spanning more than one calendar month, reject it.
+    // ── Multi-month detection → auto-segregate or reject ─────────────────────
     const monthsFound = new Set();
     for (const item of allItems) {
         if (item.claim_date) {
@@ -1398,20 +1502,100 @@ async function processOneMessage(pool, gmail, msg) {
             if (!isNaN(d)) monthsFound.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
         }
     }
-    if (monthsFound.size > 1) {
+
+    const shouldAutoSegregate = monthsFound.size > 1 && (
+        (aiEmailContext?.shouldSegregate === true && aiEmailContext?.confidence !== 'low') ||
+        monthsFound.size === 2 // auto-segregate 2-month submissions even without AI
+    );
+
+    if (monthsFound.size > 1 && shouldAutoSegregate) {
+        // ── AUTO-SEGREGATE: create one session per month ──────────────────────
+        const sortedMonths = [...monthsFound].sort();
+        console.log(`[Wafi Claims] Multi-month auto-segregate: ${sortedMonths.join(', ')} from "${att.filename}"`);
+
+        // Helper: create a session for a specific month's subset of items
+        const createMonthSession = async (targetMonth) => {
+            const [y, mo] = targetMonth.split('-');
+            const monthLabel = new Date(parseInt(y), parseInt(mo)-1, 1).toLocaleString('en-PK', { month:'long', year:'numeric' });
+
+            // Filter items to only this month
+            const monthItems = allItems.filter(item => {
+                if (!item.claim_date) return false;
+                const d = item.claim_date instanceof Date ? item.claim_date : new Date(item.claim_date);
+                return !isNaN(d) && `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === targetMonth;
+            });
+
+            const monthValidItems  = monthItems.filter(r => !r._error);
+            const monthOtItems     = monthItems.filter(r => r.claim_type === 'OT');
+            const monthExpItems    = monthItems.filter(r => r.claim_type === 'EXPENSE');
+            const monthMedItems    = monthItems.filter(r => r.claim_type === 'MEDICAL');
+            const monthErrors      = []; // month-specific errors (no cross-month errors)
+            const monthWarnings    = [
+                ...warnings.filter(w => w.type !== 'DATE_FORMAT' && w.type !== 'DATE_FORMAT_AI'),
+                { type: 'AUTO_SEGREGATED', note: `Auto-segregated from multi-month file "${att.filename}" | ${aiEmailContext?.notes || 'System detected 2 months of claims'}` },
+            ];
+            if (aiEmailContext?.notes) monthWarnings.push({ type: 'AI_CONTEXT', note: `AI email analysis: ${aiEmailContext.notes}` });
+
+            if (monthValidItems.length === 0) {
+                console.log(`[Wafi Claims] Auto-segregate: no valid items for ${monthLabel} — skipping`);
+                return null;
+            }
+
+            const monthStatus = monthErrors.length > 0 ? 'VALIDATION_FAILED' : 'PENDING_REVIEW';
+            const monthFilename = `${att.filename.replace(/\.xlsx$/i,'')} [${monthLabel}].xlsx`;
+
+            try {
+                const monthSessionId = await saveSession(pool, {
+                    receivedAt, senderEmail, subject,
+                    gmailMessageId: `${msgId}_${targetMonth}`, // unique per month
+                    gmailThreadId: threadId,
+                    attachmentFilename: monthFilename,
+                    processingStatus: monthStatus,
+                    validationErrors: monthErrors,
+                    nameWarnings: monthWarnings,
+                    otRows: monthOtItems, expenseRows: monthExpItems, medicalRows: monthMedItems,
+                    isRevision: false, supersedesSessionId: null,
+                    emailSummary, isFirstTimeSender,
+                });
+                console.log(`[Wafi Claims] Auto-segregate: session ${monthSessionId} created for ${monthLabel} (${monthValidItems.length} items)`);
+                return { sessionId: monthSessionId, month: targetMonth, label: monthLabel, status: monthStatus };
+            } catch (e) {
+                console.error(`[Wafi Claims] Auto-segregate: failed to save session for ${monthLabel}:`, e.message);
+                return null;
+            }
+        };
+
+        // Create sessions for all detected months
+        const createdSessions = [];
+        for (const m of sortedMonths) {
+            const s = await createMonthSession(m);
+            if (s) createdSessions.push(s);
+        }
+
+        if (createdSessions.length > 0) {
+            // Apply label to original email
+            for (const s of createdSessions) {
+                if (s.status === 'PENDING_REVIEW') await applyLabel(gmail, msgId, 'Claims/Pending-Review');
+                else await applyLabel(gmail, msgId, 'Claims/Validation-Failed');
+            }
+            await markAsRead(gmail, msgId);
+            console.log(`[Wafi Claims] Auto-segregate complete: ${createdSessions.length} sessions created for "${att.filename}"`);
+            return; // Done — no further single-session processing
+        }
+        // Fall through if no sessions created
+
+    } else if (monthsFound.size > 1) {
+        // Can't segregate (>2 months or AI says low confidence) → reject
         const monthLabels = [...monthsFound].sort().map(m => {
             const [y, mo] = m.split('-');
             return new Date(parseInt(y), parseInt(mo)-1, 1).toLocaleString('en-PK', { month:'long', year:'numeric' });
         });
         errors.push({
-            sheet: 'All Sheets',
-            row: '-',
-            column: 'Date',
-            error: `Claims span ${monthsFound.size} months (${monthLabels.join(', ')}). ` +
-                   `Please submit one file per claim month and resubmit.`,
+            sheet: 'All Sheets', row: '-', column: 'Date',
+            error: `Claims span ${monthsFound.size} months (${monthLabels.join(', ')}). Please submit one file per claim month and resubmit.`,
             value: monthLabels.join(', '),
         });
-        console.log(`[Wafi Claims] Multi-month file detected: ${monthLabels.join(', ')} — rejecting`);
+        console.log(`[Wafi Claims] Multi-month (${monthsFound.size}) — rejecting`);
     }
 
     // ── Empty file check → IRRELEVANT ────────────────────────────────────────
