@@ -1519,6 +1519,56 @@ async function triggerWafiManualPoll(pool) {
 
 function getLastPollAt() { return _lastPollAt; }
 
+
+// ── Reprocess a session (admin-triggered) ─────────────────────────────────────
+// Deletes the session record so the next poll re-ingests the original message.
+// Also marks the Gmail message as unread and removes all Claims/* labels.
+async function reprocessSession(pool, sessionId) {
+    const { rows } = await pool.query(
+        `SELECT id, gmail_message_id, processing_status FROM wafi_claims_sessions WHERE id = $1`,
+        [sessionId]
+    );
+    if (!rows.length) throw new Error(`Session ${sessionId} not found`);
+    const session = rows[0];
+
+    const REPROCESSABLE = ['IRRELEVANT', 'WRONG_FORMAT', 'VALIDATION_FAILED', 'SKIPPED'];
+    if (!REPROCESSABLE.includes(session.processing_status)) {
+        throw new Error(`Session ${sessionId} is in status '${session.processing_status}' and cannot be reprocessed. ` +
+            `Only IRRELEVANT, WRONG_FORMAT, VALIDATION_FAILED and SKIPPED sessions can be reprocessed.`);
+    }
+
+    const msgId = session.gmail_message_id;
+
+    // Delete DB record so duplicate-gate doesn't block it
+    await pool.query('DELETE FROM wafi_claims_sessions WHERE id = $1', [sessionId]);
+    console.log(`[Wafi Claims] Reprocess: deleted session ${sessionId} (${session.processing_status})`);
+
+    // Reset Gmail message: mark unread + remove all Claims/* labels so poll picks it up
+    if (msgId) {
+        try {
+            const gmail = createGmailClient();
+            if (gmail) {
+                await ensureLabels(gmail);
+                const removeLabelIds = ['UNREAD', ...Object.values(_labelCache)].filter(Boolean);
+                // Mark as UNREAD so it appears in the poll query
+                await gmail.users.messages.modify({
+                    userId: 'me',
+                    id: msgId,
+                    requestBody: {
+                        addLabelIds: ['UNREAD'],
+                        removeLabelIds: Object.values(_labelCache).filter(Boolean),
+                    },
+                });
+                console.log(`[Wafi Claims] Reprocess: message ${msgId} marked unread + labels removed`);
+            }
+        } catch (e) {
+            console.warn(`[Wafi Claims] Reprocess Gmail reset warning (non-fatal):`, e.message);
+        }
+    }
+
+    return { success: true, sessionId, previousStatus: session.processing_status, msgId };
+}
+
 module.exports = {
     startWafiClaimsService,
     triggerWafiManualPoll,
@@ -1526,4 +1576,5 @@ module.exports = {
     createGmailClient,
     buildConfirmationHtml,
     createGmailDraft,
+    reprocessSession,
 };

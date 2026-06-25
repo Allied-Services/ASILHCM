@@ -41,15 +41,15 @@ const btn = (col = '#6366f1', bg = 'rgba(99,102,241,0.15)') => ({
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
 const STATUS = {
-  VALIDATING:             { label: 'Validating',      color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',   rowBg: 'rgba(245,158,11,0.03)', rowBorder: '#f59e0b' },
-  VALIDATION_FAILED:      { label: 'Failed QC',       color: '#ef4444', bg: 'rgba(239,68,68,0.15)',    rowBg: 'rgba(239,68,68,0.04)',  rowBorder: '#ef4444' },
-  PROCESSED_SUCCESSFULLY: { label: 'Passed',          color: '#22c55e', bg: 'rgba(34,197,94,0.14)',    rowBg: 'rgba(34,197,94,0.03)',  rowBorder: '#22c55e' },
-  REVISED:                { label: 'Revised',         color: '#38bdf8', bg: 'rgba(56,189,248,0.12)',   rowBg: 'rgba(56,189,248,0.03)', rowBorder: '#38bdf8' },
-  PENDING_REVIEW:         { label: '⏳ Pending',      color: '#f59e0b', bg: 'rgba(245,158,11,0.18)',   rowBg: 'rgba(245,158,11,0.05)', rowBorder: '#f59e0b', pulse: true },
-  IRRELEVANT:             { label: 'Not Relevant',    color: '#64748b', bg: 'rgba(100,116,139,0.1)',   rowBg: 'transparent',           rowBorder: '#334155' },
-  VERIFIED:               { label: '✓ Verified',      color: '#10b981', bg: 'rgba(16,185,129,0.16)',   rowBg: 'rgba(16,185,129,0.04)', rowBorder: '#10b981' },
-  SKIPPED:                { label: 'Skipped',         color: '#475569', bg: 'rgba(71,85,105,0.1)',     rowBg: 'transparent',           rowBorder: '#1e293b' },
-  WRONG_FORMAT:           { label: 'Wrong Format',    color: '#f97316', bg: 'rgba(249,115,22,0.15)',   rowBg: 'rgba(249,115,22,0.04)', rowBorder: '#f97316' },
+  VALIDATING:             { label: 'Validating',    color: '#f59e0b', bg: 'rgba(245,158,11,0.15)',   rowBg: 'rgba(245,158,11,0.06)', rowBorder: '#b45309' },
+  VALIDATION_FAILED:      { label: '✗ Failed QC',   color: '#ef4444', bg: 'rgba(239,68,68,0.18)',    rowBg: 'rgba(239,68,68,0.08)',  rowBorder: '#dc2626' },
+  PROCESSED_SUCCESSFULLY: { label: '✓ Passed',      color: '#22c55e', bg: 'rgba(34,197,94,0.18)',    rowBg: 'rgba(34,197,94,0.06)',  rowBorder: '#16a34a' },
+  REVISED:                { label: 'Revised',       color: '#38bdf8', bg: 'rgba(56,189,248,0.15)',   rowBg: 'rgba(56,189,248,0.05)', rowBorder: '#0284c7' },
+  PENDING_REVIEW:         { label: '⏳ Action Needed', color: '#fbbf24', bg: 'rgba(251,191,36,0.2)', rowBg: 'rgba(251,191,36,0.08)', rowBorder: '#d97706', pulse: true },
+  IRRELEVANT:             { label: 'Not Relevant',  color: '#64748b', bg: 'rgba(100,116,139,0.12)',  rowBg: 'rgba(15,23,42,0.2)',    rowBorder: '#334155' },
+  VERIFIED:               { label: '✓ Verified',    color: '#10b981', bg: 'rgba(16,185,129,0.18)',   rowBg: 'rgba(16,185,129,0.07)', rowBorder: '#059669' },
+  SKIPPED:                { label: 'Skipped',       color: '#475569', bg: 'rgba(71,85,105,0.12)',    rowBg: 'rgba(15,23,42,0.15)',   rowBorder: '#1e293b' },
+  WRONG_FORMAT:           { label: '⚠ Wrong Format', color: '#f97316', bg: 'rgba(249,115,22,0.18)', rowBg: 'rgba(249,115,22,0.07)', rowBorder: '#ea580c' },
 };
 
 function StatusBadge({ status }) {
@@ -376,6 +376,24 @@ export default function WafiClaimsDashboard({ user }) {
     } catch (e) { console.error('Reject failed:', e); }
   };
 
+  // Reprocess — deletes session record + resets Gmail message to unread
+  const [reprocessing, setReprocessing] = useState(null); // sessionId being reprocessed
+  const handleReprocess = async (sessionId) => {
+    if (!window.confirm('This will delete this session record and mark the email as unread so the next poll re-processes it. Continue?')) return;
+    setReprocessing(sessionId);
+    try {
+      const d = await apiFetch(`/api/wafi-claims/sessions/${sessionId}/reprocess`, { method: 'POST' });
+      if (d.ok) {
+        alert(`✓ ${d.message}`);
+        await loadSessions();
+        await loadStats();
+      } else {
+        alert('Error: ' + (d.error || 'Unknown'));
+      }
+    } catch (e) { alert('Error: ' + e.message); }
+    setReprocessing(null);
+  };
+
   // SUPERADMIN only — undo a staged payroll push
   const handleUndoStage = async (sess) => {
     const month = sess.payroll_month
@@ -689,13 +707,25 @@ export default function WafiClaimsDashboard({ user }) {
                               <CheckCircle size={13}/> Verify
                             </button>
                           )}
-                          {sess.processing_status === 'IRRELEVANT' && (
-                            <button
-                              onClick={() => handleSkip(sess.id)}
-                              style={{ ...btn('#64748b','rgba(100,116,139,0.1)'), fontSize:'0.78rem', padding:'5px 10px' }}
-                            >
-                              <X size={13}/> Skip
-                            </button>
+                          {(sess.processing_status === 'IRRELEVANT' || sess.processing_status === 'WRONG_FORMAT' || sess.processing_status === 'SKIPPED') && (
+                            <>
+                              <button
+                                onClick={() => handleReprocess(sess.id)}
+                                disabled={reprocessing === sess.id}
+                                style={{ ...btn('#6366f1','rgba(99,102,241,0.15)'), fontSize:'0.78rem', padding:'5px 10px' }}
+                                title="Re-queue for processing on next poll"
+                              >
+                                {reprocessing === sess.id ? <Spinner size={13}/> : '↺'} Reprocess
+                              </button>
+                              {sess.processing_status === 'IRRELEVANT' && (
+                                <button
+                                  onClick={() => handleSkip(sess.id)}
+                                  style={{ ...btn('#475569','rgba(71,85,105,0.1)'), fontSize:'0.78rem', padding:'5px 10px' }}
+                                >
+                                  <X size={13}/> Skip
+                                </button>
+                              )}
+                            </>
                           )}
                           {sess.processing_status === 'VALIDATION_FAILED' && (
                             <>
@@ -706,6 +736,14 @@ export default function WafiClaimsDashboard({ user }) {
                                 title="Create QC rejection draft email in Gmail"
                               >
                                 {qcDraftLoading === sess.id ? <Spinner size={13}/> : '✉'} QC Draft
+                              </button>
+                              <button
+                                onClick={() => handleReprocess(sess.id)}
+                                disabled={reprocessing === sess.id}
+                                style={{ ...btn('#6366f1','rgba(99,102,241,0.15)'), fontSize:'0.78rem', padding:'5px 10px' }}
+                                title="Re-queue for reprocessing with latest code"
+                              >
+                                {reprocessing === sess.id ? <Spinner size={13}/> : '↺'} Reprocess
                               </button>
                               <button
                                 onClick={() => handleReject(sess.id)}

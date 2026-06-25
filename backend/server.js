@@ -11,7 +11,7 @@ const { Resend } = require('resend');
 
 const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratuity } = require('./taxEngine');
 const { startEmailClaimsService, triggerManualPoll } = require('./emailClaimsService');
-const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmailClient, buildConfirmationHtml, createGmailDraft } = require('./wafiClaimsService');
+const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmailClient, buildConfirmationHtml, createGmailDraft, reprocessSession } = require('./wafiClaimsService');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -5987,6 +5987,19 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
             },
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/wafi-claims/sessions/:id/reprocess
+// Resets an IRRELEVANT/WRONG_FORMAT/VALIDATION_FAILED/SKIPPED session so the next poll re-ingests it.
+app.post('/api/wafi-claims/sessions/:id/reprocess', requireAuth, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+        const result = await reprocessSession(pool, sessionId);
+        res.json({ ok: true, ...result, message: `Session ${sessionId} queued for reprocessing. Run Poll Now to process it.` });
+    } catch (e) {
+        console.error('[Wafi Claims] Reprocess error:', e.message);
+        res.status(400).json({ error: e.message });
+    }
 });
 
 // POST /api/wafi-claims/sessions/:id/undo-stage
