@@ -189,9 +189,9 @@ function detectDateFormat(rawValues) {
     }
 
 
-    // Priority 1: hard numeric evidence
-    if (mmddEvidence > 0 && ddmmEvidence === 0) return 'MM-DD-YYYY';
-    if (ddmmEvidence > 0 && mmddEvidence === 0) return 'DD-MM-YYYY';
+// Priority 1: hard numeric evidence
+    if (mmddEvidence > 0 && ddmmEvidence === 0) return { fmt: 'MM-DD-YYYY', confident: true };
+    if (ddmmEvidence > 0 && mmddEvidence === 0) return { fmt: 'DD-MM-YYYY', confident: true };
 
     // Priority 2: variance heuristic (need >=3 string dates for reliability)
     if (aVals.length >= 3) {
@@ -201,25 +201,26 @@ function detectDateFormat(rawValues) {
         const bRange  = Math.max(...bVals) - Math.min(...bVals);
 
         // a is near-constant, b varies widely → a is the month → MM-DD-YYYY
-        // Example: 05/01, 05/02, ..., 05/29  →  a=5 always, b spans 28 days
         if (aUnique <= 2 && bRange > aRange && bRange >= 5) {
             console.log(`[Wafi Claims] Date fmt heuristic → MM-DD-YYYY (aUnique=${aUnique}, bRange=${bRange})`);
-            return 'MM-DD-YYYY';
+            return { fmt: 'MM-DD-YYYY', confident: true };
         }
         // b is near-constant, a varies widely → b is the month → DD-MM-YYYY
         if (bUnique <= 2 && aRange > bRange && aRange >= 5) {
             console.log(`[Wafi Claims] Date fmt heuristic → DD-MM-YYYY (bUnique=${bUnique}, aRange=${aRange})`);
-            return 'DD-MM-YYYY';
+            return { fmt: 'DD-MM-YYYY', confident: true };
         }
     }
 
-    return 'DD-MM-YYYY'; // default — Pakistan standard
+    // Default — not confident, AI fallback should be used
+    return { fmt: 'DD-MM-YYYY', confident: false };
 }
 
 // ── AI: smart date format + claim month validation via GPT-4o-mini ─────────────
-// Fallback when rule-based detection is still ambiguous (very few rows, all parts ≤12).
+// Fallback when rule-based detection is still ambiguous (very few rows, all parts ≤12, all same date).
+// Also uses the filename as a strong signal (e.g. 'May_2026' in filename → month=May).
 // Cost: ~$0.001 per call — negligible.
-async function aiAnalyzeClaimsDates(sampleRows, currentFormat, currentMonth, sheetName) {
+async function aiAnalyzeClaimsDates(sampleRows, currentFormat, currentMonth, sheetName, filename) {
     if (!openai) return null;
     try {
         const sample = sampleRows
@@ -228,8 +229,23 @@ async function aiAnalyzeClaimsDates(sampleRows, currentFormat, currentMonth, she
             .map((r, i) => `Row ${i + 2}: date="${r[0]}", empCode="${r[1]}", name="${r[2]}"`)
             .join('\n');
 
+        // Extract month hint from filename (e.g. 'Wafi_Claims_Shikarpur_May_2026.xlsx' → May 2026)
+        const monthNames = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+        let filenameMonthHint = '';
+        if (filename) {
+            const fn = filename.toLowerCase();
+            for (let idx = 0; idx < monthNames.length; idx++) {
+                if (fn.includes(monthNames[idx])) {
+                    const yearMatch = fn.match(/(20\d{2})/);
+                    const yr = yearMatch ? yearMatch[1] : new Date().getFullYear();
+                    filenameMonthHint = `\nIMPORTANT: The filename is "${filename}" which strongly suggests this is a ${monthNames[idx].toUpperCase()} ${yr} submission.`;
+                    break;
+                }
+            }
+        }
+
         const prompt = `You are analyzing an Excel "${sheetName}" sheet submitted by a contractor in Pakistan (PKT timezone).
-All rows belong to the SAME calendar month — this is a monthly claims submission.
+All rows belong to the SAME calendar month — this is a monthly claims submission.${filenameMonthHint}
 
 Sample rows:
 ${sample}
@@ -238,6 +254,7 @@ Current system interpretation: format=${currentFormat}, detected claim month=${c
 
 Determine the correct date format and true claim month.
 Key rule: whichever date segment repeats consistently across ALL rows is the MONTH; the varying segment is the DAY.
+If all dates are identical (e.g. 05/01/2026 for every row), use the filename hint to decide.
 
 Respond ONLY with valid JSON, no extra text:
 {"format":"MM-DD-YYYY","claimMonth":"2026-05","confidence":"high","reason":"First segment 05 is constant — it is the month (May)"}`;
@@ -258,6 +275,7 @@ Respond ONLY with valid JSON, no extra text:
         return null;
     }
 }
+
 
 // Parse date string with optional format override ('DD-MM-YYYY' or 'MM-DD-YYYY')
 // Also handles natural language dates like "12th May 2026", "14 May 2026", "May 12 2026"
@@ -432,16 +450,26 @@ function getSheetRows(wb, sheetName) {
 // warnings = name similarity 0.5–0.79 (shown in UI but don't fail session)
 // errors   = hard failures (bad code, missing hours, etc.)
 
-async function processOvertimeSheet(pool, rows, errors, warnings) {
+async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
     const items = [];
     const seenKeys = new Set();
 
-    // Auto-detect date format from all date values in column A (skip header row 0)
-    const dateFmt = detectDateFormat(rows.slice(1).map(r => r[0]));
-    if (dateFmt === 'MM-DD-YYYY') {
-        warnings.push({ type: 'DATE_FORMAT', sheet: 'Overtime Claims', note: 'Date format auto-detected as MM-DD-YYYY (e.g. 05-24-2026). Dates have been interpreted accordingly.' });
-        console.log('[Wafi Claims] OT sheet: MM-DD-YYYY date format auto-detected');
+    // Step 1: rule-based date format detection
+    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]));
+    let dateFmt = fmtGuess;
+
+    // Step 2: if not confident, call AI with filename context (key signal: 'May_2026' in name)
+    if (!confident) {
+        console.log('[Wafi Claims] OT: date format ambiguous — calling AI fallback');
+        const aiResult = await aiAnalyzeClaimsDates(rows.slice(1), dateFmt, null, 'Overtime Claims', filename);
+        if (aiResult && (aiResult.confidence === 'high' || aiResult.confidence === 'medium')) {
+            dateFmt = aiResult.format || dateFmt;
+            warnings.push({ type: 'DATE_FORMAT_AI', sheet: 'Overtime Claims', note: `AI date detection: ${aiResult.reason} → using ${dateFmt}` });
+        }
+    } else if (dateFmt === 'MM-DD-YYYY') {
+        warnings.push({ type: 'DATE_FORMAT', sheet: 'Overtime Claims', note: 'Date format auto-detected as MM-DD-YYYY. Dates have been interpreted accordingly.' });
     }
+    console.log(`[Wafi Claims] OT sheet: using date format ${dateFmt} (confident=${confident})`);
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
@@ -465,7 +493,7 @@ async function processOvertimeSheet(pool, rows, errors, warnings) {
             continue;
         }
 
-        // Duplicate row detection
+        // Smart duplicate detection: OT — same employee same date is always an error
         const claimDate = parseDate(dateRaw, dateFmt);
         const dupKey = `${normalizeCode(rawCode)}|${claimDate ? claimDate.toISOString().slice(0, 10) : rowNum}`;
         if (seenKeys.has(dupKey)) {
@@ -530,15 +558,25 @@ async function processOvertimeSheet(pool, rows, errors, warnings) {
     return items;
 }
 
-async function processExpenseSheet(pool, rows, errors, warnings) {
+async function processExpenseSheet(pool, rows, errors, warnings, filename) {
     const items = [];
     const seenKeys = new Set();
 
-    // Auto-detect date format
-    const dateFmt = detectDateFormat(rows.slice(1).map(r => r[0]));
-    if (dateFmt === 'MM-DD-YYYY') {
+    // Step 1: rule-based date format detection
+    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]));
+    let dateFmt = fmtGuess;
+
+    // Step 2: AI fallback when ambiguous
+    if (!confident) {
+        const aiResult = await aiAnalyzeClaimsDates(rows.slice(1), dateFmt, null, 'Expense Claims', filename);
+        if (aiResult && (aiResult.confidence === 'high' || aiResult.confidence === 'medium')) {
+            dateFmt = aiResult.format || dateFmt;
+            warnings.push({ type: 'DATE_FORMAT_AI', sheet: 'Expense Claims', note: `AI date detection: ${aiResult.reason} → using ${dateFmt}` });
+        }
+    } else if (dateFmt === 'MM-DD-YYYY') {
         warnings.push({ type: 'DATE_FORMAT', sheet: 'Expense Claims', note: 'Date format auto-detected as MM-DD-YYYY. Dates have been interpreted accordingly.' });
     }
+    console.log(`[Wafi Claims] Expense sheet: using date format ${dateFmt} (confident=${confident})`);
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
@@ -610,15 +648,25 @@ async function processExpenseSheet(pool, rows, errors, warnings) {
     return items;
 }
 
-async function processMedicalSheet(pool, rows, errors, warnings) {
+async function processMedicalSheet(pool, rows, errors, warnings, filename) {
     const items = [];
     const seenKeys = new Set();
 
-    // Auto-detect date format
-    const dateFmt = detectDateFormat(rows.slice(1).map(r => r[0]));
-    if (dateFmt === 'MM-DD-YYYY') {
+    // Step 1: rule-based date format detection
+    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]));
+    let dateFmt = fmtGuess;
+
+    // Step 2: AI fallback when ambiguous
+    if (!confident) {
+        const aiResult = await aiAnalyzeClaimsDates(rows.slice(1), dateFmt, null, 'Medical & IPD Claims', filename);
+        if (aiResult && (aiResult.confidence === 'high' || aiResult.confidence === 'medium')) {
+            dateFmt = aiResult.format || dateFmt;
+            warnings.push({ type: 'DATE_FORMAT_AI', sheet: 'Medical & IPD Claims', note: `AI date detection: ${aiResult.reason} → using ${dateFmt}` });
+        }
+    } else if (dateFmt === 'MM-DD-YYYY') {
         warnings.push({ type: 'DATE_FORMAT', sheet: 'Medical & IPD Claims', note: 'Date format auto-detected as MM-DD-YYYY. Dates have been interpreted accordingly.' });
     }
+    console.log(`[Wafi Claims] Medical sheet: using date format ${dateFmt} (confident=${confident})`);
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
@@ -644,14 +692,21 @@ async function processMedicalSheet(pool, rows, errors, warnings) {
         }
 
         const claimDate = parseDate(dateRaw, dateFmt);
-        const dupKey = `${normalizeCode(rawCode)}|${claimType}|${claimDate ? claimDate.toISOString().slice(0,10) : rowNum}`;
-        if (seenKeys.has(dupKey)) {
-            errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'B', error: 'Duplicate row: same employee, claim type, and date appears earlier', value: rawCode });
-        } else {
-            seenKeys.add(dupKey);
-        }
-
         const amount = parseNum(amountRaw);
+        // Smart duplicate: include amount in key — same emp+type+date but DIFFERENT amount = two separate bills (warning, not error)
+        const dupKeyStrict  = `${normalizeCode(rawCode)}|${claimType}|${claimDate ? claimDate.toISOString().slice(0,10) : rowNum}|${Math.round(amount || 0)}`;
+        const dupKeyLoose   = `${normalizeCode(rawCode)}|${claimType}|${claimDate ? claimDate.toISOString().slice(0,10) : rowNum}`;
+        if (seenKeys.has(dupKeyStrict)) {
+            // Exact duplicate (same emp, type, date, amount) — hard error
+            errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'B', error: 'Exact duplicate row: same employee, claim type, date, and amount already appears earlier', value: rawCode });
+        } else if (seenKeys.has(dupKeyLoose)) {
+            // Same emp+type+date but different amount — soft warning (two separate bills on same day)
+            warnings.push({ sheet: 'Medical & IPD Claims', row: rowNum, warning: 'Same employee has another claim of same type on same date but different amount — verify these are separate bills', value: rawCode });
+            seenKeys.add(dupKeyStrict);
+        } else {
+            seenKeys.add(dupKeyLoose);
+            seenKeys.add(dupKeyStrict);
+        }
         if (amount == null) {
             errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'J', error: 'Total Claim Amount must be a valid number', value: amountRaw });
         }
@@ -952,6 +1007,9 @@ function buildConfirmationHtml({ sessionId, filename, otCount, expCount, medCoun
     <p style="color:#bbf7d0;margin:6px 0 0;font-size:0.85rem;">File: ${filename || 'Attachment'} · Ref: #${sessionId}</p>
   </div>
   <div style="padding:24px 32px;">
+    <!-- ✏️ Add any notes or personalised message in the 2 lines below before sending -->
+    <p style="color:#374151;margin:0 0 6px;font-size:0.9rem;min-height:1.4em;">&nbsp;</p>
+    <p style="color:#374151;margin:0 0 20px;font-size:0.9rem;min-height:1.4em;">&nbsp;</p>
     <p style="color:#374151;margin:0 0 16px;font-size:0.9rem;">Your submission has been received, validated, and logged. Please review the details below:</p>
     ${employeeTableHtml}
     <table style="width:100%;border-collapse:collapse;border:1px solid #d1fae5;border-radius:8px;overflow:hidden;">
@@ -1269,11 +1327,12 @@ async function processOneMessage(pool, gmail, msg) {
     const expRawRows = getSheetRows(wb, expSheet);
     const medRawRows = getSheetRows(wb, medSheet);
 
-    const [otItems, expItems, medItems] = await Promise.all([
-        processOvertimeSheet(pool, otRawRows, errors, warnings),
-        processExpenseSheet(pool, expRawRows, errors, warnings),
-        processMedicalSheet(pool, medRawRows, errors, warnings),
-    ]);
+    const filename = att.filename || '';
+
+    // Process sheets serially (not parallel) so AI date calls don't race each other
+    const otItems  = await processOvertimeSheet(pool, otRawRows, errors, warnings, filename);
+    const expItems = await processExpenseSheet(pool, expRawRows, errors, warnings, filename);
+    const medItems = await processMedicalSheet(pool, medRawRows, errors, warnings, filename);
 
     const allItems   = [...otItems, ...expItems, ...medItems];
     const validItems = allItems.filter(r => !r._error);
