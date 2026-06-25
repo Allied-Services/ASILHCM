@@ -759,6 +759,17 @@ export default function WafiClaimsDashboard({ user }) {
                               Stage →
                             </button>
                           )}
+                          {/* Reprocess: Passed but NOT staged — dates may have been wrong */}
+                          {['PROCESSED_SUCCESSFULLY', 'PENDING_REVIEW', 'VERIFIED'].includes(sess.processing_status) && !sess.pushed_to_payroll && (
+                            <button
+                              onClick={() => handleReprocess(sess.id)}
+                              disabled={reprocessing === sess.id}
+                              style={{ ...btn('#6366f1','rgba(99,102,241,0.12)'), fontSize:'0.75rem', padding:'4px 8px' }}
+                              title="Re-queue for reprocessing — use if dates or data were parsed incorrectly"
+                            >
+                              {reprocessing === sess.id ? <Spinner size={12}/> : '↺'} Reprocess
+                            </button>
+                          )}
                           {sess.pushed_to_payroll && <span style={{ fontSize: '0.72rem', color: '#22c55e', padding: '4px 0' }}>✓ Staged</span>}
                           {sess.pushed_to_payroll && user?.role === 'superadmin' && (
                             <button

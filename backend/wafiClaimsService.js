@@ -1601,16 +1601,25 @@ function getLastPollAt() { return _lastPollAt; }
 // Also marks the Gmail message as unread and removes all Claims/* labels.
 async function reprocessSession(pool, sessionId) {
     const { rows } = await pool.query(
-        `SELECT id, gmail_message_id, processing_status FROM wafi_claims_sessions WHERE id = $1`,
+        `SELECT id, gmail_message_id, processing_status, pushed_to_payroll FROM wafi_claims_sessions WHERE id = $1`,
         [sessionId]
     );
     if (!rows.length) throw new Error(`Session ${sessionId} not found`);
     const session = rows[0];
 
     const REPROCESSABLE = ['IRRELEVANT', 'WRONG_FORMAT', 'VALIDATION_FAILED', 'SKIPPED'];
-    if (!REPROCESSABLE.includes(session.processing_status)) {
-        throw new Error(`Session ${sessionId} is in status '${session.processing_status}' and cannot be reprocessed. ` +
-            `Only IRRELEVANT, WRONG_FORMAT, VALIDATION_FAILED and SKIPPED sessions can be reprocessed.`);
+    const isPassedNotStaged = (
+        ['PROCESSED_SUCCESSFULLY', 'PENDING_REVIEW', 'VERIFIED'].includes(session.processing_status) &&
+        !session.pushed_to_payroll
+    );
+    if (!REPROCESSABLE.includes(session.processing_status) && !isPassedNotStaged) {
+        throw new Error(
+            `Session ${sessionId} is in status '${session.processing_status}'` +
+            (session.pushed_to_payroll ? ' and is currently staged to payroll — undo staging first.' : ' and cannot be reprocessed.')
+        );
+    }
+    if (isPassedNotStaged) {
+        console.log(`[Wafi Claims] Reprocess: allowing PASSED/PENDING/VERIFIED session ${sessionId} (not staged) to be reprocessed`);
     }
 
     const msgId = session.gmail_message_id;
