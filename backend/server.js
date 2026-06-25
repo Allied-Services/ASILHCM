@@ -5988,6 +5988,113 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/wafi-claims/sessions/:id/undo-stage
+// SUPERADMIN ONLY — reverses a staged payroll push for a session.
+// Subtracts the exact OT/expense/medical amounts that were added, resets session flags.
+app.post('/api/wafi-claims/sessions/:id/undo-stage', requireAuth, requireRole('superadmin'), async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const sessionId = parseInt(req.params.id);
+        await client.query('BEGIN');
+
+        // Load session
+        const { rows: sessionRows } = await client.query(
+            'SELECT * FROM wafi_claims_sessions WHERE id = $1', [sessionId]
+        );
+        if (!sessionRows.length) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Session not found' });
+        }
+        const session = sessionRows[0];
+        if (!session.pushed_to_payroll || !session.payroll_month) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Session has not been staged — nothing to undo' });
+        }
+
+        const payrollMonth = new Date(session.payroll_month);
+        const month = payrollMonth.getMonth() + 1;
+        const year  = payrollMonth.getFullYear();
+
+        // Load items (same logic as stage-payroll)
+        const { rows: items } = await client.query(
+            `SELECT wci.*, e.salary
+             FROM wafi_claims_items wci
+             LEFT JOIN employees e ON e.id = wci.employee_id
+             WHERE wci.session_id = $1 AND wci.active = TRUE`,
+            [sessionId]
+        );
+
+        const otPushMap = {}, expPushMap = {}, medPushMap = {};
+        for (const item of items) {
+            const empId = item.employee_id;
+            if (!empId) continue;
+            const salary     = parseFloat(item.salary) || 0;
+            const hourlyRate = salary / 26 / 8;
+            if (item.claim_type === 'OT') {
+                const hrs    = parseFloat(item.ot_hours)             || 0;
+                const factor = parseFloat(item.ot_multiplier_factor) || 1;
+                otPushMap[empId] = (otPushMap[empId] || 0) + hrs * factor * hourlyRate;
+            } else if (item.claim_type === 'EXPENSE') {
+                expPushMap[empId] = (expPushMap[empId] || 0) + (parseFloat(item.raw_amount) || 0);
+            } else if (item.claim_type === 'MEDICAL') {
+                medPushMap[empId] = (medPushMap[empId] || 0) + (parseFloat(item.raw_amount) || 0);
+            }
+        }
+
+        // Subtract from payroll_transactions
+        const affectedEmps = new Set([
+            ...Object.keys(otPushMap),
+            ...Object.keys(expPushMap),
+            ...Object.keys(medPushMap),
+        ]);
+
+        let reversed = 0;
+        for (const empId of affectedEmps) {
+            const otAmt  = parseFloat((otPushMap[empId]  || 0).toFixed(2));
+            const expAmt = parseFloat((expPushMap[empId] || 0).toFixed(2));
+            const medAmt = parseFloat((medPushMap[empId] || 0).toFixed(2));
+
+            // Subtract what was added; clamp to 0 to avoid negatives
+            await client.query(`
+                UPDATE payroll_transactions
+                SET ot    = GREATEST(0, ot    - $4),
+                    reimb = GREATEST(0, reimb - $5),
+                    opd   = GREATEST(0, opd   - $6)
+                WHERE employee_id = $1 AND month = $2 AND year = $3
+            `, [empId, month, year, otAmt, expAmt, medAmt]);
+            reversed++;
+        }
+
+        // Reset session flags
+        await client.query(`
+            UPDATE wafi_claims_sessions
+            SET pushed_to_payroll = FALSE,
+                payroll_month     = NULL,
+                processing_status = CASE
+                    WHEN processing_status = 'VERIFIED' THEN 'PENDING_REVIEW'
+                    ELSE 'PROCESSED_SUCCESSFULLY'
+                END
+            WHERE id = $1
+        `, [sessionId]);
+
+        await client.query('COMMIT');
+        console.log(`[Wafi Claims] SUPERADMIN undo-stage: session ${sessionId} reversed for ${year}-${month} (${reversed} employees)`);
+
+        res.json({
+            ok: true,
+            message: `Undo complete — reversed payroll entries for ${reversed} employee(s) in ${year}-${String(month).padStart(2,'0')}`,
+            reversed,
+            sessionId,
+            undoneBy: req.user?.email || req.user?.name || 'superadmin',
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
 // POST /api/wafi-claims/sessions/:id/override-employee
 // Admin manually maps a wrong employee code to the correct employee.
 // If all validation errors are resolved the session flips to PROCESSED_SUCCESSFULLY.
@@ -6521,6 +6628,110 @@ app.post('/api/wafi-claims/trigger-poll', requireAuth, async (req, res) => {
         const result = await triggerWafiManualPoll(pool);
         res.json({ ok: true, result });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/wafi-claims/admin/undo-all-staged
+// SUPERADMIN ONLY — reverses ALL currently staged sessions.
+// One-time utility; safe to call multiple times (idempotent per session).
+app.post('/api/wafi-claims/admin/undo-all-staged', requireAuth, requireRole('superadmin'), async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const { rows: stagedSessions } = await client.query(
+            `SELECT id, sender_email, attachment_filename, payroll_month,
+                    total_ot_rows, total_expense_rows, total_medical_rows
+             FROM wafi_claims_sessions
+             WHERE pushed_to_payroll = TRUE
+             ORDER BY received_at ASC`
+        );
+
+        if (!stagedSessions.length) {
+            await client.query('ROLLBACK');
+            return res.json({ ok: true, message: 'No staged sessions found — nothing to undo', undone: [] });
+        }
+
+        const results = [];
+        for (const sess of stagedSessions) {
+            const payrollMonth = new Date(sess.payroll_month);
+            const month = payrollMonth.getMonth() + 1;
+            const year  = payrollMonth.getFullYear();
+
+            const { rows: items } = await client.query(
+                `SELECT wci.*, e.salary
+                 FROM wafi_claims_items wci
+                 LEFT JOIN employees e ON e.id = wci.employee_id
+                 WHERE wci.session_id = $1 AND wci.active = TRUE`,
+                [sess.id]
+            );
+
+            const otMap = {}, expMap = {}, medMap = {};
+            for (const item of items) {
+                const empId = item.employee_id;
+                if (!empId) continue;
+                const salary = parseFloat(item.salary) || 0;
+                const hourlyRate = salary / 26 / 8;
+                if (item.claim_type === 'OT') {
+                    const hrs    = parseFloat(item.ot_hours)             || 0;
+                    const factor = parseFloat(item.ot_multiplier_factor) || 1;
+                    otMap[empId]  = (otMap[empId]  || 0) + hrs * factor * hourlyRate;
+                } else if (item.claim_type === 'EXPENSE') {
+                    expMap[empId] = (expMap[empId] || 0) + (parseFloat(item.raw_amount) || 0);
+                } else if (item.claim_type === 'MEDICAL') {
+                    medMap[empId] = (medMap[empId] || 0) + (parseFloat(item.raw_amount) || 0);
+                }
+            }
+
+            const allEmps = new Set([...Object.keys(otMap), ...Object.keys(expMap), ...Object.keys(medMap)]);
+            let reversed = 0;
+            for (const empId of allEmps) {
+                const otAmt  = parseFloat((otMap[empId]  || 0).toFixed(2));
+                const expAmt = parseFloat((expMap[empId] || 0).toFixed(2));
+                const medAmt = parseFloat((medMap[empId] || 0).toFixed(2));
+                await client.query(`
+                    UPDATE payroll_transactions
+                    SET ot    = GREATEST(0, ot    - $4),
+                        reimb = GREATEST(0, reimb - $5),
+                        opd   = GREATEST(0, opd   - $6)
+                    WHERE employee_id = $1 AND month = $2 AND year = $3
+                `, [empId, month, year, otAmt, expAmt, medAmt]);
+                reversed++;
+            }
+
+            await client.query(`
+                UPDATE wafi_claims_sessions
+                SET pushed_to_payroll = FALSE,
+                    payroll_month     = NULL,
+                    processing_status = CASE
+                        WHEN processing_status = 'VERIFIED' THEN 'PENDING_REVIEW'
+                        ELSE 'PROCESSED_SUCCESSFULLY'
+                    END
+                WHERE id = $1
+            `, [sess.id]);
+
+            results.push({
+                sessionId: sess.id,
+                sender: sess.sender_email,
+                file: sess.attachment_filename,
+                month: `${year}-${String(month).padStart(2,'0')}`,
+                employeesReversed: reversed,
+            });
+            console.log(`[Wafi Claims] ADMIN undo: session ${sess.id} (${sess.sender_email}) reversed — ${reversed} employees`);
+        }
+
+        await client.query('COMMIT');
+        res.json({
+            ok: true,
+            message: `Undone ${results.length} staged session(s)`,
+            undone: results,
+            undoneBy: req.user?.email || req.user?.name || 'superadmin',
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
 });
 
 // GET /api/wafi-claims/gmail-auth-status

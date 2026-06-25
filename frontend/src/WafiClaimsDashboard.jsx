@@ -126,6 +126,10 @@ export default function WafiClaimsDashboard({ user }) {
   const [qcDraftLoading, setQcDraftLoading] = useState(null); // sessionId being drafted
   const [qcDraftResult, setQcDraftResult]   = useState({});
 
+  // Undo Stage state (SUPERADMIN only)
+  const [undoLoading, setUndoLoading] = useState(null); // sessionId being undone
+  const [undoResult, setUndoResult]   = useState({});
+
   // ── Override employee state ────────────────────────────────────────────────
   const [overrideModal, setOverrideModal] = useState(null); // { sessionId, rawCode }
   const [empSearch, setEmpSearch]         = useState('');
@@ -369,6 +373,21 @@ export default function WafiClaimsDashboard({ user }) {
       await loadSessions();
       await loadStats();
     } catch (e) { console.error('Reject failed:', e); }
+  };
+
+  // SUPERADMIN only — undo a staged payroll push
+  const handleUndoStage = async (sess) => {
+    const month = sess.payroll_month
+      ? new Date(sess.payroll_month).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+      : 'the staged month';
+    if (!window.confirm(`SUPERADMIN: Undo the payroll stage for this session?\n\nThis will reverse the payroll entries for ${month}.\n\nThis action is logged.`)) return;
+    setUndoLoading(sess.id);
+    try {
+      const d = await apiFetch(`/api/wafi-claims/sessions/${sess.id}/undo-stage`, { method: 'POST', body: '{}' });
+      setUndoResult(prev => ({ ...prev, [sess.id]: d }));
+      if (d.ok) { await loadSessions(); await loadStats(); }
+    } catch (e) { setUndoResult(prev => ({ ...prev, [sess.id]: { error: e.message } })); }
+    setUndoLoading(null);
   };
 
   // Batch verify handler
@@ -683,6 +702,31 @@ export default function WafiClaimsDashboard({ user }) {
                             </button>
                           )}
                           {sess.pushed_to_payroll && <span style={{ fontSize: '0.72rem', color: '#22c55e', padding: '4px 0' }}>✓ Staged</span>}
+                          {sess.pushed_to_payroll && user?.role === 'superadmin' && (
+                            <button
+                              onClick={() => handleUndoStage(sess)}
+                              disabled={undoLoading === sess.id}
+                              style={{
+                                background: 'rgba(239,68,68,0.12)',
+                                color: '#ef4444',
+                                border: '1px solid rgba(239,68,68,0.3)',
+                                borderRadius: '6px',
+                                padding: '4px 10px',
+                                fontSize: '0.75rem',
+                                cursor: 'pointer',
+                                marginLeft: '4px',
+                                fontWeight: 600,
+                              }}
+                              title="SUPERADMIN: Undo payroll stage"
+                            >
+                              {undoLoading === sess.id ? '...' : '↩ Undo'}
+                            </button>
+                          )}
+                          {undoResult[sess.id] && (
+                            <div style={{ fontSize: '0.7rem', color: undoResult[sess.id].error ? '#ef4444' : '#f59e0b', marginTop: '2px' }}>
+                              {undoResult[sess.id].error || undoResult[sess.id].message || 'Undone ✓'}
+                            </div>
+                          )}
                         </div>
                         {qcDraftResult[sess.id] && (
                           <div style={{ fontSize:'0.7rem', color: qcDraftResult[sess.id].error ? '#ef4444' : '#10b981', marginTop:'3px' }}>
