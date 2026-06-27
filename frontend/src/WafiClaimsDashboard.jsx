@@ -787,17 +787,17 @@ export default function WafiClaimsDashboard({ user }) {
                               <CheckCircle size={13}/> Verify
                             </button>
                           )}
-                          {(sess.processing_status === 'IRRELEVANT' || sess.processing_status === 'WRONG_FORMAT' || sess.processing_status === 'SKIPPED') && (
+                          {['IRRELEVANT', 'WRONG_FORMAT', 'SKIPPED', 'REJECTED', 'PENDING_REVIEW'].includes(sess.processing_status) && (
                             <>
                               <button
                                 onClick={() => handleReprocess(sess.id)}
                                 disabled={reprocessing === sess.id}
                                 style={{ ...btn('#6366f1','rgba(99,102,241,0.15)'), fontSize:'0.78rem', padding:'5px 10px' }}
-                                title="Re-queue for processing on next poll"
+                                title="Re-queue this email for reprocessing on next poll"
                               >
                                 {reprocessing === sess.id ? <Spinner size={13}/> : '↺'} Reprocess
                               </button>
-                              {sess.processing_status === 'IRRELEVANT' && (
+                              {['IRRELEVANT', 'SKIPPED'].includes(sess.processing_status) && (
                                 <button
                                   onClick={() => handleSkip(sess.id)}
                                   style={{ ...btn('#475569','rgba(71,85,105,0.1)'), fontSize:'0.78rem', padding:'5px 10px' }}
@@ -840,7 +840,7 @@ export default function WafiClaimsDashboard({ user }) {
                             </button>
                           )}
                           {/* Reprocess: Passed but NOT staged — dates may have been wrong */}
-                          {['PROCESSED_SUCCESSFULLY', 'PENDING_REVIEW', 'VERIFIED'].includes(sess.processing_status) && !sess.pushed_to_payroll && (
+                          {['PROCESSED_SUCCESSFULLY', 'VERIFIED'].includes(sess.processing_status) && !sess.pushed_to_payroll && (
                             <button
                               onClick={() => handleReprocess(sess.id)}
                               disabled={reprocessing === sess.id}
