@@ -1829,8 +1829,10 @@ async function pollGmail(pool) {
             console.warn('[Wafi Claims] Reprocess queue processing warning:', e.message);
         }
 
-        // ── Normal poll: unread emails not yet labelled ──
-        const q = `from:@${SENDER_DOMAIN} to:(${CLAIMS_EMAIL} OR ${GMAIL_USER}) has:attachment is:unread -label:Claims`;
+        // Pick up: unread emails from Wafi domain not yet successfully processed.
+        // We exclude ONLY the 'passed' labels — Validation-Failed / Rejected emails
+        // can be picked up again when marked unread (e.g. via the Reprocess button).
+        const q = `from:@${SENDER_DOMAIN} to:(${CLAIMS_EMAIL} OR ${GMAIL_USER}) has:attachment is:unread -label:Claims/Processed-Successfully -label:Claims/Pending-Review`;
         const { data } = await gmail.users.messages.list({ userId: 'me', q, maxResults: 50 });
         const messages = data.messages || [];
         console.log(`[Wafi Claims] Found ${messages.length} new unprocessed messages`);
@@ -1896,7 +1898,7 @@ function getLastPollAt() { return _lastPollAt; }
 // Also marks the Gmail message as unread and removes all Claims/* labels.
 async function reprocessSession(pool, sessionId) {
     const { rows } = await pool.query(
-        `SELECT id, gmail_message_id, processing_status, pushed_to_payroll FROM wafi_claims_sessions WHERE id = $1`,
+        `SELECT id, gmail_message_id, gmail_thread_id, processing_status, pushed_to_payroll FROM wafi_claims_sessions WHERE id = $1`,
         [sessionId]
     );
     if (!rows.length) throw new Error(`Session ${sessionId} not found`);
@@ -1917,17 +1919,34 @@ async function reprocessSession(pool, sessionId) {
         console.log(`[Wafi Claims] Reprocess: allowing PASSED/PENDING/VERIFIED session ${sessionId} (not staged) to be reprocessed`);
     }
 
-    const msgId = session.gmail_message_id;
+    const msgId     = session.gmail_message_id;
+    const threadId  = session.gmail_thread_id;
 
-    // Delete DB record so duplicate-gate doesn't block it
+    // Delete items first (FK constraint), then session record
+    await pool.query('DELETE FROM wafi_claims_items WHERE session_id = $1', [sessionId]);
     await pool.query('DELETE FROM wafi_claims_sessions WHERE id = $1', [sessionId]);
-    console.log(`[Wafi Claims] Reprocess: deleted session ${sessionId} (${session.processing_status})`);
+    console.log(`[Wafi Claims] Reprocess: deleted session ${sessionId} and its items (${session.processing_status})`);
 
-    // Queue the message ID for direct reprocessing on next poll.
-    // NOTE: We cannot rely on Gmail label removal — the poll uses -label:Claims which
-    // matches the parent "Claims" label. Even removing all child labels, the parent persists.
-    // Solution: store message ID in a reprocess queue; poll fetches it directly by ID.
-    if (msgId) {
+    // Queue message(s) for direct reprocessing on next poll (bypasses label filter).
+    // Also look up the thread to find any reply messages (e.g. corrected resubmissions).
+    const gmail = createGmailClient();
+    const msgsToQueue = new Set(msgId ? [msgId] : []);
+
+    if (gmail && threadId) {
+        try {
+            const { data: thread } = await gmail.users.threads.get({ userId: 'me', id: threadId, format: 'minimal' });
+            if (thread.messages) {
+                for (const m of thread.messages) {
+                    msgsToQueue.add(m.id);
+                }
+            }
+            console.log(`[Wafi Claims] Reprocess: found ${msgsToQueue.size} message(s) in thread ${threadId} to re-queue`);
+        } catch (e) {
+            console.warn(`[Wafi Claims] Reprocess: could not fetch thread ${threadId}:`, e.message);
+        }
+    }
+
+    if (msgsToQueue.size > 0) {
         try {
             await pool.query(`
                 CREATE TABLE IF NOT EXISTS wafi_claims_reprocess_queue (
@@ -1935,18 +1954,20 @@ async function reprocessSession(pool, sessionId) {
                     queued_at TIMESTAMPTZ DEFAULT NOW()
                 )
             `);
-            await pool.query(
-                `INSERT INTO wafi_claims_reprocess_queue (gmail_message_id)
-                 VALUES ($1) ON CONFLICT (gmail_message_id) DO UPDATE SET queued_at = NOW()`,
-                [msgId]
-            );
-            console.log(`[Wafi Claims] Reprocess: queued message ${msgId} — will process on next poll`);
+            for (const qMsgId of msgsToQueue) {
+                await pool.query(
+                    `INSERT INTO wafi_claims_reprocess_queue (gmail_message_id)
+                     VALUES ($1) ON CONFLICT (gmail_message_id) DO UPDATE SET queued_at = NOW()`,
+                    [qMsgId]
+                );
+            }
+            console.log(`[Wafi Claims] Reprocess: queued ${msgsToQueue.size} message(s) — will process on next poll`);
         } catch (e) {
             console.warn(`[Wafi Claims] Reprocess queue warning (non-fatal):`, e.message);
         }
     }
 
-    return { success: true, sessionId, previousStatus: session.processing_status, msgId, note: 'Run Poll Now to reprocess.' };
+    return { success: true, sessionId, previousStatus: session.processing_status, msgId, threadId, queuedMessages: msgsToQueue.size, note: 'Run Poll Now to reprocess.' };
 }
 
 module.exports = {
