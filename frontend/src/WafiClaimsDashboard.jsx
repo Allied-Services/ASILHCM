@@ -376,6 +376,40 @@ export default function WafiClaimsDashboard({ user }) {
     } catch (e) { console.error('Reject failed:', e); }
   };
 
+  // Hard delete a session (superadmin only — removes from DB entirely)
+  const handleDeleteSession = async (sessionId, filename) => {
+    if (!window.confirm(`PERMANENTLY DELETE session #${sessionId} (${filename || 'unknown file'})?\n\nThis cannot be undone. Use this only for test or erroneous entries.`)) return;
+    try {
+      const d = await apiFetch(`/api/wafi-claims/sessions/${sessionId}`, { method: 'DELETE' });
+      if (d.ok) {
+        alert(`✓ ${d.message}`);
+        if (sessionDetail?.session?.id === sessionId) setSessionDetail(null);
+        await loadSessions();
+        await loadStats();
+      } else {
+        alert('Error: ' + (d.error || 'Unknown'));
+      }
+    } catch (e) { alert('Error: ' + e.message); }
+  };
+
+  // Purge bad auto-segregated sessions (those with composite msgId like xxx_2026-04)
+  const [purging, setPurging] = useState(false);
+  const handlePurgeBadSessions = async () => {
+    if (!window.confirm('This will permanently delete any sessions created by the broken auto-segregation code (sessions with composite message IDs).\n\nRun this only once to clean up the 4 bad Samad sessions. Continue?')) return;
+    setPurging(true);
+    try {
+      const d = await apiFetch('/api/wafi-claims/admin/purge-bad-sessions', { method: 'POST' });
+      if (d.ok) {
+        alert(`✓ Purged ${d.purged} bad session(s).\n${d.sessions?.map(s => `#${s.id} — ${s.file}`).join('\n') || 'None found'}`);
+        await loadSessions();
+        await loadStats();
+      } else {
+        alert('Error: ' + (d.error || 'Unknown'));
+      }
+    } catch (e) { alert('Error: ' + e.message); }
+    setPurging(false);
+  };
+
   // Reprocess — deletes session record + resets Gmail message to unread
   const [reprocessing, setReprocessing] = useState(null); // sessionId being reprocessed
   const handleReprocess = async (sessionId) => {
@@ -545,6 +579,12 @@ export default function WafiClaimsDashboard({ user }) {
           <button onClick={runPoll} disabled={polling} style={{ ...btn('#38bdf8', 'rgba(56,189,248,0.12)'), opacity: polling ? 0.7 : 1 }}>
             {polling ? <Spinner size={14} /> : <Play size={14} />}
             {polling ? 'Polling…' : 'Run Poll Now'}
+          </button>
+          <button onClick={() => { loadStats(); loadSessions(); }} style={btn('#64748b', 'rgba(100,116,139,0.1)')}>
+            <RefreshCw size={14} /> Refresh
+          </button>
+          <button onClick={handlePurgeBadSessions} disabled={purging} title="Delete sessions created by broken auto-segregation (composite IDs)" style={{ ...btn('#f97316', 'rgba(249,115,22,0.1)'), opacity: purging ? 0.6 : 1, fontSize: '0.78rem' }}>
+            {purging ? <Spinner size={12} /> : <X size={12} />} Purge Bad Sessions
           </button>
         </div>
       </div>
@@ -850,6 +890,16 @@ export default function WafiClaimsDashboard({ user }) {
                             <div style={{ fontSize:'0.7rem', color: resendDraftResult[sess.id].error ? '#ef4444' : '#10b981', marginTop:'2px' }}>
                               {resendDraftResult[sess.id].error || resendDraftResult[sess.id].message || 'Draft created ✓'}
                             </div>
+                          )}
+                          {/* Superadmin: hard delete */}
+                          {user?.role === 'superadmin' && !sess.pushed_to_payroll && (
+                            <button
+                              onClick={() => handleDeleteSession(sess.id, sess.attachment_filename)}
+                              style={{ background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.3)', color:'#ef4444', padding:'4px 8px', borderRadius:'6px', cursor:'pointer', fontSize:'0.72rem', fontWeight:600, marginLeft:'4px' }}
+                              title="SUPERADMIN: Permanently delete this session from the database"
+                            >
+                              🗑 Delete
+                            </button>
                           )}
                         </div>
                         {qcDraftResult[sess.id] && (
