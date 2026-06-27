@@ -632,13 +632,18 @@ const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Frida
 
 function getPKDateType(date) {
     if (!date || isNaN(date)) return null;
-    const dateStr = date.toISOString().slice(0, 10);
+    // Use local date components — NOT toISOString() which converts to UTC and shifts the date for PKT (+5h)
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${d}`;
     const holiday = PK_PUBLIC_HOLIDAYS[dateStr];
     if (holiday) return { type: holiday.isEid ? 'EID' : 'HOLIDAY', name: holiday.name };
     const dow = date.getDay(); // 0=Sunday
     if (dow === 0) return { type: 'SUNDAY', name: 'Sunday' };
     return { type: 'WEEKDAY', name: WEEKDAY_NAMES[dow] };
 }
+
 
 // Parse a time string like "10:00 PM", "22:00", "9:30 AM" → fractional hours (0–23.9)
 function parseTimeHours(raw) {
