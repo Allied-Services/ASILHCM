@@ -4946,14 +4946,14 @@ app.post('/api/migrate/asil-migrate-2026-x9k7', requireAuth, requireRole('supera
 
     // Seed DUMMY1 invoice
     try {
-        const existInv = await pool.query('SELECT id FROM client_invoices WHERE invoice_number=\ LIMIT 1', ['DUMMY1']);
+        const existInv = await pool.query('SELECT id FROM client_invoices WHERE invoice_number=$1 LIMIT 1', ['DUMMY1']);
         if (existInv.rows.length === 0) {
             const firstClient = await pool.query('SELECT name FROM clients ORDER BY id ASC LIMIT 1');
             const clientName = firstClient.rows[0] ? firstClient.rows[0].name : 'ASIL Test Client';
             const payrollQ = await pool.query(
                 'SELECT COALESCE(SUM(total_invoice),0) AS total, MAX(year) AS yr, MAX(month) AS mo' +
                 ' FROM payroll_transactions WHERE locked=TRUE AND employee_id IN' +
-                ' (SELECT id FROM employees WHERE LOWER(client)=LOWER(\))',
+                ' (SELECT id FROM employees WHERE LOWER(client)=LOWER($1))',
                 [clientName]
             );
             const pt = payrollQ.rows[0] || {};
@@ -5877,8 +5877,9 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
         );
         if (!sessionRows.length) return res.status(404).json({ error: 'Session not found' });
         const session = sessionRows[0];
-        if (session.processing_status !== 'PROCESSED_SUCCESSFULLY') {
-            return res.status(400).json({ error: 'Only PROCESSED_SUCCESSFULLY sessions can be staged' });
+        const STAGEABLE = ['PROCESSED_SUCCESSFULLY', 'VERIFIED', 'PENDING_REVIEW'];
+        if (!STAGEABLE.includes(session.processing_status)) {
+            return res.status(400).json({ error: `Session status is '${session.processing_status}' — only ${STAGEABLE.join(', ')} sessions can be staged to payroll.` });
         }
 
         const { rows: items } = await pool.query(
@@ -5948,7 +5949,19 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
         let draftId = null;
         try {
             const gmail = createGmailClient();
-            if (gmail && session.gmail_thread_id) {
+            // If thread ID was not stored (e.g. older sessions), try to recover it via Gmail API
+            let threadId = session.gmail_thread_id;
+            if (!threadId && session.gmail_message_id) {
+                try {
+                    const { data: msg } = await gmail.users.messages.get({ userId: 'me', id: session.gmail_message_id, format: 'minimal' });
+                    threadId = msg.threadId;
+                    if (threadId) {
+                        await pool.query('UPDATE wafi_claims_sessions SET gmail_thread_id = $1 WHERE id = $2', [threadId, sessionId]);
+                        console.log(`[Wafi Claims] Stage: recovered thread_id ${threadId} for session ${sessionId}`);
+                    }
+                } catch (tErr) { console.warn('[Wafi Claims] Stage: thread_id recovery failed:', tErr.message); }
+            }
+            if (gmail && threadId) {
                 const otCount  = items.filter(i => i.claim_type === 'OT').length;
                 const expCount = items.filter(i => i.claim_type === 'EXPENSE').length;
                 const medCount = items.filter(i => i.claim_type === 'MEDICAL').length;
@@ -5961,7 +5974,7 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
                 });
                 draftId = await createGmailDraft(
                     gmail,
-                    session.gmail_thread_id,
+                    threadId,
                     session.sender_email,
                     session.subject || 'Re: Claims Submission',
                     html
