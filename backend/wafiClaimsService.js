@@ -880,6 +880,9 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
             }
         }
 
+        // Determine day type for Labour Law display in UI ledger
+        const pkDayType = claimDate ? getPKDateType(claimDate) : null;
+
         items.push({
             tab_name: 'Overtime Claims',
             row_number: rowNum,
@@ -889,6 +892,8 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
             employee_name_db: emp.name,
             name_similarity: sim,
             claim_date: claimDate,
+            day_type: pkDayType ? pkDayType.type : null,       // WEEKDAY / SUNDAY / HOLIDAY / EID
+            day_type_name: pkDayType ? pkDayType.name : null,  // e.g. 'Monday', 'Eid-ul-Fitr Day 1'
             ot_hours: hours,
             ot_multiplier: multRaw || null,
             ot_multiplier_factor: multiplierFactor,
@@ -1207,8 +1212,9 @@ async function saveSession(pool, sessionData) {
                  employee_name_raw, employee_name_db, name_similarity,
                  claim_date, claim_type, ot_hours, ot_multiplier, ot_multiplier_factor,
                  ot_payout, expense_type, description, raw_amount,
-                 location, department, line_manager, patient_name, active)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,TRUE)
+                 location, department, line_manager, patient_name,
+                 day_type, active)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,TRUE)
         `, [
             sessionId, item.tab_name, item.row_number,
             item.employee_id || null, item.employee_code_raw || null,
@@ -1220,6 +1226,7 @@ async function saveSession(pool, sessionData) {
             item.expense_type || null, item.description || null, item.raw_amount || null,
             item.location || null, item.department || null, item.line_manager || null,
             item.patient_name || null,
+            item.day_type || null,
         ]);
     }
     return sessionId;

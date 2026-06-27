@@ -7707,6 +7707,15 @@ app.listen(PORT, async () => {
         await pool.query('CREATE INDEX IF NOT EXISTS idx_wafi_items_active ON wafi_claims_items(active)').catch(() => {});
         console.log('Migration OK: wafi_claims_sessions + wafi_claims_items');
 
+        // ─── Phase 1b: new columns on wafi_claims_items ─────────────────────────
+        const wafiItemCols = [
+            `ALTER TABLE wafi_claims_items ADD COLUMN IF NOT EXISTS day_type TEXT`,
+        ];
+        for (const sql of wafiItemCols) {
+            try { await pool.query(sql); } catch (e) { /* already exists */ }
+        }
+        console.log('Migration OK: wafi_claims_items day_type column');
+
         // ─── Phase 1: new columns on wafi_claims_sessions ───────────────────────
         const wafiSessionCols = [
             `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS name_warnings        JSONB DEFAULT '[]'`,
