@@ -582,6 +582,189 @@ function getSheetRows(wb, sheetName) {
     return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false });
 }
 
+
+// ── Pakistan Labour Law Compliance Engine ─────────────────────────────────────
+// References: Factories Act 1934 (as amended), Industrial & Commercial Employment Ordinance 1968
+//
+// Rules:
+//   Normal weekday (Mon–Sat): OT rate = 2X.  Max OT hours/day = 4 (total day ≤ 12h)
+//   Sunday: OT rate = 2X (mandatory rest day; work on it earns double)
+//   Gazetted holiday (non-Eid): OT rate = 2X statutory minimum
+//   Eid-ul-Fitr / Eid-ul-Adha (3 days each): OT rate = 3X (traditional + company policy)
+//   Time arithmetic: (Time From) + (Hours Worked) should approximately equal (Time To)
+
+// Pakistan Gazetted Public Holidays for 2025 and 2026
+// Islamic holidays shift yearly based on moon sighting — dates marked (M) are estimated
+const PK_PUBLIC_HOLIDAYS = {
+    // ── 2025 ──
+    '2025-02-05': { name: 'Kashmir Solidarity Day', isEid: false },
+    '2025-03-23': { name: 'Pakistan Day', isEid: false },
+    '2025-03-31': { name: 'Eid-ul-Fitr Day 1 (est.)', isEid: true },
+    '2025-04-01': { name: 'Eid-ul-Fitr Day 2 (est.)', isEid: true },
+    '2025-04-02': { name: 'Eid-ul-Fitr Day 3 (est.)', isEid: true },
+    '2025-05-01': { name: 'International Labour Day', isEid: false },
+    '2025-06-06': { name: 'Eid-ul-Adha Day 1 (est.)', isEid: true },
+    '2025-06-07': { name: 'Eid-ul-Adha Day 2 (est.)', isEid: true },
+    '2025-06-08': { name: 'Eid-ul-Adha Day 3 (est.)', isEid: true },
+    '2025-06-26': { name: 'Ashura (Muharram 10) (est.)', isEid: false },
+    '2025-08-14': { name: 'Independence Day', isEid: false },
+    '2025-09-05': { name: 'Eid Milad-un-Nabi (est.)', isEid: false },
+    '2025-11-09': { name: 'Allama Iqbal Day', isEid: false },
+    '2025-12-25': { name: 'Quaid-e-Azam Day / Christmas', isEid: false },
+    // ── 2026 ──
+    '2026-02-05': { name: 'Kashmir Solidarity Day', isEid: false },
+    '2026-03-20': { name: 'Eid-ul-Fitr Day 1 (est.)', isEid: true },
+    '2026-03-21': { name: 'Eid-ul-Fitr Day 2 (est.)', isEid: true },
+    '2026-03-22': { name: 'Eid-ul-Fitr Day 3 (est.)', isEid: true },
+    '2026-03-23': { name: 'Pakistan Day', isEid: false },
+    '2026-05-01': { name: 'International Labour Day', isEid: false },
+    '2026-05-27': { name: 'Eid-ul-Adha Day 1 (est.)', isEid: true },
+    '2026-05-28': { name: 'Eid-ul-Adha Day 2 (est.)', isEid: true },
+    '2026-05-29': { name: 'Eid-ul-Adha Day 3 (est.)', isEid: true },
+    '2026-06-16': { name: 'Ashura (Muharram 10) (est.)', isEid: false },
+    '2026-08-14': { name: 'Independence Day', isEid: false },
+    '2026-08-25': { name: 'Eid Milad-un-Nabi (est.)', isEid: false },
+    '2026-11-09': { name: 'Allama Iqbal Day', isEid: false },
+    '2026-12-25': { name: 'Quaid-e-Azam Day / Christmas', isEid: false },
+};
+
+const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+function getPKDateType(date) {
+    if (!date || isNaN(date)) return null;
+    const dateStr = date.toISOString().slice(0, 10);
+    const holiday = PK_PUBLIC_HOLIDAYS[dateStr];
+    if (holiday) return { type: holiday.isEid ? 'EID' : 'HOLIDAY', name: holiday.name };
+    const dow = date.getDay(); // 0=Sunday
+    if (dow === 0) return { type: 'SUNDAY', name: 'Sunday' };
+    return { type: 'WEEKDAY', name: WEEKDAY_NAMES[dow] };
+}
+
+// Parse a time string like "10:00 PM", "22:00", "9:30 AM" → fractional hours (0–23.9)
+function parseTimeHours(raw) {
+    if (!raw) return null;
+    const s = String(raw).trim().toUpperCase();
+    const m12 = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+    if (m12) {
+        let h = parseInt(m12[1]), min = parseInt(m12[2]);
+        if (m12[3] === 'PM' && h !== 12) h += 12;
+        if (m12[3] === 'AM' && h === 12) h = 0;
+        return h + min / 60;
+    }
+    const m24 = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (m24) return parseInt(m24[1]) + parseInt(m24[2]) / 60;
+    return null;
+}
+
+/**
+ * checkPakistanLabourLaw
+ *
+ * Validates a single OT claim row against Pakistan Labour Law.
+ * Returns array of { severity: 'ERROR'|'WARNING', message }
+ *
+ * @param {Date}   claimDate   - The date of work
+ * @param {number} otHours     - Hours claimed as OT
+ * @param {string} multRaw     - Multiplier string ("Single", "Double", "Triple")
+ * @param {*}      timeFromRaw - Raw value from column H (Time From)
+ * @param {*}      timeToRaw   - Raw value from column I (Time To)
+ */
+function checkPakistanLabourLaw(claimDate, otHours, multRaw, timeFromRaw, timeToRaw) {
+    const violations = [];
+    const dateType = getPKDateType(claimDate);
+    if (!dateType) return violations;
+
+    const mult = (multRaw || '').toLowerCase().trim();
+    const dateLabel = claimDate.toLocaleDateString('en-PK', { weekday:'long', day:'2-digit', month:'short', year:'numeric' });
+
+    // ── Rule 1: Correct OT rate for day type ──────────────────────────────
+    switch (dateType.type) {
+        case 'WEEKDAY':
+        case 'SUNDAY':
+            // Max 2X on weekdays and Sundays per Factories Act
+            if (mult === 'triple') {
+                violations.push({
+                    severity: 'ERROR',
+                    message: `Labour Law Violation — ${dateType.name} (${dateLabel}) is a regular ${dateType.type === 'SUNDAY' ? 'rest day' : 'workday'}. `
+                           + `3X (Triple) overtime is NOT permissible. Maximum rate is 2X (Double). `
+                           + `3X is only applicable on Eid-ul-Fitr and Eid-ul-Adha (gazetted Eid holidays).`,
+                });
+            }
+            if (mult === 'single' && dateType.type === 'SUNDAY') {
+                violations.push({
+                    severity: 'ERROR',
+                    message: `Labour Law Violation — ${dateLabel} is a Sunday (mandatory rest day). `
+                           + `Work on Sunday must be compensated at minimum 2X (Double) rate per Pakistan Labour Law. `
+                           + `Please correct to Double.`,
+                });
+            }
+            break;
+        case 'HOLIDAY':
+            // Gazetted holiday: statutory minimum 2X
+            if (mult === 'single') {
+                violations.push({
+                    severity: 'ERROR',
+                    message: `Labour Law Violation — ${dateLabel} is a gazetted public holiday (${dateType.name}). `
+                           + `Work on a public holiday must be compensated at minimum 2X (Double) rate. `
+                           + `Please correct to Double or Triple (if company policy permits).`,
+                });
+            }
+            if (mult === 'triple') {
+                violations.push({
+                    severity: 'WARNING',
+                    message: `Note — ${dateLabel} is "${dateType.name}" (gazetted holiday, non-Eid). `
+                           + `3X is customarily reserved for Eid holidays. Statutory minimum is 2X. `
+                           + `Verify this is within company policy before approving.`,
+                });
+            }
+            break;
+        case 'EID':
+            // Eid: 3X is acceptable (traditional + company policy)
+            if (mult === 'single') {
+                violations.push({
+                    severity: 'ERROR',
+                    message: `Labour Law Violation — ${dateLabel} is ${dateType.name} (Eid holiday). `
+                           + `Minimum 2X (Double) required; 3X (Triple) is standard company practice on Eid.`,
+                });
+            }
+            // 2X and 3X both acceptable on Eid — no violation
+            break;
+    }
+
+    // ── Rule 2: Maximum OT hours per day ─────────────────────────────────
+    // Pakistan Labour Law: total work ≤ 12 hours/day → max 4 OT hours (after 8 regular)
+    // Exception: some employers allow up to 6 OT hours on holidays — treated as warning
+    const isHoliday = dateType.type === 'EID' || dateType.type === 'HOLIDAY';
+    const maxOtHours = isHoliday ? 6 : 4;
+    if (otHours > maxOtHours) {
+        violations.push({
+            severity: 'WARNING',
+            message: `High OT hours — ${otHours}h claimed on ${dateLabel} (${dateType.name}). `
+                   + `Pakistan Labour Law generally caps OT at ${maxOtHours}h/day (total ${8 + maxOtHours}h including regular 8h). `
+                   + `Please verify with line manager sign-off.`,
+        });
+    }
+
+    // ── Rule 3: Time arithmetic check (Time From + Hours ≈ Time To) ───────
+    const tFrom = parseTimeHours(timeFromRaw);
+    const tTo   = parseTimeHours(timeToRaw);
+    if (tFrom !== null && tTo !== null) {
+        // Handle overnight shifts (e.g. 10 PM to 1 AM)
+        let diff = tTo - tFrom;
+        if (diff < 0) diff += 24; // overnight crossing
+        const discrepancy = Math.abs(diff - otHours);
+        if (discrepancy > 0.5) { // allow 30-min rounding tolerance
+            violations.push({
+                severity: 'WARNING',
+                message: `Time mismatch — Time From "${String(timeFromRaw).trim()}" to Time To "${String(timeToRaw).trim()}" = ${diff.toFixed(1)}h, `
+                       + `but ${otHours}h OT is claimed. Difference: ${discrepancy.toFixed(1)}h. `
+                       + `Please verify with the timesheet or line manager.`,
+            });
+        }
+    }
+
+    return violations;
+}
+
 // ── Sheet Processors ──────────────────────────────────────────────────────────
 // Returns { items, errors, warnings }
 // warnings = name similarity 0.5–0.79 (shown in UI but don't fail session)
@@ -683,6 +866,18 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
             errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'C', error: `Name mismatch — submitted: "${rawName}", DB: "${emp.name}"`, value: rawCode });
         } else if (sim < 0.8 && rawName) {
             warnings.push({ sheet: 'Overtime Claims', row: rowNum, column: 'C', warning: `Partial name match — submitted: "${rawName}", DB: "${emp.name}" (${(sim*100).toFixed(0)}%)`, value: rawCode });
+        }
+
+        // ── Pakistan Labour Law Compliance Check ─────────────────────────────
+        if (claimDate && hours != null && hours > 0 && multiplierFactor != null) {
+            const llViolations = checkPakistanLabourLaw(claimDate, hours, multRaw, row[7], row[8]);
+            for (const v of llViolations) {
+                if (v.severity === 'ERROR') {
+                    errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'K', error: v.message, value: multRaw });
+                } else {
+                    warnings.push({ type: 'LABOUR_LAW', sheet: 'Overtime Claims', row: rowNum, note: v.message });
+                }
+            }
         }
 
         items.push({
