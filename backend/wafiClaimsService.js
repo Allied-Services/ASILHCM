@@ -284,7 +284,8 @@ function detectDateFormat(rawValues, filename) {
         }
 
         const s = String(raw).trim();
-        const match = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
+        // Accept . / - as date separators (e.g. 01.04.2026 or 01/04/2026 or 01-04-2026)
+        const match = s.match(/^(\d{1,2})[\-\/.](\d{1,2})[\-\/.](\d{2,4})$/);
         if (!match) continue;
         const a = parseInt(match[1]), b = parseInt(match[2]);
         aVals.push(a); bVals.push(b);
@@ -424,7 +425,7 @@ function parseDate(raw, fmt) {
     const s = String(raw).trim();
 
     // Try DD-MM-YYYY / MM-DD-YYYY numeric format
-    const m1 = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
+    const m1 = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})$/);
     if (m1) {
         let day, month;
         const a = parseInt(m1[1]), b = parseInt(m1[2]), c = parseInt(m1[3]);
