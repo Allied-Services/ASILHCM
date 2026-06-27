@@ -502,7 +502,7 @@ function extractEmailBody(payload) {
     return text.replace(/\s+/g, ' ').trim().slice(0, 500);
 }
 
-// Derive most common claim month from a set of items
+// Derive most common claim month from a set of items (includes _error items that have claim_date)
 function deriveClaimMonth(allItems) {
     const monthCounts = {};
     for (const item of allItems) {
@@ -664,8 +664,15 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
 
         const emp = await lookupEmployee(pool, rawCode);
         if (!emp) {
-            errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'B', error: 'Employee code not found. Please ensure all ASIL codes are correct and resubmit.', value: rawCode });
-            items.push({ _error: true, employee_code_raw: rawCode, tab_name: 'Overtime Claims', row_number: rowNum });
+            // Show the normalized code so the user can see what was actually looked up
+            const normalized = normalizeCode(rawCode);
+            errors.push({
+                sheet: 'Overtime Claims', row: rowNum, column: 'B',
+                error: `Employee code "${rawCode}" not found in HR master. Verify the ASIL code is correct, or use the Override button to manually link this row to an existing employee.`,
+                value: rawCode,
+            });
+            // Include claim_date so deriveClaimMonth can still determine the correct month
+            items.push({ _error: true, employee_code_raw: rawCode, tab_name: 'Overtime Claims', row_number: rowNum, claim_date: claimDate });
             continue;
         }
 
@@ -932,7 +939,23 @@ async function saveSession(pool, sessionData) {
     } = sessionData;
 
     const allItems = [...(otRows || []), ...(expenseRows || []), ...(medicalRows || [])];
-    const claimMonth = deriveClaimMonth(allItems);
+    let claimMonth = deriveClaimMonth(allItems);
+
+    // Fallback: derive claim month from filename if date-based derivation fails
+    // (e.g. when all rows have employee code errors and no valid items exist)
+    if (!claimMonth && attachmentFilename) {
+        const monthMap = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+        const fn = String(attachmentFilename).toLowerCase();
+        for (const [abbr, idx] of Object.entries(monthMap)) {
+            if (fn.includes(abbr)) {
+                const yearMatch = fn.match(/(20\d{2})/);
+                const yr = yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear();
+                claimMonth = new Date(yr, idx, 1);
+                console.log(`[Wafi Claims] saveSession: claim_month derived from filename "${attachmentFilename}" → ${claimMonth.toISOString().slice(0, 7)}`);
+                break;
+            }
+        }
+    }
 
     const { rows } = await pool.query(`
         INSERT INTO wafi_claims_sessions
@@ -1307,10 +1330,11 @@ async function processOneMessage(pool, gmail, msg) {
     );
     if (dup.rows.length) {
         const existing = dup.rows[0];
-        const reprocessable = ['WRONG_FORMAT', 'VALIDATION_FAILED'];
+        const reprocessable = ['WRONG_FORMAT', 'VALIDATION_FAILED', 'REJECTED', 'SKIPPED', 'IRRELEVANT', 'PENDING_REVIEW'];
         if (reprocessable.includes(existing.processing_status)) {
+            await pool.query('DELETE FROM wafi_claims_items WHERE session_id = $1', [existing.id]);
             await pool.query('DELETE FROM wafi_claims_sessions WHERE id = $1', [existing.id]);
-            console.log(`[Wafi Claims] Reprocessing previous ${existing.processing_status} message ${msgId}`);
+            console.log(`[Wafi Claims] Cleared old ${existing.processing_status} session ${existing.id} — reprocessing message ${msgId}`);
         } else {
             console.log(`[Wafi Claims] Duplicate message ${msgId} (${existing.processing_status}) — skipping`);
             await markAsRead(gmail, msgId);
@@ -1427,9 +1451,12 @@ async function processOneMessage(pool, gmail, msg) {
         );
         if (dup.rows.length) {
             const existing = dup.rows[0];
-            if (['WRONG_FORMAT', 'VALIDATION_FAILED'].includes(existing.processing_status)) {
+            // Allow reprocessing any non-staged status
+            const DELETABLE = ['WRONG_FORMAT', 'VALIDATION_FAILED', 'REJECTED', 'SKIPPED', 'IRRELEVANT', 'PENDING_REVIEW'];
+            if (DELETABLE.includes(existing.processing_status)) {
+                await pool.query('DELETE FROM wafi_claims_items WHERE session_id = $1', [existing.id]);
                 await pool.query('DELETE FROM wafi_claims_sessions WHERE id = $1', [existing.id]);
-                console.log(`[Wafi Claims] Reprocessing ${existing.processing_status} for "${att.filename}"`);
+                console.log(`[Wafi Claims] Cleared old ${existing.processing_status} session for "${att.filename}" — reprocessing`);
             } else {
                 console.log(`[Wafi Claims] Already processed "${att.filename}" (${existing.processing_status}) — skipping`);
                 continue;
@@ -1875,7 +1902,7 @@ async function reprocessSession(pool, sessionId) {
     if (!rows.length) throw new Error(`Session ${sessionId} not found`);
     const session = rows[0];
 
-    const REPROCESSABLE = ['IRRELEVANT', 'WRONG_FORMAT', 'VALIDATION_FAILED', 'SKIPPED'];
+    const REPROCESSABLE = ['IRRELEVANT', 'WRONG_FORMAT', 'VALIDATION_FAILED', 'SKIPPED', 'REJECTED', 'PENDING_REVIEW'];
     const isPassedNotStaged = (
         ['PROCESSED_SUCCESSFULLY', 'PENDING_REVIEW', 'VERIFIED'].includes(session.processing_status) &&
         !session.pushed_to_payroll
