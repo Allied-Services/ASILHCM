@@ -6455,6 +6455,36 @@ app.post('/api/wafi-claims/sessions/:id/reject', requireAuth, async (req, res) =
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// DELETE /api/wafi-claims/sessions/:id — hard delete a session and its items (superadmin only)
+app.delete('/api/wafi-claims/sessions/:id', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+        await pool.query('DELETE FROM wafi_claims_items WHERE session_id = $1', [sessionId]);
+        const { rows } = await pool.query('DELETE FROM wafi_claims_sessions WHERE id = $1 RETURNING id, attachment_filename', [sessionId]);
+        if (!rows.length) return res.status(404).json({ error: 'Session not found' });
+        res.json({ ok: true, message: `Session ${sessionId} (${rows[0].attachment_filename}) permanently deleted` });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/wafi-claims/admin/purge-bad-sessions
+// One-time cleanup: deletes sessions with composite IDs from the broken auto-segregation code.
+app.post('/api/wafi-claims/admin/purge-bad-sessions', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const { rows: bad } = await pool.query(`
+            SELECT id, gmail_message_id, attachment_filename, processing_status, sender_email
+            FROM wafi_claims_sessions
+            WHERE gmail_message_id ~ '_[0-9]{4}-[0-9]{2}$'
+            ORDER BY id
+        `);
+        if (bad.length === 0) return res.json({ ok: true, purged: 0, message: 'No bad sessions found' });
+        const ids = bad.map(r => r.id);
+        await pool.query('DELETE FROM wafi_claims_items WHERE session_id = ANY($1)', [ids]);
+        await pool.query('DELETE FROM wafi_claims_sessions WHERE id = ANY($1)', [ids]);
+        console.log('[Admin] Purged bad auto-segregated sessions:', ids);
+        res.json({ ok: true, purged: bad.length, sessions: bad.map(r => ({ id: r.id, file: r.attachment_filename, status: r.processing_status })) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // POST /api/wafi-claims/sessions/:id/admin-override
 // Admin-verified override: promotes VALIDATION_FAILED → PROCESSED_SUCCESSFULLY.
 // Use when errors (e.g. duplicate rows) have been reviewed and the data is confirmed correct.

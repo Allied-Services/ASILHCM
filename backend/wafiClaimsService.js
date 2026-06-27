@@ -616,8 +616,8 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
         if (!rawCode && !rawName) continue;
 
         // Skip template/example rows (pre-filled by sender to show format, not actual claims)
-        if (isTemplateRow(row, 'expense')) {
-            warnings.push({ type: 'TEMPLATE_ROW', sheet: 'Expense Claims', row: i + 1, note: `Row ${i + 1} appears to be a template/example row — skipped automatically.` });
+        if (isTemplateRow(row, 'ot')) {
+            warnings.push({ type: 'TEMPLATE_ROW', sheet: 'Overtime Claims', row: i + 1, note: `Row ${i + 1} in Overtime Claims appears to be a template/example row — skipped automatically.` });
             continue;
         }
 
@@ -1007,62 +1007,81 @@ async function saveSession(pool, sessionData) {
 }
 
 // ── Email Templates ───────────────────────────────────────────────────────────
-async function sendQCRejectionEmail(toEmail, errors, filename) {
-    if (!EMAILS_ENABLED) {
-        console.log(`[Wafi Claims] [TEST MODE] Would send QC rejection to ${toEmail} — ${errors.length} errors`);
-        return;
-    }
-    const tableRows = errors.map(e => `
-        <tr style="border-bottom:1px solid #e2e8f0;">
-            <td style="padding:8px 10px;font-size:0.82rem;">${e.sheet || ''}</td>
-            <td style="padding:8px 10px;text-align:center;font-size:0.82rem;">${e.row || ''}</td>
-            <td style="padding:8px 10px;text-align:center;font-size:0.82rem;">${e.column || ''}</td>
-            <td style="padding:8px 10px;font-size:0.82rem;color:#dc2626;">${e.error || ''}</td>
-            <td style="padding:8px 10px;font-size:0.82rem;color:#6b7280;font-style:italic;">${String(e.value || '').slice(0, 60)}</td>
+// ── Rejection Email — Gmail DRAFT (not auto-sent) ────────────────────────────
+// Creates a Gmail draft in the sender's thread so HR can review before sending.
+// HR opens Gmail Drafts, reads it, adds any notes, then clicks Send.
+function buildRejectionHtml({ sessionId, filename, senderEmail, errors, warnings }) {
+    const templateWarnings = (warnings || []).filter(w => w.type === 'TEMPLATE_ROW');
+
+    const errorRows = errors.map(e => `
+        <tr style="border-bottom:1px solid #fecaca;">
+            <td style="padding:9px 12px;font-size:0.82rem;color:#374151;">${e.sheet || '—'}</td>
+            <td style="padding:9px 12px;text-align:center;font-size:0.82rem;color:#374151;">${e.row || '—'}</td>
+            <td style="padding:9px 12px;text-align:center;font-size:0.82rem;color:#374151;">${e.column || '—'}</td>
+            <td style="padding:9px 12px;font-size:0.82rem;color:#dc2626;font-weight:600;">${e.error || ''}</td>
+            <td style="padding:9px 12px;font-size:0.82rem;color:#6b7280;font-family:monospace;">${String(e.value || '').slice(0, 60)}</td>
         </tr>
     `).join('');
 
-    const html = `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:20px;">
+    const templateNote = templateWarnings.length > 0 ? `
+        <div style="margin:16px 0;padding:12px 16px;background:#fef9ec;border-left:4px solid #f59e0b;border-radius:6px;">
+            <p style="margin:0 0 4px;color:#92400e;font-weight:700;font-size:0.85rem;">ℹ Template Rows Detected &amp; Skipped</p>
+            <p style="margin:0;color:#78350f;font-size:0.82rem;">${templateWarnings.map(w => w.note).join('<br>')}</p>
+        </div>` : '';
+
+    return `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:20px;">
 <div style="max-width:760px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
   <div style="background:linear-gradient(135deg,#7f1d1d,#dc2626);padding:28px 32px;">
-    <h1 style="color:#fff;margin:0;font-size:1.2rem;">ASIL HCM — Claims Quality Check FAILED</h1>
-    <p style="color:#fca5a5;margin:6px 0 0;font-size:0.88rem;">File: ${filename || 'Attachment'}</p>
+    <h1 style="color:#fff;margin:0;font-size:1.15rem;">ASIL HCM — Claims Submission Requires Correction</h1>
+    <p style="color:#fca5a5;margin:6px 0 0;font-size:0.85rem;">File: ${filename || 'Attachment'} · Ref: #${sessionId}</p>
   </div>
   <div style="padding:28px 32px;">
-    <h2 style="color:#7f1d1d;margin:0 0 8px;font-size:1rem;">Your submission has been rejected</h2>
-    <p style="color:#64748b;margin:0 0 20px;font-size:0.9rem;">Please correct all issues below and resubmit the complete file.</p>
-    <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;">
+    <!-- ✏️ Add any personalised notes here before sending -->
+    <p style="color:#374151;margin:0 0 6px;font-size:0.92rem;min-height:1.4em;">&nbsp;</p>
+    <p style="color:#374151;margin:0 0 20px;font-size:0.92rem;min-height:1.4em;">&nbsp;</p>
+    <p style="color:#374151;margin:0 0 8px;font-size:0.92rem;">Thank you for submitting your claims. Unfortunately, we were unable to process your file <strong>${filename || 'attachment'}</strong> due to the following errors. Please review, correct, and resubmit the file as a reply to this email.</p>
+    ${templateNote}
+    <div style="overflow-x:auto;margin:20px 0;">
+    <table style="width:100%;border-collapse:collapse;border:1px solid #fecaca;border-radius:8px;overflow:hidden;">
       <thead><tr style="background:#fef2f2;">
-        <th style="padding:10px;text-align:left;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Sheet</th>
-        <th style="padding:10px;text-align:center;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Row</th>
-        <th style="padding:10px;text-align:center;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Col</th>
-        <th style="padding:10px;text-align:left;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Error</th>
-        <th style="padding:10px;text-align:left;color:#7f1d1d;border-bottom:2px solid #fca5a5;">Value Found</th>
+        <th style="padding:10px 12px;text-align:left;color:#7f1d1d;font-size:0.82rem;border-bottom:2px solid #fca5a5;">Sheet</th>
+        <th style="padding:10px 12px;text-align:center;color:#7f1d1d;font-size:0.82rem;border-bottom:2px solid #fca5a5;">Row</th>
+        <th style="padding:10px 12px;text-align:center;color:#7f1d1d;font-size:0.82rem;border-bottom:2px solid #fca5a5;">Col</th>
+        <th style="padding:10px 12px;text-align:left;color:#7f1d1d;font-size:0.82rem;border-bottom:2px solid #fca5a5;">Error</th>
+        <th style="padding:10px 12px;text-align:left;color:#7f1d1d;font-size:0.82rem;border-bottom:2px solid #fca5a5;">Value Found</th>
       </tr></thead>
-      <tbody>${tableRows}</tbody>
+      <tbody>${errorRows}</tbody>
     </table></div>
-    <div style="margin:24px 0 0;padding:16px;background:#fef9ec;border-left:4px solid #f59e0b;border-radius:6px;">
-      <p style="margin:0 0 6px;color:#92400e;font-weight:700;font-size:0.88rem;">Submission SOP:</p>
-      <ul style="margin:0;padding-left:18px;color:#78350f;font-size:0.83rem;line-height:1.8;">
-        <li>All ASIL employee codes must match HR records (format: ASIL/XXX/NNN/YY).</li>
-        <li>Hours Worked must be a positive number; Multiplier required for all OT rows.</li>
-        <li>All amounts must be numeric — remove PKR symbols, commas, text.</li>
-        <li>Do not modify sheet names or column structure of the template.</li>
-        <li>Once corrected, resubmit as an attachment in reply to this email.</li>
+    <div style="padding:16px;background:#fef9ec;border-left:4px solid #f59e0b;border-radius:6px;margin-top:8px;">
+      <p style="margin:0 0 6px;color:#92400e;font-weight:700;font-size:0.85rem;">Correction Checklist:</p>
+      <ul style="margin:0;padding-left:18px;color:#78350f;font-size:0.83rem;line-height:1.9;">
+        <li>ASIL Employee Codes must match HR records exactly (e.g. <code>ASIL/SPL-117/21</code>).</li>
+        <li>Hours Worked (column J) must be a positive number. OT Multiplier (column K) must be Single, Double, or Triple.</li>
+        <li>All amounts must be numeric — remove PKR symbols, commas, or any text.</li>
+        <li>Dates must be in the correct format (DD-MM-YYYY, e.g. 14-05-2026).</li>
+        <li>Do not add, remove, or rename sheet tabs or column headers.</li>
+        <li>Reply to this email with the corrected file attached — no need to send a new email.</li>
       </ul>
     </div>
+    <p style="color:#374151;margin:20px 0 4px;font-size:0.88rem;">Regards,<br><strong>ASIL HR Team</strong></p>
   </div>
-  <div style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;">
-    <p style="color:#94a3b8;font-size:0.78rem;margin:0;">Allied Services International (Pvt.) Ltd. · ASIL HCM · ${new Date().getFullYear()}</p>
+  <div style="background:#f8fafc;padding:14px 32px;border-top:1px solid #e2e8f0;">
+    <p style="color:#94a3b8;font-size:0.75rem;margin:0;">Allied Services International (Pvt.) Ltd. · ASIL HCM · ${new Date().getFullYear()}</p>
   </div>
 </div></body></html>`;
+}
 
+async function createRejectionDraft(gmail, threadId, senderEmail, subject, sessionId, filename, errors, warnings) {
     try {
-        await resend.emails.send({ from: EMAIL_FROM, to: toEmail, subject: 'REJECTED: Claims Submission Fails Quality Check — Please Resubmit', html });
-        console.log(`[Wafi Claims] QC rejection email sent to ${toEmail}`);
+        const html = buildRejectionHtml({ sessionId, filename, senderEmail, errors, warnings });
+        const draftId = await createGmailDraft(gmail, threadId, senderEmail, subject, html);
+        if (draftId) {
+            console.log(`[Wafi Claims] Rejection draft created for session ${sessionId} (thread ${threadId})`);
+        }
+        return draftId;
     } catch (e) {
-        console.error('[Wafi Claims] Failed to send QC rejection email:', e.message);
+        console.warn('[Wafi Claims] Rejection draft warning:', e.message);
+        return null;
     }
 }
 
@@ -1372,9 +1391,10 @@ async function processOneMessage(pool, gmail, msg) {
         return;
     }
 
-    // ── Try each attachment, pick first with valid claims tabs ───────────────
-    let validAttachment = null;
-    let parseResult = null;
+    // ── Collect ALL valid Excel attachments (process each separately) ───────────
+    // Each valid Excel gets its own session. Email forwarding attachments (.eml/.msg)
+    // and wrong-format Excels are noted but do not block valid files in the same email.
+    const validAttachments = [];
     let lastMismatch = null;
 
     for (const att of attachments) {
@@ -1390,53 +1410,39 @@ async function processOneMessage(pool, gmail, msg) {
         }
 
         const result = parseWafiExcel(buf, att.filename);
-        if (!result) continue; // not readable Excel, try next
+        if (!result) continue;           // not a readable Excel (e.g. embedded email)
         if (result.mismatch) {
             lastMismatch = { att, result };
-            continue; // valid Excel but wrong tabs, try next
+            continue;                    // valid Excel but wrong tabs — note and try next
         }
 
-        // ── Pre-parse duplicate check: same sender + same filename already processed? ──
-        const { rows: prevByFilename } = await pool.query(`
-            SELECT id, received_at, processing_status
-            FROM wafi_claims_sessions
-            WHERE sender_email = $1 AND attachment_filename = $2
-              AND processing_status IN ('PROCESSED_SUCCESSFULLY','PENDING_REVIEW','VERIFIED','VALIDATION_FAILED')
-            ORDER BY received_at DESC LIMIT 1
-        `, [senderEmail, att.filename]);
+        // Per-attachment session ID: single attachment → use msgId (backward-compatible)
+        //                            multiple attachments → use msgId::filename (unique per file)
+        const sessionMsgId = attachments.length > 1 ? `${msgId}::${att.filename}` : msgId;
 
-        if (prevByFilename.length) {
-            const prev = prevByFilename[0];
-            const prevDate = new Date(prev.received_at).toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
-            const dupReason = `DUPLICATE FILE: The exact same file "${att.filename}" was already submitted by this sender and ` +
-                `logged on ${prevDate} (Session #${prev.id}, status: ${prev.processing_status}). No new data has been recorded.`;
-            console.log(`[Wafi Claims] Duplicate filename detected for ${senderEmail}: "${att.filename}" → session #${prev.id}`);
-            try {
-                await pool.query(`
-                    INSERT INTO wafi_claims_sessions
-                        (received_at, sender_email, subject, gmail_message_id, gmail_thread_id,
-                         attachment_filename, processing_status, email_summary, is_first_time_sender,
-                         total_ot_rows, total_expense_rows, total_medical_rows,
-                         validation_errors, name_warnings)
-                    VALUES ($1,$2,$3,$4,$5,$6,'IRRELEVANT',$7,$8,0,0,0,'[]'::jsonb,'[]'::jsonb)
-                    ON CONFLICT (gmail_message_id) DO NOTHING
-                `, [receivedAt, senderEmail, subject, msgId, threadId, att.filename, dupReason, isFirstTimeSender]);
-            } catch (e) { console.warn('[Wafi Claims] Failed to save DUPLICATE session:', e.message); }
-            await applyLabel(gmail, msgId, 'Claims/Not-Relevant');
-            await markAsRead(gmail, msgId);
-            return;
+        // Dedup check for this specific attachment
+        const dup = await pool.query(
+            'SELECT id, processing_status FROM wafi_claims_sessions WHERE gmail_message_id = $1 LIMIT 1',
+            [sessionMsgId]
+        );
+        if (dup.rows.length) {
+            const existing = dup.rows[0];
+            if (['WRONG_FORMAT', 'VALIDATION_FAILED'].includes(existing.processing_status)) {
+                await pool.query('DELETE FROM wafi_claims_sessions WHERE id = $1', [existing.id]);
+                console.log(`[Wafi Claims] Reprocessing ${existing.processing_status} for "${att.filename}"`);
+            } else {
+                console.log(`[Wafi Claims] Already processed "${att.filename}" (${existing.processing_status}) — skipping`);
+                continue;
+            }
         }
 
-        // Found valid claims file
-        validAttachment = { att, buf };
-        parseResult = result;
-        break;
+        validAttachments.push({ att, buf, sessionMsgId });
     }
 
-    // ── None of the attachments had claims tabs ──────────────────────────────
-    if (!parseResult) {
+    // ── No valid claims attachments found ───────────────────────────────────────
+    if (validAttachments.length === 0) {
         if (lastMismatch) {
-            // At least one Excel found but wrong format
+            // Excel found but wrong tab names
             console.log(`[Wafi Claims] "${lastMismatch.att.filename}" logged as WRONG_FORMAT`);
             const mismatchError = [{
                 sheet: 'Template Structure', row: '-', column: '-',
@@ -1455,8 +1461,7 @@ async function processOneMessage(pool, gmail, msg) {
                     lastMismatch.att.filename, JSON.stringify(mismatchError), emailSummary, isFirstTimeSender]);
             } catch (e) { console.warn('[Wafi Claims] Failed to save WRONG_FORMAT session:', e.message); }
         } else {
-            // Only non-Excel attachments (PDFs, images, etc.) → IRRELEVANT
-            console.log(`[Wafi Claims] No parseable Excel in ${msgId} — logging as IRRELEVANT`);
+            console.log(`[Wafi Claims] No valid claims Excel in ${msgId} — logging as IRRELEVANT`);
             try {
                 await pool.query(`
                     INSERT INTO wafi_claims_sessions
@@ -1474,12 +1479,18 @@ async function processOneMessage(pool, gmail, msg) {
         return;
     }
 
-    // ── Valid claims file found → parse all 3 sheets ─────────────────────────
-    const { wb, otSheet, expSheet, medSheet } = parseResult;
-    const att = validAttachment.att;
+    console.log(`[Wafi Claims] Processing ${validAttachments.length} valid Excel file(s) from message ${msgId}`);
+
+    // ── Process each valid attachment as its own session ────────────────────────
+    for (const { att, buf, sessionMsgId } of validAttachments) {
+        // Parse result was already validated above
+        const parseResult = parseWafiExcel(buf, att.filename);
+        if (!parseResult || parseResult.mismatch) continue; // safety
+
     const errors = [];
     const warnings = [];
 
+    const { wb, otSheet, expSheet, medSheet } = parseResult;
     const otRawRows  = getSheetRows(wb, otSheet);
     const expRawRows = getSheetRows(wb, expSheet);
     const medRawRows = getSheetRows(wb, medSheet);
@@ -1503,99 +1514,22 @@ async function processOneMessage(pool, gmail, msg) {
         }
     }
 
-    const shouldAutoSegregate = monthsFound.size > 1 && (
-        (aiEmailContext?.shouldSegregate === true && aiEmailContext?.confidence !== 'low') ||
-        monthsFound.size === 2 // auto-segregate 2-month submissions even without AI
-    );
-
-    if (monthsFound.size > 1 && shouldAutoSegregate) {
-        // ── AUTO-SEGREGATE: create one session per month ──────────────────────
-        const sortedMonths = [...monthsFound].sort();
-        console.log(`[Wafi Claims] Multi-month auto-segregate: ${sortedMonths.join(', ')} from "${att.filename}"`);
-
-        // Helper: create a session for a specific month's subset of items
-        const createMonthSession = async (targetMonth) => {
-            const [y, mo] = targetMonth.split('-');
-            const monthLabel = new Date(parseInt(y), parseInt(mo)-1, 1).toLocaleString('en-PK', { month:'long', year:'numeric' });
-
-            // Filter items to only this month
-            const monthItems = allItems.filter(item => {
-                if (!item.claim_date) return false;
-                const d = item.claim_date instanceof Date ? item.claim_date : new Date(item.claim_date);
-                return !isNaN(d) && `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === targetMonth;
-            });
-
-            const monthValidItems  = monthItems.filter(r => !r._error);
-            const monthOtItems     = monthItems.filter(r => r.claim_type === 'OT');
-            const monthExpItems    = monthItems.filter(r => r.claim_type === 'EXPENSE');
-            const monthMedItems    = monthItems.filter(r => r.claim_type === 'MEDICAL');
-            const monthErrors      = []; // month-specific errors (no cross-month errors)
-            const monthWarnings    = [
-                ...warnings.filter(w => w.type !== 'DATE_FORMAT' && w.type !== 'DATE_FORMAT_AI'),
-                { type: 'AUTO_SEGREGATED', note: `Auto-segregated from multi-month file "${att.filename}" | ${aiEmailContext?.notes || 'System detected 2 months of claims'}` },
-            ];
-            if (aiEmailContext?.notes) monthWarnings.push({ type: 'AI_CONTEXT', note: `AI email analysis: ${aiEmailContext.notes}` });
-
-            if (monthValidItems.length === 0) {
-                console.log(`[Wafi Claims] Auto-segregate: no valid items for ${monthLabel} — skipping`);
-                return null;
-            }
-
-            const monthStatus = monthErrors.length > 0 ? 'VALIDATION_FAILED' : 'PENDING_REVIEW';
-            const monthFilename = `${att.filename.replace(/\.xlsx$/i,'')} [${monthLabel}].xlsx`;
-
-            try {
-                const monthSessionId = await saveSession(pool, {
-                    receivedAt, senderEmail, subject,
-                    gmailMessageId: `${msgId}_${targetMonth}`, // unique per month
-                    gmailThreadId: threadId,
-                    attachmentFilename: monthFilename,
-                    processingStatus: monthStatus,
-                    validationErrors: monthErrors,
-                    nameWarnings: monthWarnings,
-                    otRows: monthOtItems, expenseRows: monthExpItems, medicalRows: monthMedItems,
-                    isRevision: false, supersedesSessionId: null,
-                    emailSummary, isFirstTimeSender,
-                });
-                console.log(`[Wafi Claims] Auto-segregate: session ${monthSessionId} created for ${monthLabel} (${monthValidItems.length} items)`);
-                return { sessionId: monthSessionId, month: targetMonth, label: monthLabel, status: monthStatus };
-            } catch (e) {
-                console.error(`[Wafi Claims] Auto-segregate: failed to save session for ${monthLabel}:`, e.message);
-                return null;
-            }
-        };
-
-        // Create sessions for all detected months
-        const createdSessions = [];
-        for (const m of sortedMonths) {
-            const s = await createMonthSession(m);
-            if (s) createdSessions.push(s);
-        }
-
-        if (createdSessions.length > 0) {
-            // Apply label to original email
-            for (const s of createdSessions) {
-                if (s.status === 'PENDING_REVIEW') await applyLabel(gmail, msgId, 'Claims/Pending-Review');
-                else await applyLabel(gmail, msgId, 'Claims/Validation-Failed');
-            }
-            await markAsRead(gmail, msgId);
-            console.log(`[Wafi Claims] Auto-segregate complete: ${createdSessions.length} sessions created for "${att.filename}"`);
-            return; // Done — no further single-session processing
-        }
-        // Fall through if no sessions created
-
-    } else if (monthsFound.size > 1) {
-        // Can't segregate (>2 months or AI says low confidence) → reject
+    // ── Multi-month check: one file must cover exactly one calendar month ────────────────
+    // The correct approach for multi-month is to send separate files per month.
+    // When multiple Excels are attached to one email, this is handled by processing
+    // each attachment independently (see the loop in processOneMessage).
+    if (monthsFound.size > 1) {
         const monthLabels = [...monthsFound].sort().map(m => {
             const [y, mo] = m.split('-');
             return new Date(parseInt(y), parseInt(mo)-1, 1).toLocaleString('en-PK', { month:'long', year:'numeric' });
         });
         errors.push({
             sheet: 'All Sheets', row: '-', column: 'Date',
-            error: `Claims span ${monthsFound.size} months (${monthLabels.join(', ')}). Please submit one file per claim month and resubmit.`,
+            error: `This file contains claims for ${monthsFound.size} different months: ${monthLabels.join(' and ')}. ` +
+                   `Please submit a separate Excel file for each month and attach both to your reply.`,
             value: monthLabels.join(', '),
         });
-        console.log(`[Wafi Claims] Multi-month (${monthsFound.size}) — rejecting`);
+        console.log(`[Wafi Claims] Multi-month file "${att.filename}": ${monthLabels.join(', ')} — adding error`);
     }
 
     // ── Empty file check → IRRELEVANT ────────────────────────────────────────
@@ -1724,7 +1658,8 @@ async function processOneMessage(pool, gmail, msg) {
     try {
         sessionId = await saveSession(pool, {
             receivedAt, senderEmail, subject,
-            gmailMessageId: msgId, gmailThreadId: threadId,
+            gmailMessageId: sessionMsgId,  // per-attachment unique ID
+            gmailThreadId: threadId,
             attachmentFilename: att.filename,
             processingStatus: status,
             validationErrors: errors,
@@ -1733,7 +1668,7 @@ async function processOneMessage(pool, gmail, msg) {
             isRevision, supersedesSessionId,
             emailSummary, isFirstTimeSender,
         });
-        console.log(`[Wafi Claims] Session ${sessionId} saved (${status})`);
+        console.log(`[Wafi Claims] Session ${sessionId} saved for "${att.filename}" (${status})`);
     } catch (e) {
         console.error('[Wafi Claims] Failed to save session:', e.message);
         await markAsRead(gmail, msgId);
@@ -1805,16 +1740,22 @@ async function processOneMessage(pool, gmail, msg) {
     // This is handled by the revision detection marking old session REVISED above.
     // For PENDING_REVIEW (no errors, first time), no draft needed here — the Verify action creates it.
 
-    // Send QC rejection email if errors
-    if (hasErrors) {
+    // ── Rejection draft (VALIDATION_FAILED) ────────────────────────────────────────
+    // Creates a Gmail draft in the sender's thread. HR reviews and sends manually.
+    if (hasErrors && gmail && threadId) {
         try {
-            await sendQCRejectionEmail(senderEmail, errors, att.filename);
-            await pool.query('UPDATE wafi_claims_sessions SET qc_email_sent=TRUE WHERE id=$1', [sessionId]);
-        } catch (e) { console.warn('[Wafi Claims] QC email warning:', e.message); }
+            const draftId = await createRejectionDraft(gmail, threadId, senderEmail, subject, sessionId, att.filename, errors, warnings);
+            if (draftId) {
+                await pool.query('UPDATE wafi_claims_sessions SET qc_email_sent=TRUE WHERE id=$1', [sessionId]);
+            }
+        } catch (e) { console.warn('[Wafi Claims] Rejection draft warning:', e.message); }
     }
 
+    } // end per-attachment loop
+
+    // Mark email as read once all attachments have been processed
     await markAsRead(gmail, msgId);
-}
+} // end processOneMessage
 
 // ── Main Poll ─────────────────────────────────────────────────────────────────
 async function pollGmail(pool) {
