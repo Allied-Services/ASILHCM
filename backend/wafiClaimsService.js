@@ -797,23 +797,31 @@ function checkPakistanLabourLaw(claimDate, otHours, multRaw, timeFromRaw, timeTo
         });
     }
 
-    // ── Rule 3: Time arithmetic check (Time From + Hours ≈ Time To) ───────
+    // ── Rule 3: Time arithmetic check — expected OT = shift − 8h standard ───
     const tFrom = parseTimeHours(timeFromRaw);
     const tTo   = parseTimeHours(timeToRaw);
     if (tFrom !== null && tTo !== null) {
         // Handle overnight shifts (e.g. 10 PM to 1 AM)
-        let diff = tTo - tFrom;
-        if (diff < 0) diff += 24; // overnight crossing
-        const discrepancy = Math.abs(diff - otHours);
-        if (discrepancy > 0.5) { // allow 30-min rounding tolerance
+        let totalShiftHours = tTo - tFrom;
+        if (totalShiftHours < 0) totalShiftHours += 24; // overnight crossing
+
+        // Expected OT = total shift minus standard 8-hour working day
+        const STANDARD_HOURS = 8;
+        const expectedOt = Math.max(0, totalShiftHours - STANDARD_HOURS);
+        const discrepancy = otHours - expectedOt; // positive = over-claimed, negative = under-claimed
+
+        if (Math.abs(discrepancy) > 0.5) { // allow 30-min rounding tolerance
+            const overUnder = discrepancy > 0 ? `over-claimed by ${discrepancy.toFixed(1)}h` : `under-claimed by ${Math.abs(discrepancy).toFixed(1)}h`;
             violations.push({
                 severity: 'WARNING',
-                message: `Time mismatch — Time From "${String(timeFromRaw).trim()}" to Time To "${String(timeToRaw).trim()}" = ${diff.toFixed(1)}h, `
-                       + `but ${otHours}h OT is claimed. Difference: ${discrepancy.toFixed(1)}h. `
+                message: `Time mismatch — Time From "${String(timeFromRaw).trim()}" to Time To "${String(timeToRaw).trim()}" `
+                       + `= ${totalShiftHours.toFixed(2)}h total shift. After deducting ${STANDARD_HOURS}h standard working hours, `
+                       + `expected OT = ${expectedOt.toFixed(2)}h, but ${otHours}h was claimed (${overUnder}). `
                        + `Please verify with the timesheet or line manager.`,
             });
         }
     }
+
 
     return violations;
 }
