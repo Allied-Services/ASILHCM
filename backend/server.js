@@ -6081,7 +6081,71 @@ app.post('/api/wafi-claims/sessions/:id/reprocess', requireAuth, async (req, res
     }
 });
 
+// POST /api/wafi-claims/sessions/:id/override-multiplier
+// Admin overrides OT multiplier for a specific row (e.g. Triple → Double for Sunday violations)
+app.post('/api/wafi-claims/sessions/:id/override-multiplier', requireAuth, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+        const { rowNumber, newMultiplier } = req.body;
+        if (!rowNumber || !newMultiplier) return res.status(400).json({ error: 'rowNumber and newMultiplier are required' });
+
+        const multMap = { single: 1, double: 2, triple: 3 };
+        const factor = multMap[String(newMultiplier).toLowerCase()];
+        if (!factor) return res.status(400).json({ error: 'newMultiplier must be single, double, or triple' });
+
+        // Load the item
+        const { rows: items } = await pool.query(
+            `SELECT wci.*, e.salary FROM wafi_claims_items wci
+             LEFT JOIN employees e ON e.id::text = wci.employee_id
+             WHERE wci.session_id = $1 AND wci.row_number = $2 AND wci.active = TRUE`,
+            [sessionId, rowNumber]
+        );
+        if (!items.length) return res.status(404).json({ error: 'Item not found' });
+        const item = items[0];
+
+        // Recalculate payout
+        const salary = parseFloat(item.salary) || 0;
+        const hours  = parseFloat(item.ot_hours) || 0;
+        const hourlyRate = salary > 0 ? salary / 26 / 8 : 0;
+        const newPayout = hourlyRate > 0 ? parseFloat((hours * factor * hourlyRate).toFixed(2)) : null;
+
+        // Update item
+        await pool.query(
+            `UPDATE wafi_claims_items SET ot_multiplier = $1, ot_multiplier_factor = $2, ot_payout = $3,
+             updated_at = NOW() WHERE session_id = $4 AND row_number = $5 AND active = TRUE`,
+            [newMultiplier, factor, newPayout, sessionId, rowNumber]
+        );
+
+        // Remove the labour law error for this row from session's validation_errors
+        const { rows: sessRows } = await pool.query(
+            'SELECT validation_errors, processing_status FROM wafi_claims_sessions WHERE id = $1', [sessionId]
+        );
+        if (sessRows.length) {
+            let errors = sessRows[0].validation_errors || [];
+            const originalCount = errors.length;
+            errors = errors.filter(e =>
+                !(parseInt(e.row) === parseInt(rowNumber) && e.error?.toLowerCase().includes('labour law'))
+            );
+            const removed = originalCount - errors.length;
+            // Determine new status
+            const remainingHard = errors.filter(e => !e.error?.toLowerCase().includes('time mismatch') && !e.error?.toLowerCase().includes('high ot'));
+            const newStatus = remainingHard.length === 0 ? 'PENDING_REVIEW' : sessRows[0].processing_status;
+            await pool.query(
+                `UPDATE wafi_claims_sessions SET validation_errors = $1::jsonb, processing_status = $2 WHERE id = $3`,
+                [JSON.stringify(errors), newStatus, sessionId]
+            );
+            console.log(`[Override] Session ${sessionId} row ${rowNumber}: Triple→${newMultiplier}, removed ${removed} error(s), new status: ${newStatus}`);
+        }
+
+        res.json({ ok: true, message: `Row ${rowNumber} OT multiplier overridden to ${newMultiplier}`, newPayout });
+    } catch (e) {
+        console.error('[Override Multiplier] Error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // POST /api/wafi-claims/sessions/:id/undo-stage
+
 // SUPERADMIN ONLY — reverses a staged payroll push for a session.
 // Subtracts the exact OT/expense/medical amounts that were added, resets session flags.
 app.post('/api/wafi-claims/sessions/:id/undo-stage', requireAuth, requireRole('superadmin'), async (req, res) => {
@@ -6938,7 +7002,12 @@ process.on('SIGINT', async () => {
     process.exit(0);
 });
 
-app.listen(PORT, async () => {
+// Export app for supertest (tests import server.js without starting a live server)
+module.exports = app;
+
+// Only bind a port when this file is run directly: `node server.js`
+// When require()'d by Jest, this block is skipped — no EADDRINUSE conflicts.
+if (require.main === module) app.listen(PORT, async () => {
 
 
     console.log(`ASIL HCM Backend running on port ${PORT}`);

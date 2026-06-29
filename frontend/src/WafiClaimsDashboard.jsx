@@ -412,6 +412,22 @@ export default function WafiClaimsDashboard({ user }) {
 
   // Reprocess — deletes session record + resets Gmail message to unread
   const [reprocessing, setReprocessing] = useState(null); // sessionId being reprocessed
+  // Override OT multiplier (e.g. Triple -> Double for Sunday claims)
+    setOverridingMultiplier(sessionId + '-' + rowNumber);
+  const handleOverrideMultiplier = async (sessionId, rowNumber, newMultiplier) => {
+    setOverridingMultiplier(sessionId + '-' + rowNumber);
+    try {
+      const d = await apiFetch(`/api/wafi-claims/sessions/${sessionId}/override-multiplier`, {
+        method: 'POST', body: JSON.stringify({ rowNumber, newMultiplier }),
+      });
+      if (d.ok) {
+        await loadSessionDetail(sessionId);
+        await loadSessions();
+      } else { alert('Override failed: ' + (d.error || 'Unknown')); }
+    } catch (e) { alert('Override failed: ' + e.message); }
+    setOverridingMultiplier(null);
+  };
+
   const handleReprocess = async (sessionId) => {
     if (!window.confirm('This will delete this session record and mark the email as unread so the next poll re-processes it. Continue?')) return;
     setReprocessing(sessionId);
@@ -421,6 +437,7 @@ export default function WafiClaimsDashboard({ user }) {
         alert(`✓ ${d.message}`);
         await loadSessions();
         await loadStats();
+        setExpandedSession(null); setSessionDetail(null);
       } else {
         alert('Error: ' + (d.error || 'Unknown'));
       }
@@ -995,6 +1012,13 @@ export default function WafiClaimsDashboard({ user }) {
                                                   Override →
                                                 </button>
                                               )}
+                                              {(String(e.value||'').toLowerCase() === 'triple' && e.error?.toLowerCase().includes('labour law')) && (
+                                                <button onClick={() => handleOverrideMultiplier(sess.id, e.row, 'double')}
+                                                  disabled={overridingMultiplier === (sess.id + '-' + e.row)}
+                                                  style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid #f59e0b', color: '#f59e0b', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, whiteSpace: 'nowrap', marginTop: '4px', display: 'block' }}>
+                                                  {overridingMultiplier === (sess.id + '-' + e.row) ? '...' : 'Override to Double OT'}
+                                                </button>
+                                              )}
                                             </td>
                                           </tr>
                                         ))}
@@ -1023,8 +1047,8 @@ export default function WafiClaimsDashboard({ user }) {
                               {/* Name warnings */}
                               {sessionDetail.session?.name_warnings?.length > 0 && (
                                 <div style={{ marginBottom:'1rem' }}>
-                                  <div style={{ color:'#f59e0b', fontWeight:700, fontSize:'0.85rem', marginBottom:'6px' }}>⚠ Name Match Warnings ({sessionDetail.session.name_warnings.length})</div>
-                                  <div style={{ fontSize:'0.78rem', color:'#94a3b8' }}>These rows were accepted but have partial name matches. Verify manually if needed.</div>
+                                  <div style={{ color:'#f59e0b', fontWeight:700, fontSize:'0.85rem', marginBottom:'6px' }}>⚠ Warnings & Notices ({sessionDetail.session.name_warnings.length})</div>
+                                  <div style={{ fontSize:'0.78rem', color:'#94a3b8' }}>These rows have warnings (name mismatches, time discrepancies, OT cap notices). Review and take action or approve.</div>
                                   <div style={{ overflowX:'auto', marginTop:'8px' }}>
                                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.78rem' }}>
                                       <thead><tr>{['Sheet','Row','Warning','Value'].map(h => <th key={h} style={{ ...s.th, fontSize:'0.68rem', background:'rgba(245,158,11,0.06)' }}>{h}</th>)}</tr></thead>
