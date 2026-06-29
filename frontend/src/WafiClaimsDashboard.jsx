@@ -998,6 +998,7 @@ export default function WafiClaimsDashboard({ user }) {
                                             </td>
                                           </tr>
                                         ))}
+
                                       </tbody>
                                     </table>
                                   </div>
@@ -1008,7 +1009,7 @@ export default function WafiClaimsDashboard({ user }) {
                               {(() => {
                                 const simWarn = sessionDetail.session?.name_warnings?.find(w => w.type === 'SIMILARITY');
                                 if (!simWarn) return null;
-                                const isPossibleDup = simWarn.note?.includes('POSSIBLE DUPLICATE');
+                                const isPossibleDup = simWarn.note?.includes('DUPLICATE');
                                 return (
                                   <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderLeft: '3px solid #f59e0b', borderRadius:'8px', padding:'12px 14px', marginBottom:'12px' }}>
                                     <div style={{ fontSize:'0.72rem', color:'#d97706', fontWeight:700, marginBottom:'4px', textTransform:'uppercase', letterSpacing:'0.05em' }}>
@@ -1032,8 +1033,8 @@ export default function WafiClaimsDashboard({ user }) {
                                           <tr key={i}>
                                             <td style={{ ...s.td, fontSize:'0.76rem' }}>{w.sheet}</td>
                                             <td style={{ ...s.td, fontSize:'0.76rem', textAlign:'center' }}>{w.row}</td>
-                                            <td style={{ ...s.td, fontSize:'0.76rem', color:'#f59e0b' }}>{w.warning}</td>
-                                            <td style={{ ...s.td, fontSize:'0.76rem', color:'#94a3b8', fontStyle:'italic' }}>{String(w.value||'').slice(0,40)}</td>
+                                            <td style={{ ...s.td, fontSize:'0.76rem', color:'#f59e0b' }}>{w.warning || w.note || '—'}</td>
+                                            <td style={{ ...s.td, fontSize:'0.76rem', color:'#94a3b8', fontStyle:'italic' }}>{String(w.value || w.column || '').slice(0,40)}</td>
                                           </tr>
                                         ))}
                                       </tbody>
@@ -1089,12 +1090,22 @@ export default function WafiClaimsDashboard({ user }) {
                                   <div style={{ overflowX: 'auto' }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                                       <thead><tr>
-                                        {['Tab','Row','Code','Name DB','Date','Type','OT Hrs','Mult','Amount','Payout','Match'].map(h => <th key={h} style={{ ...s.th, fontSize: '0.68rem' }}>{h}</th>)}
+                                        {['Row','Code','Submitted Name','Name (DB)','Date','Day','Type','OT Hrs','Rate','LL ✓','Amount','Payout'].map(h => <th key={h} style={{ ...s.th, fontSize: '0.68rem' }}>{h}</th>)}
                                       </tr></thead>
                                       <tbody>
-                                        {sessionDetail.items.map(item => (
+                                        {sessionDetail.items.map(item => {
+                                          const dayType = item.day_type || '';
+                                          const dayColor = dayType === 'EID' ? '#7c3aed' : dayType === 'SUNDAY' ? '#f59e0b' : dayType === 'HOLIDAY' ? '#f97316' : '#64748b';
+                                          const mult = (item.ot_multiplier || '').toLowerCase();
+                                          let llOk = null;
+                                          if (item.claim_type === 'OT' && dayType && mult) {
+                                            if (dayType === 'EID')     llOk = mult !== 'single';
+                                            else if (dayType === 'SUNDAY' || dayType === 'WEEKDAY') llOk = mult !== 'triple';
+                                            else if (dayType === 'HOLIDAY') llOk = mult !== 'single';
+                                            else llOk = true;
+                                          }
+                                          return (
                                           <tr key={item.id}>
-                                            <td style={{ ...s.td, fontSize: '0.73rem', color: '#94a3b8' }}>{item.tab_name?.replace(' Claims','')}</td>
                                             <td style={{ ...s.td, fontSize: '0.73rem', textAlign: 'center', color: '#64748b' }}>{item.row_number}</td>
                                             <td style={{ ...s.td, fontSize: '0.72rem', color: '#94a3b8' }}>{item.employee_id || item.employee_code_raw}</td>
                                             <td style={{ ...s.td, fontSize: '0.75rem' }}>{item.employee_name_db || '—'}</td>
