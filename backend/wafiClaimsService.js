@@ -2438,4 +2438,8 @@ module.exports = {
     buildConfirmationHtml,
     createGmailDraft,
     reprocessSession,
+    // Exported for server.js manual-trigger endpoints
+    createGmailClientExported:          createGmailClient,
+    matchLineManagerEmailsExported:     matchLineManagerEmails,
+    createVerificationDraftExported:    createVerificationDraft,
 };

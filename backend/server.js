@@ -6081,7 +6081,98 @@ app.post('/api/wafi-claims/sessions/:id/reprocess', requireAuth, async (req, res
     }
 });
 
+// POST /api/wafi-claims/sessions/:id/send-verification-draft
+// Manually triggers a verification email to the original sender + CC matched line managers.
+// Re-fetches the Gmail message to extract the CC list, then creates a draft in the thread.
+app.post('/api/wafi-claims/sessions/:id/send-verification-draft', requireAuth, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+
+        // Load session
+        const { rows } = await pool.query(
+            `SELECT id, sender_email, subject, gmail_message_id, gmail_thread_id,
+                    filename, name_warnings, validation_errors, qc_email_sent
+             FROM wafi_claims_sessions WHERE id = $1`, [sessionId]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Session not found' });
+        const sess = rows[0];
+
+        // Build warning list from stored warnings + validation_errors (time/OT related)
+        const allWarnings = [...(sess.name_warnings || []), ...(sess.validation_errors || [])];
+        const verifyWarnings = allWarnings.filter(w => {
+            const text = (w.warning || w.note || w.error || '').toLowerCase();
+            return text.includes('time mismatch') || text.includes('high ot') ||
+                   text.includes('customarily reserved') || text.includes('3x is customarily');
+        });
+
+        if (verifyWarnings.length === 0) {
+            return res.status(400).json({ error: 'No time mismatch or OT warnings found on this session' });
+        }
+
+        // Re-fetch the original email to get CC addresses
+        let ccWafiEmails = [];
+        try {
+            const gmail = wafiClaims.createGmailClientExported();
+            if (gmail && sess.gmail_message_id) {
+                const { data: msg } = await gmail.users.messages.get({
+                    userId: 'me', id: sess.gmail_message_id, format: 'metadata',
+                    metadataHeaders: ['Cc', 'cc'],
+                });
+                const ccHeader = (msg.payload?.headers || []).find(h => h.name.toLowerCase() === 'cc');
+                if (ccHeader?.value) {
+                    const matches = [...ccHeader.value.matchAll(/([a-zA-Z0-9._%+-]+@wafi-energy\.com)/gi)];
+                    ccWafiEmails = matches.map(m => m[1].toLowerCase());
+                }
+            }
+        } catch (gmailErr) {
+            console.warn('[Send Verification] Could not fetch CC from Gmail:', gmailErr.message);
+        }
+
+        // Also check req.body for manually entered line manager email
+        if (req.body?.lineManagerEmail) {
+            const manual = String(req.body.lineManagerEmail).toLowerCase().trim();
+            if (manual && !ccWafiEmails.includes(manual)) ccWafiEmails.push(manual);
+        }
+
+        // Match line managers from warning rows against CC emails
+        const { rows: items } = await pool.query(
+            `SELECT line_manager FROM wafi_claims_items WHERE session_id = $1 AND active = TRUE`, [sessionId]
+        );
+        const lineManagerEmails = wafiClaims.matchLineManagerEmailsExported(items, ccWafiEmails);
+
+        // Build and send the draft
+        const gmail = wafiClaims.createGmailClientExported();
+        if (!gmail) return res.status(500).json({ error: 'Gmail not configured' });
+
+        const draftId = await wafiClaims.createVerificationDraftExported(
+            gmail,
+            sess.gmail_thread_id,
+            sess.sender_email,
+            lineManagerEmails,
+            sess.subject || 'Claims Verification Required',
+            sessionId,
+            sess.filename,
+            verifyWarnings
+        );
+
+        if (!draftId) return res.status(500).json({ error: 'Failed to create Gmail draft — check Gmail credentials' });
+
+        await pool.query('UPDATE wafi_claims_sessions SET qc_email_sent = TRUE WHERE id = $1', [sessionId]);
+
+        res.json({
+            ok: true,
+            message: `Verification draft created in Gmail. ${lineManagerEmails.length > 0 ? `CC: ${lineManagerEmails.join(', ')}` : 'No line managers matched from CC list — draft sent to submitter only.'}`,
+            draftId,
+            ccEmails: lineManagerEmails,
+        });
+    } catch (e) {
+        console.error('[Send Verification Draft] Error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // POST /api/wafi-claims/sessions/:id/override-multiplier
+
 // Admin overrides OT multiplier for a specific row (e.g. Triple → Double for Sunday violations)
 app.post('/api/wafi-claims/sessions/:id/override-multiplier', requireAuth, async (req, res) => {
     try {

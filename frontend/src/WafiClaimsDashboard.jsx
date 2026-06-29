@@ -428,6 +428,27 @@ export default function WafiClaimsDashboard({ user }) {
     setOverridingMultiplier(null);
   };
 
+  // Send Verification Draft — creates Gmail draft asking sender to confirm time-mismatched OT
+  const [sendingVerification, setSendingVerification] = useState(null);
+  const [verificationResult, setVerificationResult] = useState({});
+  const [managerEmailInput, setManagerEmailInput] = useState('');
+  const handleSendVerification = async (sessionId, manualEmail) => {
+    setSendingVerification(sessionId);
+    setVerificationResult(prev => ({ ...prev, [sessionId]: null }));
+    try {
+      const body = {};
+      if (manualEmail && manualEmail.trim()) body.lineManagerEmail = manualEmail.trim();
+      const d = await apiFetch('/api/wafi-claims/sessions/' + sessionId + '/send-verification-draft', {
+        method: 'POST', body: JSON.stringify(body),
+      });
+      setVerificationResult(prev => ({ ...prev, [sessionId]: d }));
+      if (d.ok) await loadSessions();
+    } catch (e) {
+      setVerificationResult(prev => ({ ...prev, [sessionId]: { error: e.message } }));
+    }
+    setSendingVerification(null);
+  };
+
   const handleReprocess = async (sessionId) => {
     if (!window.confirm('This will delete this session record and mark the email as unread so the next poll re-processes it. Continue?')) return;
     setReprocessing(sessionId);
@@ -1047,7 +1068,17 @@ export default function WafiClaimsDashboard({ user }) {
                               {/* Name warnings */}
                               {sessionDetail.session?.name_warnings?.length > 0 && (
                                 <div style={{ marginBottom:'1rem' }}>
-                                  <div style={{ color:'#f59e0b', fontWeight:700, fontSize:'0.85rem', marginBottom:'6px' }}>⚠ Warnings & Notices ({sessionDetail.session.name_warnings.length})</div>
+                                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'4px', gap:'10px', flexWrap:'wrap' }}>
+                                     <div style={{ color:'#f59e0b', fontWeight:700, fontSize:'0.85rem' }}>&#9888; Warnings &amp; Notices ({sessionDetail.session.name_warnings.length})</div>
+                                     <div style={{ display:'flex', gap:'6px', alignItems:'center', flexWrap:'wrap' }}>
+                                       {verificationResult[sess.id]?.ok && (<span style={{ fontSize:'0.72rem', color:'#22c55e', fontWeight:600 }}>&#10003; Draft created{verificationResult[sess.id].ccEmails?.length > 0 ? ' — CC: ' + verificationResult[sess.id].ccEmails.join(', ') : ' (submitter only)'}</span>)}
+                                       {verificationResult[sess.id]?.error && (<span style={{ fontSize:'0.72rem', color:'#ef4444' }}>&#10007; {verificationResult[sess.id].error}</span>)}
+                                       <input type='email' placeholder='Manager email (optional)' value={managerEmailInput} onChange={e => setManagerEmailInput(e.target.value)} style={{ fontSize:'0.72rem', padding:'4px 8px', borderRadius:'6px', border:'1px solid #334155', background:'#1e293b', color:'#e2e8f0', width:'180px' }} />
+                                       <button onClick={() => handleSendVerification(sess.id, managerEmailInput)} disabled={sendingVerification === sess.id} style={{ background:'rgba(245,158,11,0.15)', border:'1px solid #f59e0b', color:'#f59e0b', padding:'5px 12px', borderRadius:'6px', cursor:'pointer', fontSize:'0.75rem', fontWeight:700, whiteSpace:'nowrap' }}>
+                                         {sendingVerification === sess.id ? '...' : '📧 Send to Line Manager'}
+                                       </button>
+                                     </div>
+                                   </div>
                                   <div style={{ fontSize:'0.78rem', color:'#94a3b8' }}>These rows have warnings (name mismatches, time discrepancies, OT cap notices). Review and take action or approve.</div>
                                   <div style={{ overflowX:'auto', marginTop:'8px' }}>
                                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.78rem' }}>
