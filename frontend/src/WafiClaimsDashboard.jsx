@@ -413,7 +413,7 @@ export default function WafiClaimsDashboard({ user }) {
   // Reprocess — deletes session record + resets Gmail message to unread
   const [reprocessing, setReprocessing] = useState(null); // sessionId being reprocessed
   // Override OT multiplier (e.g. Triple -> Double for Sunday claims)
-    setOverridingMultiplier(sessionId + '-' + rowNumber);
+  const [overridingMultiplier, setOverridingMultiplier] = useState(null);
   const handleOverrideMultiplier = async (sessionId, rowNumber, newMultiplier) => {
     setOverridingMultiplier(sessionId + '-' + rowNumber);
     try {
