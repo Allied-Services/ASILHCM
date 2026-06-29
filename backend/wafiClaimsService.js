@@ -249,109 +249,108 @@ function isTemplateRow(row, sheetType) {
     return false;
 }
 
-// Detect whether a set of raw date strings uses DD-MM-YYYY or MM-DD-YYYY.
+// ── Detect claim month from date column values ────────────────────────────────
 // Strategy (in priority order):
-//   0. Filename month hint: if filename says "May_2026", expected month=5.
-//      If a-segment consistently = 5 → MM-DD-YYYY. If b-segment = 5 → DD-MM-YYYY.
-//   1. Hard evidence: if any b > 12 → MM-DD-YYYY; if any a > 12 → DD-MM-YYYY.
-//   2. Variance heuristic: the segment that stays CONSTANT is the month.
-//   3. Default: DD-MM-YYYY (Pakistan standard), confident=false → AI fallback.
-function detectDateFormat(rawValues, filename) {
-    // Priority 0: Extract expected month from filename (e.g. "Wafi_Claims_Shikarpur_May_2026.xlsx" → 5)
-    let filenameMonth = null;
-    if (filename) {
-        const monthMap = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
-        const fn = String(filename).toLowerCase();
-        for (const [abbr, num] of Object.entries(monthMap)) {
-            if (fn.includes(abbr)) { filenameMonth = num; break; }
+//   1. Excel serial numbers → decode directly (unambiguous, no guessing)
+//   2. Text date strings → find which segment (A or B) is CONSTANT = month
+//      Days always vary (1–31), the month stays the same throughout one file
+//   3. If still ambiguous → AI cross-check with context "expect previous month"
+//   4. Multi-month: if dates span more than one month → flag for hard rejection
+//
+// Returns: { month, year, fmt, confident, multiMonth?, months?, source }
+function detectClaimMonth(rawDateValues, emailReceivedAt) {
+    const now = emailReceivedAt ? new Date(emailReceivedAt) : new Date();
+    // 95% of submissions are for the previous calendar month
+    const expectedMonth = now.getMonth() === 0 ? 12 : now.getMonth(); // previous month (1-indexed)
+    const expectedYear  = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+
+    // ── Priority 1: Excel serial numbers ────────────────────────────────────
+    // When dates are stored as Excel serial numbers, decoding is unambiguous.
+    const serials    = rawDateValues.filter(r => typeof r === 'number' && r > 1000);
+    const nonSerials = rawDateValues.filter(r => r != null && r !== '' && !(typeof r === 'number' && r > 1000));
+
+    if (serials.length > 0 && nonSerials.length === 0) {
+        const decoded = serials.map(r => {
+            const d = new Date(new Date(1899, 11, 30).getTime() + r * 86400000);
+            return isNaN(d) ? null : { month: d.getMonth() + 1, year: d.getFullYear() };
+        }).filter(Boolean);
+
+        const monthCounts = {};
+        for (const { month, year } of decoded) {
+            const key = `${year}-${month}`;
+            monthCounts[key] = (monthCounts[key] || 0) + 1;
+        }
+        const keys = Object.keys(monthCounts);
+        if (keys.length > 1) {
+            return { month: null, year: null, fmt: 'DD-MM-YYYY', confident: true, multiMonth: true, months: keys, source: 'serial-multi' };
+        }
+        if (keys.length === 1) {
+            const [y, m] = keys[0].split('-').map(Number);
+            console.log(`[Wafi Claims] Date detect: Excel serials -> month=${m}/${y} (unambiguous)`);
+            return { month: m, year: y, fmt: 'DD-MM-YYYY', confident: true, source: 'serial' };
         }
     }
 
+    // ── Priority 2: Text date strings — constant-segment analysis ───────────
+    // The month segment is ALWAYS constant across all rows in a single-month file.
+    // The day segment ALWAYS varies. We use this to tell them apart.
+    const aVals = [], bVals = [], yearVals = [];
     let mmddEvidence = 0, ddmmEvidence = 0;
-    const aVals = [], bVals = [];
 
-    for (const raw of rawValues) {
-        if (raw == null || raw === '') continue;
-
-        // Handle Excel serial numbers — extract month directly for filename comparison
-        if (typeof raw === 'number' && raw > 1000) {
-            const d = new Date(new Date(1899, 11, 30).getTime() + raw * 86400000);
-            if (!isNaN(d)) {
-                // We can't tell a/b from serials, but we can note the parsed month
-                // These are handled separately in Priority 0 below via serialMonth
-            }
-            continue; // serials fall through to Priority 0 check
-        }
-
+    for (const raw of rawDateValues) {
+        if (raw == null || raw === '' || (typeof raw === 'number' && raw > 1000)) continue;
         const s = String(raw).trim();
-        // Accept . / - as date separators (e.g. 01.04.2026 or 01/04/2026 or 01-04-2026)
         const match = s.match(/^(\d{1,2})[\-\/.](\d{1,2})[\-\/.](\d{2,4})$/);
         if (!match) continue;
-        const a = parseInt(match[1]), b = parseInt(match[2]);
-        aVals.push(a); bVals.push(b);
-        if (b > 12) mmddEvidence++;
-        if (a > 12) ddmmEvidence++;
+        const a = parseInt(match[1]), b = parseInt(match[2]), c = parseInt(match[3]);
+        const fullYear = c < 100 ? 2000 + c : c;
+        aVals.push(a); bVals.push(b); yearVals.push(fullYear);
+        if (b > 12) mmddEvidence++;  // b can't be a month -> a IS the month
+        if (a > 12) ddmmEvidence++;  // a can't be a month -> b IS the month
     }
 
-    // Priority 0: Filename month match against string date segments
-    if (filenameMonth && aVals.length > 0) {
-        const aMatchesMonth = aVals.every(v => v === filenameMonth) || (new Set(aVals).size === 1 && aVals[0] === filenameMonth);
-        const bMatchesMonth = bVals.every(v => v === filenameMonth) || (new Set(bVals).size === 1 && bVals[0] === filenameMonth);
-        if (aMatchesMonth && !bMatchesMonth) {
-            console.log(`[Wafi Claims] Date fmt: filename says month=${filenameMonth}, a-segment matches → MM-DD-YYYY (confident)`);
-            return { fmt: 'MM-DD-YYYY', confident: true };
-        }
-        if (bMatchesMonth && !aMatchesMonth) {
-            console.log(`[Wafi Claims] Date fmt: filename says month=${filenameMonth}, b-segment matches → DD-MM-YYYY (confident)`);
-            return { fmt: 'DD-MM-YYYY', confident: true };
-        }
-    }
-
-    // Priority 0b: All dates are Excel serials — check if the parsed month matches filename
-    // If ALL raw values are numeric serials, we have no a/b to compare; use filename to set fmt
-    const allNumeric = rawValues.filter(r => r != null && r !== '').every(r => typeof r === 'number' && r > 1000);
-    if (allNumeric && filenameMonth) {
-        // Parse each serial → get their months
-        const serialMonths = rawValues
-            .filter(r => typeof r === 'number' && r > 1000)
-            .map(r => new Date(new Date(1899, 11, 30).getTime() + r * 86400000).getMonth() + 1);
-        const uniqueSerialMonths = [...new Set(serialMonths)];
-        if (uniqueSerialMonths.length === 1 && uniqueSerialMonths[0] !== filenameMonth) {
-            // Parsed month ≠ filename month → Excel stored dates wrong → flag for AI
-            console.log(`[Wafi Claims] Date fmt: Excel serials give month=${uniqueSerialMonths[0]} but filename says month=${filenameMonth} — dates may have been stored with wrong locale`);
-            // Return as not-confident so AI can attempt to resolve via other signals
-            return { fmt: 'DD-MM-YYYY', confident: false, serialMonthMismatch: true, filenameMonth };
-        }
-        if (uniqueSerialMonths.length === 1 && uniqueSerialMonths[0] === filenameMonth) {
-            // Serial month matches filename — dates are stored correctly
-            return { fmt: 'DD-MM-YYYY', confident: true };
-        }
-    }
-
-    // Priority 1: hard numeric evidence from string dates
-    if (mmddEvidence > 0 && ddmmEvidence === 0) return { fmt: 'MM-DD-YYYY', confident: true };
-    if (ddmmEvidence > 0 && mmddEvidence === 0) return { fmt: 'DD-MM-YYYY', confident: true };
-
-    // Priority 2: variance heuristic (need >=3 string dates for reliability)
-    if (aVals.length >= 3) {
+    if (aVals.length >= 2) {
         const aUnique = new Set(aVals).size;
         const bUnique = new Set(bVals).size;
-        const aRange  = Math.max(...aVals) - Math.min(...aVals);
-        const bRange  = Math.max(...bVals) - Math.min(...bVals);
+        const dominantYear = yearVals.length > 0 ? yearVals.sort((a,b) => b-a)[0] : expectedYear;
 
-        if (aUnique <= 2 && bRange > aRange && bRange >= 5) {
-            console.log(`[Wafi Claims] Date fmt heuristic → MM-DD-YYYY (aUnique=${aUnique}, bRange=${bRange})`);
-            return { fmt: 'MM-DD-YYYY', confident: true };
+        // Hard numeric evidence (most reliable)
+        if (ddmmEvidence > 0 && mmddEvidence === 0) {
+            // A segment has values > 12 -> A is the day -> B is the month
+            const uniqueMonths = [...new Set(bVals.filter(v => v >= 1 && v <= 12))];
+            if (uniqueMonths.length === 1) {
+                console.log(`[Wafi Claims] Date detect: A>12 evidence -> DD-MM-YYYY, month=${uniqueMonths[0]}`);
+                return { month: uniqueMonths[0], year: dominantYear, fmt: 'DD-MM-YYYY', confident: true, source: 'hard-A>12' };
+            }
+            if (uniqueMonths.length > 1) return { month: null, year: null, fmt: 'DD-MM-YYYY', confident: true, multiMonth: true, months: uniqueMonths.map(m => `${dominantYear}-${m}`), source: 'hard-multi' };
         }
-        if (bUnique <= 2 && aRange > bRange && aRange >= 5) {
-            console.log(`[Wafi Claims] Date fmt heuristic → DD-MM-YYYY (bUnique=${bUnique}, aRange=${aRange})`);
-            return { fmt: 'DD-MM-YYYY', confident: true };
+        if (mmddEvidence > 0 && ddmmEvidence === 0) {
+            // B segment has values > 12 -> B is the day -> A is the month
+            const uniqueMonths = [...new Set(aVals.filter(v => v >= 1 && v <= 12))];
+            if (uniqueMonths.length === 1) {
+                console.log(`[Wafi Claims] Date detect: B>12 evidence -> MM-DD-YYYY, month=${uniqueMonths[0]}`);
+                return { month: uniqueMonths[0], year: dominantYear, fmt: 'MM-DD-YYYY', confident: true, source: 'hard-B>12' };
+            }
+            if (uniqueMonths.length > 1) return { month: null, year: null, fmt: 'MM-DD-YYYY', confident: true, multiMonth: true, months: uniqueMonths.map(m => `${dominantYear}-${m}`), source: 'hard-multi' };
+        }
+
+        // Constant-segment analysis: the constant segment = month
+        if (aUnique === 1 && bUnique > 1 && aVals[0] >= 1 && aVals[0] <= 12) {
+            console.log(`[Wafi Claims] Date detect: A-constant (${aVals[0]}) -> MM-DD-YYYY, month=${aVals[0]}/${dominantYear}`);
+            return { month: aVals[0], year: dominantYear, fmt: 'MM-DD-YYYY', confident: true, source: 'constant-A' };
+        }
+        if (bUnique === 1 && aUnique > 1 && bVals[0] >= 1 && bVals[0] <= 12) {
+            console.log(`[Wafi Claims] Date detect: B-constant (${bVals[0]}) -> DD-MM-YYYY, month=${bVals[0]}/${dominantYear}`);
+            return { month: bVals[0], year: dominantYear, fmt: 'DD-MM-YYYY', confident: true, source: 'constant-B' };
         }
     }
 
-    // Default — not confident, AI fallback will be used
-    return { fmt: 'DD-MM-YYYY', confident: false };
+    // ── Priority 3: Default to expected previous month, not confident ────────
+    // Caller will invoke AI fallback when confident=false
+    return { month: expectedMonth, year: expectedYear, fmt: 'DD-MM-YYYY', confident: false, source: 'default-expected' };
 }
+
+
 
 // ── AI: smart date format + claim month validation via GPT-4o-mini ─────────────
 // Fallback when rule-based detection is still ambiguous (very few rows, all parts ≤12, all same date).
@@ -521,19 +520,71 @@ function deriveClaimMonth(allItems) {
     return new Date(y, m, 1);
 }
 
-// ── Employee DB Lookup ────────────────────────────────────────────────────────
-async function lookupEmployee(pool, codeRaw) {
-    const normalized = normalizeCode(codeRaw);
-    if (!normalized) return null;
+// ── Employee DB Lookup — 2-pass suffix matching ───────────────────────────────
+// Pass 1a: Full normalized code match (e.g. "ASIL/SPL-023" → "asilspl023")
+// Pass 1b: Suffix match — extract meaningful part after last '/' '\' separator
+//          e.g. "ASIL/SPL-023" → suffix "SPL-023" → find employee whose ID ends in "SPL023"
+//          This handles backslash variants, spacing, company prefix variations
+// Pass 2:  Fuzzy name fallback — if code not found at all, find closest name match
+//          Returns the match with a human-readable suggestion for the admin
+async function lookupEmployee(pool, codeRaw, nameRaw) {
+    if (!codeRaw) return null;
+    const code = String(codeRaw).trim();
+
+    // Extract the meaningful suffix (unique part after company prefix)
+    const suffixMatch = code.match(/[\/\\]([A-Za-z0-9][A-Za-z0-9\-]+)$/);
+    const suffix     = suffixMatch ? suffixMatch[1] : code;
+    const suffixNorm = suffix.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const fullNorm   = code.toLowerCase().replace(/[^a-z0-9]/g, '');
+
     try {
-        const { rows } = await pool.query(
+        // Pass 1a: exact full-code normalized match
+        const { rows: exact } = await pool.query(
             `SELECT id, name, salary, location, dept
              FROM employees
              WHERE LOWER(REGEXP_REPLACE(id, '[^a-zA-Z0-9]', '', 'g')) = $1
              LIMIT 1`,
-            [normalized]
+            [fullNorm]
         );
-        return rows[0] || null;
+        if (exact[0]) return { ...exact[0], matchType: 'exact', confidence: 1.0 };
+
+        // Pass 1b: suffix match — covers "ASIL/SPL-023", "ASIL\SPL-023", "SPL-023" equally
+        if (suffixNorm && suffixNorm !== fullNorm) {
+            const { rows: sfx } = await pool.query(
+                `SELECT id, name, salary, location, dept
+                 FROM employees
+                 WHERE LOWER(REGEXP_REPLACE(id, '[^a-zA-Z0-9]', '', 'g')) LIKE $1
+                 LIMIT 1`,
+                [`%${suffixNorm}`]
+            );
+            if (sfx[0]) {
+                console.log(`[Wafi Claims] Matched by suffix: "${code}" -> "${sfx[0].id}"`);
+                return { ...sfx[0], matchType: 'suffix', confidence: 0.95 };
+            }
+        }
+
+        // Pass 2: fuzzy name fallback (only when a name column value is available)
+        if (nameRaw && String(nameRaw).trim().length > 2) {
+            const { rows: allEmps } = await pool.query(
+                `SELECT id, name, salary, location, dept FROM employees WHERE is_active = TRUE LIMIT 500`
+            );
+            let best = null, bestSim = 0;
+            for (const emp of allEmps) {
+                const sim = tokenSimilarity(nameRaw, emp.name);
+                if (sim > bestSim) { bestSim = sim; best = emp; }
+            }
+            if (best && bestSim >= 0.5) {
+                const pct = (bestSim * 100).toFixed(0);
+                return {
+                    ...best,
+                    matchType: 'fuzzy',
+                    confidence: bestSim,
+                    fuzzyNote: `Code "${code}" not found. Closest name match: "${best.name}" (ID: ${best.id}, ${pct}% name similarity) — please confirm this is correct.`,
+                };
+            }
+        }
+
+        return null;
     } catch (e) {
         console.error('[Wafi Claims] Employee lookup error:', e.message);
         return null;
@@ -779,22 +830,33 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
     const items = [];
     const seenKeys = new Set();
 
-    // Step 1: rule-based date format detection
-    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]), filename);
-    let dateFmt = fmtGuess;
+    // Detect claim month from date values inside the file (not from filename)
+    const rawDateVals = rows.slice(1).map(r => r[0]);
+    const monthResult = detectClaimMonth(rawDateVals, null);
+    let dateFmt = monthResult.fmt;
 
-    // Step 2: if not confident, call AI with filename context (key signal: 'May_2026' in name)
-    if (!confident) {
-        console.log('[Wafi Claims] OT: date format ambiguous — calling AI fallback');
+    // Multi-month file: hard reject — ask sender to split and resubmit
+    if (monthResult.multiMonth) {
+        const monthList = (monthResult.months || []).join(', ');
+        errors.push({
+            sheet: 'Overtime Claims', row: 0, column: 'A',
+            error: `MULTI-MONTH FILE — This file contains OT claims for multiple months (${monthList}). Please split the file by month and submit one file per month. Each submission must cover a single calendar month only.`,
+            value: 'MULTI_MONTH',
+            hard: true,
+        });
+        return [];
+    }
+
+    // If detection was not confident, ask AI for clarification (last resort)
+    if (!monthResult.confident) {
+        console.log('[Wafi Claims] OT: month detection ambiguous — calling AI fallback');
         const aiResult = await aiAnalyzeClaimsDates(rows.slice(1), dateFmt, null, 'Overtime Claims', filename);
         if (aiResult && (aiResult.confidence === 'high' || aiResult.confidence === 'medium')) {
             dateFmt = aiResult.format || dateFmt;
-            warnings.push({ type: 'DATE_FORMAT_AI', sheet: 'Overtime Claims', note: `AI date detection: ${aiResult.reason} → using ${dateFmt}` });
+            warnings.push({ type: 'DATE_FORMAT_AI', sheet: 'Overtime Claims', note: `AI date detection: ${aiResult.reason} -> using ${dateFmt}` });
         }
-    } else if (dateFmt === 'MM-DD-YYYY') {
-        warnings.push({ type: 'DATE_FORMAT', sheet: 'Overtime Claims', note: 'Date format auto-detected as MM-DD-YYYY. Dates have been interpreted accordingly.' });
     }
-    console.log(`[Wafi Claims] OT sheet: using date format ${dateFmt} (confident=${confident})`);
+    console.log(`[Wafi Claims] OT sheet: month=${monthResult.month}/${monthResult.year} fmt=${dateFmt} source=${monthResult.source}`);
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
@@ -851,26 +913,30 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
             }
         }
 
-        const emp = await lookupEmployee(pool, rawCode);
+        const emp = await lookupEmployee(pool, rawCode, rawName);
         if (!emp) {
-            // Show the normalized code so the user can see what was actually looked up
-            const normalized = normalizeCode(rawCode);
             errors.push({
                 sheet: 'Overtime Claims', row: rowNum, column: 'B',
-                error: `Employee code "${rawCode}" not found in HR master. Verify the ASIL code is correct, or use the Override button to manually link this row to an existing employee.`,
+                error: `Employee code "${rawCode}" not found in HR master. Check the unique part of the code (e.g. SPL-023) — the company prefix (ASIL/) can be omitted.`,
                 value: rawCode,
             });
-            // Include claim_date so deriveClaimMonth can still determine the correct month
             items.push({ _error: true, employee_code_raw: rawCode, tab_name: 'Overtime Claims', row_number: rowNum, claim_date: claimDate });
             continue;
         }
 
-        const sim = tokenSimilarity(rawName, emp.name);
-        // < 0.5 = hard error (very different name); 0.5–0.79 = warning; ≥ 0.8 = fine
-        if (sim < 0.5 && rawName) {
-            errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'C', error: `Name mismatch — submitted: "${rawName}", DB: "${emp.name}"`, value: rawCode });
-        } else if (sim < 0.8 && rawName) {
-            warnings.push({ sheet: 'Overtime Claims', row: rowNum, column: 'C', warning: `Partial name match — submitted: "${rawName}", DB: "${emp.name}" (${(sim*100).toFixed(0)}%)`, value: rawCode });
+        // Fuzzy match: show admin a confirmation warning instead of silent acceptance
+        if (emp.matchType === 'fuzzy') {
+            warnings.push({ sheet: 'Overtime Claims', row: rowNum, column: 'B', warning: emp.fuzzyNote, value: rawCode });
+        }
+
+        const sim = emp.matchType === 'fuzzy' ? emp.confidence : tokenSimilarity(rawName, emp.name);
+        // < 0.5 = hard name mismatch error; 0.5-0.79 = warning; >= 0.8 = fine
+        if (emp.matchType !== 'fuzzy') {
+            if (sim < 0.5 && rawName) {
+                errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'C', error: `Name mismatch — submitted: "${rawName}", DB: "${emp.name}"`, value: rawCode });
+            } else if (sim < 0.8 && rawName) {
+                warnings.push({ sheet: 'Overtime Claims', row: rowNum, column: 'C', warning: `Partial name match — submitted: "${rawName}", DB: "${emp.name}" (${(sim*100).toFixed(0)}%)`, value: rawCode });
+            }
         }
 
         // ── Pakistan Labour Law Compliance Check ─────────────────────────────
@@ -917,21 +983,28 @@ async function processExpenseSheet(pool, rows, errors, warnings, filename) {
     const items = [];
     const seenKeys = new Set();
 
-    // Step 1: rule-based date format detection
-    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]), filename);
-    let dateFmt = fmtGuess;
+    // Detect template-only sheet: if ALL data rows are example rows, skip silently
+    const expDataRows = rows.slice(1).filter(r => {
+        const c = String(r[1] || '').trim(), n = String(r[2] || '').trim();
+        return (c || n) && !isTotalRow(c, n);
+    });
+    if (expDataRows.length > 0 && expDataRows.every(r => isTemplateRow(r, 'expense'))) {
+        console.log('[Wafi Claims] Expense sheet: all rows are template/example rows — skipping sheet');
+        warnings.push({ type: 'TEMPLATE_SHEET', sheet: 'Expense Claims', note: 'Expense Claims sheet contains only template/example rows — no actual expense claims detected. Sheet skipped.' });
+        return [];
+    }
 
-    // Step 2: AI fallback when ambiguous
-    if (!confident) {
+    // Detect claim month from date values inside the file
+    const expRawDates = rows.slice(1).map(r => r[0]);
+    const expMonthResult = detectClaimMonth(expRawDates, null);
+    let dateFmt = expMonthResult.fmt;
+    if (!expMonthResult.confident) {
         const aiResult = await aiAnalyzeClaimsDates(rows.slice(1), dateFmt, null, 'Expense Claims', filename);
         if (aiResult && (aiResult.confidence === 'high' || aiResult.confidence === 'medium')) {
             dateFmt = aiResult.format || dateFmt;
-            warnings.push({ type: 'DATE_FORMAT_AI', sheet: 'Expense Claims', note: `AI date detection: ${aiResult.reason} → using ${dateFmt}` });
         }
-    } else if (dateFmt === 'MM-DD-YYYY') {
-        warnings.push({ type: 'DATE_FORMAT', sheet: 'Expense Claims', note: 'Date format auto-detected as MM-DD-YYYY. Dates have been interpreted accordingly.' });
     }
-    console.log(`[Wafi Claims] Expense sheet: using date format ${dateFmt} (confident=${confident})`);
+    console.log(`[Wafi Claims] Expense sheet: month=${expMonthResult.month}/${expMonthResult.year} fmt=${dateFmt} source=${expMonthResult.source}`);
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
@@ -968,18 +1041,19 @@ async function processExpenseSheet(pool, rows, errors, warnings, filename) {
             errors.push({ sheet: 'Expense Claims', row: rowNum, column: 'I', error: 'Total Expense Amount must be a valid number', value: amountRaw });
         }
 
-        const emp = await lookupEmployee(pool, rawCode);
+        const emp = await lookupEmployee(pool, rawCode, rawName);
         if (!emp) {
-            errors.push({ sheet: 'Expense Claims', row: rowNum, column: 'B', error: 'Employee code not found. Please ensure all ASIL codes are correct and resubmit.', value: rawCode });
+            errors.push({ sheet: 'Expense Claims', row: rowNum, column: 'B', error: `Employee code "${rawCode}" not found. Check the unique part (e.g. SPL-023) and resubmit.`, value: rawCode });
             items.push({ _error: true, employee_code_raw: rawCode, tab_name: 'Expense Claims', row_number: rowNum });
             continue;
         }
-
-        const sim = tokenSimilarity(rawName, emp.name);
-        if (sim < 0.5 && rawName) {
-            errors.push({ sheet: 'Expense Claims', row: rowNum, column: 'C', error: `Name mismatch — submitted: "${rawName}", DB: "${emp.name}"`, value: rawCode });
-        } else if (sim < 0.8 && rawName) {
-            warnings.push({ sheet: 'Expense Claims', row: rowNum, column: 'C', warning: `Partial name match — submitted: "${rawName}", DB: "${emp.name}" (${(sim*100).toFixed(0)}%)`, value: rawCode });
+        if (emp.matchType === 'fuzzy') {
+            warnings.push({ sheet: 'Expense Claims', row: rowNum, column: 'B', warning: emp.fuzzyNote, value: rawCode });
+        }
+        const sim = emp.matchType === 'fuzzy' ? emp.confidence : tokenSimilarity(rawName, emp.name);
+        if (emp.matchType !== 'fuzzy') {
+            if (sim < 0.5 && rawName) errors.push({ sheet: 'Expense Claims', row: rowNum, column: 'C', error: `Name mismatch — submitted: "${rawName}", DB: "${emp.name}"`, value: rawCode });
+            else if (sim < 0.8 && rawName) warnings.push({ sheet: 'Expense Claims', row: rowNum, column: 'C', warning: `Partial name match — submitted: "${rawName}", DB: "${emp.name}" (${(sim*100).toFixed(0)}%)`, value: rawCode });
         }
 
         items.push({
@@ -1007,21 +1081,28 @@ async function processMedicalSheet(pool, rows, errors, warnings, filename) {
     const items = [];
     const seenKeys = new Set();
 
-    // Step 1: rule-based date format detection
-    const { fmt: fmtGuess, confident } = detectDateFormat(rows.slice(1).map(r => r[0]), filename);
-    let dateFmt = fmtGuess;
+    // Detect template-only sheet: if ALL data rows are example rows, skip silently
+    const medDataRows = rows.slice(1).filter(r => {
+        const c = String(r[1] || '').trim(), n = String(r[2] || '').trim();
+        return (c || n) && !isTotalRow(c, n);
+    });
+    if (medDataRows.length > 0 && medDataRows.every(r => isTemplateRow(r, 'medical'))) {
+        console.log('[Wafi Claims] Medical sheet: all rows are template/example rows — skipping sheet');
+        warnings.push({ type: 'TEMPLATE_SHEET', sheet: 'Medical & IPD Claims', note: 'Medical & IPD Claims sheet contains only template/example rows — no actual medical claims detected. Sheet skipped.' });
+        return [];
+    }
 
-    // Step 2: AI fallback when ambiguous
-    if (!confident) {
+    // Detect claim month from date values inside the file
+    const medRawDates = rows.slice(1).map(r => r[0]);
+    const medMonthResult = detectClaimMonth(medRawDates, null);
+    let dateFmt = medMonthResult.fmt;
+    if (!medMonthResult.confident) {
         const aiResult = await aiAnalyzeClaimsDates(rows.slice(1), dateFmt, null, 'Medical & IPD Claims', filename);
         if (aiResult && (aiResult.confidence === 'high' || aiResult.confidence === 'medium')) {
             dateFmt = aiResult.format || dateFmt;
-            warnings.push({ type: 'DATE_FORMAT_AI', sheet: 'Medical & IPD Claims', note: `AI date detection: ${aiResult.reason} → using ${dateFmt}` });
         }
-    } else if (dateFmt === 'MM-DD-YYYY') {
-        warnings.push({ type: 'DATE_FORMAT', sheet: 'Medical & IPD Claims', note: 'Date format auto-detected as MM-DD-YYYY. Dates have been interpreted accordingly.' });
     }
-    console.log(`[Wafi Claims] Medical sheet: using date format ${dateFmt} (confident=${confident})`);
+    console.log(`[Wafi Claims] Medical sheet: month=${medMonthResult.month}/${medMonthResult.year} fmt=${dateFmt} source=${medMonthResult.source}`);
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
@@ -1072,18 +1153,19 @@ async function processMedicalSheet(pool, rows, errors, warnings, filename) {
             errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'J', error: 'Total Claim Amount must be a valid number', value: amountRaw });
         }
 
-        const emp = await lookupEmployee(pool, rawCode);
+        const emp = await lookupEmployee(pool, rawCode, rawName);
         if (!emp) {
-            errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'B', error: 'Employee code not found. Please ensure all ASIL codes are correct and resubmit.', value: rawCode });
+            errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'B', error: `Employee code "${rawCode}" not found. Check the unique part (e.g. SPL-023) and resubmit.`, value: rawCode });
             items.push({ _error: true, employee_code_raw: rawCode, tab_name: 'Medical & IPD Claims', row_number: rowNum });
             continue;
         }
-
-        const sim = tokenSimilarity(rawName, emp.name);
-        if (sim < 0.5 && rawName) {
-            errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'C', error: `Name mismatch — submitted: "${rawName}", DB: "${emp.name}"`, value: rawCode });
-        } else if (sim < 0.8 && rawName) {
-            warnings.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'C', warning: `Partial name match — submitted: "${rawName}", DB: "${emp.name}" (${(sim*100).toFixed(0)}%)`, value: rawCode });
+        if (emp.matchType === 'fuzzy') {
+            warnings.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'B', warning: emp.fuzzyNote, value: rawCode });
+        }
+        const sim = emp.matchType === 'fuzzy' ? emp.confidence : tokenSimilarity(rawName, emp.name);
+        if (emp.matchType !== 'fuzzy') {
+            if (sim < 0.5 && rawName) errors.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'C', error: `Name mismatch — submitted: "${rawName}", DB: "${emp.name}"`, value: rawCode });
+            else if (sim < 0.8 && rawName) warnings.push({ sheet: 'Medical & IPD Claims', row: rowNum, column: 'C', warning: `Partial name match — submitted: "${rawName}", DB: "${emp.name}" (${(sim*100).toFixed(0)}%)`, value: rawCode });
         }
 
         items.push({
