@@ -116,29 +116,26 @@ async function markAsRead(gmail, messageId) {
     }
 }
 
-// ── Gmail Draft (thread-aware reply) ─────────────────────────────────────────
-async function createGmailDraft(gmail, threadId, toEmail, subject, htmlBody) {
+// ── Gmail Draft (thread-aware reply) ─────────────────────────────────────────────
+async function createGmailDraft(gmail, threadId, toEmail, subject, htmlBody, ccEmails = []) {
     try {
         const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
-        const raw = [
+        const headers = [
             `To: ${toEmail}`,
             `Subject: ${replySubject}`,
             'MIME-Version: 1.0',
             'Content-Type: text/html; charset=utf-8',
-            '',
-            htmlBody,
-        ].join('\r\n');
-
+        ];
+        if (ccEmails && ccEmails.length > 0) {
+            headers.push(`Cc: ${ccEmails.join(', ')}`);
+        }
+        headers.push('', htmlBody);
+        const raw = headers.join('\r\n');
         const encoded = Buffer.from(raw).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
         const { data } = await gmail.users.drafts.create({
             userId: 'me',
-            requestBody: {
-                message: {
-                    threadId,
-                    raw: encoded,
-                },
-            },
+            requestBody: { message: { threadId, raw: encoded } },
         });
         console.log(`[Wafi Claims] Draft created: ${data.id} in thread ${threadId}`);
         return data.id;
@@ -917,7 +914,7 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
         if (!emp) {
             errors.push({
                 sheet: 'Overtime Claims', row: rowNum, column: 'B',
-                error: `Employee code "${rawCode}" not found in HR master. Check the unique part of the code (e.g. SPL-023) — the company prefix (ASIL/) can be omitted.`,
+                error: `Employee code "${rawCode}" not found in HR master. Check the unique part (e.g. SPL-023) — the company prefix (ASIL/) can be omitted.`,
                 value: rawCode,
             });
             items.push({ _error: true, employee_code_raw: rawCode, tab_name: 'Overtime Claims', row_number: rowNum, claim_date: claimDate });
@@ -1398,6 +1395,138 @@ async function createRejectionDraft(gmail, threadId, senderEmail, subject, sessi
     }
 }
 
+// ── Line Manager Email Matching ─────────────────────────────────────────────
+// Extracts unique line manager names from processed items, then fuzzy-matches
+// each name to the @wafi-energy.com addresses from the email's CC list.
+// Format assumed: first.last@wafi-energy.com or firstname.lastname@wafi-energy.com
+function matchLineManagerEmails(items, ccWafiEmails) {
+    if (!ccWafiEmails || ccWafiEmails.length === 0) return [];
+    const matched = new Set();
+    const managerNames = [...new Set((items || []).map(i => i.line_manager).filter(Boolean))];
+
+    for (const managerName of managerNames) {
+        let bestEmail = null;
+        let bestScore = 0;
+        const cleanName = String(managerName).toLowerCase().replace(/[^a-z ]/g, '');
+
+        for (const email of ccWafiEmails) {
+            // Convert email local part to name: 'ahmed.khan' -> 'ahmed khan'
+            const localPart = email.split('@')[0].replace(/[._-]/g, ' ').toLowerCase();
+            const score = tokenSimilarity(cleanName, localPart);
+            if (score > bestScore) { bestScore = score; bestEmail = email; }
+        }
+        // Accept match if similarity > 40% (handles abbreviated names like 'A. Khan' vs 'ahmed.khan')
+        if (bestScore >= 0.4 && bestEmail) {
+            matched.add(bestEmail);
+            console.log(`[Wafi Claims] Line manager "${managerName}" matched to ${bestEmail} (score: ${(bestScore*100).toFixed(0)}%)`);
+        }
+    }
+    return [...matched];
+}
+
+// ── Verification Draft (PENDING_REVIEW with warnings) ─────────────────────────────
+// Created when claims are accepted but have warnings that need sender confirmation.
+// Sent to the original submitter, CC'ing any matched line managers from the CC list.
+function buildVerificationHtml({ sessionId, filename, warnings }) {
+    const timeMismatches = (warnings || []).filter(w => (w.warning || w.note || '').includes('Time mismatch'));
+    const highOt         = (warnings || []).filter(w => (w.warning || w.note || '').includes('High OT'));
+    const labourLaw      = (warnings || []).filter(w => (w.warning || w.note || '').includes('customarily reserved') || (w.warning || w.note || '').toLowerCase().includes('3x is customarily'));
+
+    const buildRows = (list) => list.map(w => `
+        <tr style="border-bottom:1px solid #fef3c7;">
+            <td style="padding:9px 12px;font-size:0.82rem;color:#374151;">${w.sheet || 'Overtime Claims'}</td>
+            <td style="padding:9px 12px;text-align:center;font-size:0.82rem;color:#374151;">${w.row || '—'}</td>
+            <td style="padding:9px 12px;font-size:0.82rem;color:#92400e;">${w.warning || w.note || ''}</td>
+        </tr>`).join('');
+
+    const timeMismatchSection = timeMismatches.length > 0 ? `
+        <div style="margin:20px 0;">
+            <p style="color:#92400e;font-weight:700;font-size:0.9rem;margin:0 0 10px;">⏱ Time In/Out Does Not Match Claimed OT Hours</p>
+            <p style="color:#78350f;font-size:0.83rem;margin:0 0 12px;">
+                The times recorded in your file suggest a different number of overtime hours than what was claimed.
+                Please confirm with your line manager whether the claimed hours are correct, or provide a corrected file.
+            </p>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #fde68a;border-radius:6px;overflow:hidden;">
+                <thead><tr style="background:#fef9ec;">
+                    <th style="padding:9px 12px;text-align:left;color:#78350f;font-size:0.78rem;">Sheet</th>
+                    <th style="padding:9px 12px;text-align:center;color:#78350f;font-size:0.78rem;">Row</th>
+                    <th style="padding:9px 12px;text-align:left;color:#78350f;font-size:0.78rem;">Discrepancy</th>
+                </tr></thead>
+                <tbody>${buildRows(timeMismatches)}</tbody>
+            </table>
+        </div>` : '';
+
+    const highOtSection = highOt.length > 0 ? `
+        <div style="margin:20px 0;">
+            <p style="color:#92400e;font-weight:700;font-size:0.9rem;margin:0 0 10px;">⚠ High OT Hours — Line Manager Sign-Off Required</p>
+            <p style="color:#78350f;font-size:0.83rem;margin:0 0 12px;">
+                Pakistan Labour Law generally caps overtime at 4 hours per day. The following rows exceed this threshold
+                and require written confirmation from the line manager before they can be approved.
+            </p>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #fde68a;border-radius:6px;overflow:hidden;">
+                <thead><tr style="background:#fef9ec;">
+                    <th style="padding:9px 12px;text-align:left;color:#78350f;font-size:0.78rem;">Sheet</th>
+                    <th style="padding:9px 12px;text-align:center;color:#78350f;font-size:0.78rem;">Row</th>
+                    <th style="padding:9px 12px;text-align:left;color:#78350f;font-size:0.78rem;">Note</th>
+                </tr></thead>
+                <tbody>${buildRows(highOt)}</tbody>
+            </table>
+        </div>` : '';
+
+    const labourLawSection = labourLaw.length > 0 ? `
+        <div style="margin:20px 0;padding:14px 18px;background:#fef9ec;border-left:4px solid #f59e0b;border-radius:6px;">
+            <p style="color:#92400e;font-weight:700;font-size:0.9rem;margin:0 0 6px;">📋 OT Rate Notice</p>
+            <p style="color:#78350f;font-size:0.83rem;margin:0;">${labourLaw.map(w => w.warning || w.note).join('<br>')}</p>
+        </div>` : '';
+
+    return `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;background:#fffbeb;padding:20px;">
+<div style="max-width:740px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#92400e,#f59e0b);padding:26px 32px;">
+    <h1 style="color:#fff;margin:0;font-size:1.1rem;">ASIL HCM &mdash; Claims Received: Verification Required</h1>
+    <p style="color:#fef3c7;margin:6px 0 0;font-size:0.85rem;">File: ${filename || 'Attachment'} &middot; Ref: #${sessionId}</p>
+  </div>
+  <div style="padding:28px 32px;">
+    <!-- ✏️ Add any personalised notes here before sending -->
+    <p style="color:#374151;margin:0 0 6px;font-size:0.92rem;min-height:1.4em;">&nbsp;</p>
+    <p style="color:#374151;margin:0 0 16px;font-size:0.92rem;">
+        Thank you for submitting your claims. Your file <strong>${filename || 'attachment'}</strong> has been received
+        and the entries have been logged in our system. However, we noticed the following items that require your
+        confirmation before they can be approved for payroll processing:
+    </p>
+    ${timeMismatchSection}
+    ${highOtSection}
+    ${labourLawSection}
+    <div style="padding:16px;background:#f0fdf4;border-left:4px solid #16a34a;border-radius:6px;margin-top:20px;">
+        <p style="margin:0 0 6px;color:#14532d;font-weight:700;font-size:0.85rem;">How to Respond:</p>
+        <ul style="margin:0;padding-left:18px;color:#166534;font-size:0.83rem;line-height:2;">
+            <li>If the OT hours are correct: reply with <strong>"Confirmed — [Line Manager Name]"</strong></li>
+            <li>If the hours need correction: reply with a corrected file attached</li>
+            <li>Your line manager has been copied on this email for their awareness</li>
+        </ul>
+    </div>
+    <p style="color:#374151;margin:20px 0 4px;font-size:0.88rem;">Regards,<br><strong>ASIL HR Team</strong></p>
+  </div>
+  <div style="background:#fffbeb;padding:14px 32px;border-top:1px solid #fde68a;">
+    <p style="color:#d97706;font-size:0.75rem;margin:0;">Allied Services International (Pvt.) Ltd. &middot; ASIL HCM &middot; ${new Date().getFullYear()}</p>
+  </div>
+</div></body></html>`;
+}
+
+async function createVerificationDraft(gmail, threadId, senderEmail, ccEmails, subject, sessionId, filename, warnings) {
+    try {
+        const html = buildVerificationHtml({ sessionId, filename, warnings });
+        const draftId = await createGmailDraft(gmail, threadId, senderEmail, subject, html, ccEmails);
+        if (draftId) {
+            console.log(`[Wafi Claims] Verification draft created for session ${sessionId}, CC: ${ccEmails.join(', ')}`);
+        }
+        return draftId;
+    } catch (e) {
+        console.warn('[Wafi Claims] Verification draft warning:', e.message);
+        return null;
+    }
+}
+
+
 // Build confirmation HTML (used both for draft and direct send)
 // items = array of wafi_claims_items rows (optional — falls back to counts if not provided)
 function buildConfirmationHtml({ sessionId, filename, otCount, expCount, medCount, claimMonth, settlementMonth, items }) {
@@ -1654,6 +1783,13 @@ async function processOneMessage(pool, gmail, msg) {
 
     const senderMatch = fromHeader.match(/<([^>]+)>/) || fromHeader.match(/([^\s<>]+@[^\s<>]+)/);
     const senderEmail = senderMatch ? senderMatch[1].toLowerCase() : fromHeader.toLowerCase();
+
+    // Extract @wafi-energy.com CC addresses (used later for line manager matching)
+    const ccHeader = headers['cc'] || headers['cc '] || '';
+    const ccWafiEmails = [...ccHeader.matchAll(/([a-zA-Z0-9._%+-]+@wafi-energy\.com)/gi)].map(m => m[1].toLowerCase());
+    if (ccWafiEmails.length > 0) {
+        console.log(`[Wafi Claims] CC Wafi emails found: ${ccWafiEmails.join(', ')}`);
+    }
 
     console.log(`[Wafi Claims] Processing: "${subject}" from ${senderEmail} (${msgId})`);
 
@@ -2067,6 +2203,32 @@ async function processOneMessage(pool, gmail, msg) {
             }
         } catch (e) { console.warn('[Wafi Claims] Rejection draft warning:', e.message); }
     }
+
+    // ── Verification draft (PENDING_REVIEW with time/OT warnings) ──────────────────────
+    // When claims are accepted but have discrepancies, draft a verification email asking
+    // Wafi to confirm — CC'ing the matched line manager from the email's CC list.
+    if (!hasErrors && warnings.length > 0 && gmail && threadId) {
+        const verifyWarnings = warnings.filter(w => {
+            const text = (w.warning || w.note || '').toLowerCase();
+            return text.includes('time mismatch') || text.includes('high ot') ||
+                   text.includes('customarily reserved') || text.includes('3x is customarily');
+        });
+        if (verifyWarnings.length > 0) {
+            try {
+                const allItems = [...(otItems || []), ...(expItems || []), ...(medItems || [])];
+                const lineManagerEmails = matchLineManagerEmails(allItems, ccWafiEmails);
+                const draftId = await createVerificationDraft(
+                    gmail, threadId, senderEmail, lineManagerEmails,
+                    subject, sessionId, att.filename, verifyWarnings
+                );
+                if (draftId) {
+                    await pool.query('UPDATE wafi_claims_sessions SET qc_email_sent=TRUE WHERE id=$1', [sessionId]);
+                    console.log(`[Wafi Claims] Verification draft — ${verifyWarnings.length} warning(s), ${lineManagerEmails.length} manager(s) CC'd`);
+                }
+            } catch (e) { console.warn('[Wafi Claims] Verification draft error:', e.message); }
+        }
+    }
+
 
     } // end per-attachment loop
 
