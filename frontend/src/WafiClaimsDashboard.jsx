@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import {
   Inbox, RefreshCw, Play, CheckCircle, XCircle, AlertTriangle,
   Clock, FileText, Download, ChevronDown, ChevronUp, Filter,
@@ -1061,11 +1061,6 @@ export default function WafiClaimsDashboard({ user }) {
                                   {(sessionDetail.session.ot_triple_count > 0) && (
                                     <div style={{ background:'rgba(124,58,237,0.1)', border:'1px solid rgba(124,58,237,0.2)', borderRadius:'8px', padding:'8px 14px' }}>
                                       <div style={{ fontSize:'0.7rem', color:'#7c3aed', fontWeight:600, textTransform:'uppercase' }}>OT 3× Hours</div>
-                                      <div style={{ fontSize:'1.1rem', fontWeight:800, color:'#7c3aed' }}>{sessionDetail.session.ot_triple_count || 0} rows</div>
-                                    </div>
-                                  )}
-                                  {sessionDetail.session.total_expense_rows > 0 && (
-                                    <div style={{ background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', borderRadius:'8px', padding:'8px 14px' }}>
                                       <div style={{ fontSize:'0.7rem', color:'#f59e0b', fontWeight:600, textTransform:'uppercase' }}>Expense Claims</div>
                                       <div style={{ fontSize:'1.1rem', fontWeight:800, color:'#f59e0b' }}>{sessionDetail.session.total_expense_rows} rows</div>
                                       <div style={{ fontSize:'0.75rem', color:'#d97706' }}>PKR {(sessionDetail.items?.filter(i=>i.claim_type==='EXPENSE').reduce((s,i)=>s+parseFloat(i.raw_amount||0),0)||0).toLocaleString('en-PK')}</div>
@@ -1094,7 +1089,7 @@ export default function WafiClaimsDashboard({ user }) {
                                       </tr></thead>
                                       <tbody>
                                         {sessionDetail.items.map(item => {
-                                          const dayType = item.day_type || '';
+                                          const dayType  = item.day_type || '';
                                           const dayColor = dayType === 'EID' ? '#7c3aed' : dayType === 'SUNDAY' ? '#f59e0b' : dayType === 'HOLIDAY' ? '#f97316' : '#64748b';
                                           const mult = (item.ot_multiplier || '').toLowerCase();
                                           let llOk = null;
@@ -1104,6 +1099,7 @@ export default function WafiClaimsDashboard({ user }) {
                                             else if (dayType === 'HOLIDAY') llOk = mult !== 'single';
                                             else llOk = true;
                                           }
+                                          const simPct = item.name_similarity != null ? parseFloat(item.name_similarity) : 1;
                                           return (
                                           <tr key={item.id}>
                                             <td style={{ ...s.td, fontSize: '0.73rem', textAlign: 'center', color: '#64748b' }}>{item.row_number}</td>
@@ -1123,7 +1119,8 @@ export default function WafiClaimsDashboard({ user }) {
                                               )}
                                             </td>
                                           </tr>
-                                        ))}
+                                         );
+                                         })}
                                       </tbody>
                                     </table>
                                   </div>
