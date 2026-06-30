@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Inbox, RefreshCw, Play, CheckCircle, XCircle, AlertTriangle,
   Clock, FileText, Download, ChevronDown, ChevronUp, Filter,
@@ -459,6 +459,69 @@ export default function WafiClaimsDashboard({ user }) {
     setSendingVerification(null);
   };
 
+  const [downloadingExcel, setDownloadingExcel] = useState(null);
+  const handleDownloadExcel = async (sessionId, filename) => {
+    setDownloadingExcel(sessionId);
+    try {
+      const res = await window.fetch(`${API}/api/wafi-claims/sessions/${sessionId}/download-excel`, {
+        headers: { 'Authorization': `Bearer ${tok()}` }
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `Wafi_Claims_Session_${sessionId}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Failed to download: ${e.message}`);
+    }
+    setDownloadingExcel(null);
+  };
+
+  const [uploadingFix, setUploadingFix] = useState(null);
+  const fileInputRef = useRef(null);
+  const [uploadSessionId, setUploadSessionId] = useState(null);
+
+  const triggerUploadFix = (sessionId) => {
+    setUploadSessionId(sessionId);
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !uploadSessionId) return;
+    
+    setUploadingFix(uploadSessionId);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await window.fetch(`${API}/api/wafi-claims/sessions/${uploadSessionId}/upload-excel`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${tok()}` },
+        body: formData
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      
+      alert(data.message || 'Fix uploaded successfully');
+      await loadSessions();
+      if (sessionDetail?.session?.id === uploadSessionId) {
+        await loadSessionDetail(uploadSessionId);
+      }
+    } catch (err) {
+      alert(`Failed to upload fix: ${err.message}`);
+    }
+    setUploadingFix(null);
+    setUploadSessionId(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleReprocess = async (sessionId) => {
     if (!window.confirm('This will delete this session record and mark the email as unread so the next poll re-processes it. Continue?')) return;
     setReprocessing(sessionId);
@@ -837,9 +900,12 @@ export default function WafiClaimsDashboard({ user }) {
                           <button onClick={() => handleExpandSession(sess.id)} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             {expandedSession === sess.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Details
                           </button>
-                          <a href={`/api/wafi-claims/sessions/${sess.id}/download-excel`} target="_blank" rel="noopener noreferrer" style={{ ...btn('#22c55e','rgba(34,197,94,0.1)'), fontSize:'0.78rem', padding:'5px 10px', textDecoration: 'none' }} title="Download original Excel from Gmail">
-                            <Download size={13}/> Original Excel
-                          </a>
+                          <button onClick={() => handleDownloadExcel(sess.id, sess.attachment_filename)} disabled={downloadingExcel === sess.id} style={{ ...btn('#22c55e','rgba(34,197,94,0.1)'), fontSize:'0.78rem', padding:'5px 10px', textDecoration: 'none' }} title="Download original Excel from Gmail">
+                            {downloadingExcel === sess.id ? <Spinner size={13}/> : <Download size={13}/>} Original Excel
+                          </button>
+                          <button onClick={() => triggerUploadFix(sess.id)} disabled={uploadingFix === sess.id} style={{ ...btn('#f59e0b','rgba(245,158,11,0.15)'), fontSize:'0.78rem', padding:'5px 10px' }} title="Upload a corrected Excel file to overwrite this session">
+                            {uploadingFix === sess.id ? <Spinner size={13}/> : '↑'} Upload Fix
+                          </button>
                           {sess.processing_status === 'PENDING_REVIEW' && (
                             <button
                               onClick={() => setVerifyModal({ sessionId: sess.id, sender: sess.sender_email, filename: sess.attachment_filename, otCount: sess.total_ot_rows, expCount: sess.total_expense_rows, medCount: sess.total_medical_rows })}
@@ -1651,6 +1717,8 @@ export default function WafiClaimsDashboard({ user }) {
       )}
 
       <style>{`@keyframes wafi_spin { to { transform: rotate(360deg); } } @keyframes wafi_pulse { 0%,100% { opacity:1 } 50% { opacity:0.6 } }`}</style>
+      {/* Hidden file input for uploading fixes */}
+      <input type="file" accept=".xlsx" style={{ display: 'none' }} ref={fileInputRef} onChange={handleFileChange} />
     </div>
 
   );

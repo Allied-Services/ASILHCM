@@ -6153,7 +6153,7 @@ app.post('/api/wafi-claims/sessions/:id/send-verification-draft', requireAuth, a
         // Load session
         const { rows } = await pool.query(
             `SELECT id, sender_email, subject, gmail_message_id, gmail_thread_id,
-                    attachment_filename AS filename, name_warnings, validation_errors, qc_email_sent
+                    attachment_filename AS filename, name_warnings, validation_errors, qc_email_sent, location_name
              FROM wafi_claims_sessions WHERE id = $1`, [sessionId]
         );
         if (!rows.length) return res.status(404).json({ error: 'Session not found' });
@@ -6201,6 +6201,23 @@ app.post('/api/wafi-claims/sessions/:id/send-verification-draft', requireAuth, a
             `SELECT line_manager FROM wafi_claims_items WHERE session_id = $1 AND active = TRUE`, [sessionId]
         );
         const lineManagerEmails = wafiClaims.matchLineManagerEmailsExported(items, ccWafiEmails);
+
+        // Add Focal Points
+        try {
+            const focalQuery = sess.location_name 
+                ? `SELECT email FROM wafi_focal_points WHERE active = TRUE AND location = $1` 
+                : `SELECT email FROM wafi_focal_points WHERE active = TRUE`;
+            const focalParams = sess.location_name ? [sess.location_name] : [];
+            const { rows: focalRows } = await pool.query(focalQuery, focalParams);
+            focalRows.forEach(f => {
+                const fe = f.email.toLowerCase().trim();
+                if (fe && !lineManagerEmails.includes(fe)) {
+                    lineManagerEmails.push(fe);
+                }
+            });
+        } catch (fErr) {
+            console.warn('[Send Verification] Could not fetch focal points:', fErr.message);
+        }
 
         // Build and send the draft
         const gmail = wafiClaims.createGmailClientExported();
@@ -6260,6 +6277,47 @@ app.get('/api/wafi-claims/sessions/:id/download-excel', requireAuth, async (req,
     } catch (e) {
         console.error('[Download Excel] Error:', e.message);
         res.status(500).send(e.message);
+    }
+});
+
+// POST /api/wafi-claims/sessions/:id/upload-excel
+// Upload a corrected Excel file to overwrite the session items
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
+
+app.post('/api/wafi-claims/sessions/:id/upload-excel', requireAuth, upload.single('file'), async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+        const file = req.file;
+        if (!file) return res.status(400).json({ error: 'No file uploaded' });
+
+        // Verify session exists
+        const { rows } = await pool.query(
+            `SELECT id, sender_email, attachment_filename FROM wafi_claims_sessions WHERE id = $1`, 
+            [sessionId]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Session not found' });
+        const sess = rows[0];
+
+        console.log(`[Wafi Claims] Reprocessing session ${sessionId} with uploaded file: ${file.originalname}`);
+
+        // Re-process the excel using wafiClaimsService logic
+        // processOvertimeSheet requires: buffer, sessionId, senderEmail, attachmentFilename
+        const result = await wafiClaims.processOvertimeSheetExported(
+            file.buffer, 
+            sessionId, 
+            sess.sender_email, 
+            file.originalname
+        );
+
+        if (!result.success) {
+            return res.status(400).json({ error: 'Failed to process uploaded file: ' + result.error });
+        }
+
+        res.json({ ok: true, message: 'Fix uploaded and processed successfully' });
+    } catch (e) {
+        console.error('[Upload Excel Fix] Error:', e);
+        res.status(500).json({ error: e.message });
     }
 });
 
