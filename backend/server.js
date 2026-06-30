@@ -5673,16 +5673,22 @@ pool.query(`
 // GET /api/wafi-claims/sessions
 app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
     try {
-        const { status, dateFrom, dateTo, location, search } = req.query;
+        const { status, dateFrom, dateTo, location, search, claimMonth } = req.query;
         const page  = Math.max(1, parseInt(req.query.page)  || 1);
         const limit = Math.min(200, parseInt(req.query.limit) || 50);
         const offset = (page - 1) * limit;
 
         const vals = [];
         let where = 'WHERE 1=1';
-        if (status)   { vals.push(status);   where += ` AND wcs.processing_status = $${vals.length}`; }
+        if (status)   { 
+            vals.push(status);   
+            where += ` AND wcs.processing_status = $${vals.length}`; 
+        } else {
+            where += ` AND wcs.processing_status != 'IRRELEVANT'`;
+        }
         if (dateFrom) { vals.push(dateFrom); where += ` AND wcs.received_at >= $${vals.length}::timestamptz`; }
         if (dateTo)   { vals.push(dateTo);   where += ` AND wcs.received_at <= $${vals.length}::timestamptz`; }
+        if (claimMonth) { vals.push(claimMonth + '-01'); where += ` AND wcs.claim_month = $${vals.length}::date`; }
         if (location) { vals.push(`%${location}%`); where += ` AND wcs.location_name ILIKE $${vals.length}`; }
         if (search)   { vals.push(`%${search}%`); where += ` AND (wcs.sender_email ILIKE $${vals.length} OR wcs.attachment_filename ILIKE $${vals.length} OR wcs.subject ILIKE $${vals.length})`; }
 
@@ -5860,6 +5866,62 @@ app.get('/api/wafi-claims/export', requireAuth, async (req, res) => {
 
         const dateStr = new Date().toISOString().slice(0, 10);
         res.setHeader('Content-Disposition', `attachment; filename="wafi_claims_export_${dateStr}.xlsx"`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(buf);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/wafi-claims/sessions-export
+app.get('/api/wafi-claims/sessions-export', requireAuth, async (req, res) => {
+    try {
+        const { status, dateFrom, dateTo, claimMonth, search } = req.query;
+        const vals = [];
+        let where = 'WHERE 1=1';
+        if (status) { 
+            vals.push(status);   
+            where += ` AND wcs.processing_status = $${vals.length}`; 
+        } else {
+            where += ` AND wcs.processing_status != 'IRRELEVANT'`;
+        }
+        if (dateFrom) { vals.push(dateFrom); where += ` AND wcs.received_at >= $${vals.length}::timestamptz`; }
+        if (dateTo)   { vals.push(dateTo);   where += ` AND wcs.received_at <= $${vals.length}::timestamptz`; }
+        if (claimMonth) { vals.push(claimMonth + '-01'); where += ` AND wcs.claim_month = $${vals.length}::date`; }
+        if (search)   { vals.push(`%${search}%`); where += ` AND (wcs.sender_email ILIKE $${vals.length} OR wcs.attachment_filename ILIKE $${vals.length} OR wcs.subject ILIKE $${vals.length})`; }
+
+        const { rows } = await pool.query(
+            `SELECT wcs.id, wcs.received_at, wcs.sender_email, wcs.attachment_filename, wcs.claim_month, wcs.processing_status,
+                    COALESCE(ot_counts.single_rows, 0) + COALESCE(ot_counts.double_rows, 0) + COALESCE(ot_counts.triple_rows, 0) AS ot_rows,
+                    wcs.total_expense_rows, wcs.total_medical_rows
+             FROM wafi_claims_sessions wcs
+             LEFT JOIN (
+                 SELECT session_id,
+                        COUNT(CASE WHEN ot_multiplier = 1 THEN 1 END) AS single_rows,
+                        COUNT(CASE WHEN ot_multiplier = 2 THEN 1 END) AS double_rows,
+                        COUNT(CASE WHEN ot_multiplier = 3 THEN 1 END) AS triple_rows
+                 FROM wafi_claims_items WHERE active = TRUE AND claim_type = 'OT' GROUP BY session_id
+             ) ot_counts ON ot_counts.session_id = wcs.id
+             ${where}
+             ORDER BY wcs.received_at DESC`,
+            vals
+        );
+
+        const wb = XLSX_wafi.utils.book_new();
+        const ws = XLSX_wafi.utils.json_to_sheet(rows.map(r => ({
+            ID: r.id,
+            'Received At': r.received_at ? new Date(r.received_at).toLocaleString() : '',
+            'Sender Email': r.sender_email,
+            'Filename': r.attachment_filename,
+            'Claim Month': r.claim_month ? String(r.claim_month).slice(0, 7) : '',
+            'Status': r.processing_status,
+            'OT Rows': parseInt(r.ot_rows),
+            'Expense Rows': r.total_expense_rows,
+            'Medical Rows': r.total_medical_rows
+        })));
+        XLSX_wafi.utils.book_append_sheet(wb, ws, 'Sessions');
+        const buf = XLSX_wafi.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+        const dateStr = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Disposition', `attachment; filename="wafi_claims_sessions_${dateStr}.xlsx"`);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.send(buf);
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -6091,7 +6153,7 @@ app.post('/api/wafi-claims/sessions/:id/send-verification-draft', requireAuth, a
         // Load session
         const { rows } = await pool.query(
             `SELECT id, sender_email, subject, gmail_message_id, gmail_thread_id,
-                    filename, name_warnings, validation_errors, qc_email_sent
+                    attachment_filename AS filename, name_warnings, validation_errors, qc_email_sent
              FROM wafi_claims_sessions WHERE id = $1`, [sessionId]
         );
         if (!rows.length) return res.status(404).json({ error: 'Session not found' });
@@ -6168,6 +6230,36 @@ app.post('/api/wafi-claims/sessions/:id/send-verification-draft', requireAuth, a
     } catch (e) {
         console.error('[Send Verification Draft] Error:', e.message);
         res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/wafi-claims/sessions/:id/download-excel
+// Fetches the original Excel attachment directly from Gmail and downloads it.
+app.get('/api/wafi-claims/sessions/:id/download-excel', requireAuth, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id);
+        const { rows } = await pool.query(
+            `SELECT gmail_message_id, attachment_filename 
+             FROM wafi_claims_sessions WHERE id = $1`, [sessionId]
+        );
+        if (!rows.length || !rows[0].gmail_message_id || !rows[0].attachment_filename) {
+            return res.status(404).send('Session or attachment not found');
+        }
+
+        const gmail = wafiClaims.createGmailClientExported();
+        if (!gmail) return res.status(500).send('Gmail not configured');
+
+        const buffer = await wafiClaims.downloadAttachmentFromGmailExported(
+            gmail, rows[0].gmail_message_id, rows[0].attachment_filename
+        );
+        if (!buffer) return res.status(404).send('Attachment could not be downloaded from Gmail');
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${rows[0].attachment_filename}"`);
+        res.send(buffer);
+    } catch (e) {
+        console.error('[Download Excel] Error:', e.message);
+        res.status(500).send(e.message);
     }
 });
 

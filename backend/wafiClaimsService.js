@@ -145,6 +145,31 @@ async function createGmailDraft(gmail, threadId, toEmail, subject, htmlBody, ccE
     }
 }
 
+// ── Download Attachment from Gmail ───────────────────────────────────────────
+async function downloadAttachmentFromGmail(gmail, msgId, filename) {
+    try {
+        const { data: msg } = await gmail.users.messages.get({ userId: 'me', id: msgId });
+        let attachmentId = null;
+        function findAttachment(part) {
+            if (part.filename === filename && part.body?.attachmentId) {
+                attachmentId = part.body.attachmentId;
+            }
+            if (part.parts) part.parts.forEach(findAttachment);
+        }
+        findAttachment(msg.payload);
+        
+        if (!attachmentId) return null;
+
+        const { data: attData } = await gmail.users.messages.attachments.get({
+            userId: 'me', messageId: msgId, id: attachmentId,
+        });
+        return Buffer.from(attData.data, 'base64');
+    } catch (e) {
+        console.warn(`[Wafi Claims] Failed to download attachment ${filename}:`, e.message);
+        return null;
+    }
+}
+
 // ── Normalization Helpers ─────────────────────────────────────────────────────
 function normalizeCode(raw) {
     return String(raw || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -791,9 +816,7 @@ function checkPakistanLabourLaw(claimDate, otHours, multRaw, timeFromRaw, timeTo
     if (otHours > maxOtHours) {
         violations.push({
             severity: 'WARNING',
-            message: `High OT hours — ${otHours}h claimed on ${dateLabel} (${dateType.name}). `
-                   + `Pakistan Labour Law generally caps OT at ${maxOtHours}h/day (total ${8 + maxOtHours}h including regular 8h). `
-                   + `Please verify with line manager sign-off.`,
+            message: `High OT: ${otHours}h claimed on ${claimDate.toLocaleDateString('en-GB', {day:'2-digit', month:'short'})}. Max allowed is ${maxOtHours}h/day.`,
         });
     }
 
@@ -811,13 +834,9 @@ function checkPakistanLabourLaw(claimDate, otHours, multRaw, timeFromRaw, timeTo
         const discrepancy = otHours - expectedOt; // positive = over-claimed, negative = under-claimed
 
         if (Math.abs(discrepancy) > 0.5) { // allow 30-min rounding tolerance
-            const overUnder = discrepancy > 0 ? `over-claimed by ${discrepancy.toFixed(1)}h` : `under-claimed by ${Math.abs(discrepancy).toFixed(1)}h`;
             violations.push({
                 severity: 'WARNING',
-                message: `Time mismatch — Time From "${String(timeFromRaw).trim()}" to Time To "${String(timeToRaw).trim()}" `
-                       + `= ${totalShiftHours.toFixed(2)}h total shift. After deducting ${STANDARD_HOURS}h standard working hours, `
-                       + `expected OT = ${expectedOt.toFixed(2)}h, but ${otHours}h was claimed (${overUnder}). `
-                       + `Please verify with the timesheet or line manager.`,
+                message: `Time Mismatch: ${totalShiftHours.toFixed(1)} hrs shift, ${otHours} hrs OT Claimed`,
             });
         }
     }
@@ -948,10 +967,11 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
         if (claimDate && hours != null && hours > 0 && multiplierFactor != null) {
             const llViolations = checkPakistanLabourLaw(claimDate, hours, multRaw, row[7], row[8]);
             for (const v of llViolations) {
+                const prefix = emp ? `[${emp.id} - ${emp.name}] ` : '';
                 if (v.severity === 'ERROR') {
-                    errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'K', error: v.message, value: multRaw });
+                    errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'K', error: `${prefix}${v.message}`, value: multRaw });
                 } else {
-                    warnings.push({ type: 'LABOUR_LAW', sheet: 'Overtime Claims', row: rowNum, note: v.message });
+                    warnings.push({ type: 'LABOUR_LAW', sheet: 'Overtime Claims', row: rowNum, note: `${prefix}${v.message}` });
                 }
             }
         }
@@ -2442,4 +2462,5 @@ module.exports = {
     createGmailClientExported:          createGmailClient,
     matchLineManagerEmailsExported:     matchLineManagerEmails,
     createVerificationDraftExported:    createVerificationDraft,
+    downloadAttachmentFromGmailExported: downloadAttachmentFromGmail,
 };

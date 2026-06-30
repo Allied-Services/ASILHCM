@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Inbox, RefreshCw, Play, CheckCircle, XCircle, AlertTriangle,
   Clock, FileText, Download, ChevronDown, ChevronUp, Filter,
@@ -113,7 +113,7 @@ export default function WafiClaimsDashboard({ user }) {
   const [sessions, setSessions]         = useState([]);
   const [sessionTotal, setSessionTotal] = useState(0);
   const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [sessFilter, setSessFilter]     = useState({ status: '', dateFrom: '', dateTo: '', search: '' });
+  const [sessFilter, setSessFilter]     = useState({ status: '', dateFrom: '', dateTo: '', search: '', claimMonth: '' });
   const [sessPage, setSessPage]         = useState(1);
   const [expandedSession, setExpandedSession] = useState(null);
   const [sessionDetail, setSessionDetail]   = useState(null);
@@ -291,6 +291,16 @@ export default function WafiClaimsDashboard({ user }) {
     if (itemsFilter.claimType && itemsFilter.claimType !== 'ALL') params.set('claimType', itemsFilter.claimType);
     if (itemsFilter.employeeCode) params.set('employeeCode', itemsFilter.employeeCode);
     window.open(`${API}/api/wafi-claims/export?${params}&_tok=${tok()}`, '_blank');
+  };
+
+  const exportSessions = () => {
+    const params = new URLSearchParams();
+    if (sessFilter.dateFrom)    params.set('dateFrom', sessFilter.dateFrom);
+    if (sessFilter.dateTo)      params.set('dateTo', sessFilter.dateTo);
+    if (sessFilter.status)      params.set('status', sessFilter.status);
+    if (sessFilter.search)      params.set('search', sessFilter.search);
+    if (sessFilter.claimMonth)  params.set('claimMonth', sessFilter.claimMonth);
+    window.open(`${API}/api/wafi-claims/sessions-export?${params}&_tok=${tok()}`, '_blank');
   };
 
   const searchEmployees = useCallback(async (q) => {
@@ -737,10 +747,20 @@ export default function WafiClaimsDashboard({ user }) {
               <option value="">All Statuses</option>
               {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
+            <select value={sessFilter.claimMonth} onChange={e => { setSessFilter(f => ({ ...f, claimMonth: e.target.value })); setSessPage(1); }} style={{ ...s.sel, fontSize:'0.82rem' }}>
+              <option value="">All Months</option>
+              {MONTHS.map(m => (
+                <option key={m.year + '-' + String(m.month).padStart(2,'0')} value={m.year + '-' + String(m.month).padStart(2,'0')}>
+                  {new Date(m.year, m.month - 1).toLocaleString('default', { month: 'short' })} {m.year}
+                </option>
+              ))}
+            </select>
             <input type="date" value={sessFilter.dateFrom} onChange={e => setSessFilter(f => ({ ...f, dateFrom: e.target.value }))} style={{ ...s.input, colorScheme:'dark', fontSize:'0.82rem' }} />
-            <input type="date" value={sessFilter.dateTo}   onChange={e => setSessFilter(f => ({ ...f, dateTo:   e.target.value }))} style={{ ...s.input, colorScheme:'dark', fontSize:'0.82rem' }} />
-            <button onClick={loadSessions} style={btn()}><RefreshCw size={13} /> Refresh</button>
-            <span style={{ color:'#64748b', fontSize:'0.78rem', marginLeft:'auto' }}>{sessionTotal} total</span>
+            <span style={{ color: '#64748b' }}>–</span>
+            <input type="date" value={sessFilter.dateTo} onChange={e => setSessFilter(f => ({ ...f, dateTo: e.target.value }))} style={{ ...s.input, colorScheme:'dark', fontSize:'0.82rem' }} />
+            <button onClick={loadSessions} style={{ ...btn(), padding: '5px 10px', fontSize: '0.8rem' }}><RefreshCw size={12}/> Refresh</button>
+            <button onClick={exportSessions} style={{ ...btn('#22c55e', 'rgba(34,197,94,0.12)'), padding: '5px 10px', fontSize: '0.8rem' }}><Download size={12}/> Export Excel</button>
+            <span style={{ color:'#64748b', fontSize:'0.8rem', marginLeft:'auto' }}>{sessionTotal} sessions</span>
           </div>
           {/* Quick filter chips */}
           <div style={{ display:'flex', gap:'6px', marginBottom:'0.75rem', flexWrap:'wrap' }}>
@@ -817,6 +837,9 @@ export default function WafiClaimsDashboard({ user }) {
                           <button onClick={() => handleExpandSession(sess.id)} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             {expandedSession === sess.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Details
                           </button>
+                          <a href={`/api/wafi-claims/sessions/${sess.id}/download-excel`} target="_blank" rel="noopener noreferrer" style={{ ...btn('#22c55e','rgba(34,197,94,0.1)'), fontSize:'0.78rem', padding:'5px 10px', textDecoration: 'none' }} title="Download original Excel from Gmail">
+                            <Download size={13}/> Original Excel
+                          </a>
                           {sess.processing_status === 'PENDING_REVIEW' && (
                             <button
                               onClick={() => setVerifyModal({ sessionId: sess.id, sender: sess.sender_email, filename: sess.attachment_filename, otCount: sess.total_ot_rows, expCount: sess.total_expense_rows, medCount: sess.total_medical_rows })}
