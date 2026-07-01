@@ -437,11 +437,19 @@ Respond ONLY with valid JSON, no extra text:
 
 // Parse date string with optional format override ('DD-MM-YYYY' or 'MM-DD-YYYY')
 // Also handles natural language dates like "12th May 2026", "14 May 2026", "May 12 2026"
-function parseDate(raw, fmt) {
+function parseDate(raw, fmt, expectedMonth) {
     if (raw == null || raw === '') return null;
     if (typeof raw === 'number') {
         const d = new Date(new Date(1899, 11, 30).getTime() + raw * 86400000);
-        return isNaN(d) ? null : d;
+        if (isNaN(d)) return null;
+        if (expectedMonth != null && d.getMonth() + 1 !== expectedMonth) {
+            // Excel US locale flip detection (e.g. 01.05.2026 typed on US locale -> Jan 5)
+            // If the day matches the expected month, Excel flipped them
+            if (d.getDate() === expectedMonth) {
+                return new Date(d.getFullYear(), expectedMonth - 1, d.getMonth() + 1);
+            }
+        }
+        return d;
     }
     const s = String(raw).trim();
 
@@ -451,8 +459,15 @@ function parseDate(raw, fmt) {
         let day, month;
         const a = parseInt(m1[1]), b = parseInt(m1[2]), c = parseInt(m1[3]);
         const fullYear = c < 100 ? 2000 + c : c;
-        if (fmt === 'MM-DD-YYYY') { month = a - 1; day = b; }
-        else { day = a; month = b - 1; }
+        if (expectedMonth != null) {
+            if (a === expectedMonth && b !== expectedMonth) { month = a - 1; day = b; }
+            else if (b === expectedMonth && a !== expectedMonth) { month = b - 1; day = a; }
+            else if (fmt === 'MM-DD-YYYY') { month = a - 1; day = b; }
+            else { day = a; month = b - 1; }
+        } else {
+            if (fmt === 'MM-DD-YYYY') { month = a - 1; day = b; }
+            else { day = a; month = b - 1; }
+        }
         const d = new Date(fullYear, month, day);
         return isNaN(d.getTime()) || month < 0 || month > 11 || day < 1 || day > 31 ? null : d;
     }
@@ -914,7 +929,7 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
         }
 
         // Smart duplicate detection: OT — same employee same date is always an error
-        const claimDate = parseDate(dateRaw, dateFmt);
+        const claimDate = parseDate(dateRaw, dateFmt, monthResult ? monthResult.month : null);
         const dupKey = `${normalizeCode(rawCode)}|${claimDate ? claimDate.toISOString().slice(0, 10) : rowNum}`;
         if (seenKeys.has(dupKey)) {
             errors.push({ sheet: 'Overtime Claims', row: rowNum, column: 'B', error: 'Duplicate row: same employee and date already appears earlier in this sheet', value: rawCode });
@@ -1061,7 +1076,7 @@ async function processExpenseSheet(pool, rows, errors, warnings, filename) {
             continue;
         }
 
-        const claimDate = parseDate(dateRaw, dateFmt);
+        const claimDate = parseDate(dateRaw, dateFmt, expMonthResult ? expMonthResult.month : null);
         const dupKey = `${normalizeCode(rawCode)}|${expenseType}|${claimDate ? claimDate.toISOString().slice(0,10) : rowNum}`;
         if (seenKeys.has(dupKey)) {
             errors.push({ sheet: 'Expense Claims', row: rowNum, column: 'B', error: 'Duplicate row: same employee, expense type, and date appears earlier', value: rawCode });
@@ -1169,7 +1184,7 @@ async function processMedicalSheet(pool, rows, errors, warnings, filename) {
             continue;
         }
 
-        const claimDate = parseDate(dateRaw, dateFmt);
+        const claimDate = parseDate(dateRaw, dateFmt, medMonthResult ? medMonthResult.month : null);
         const amount = parseNum(amountRaw);
         // Smart duplicate: include amount in key — same emp+type+date but DIFFERENT amount = two separate bills (warning, not error)
         const dupKeyStrict  = `${normalizeCode(rawCode)}|${claimType}|${claimDate ? claimDate.toISOString().slice(0,10) : rowNum}|${Math.round(amount || 0)}`;
