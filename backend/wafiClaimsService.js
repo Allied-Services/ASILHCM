@@ -2495,19 +2495,48 @@ async function processUploadedFix(pool, buffer, sessionId, senderEmail, filename
         WHERE id = $8
     `, [status, JSON.stringify(errors), JSON.stringify(warnings), otCount, expCount, medCount, filename, sessionId]);
 
-    for (const r of allItems) {
+    for (const item of allItems) {
+        let otPayout = null;
+        if (item.tab_name === 'Overtime Claims' && item.salary && item.ot_hours && item.ot_multiplier_factor) {
+            const hourlyRate = item.salary / 26 / 8;
+            otPayout = parseFloat((item.ot_hours * item.ot_multiplier_factor * hourlyRate).toFixed(2));
+        }
+
+        let claimTypeField = null;
+        if (item.tab_name === 'Overtime Claims') claimTypeField = 'OT';
+        else if (item.tab_name === 'Expense Claims') claimTypeField = 'EXPENSE';
+        else if (item.tab_name === 'Medical & IPD Claims') claimTypeField = 'MEDICAL';
+
+        // Use toISOString slice for dates, same as saveSession
+        let claimDateStr = null;
+        if (item.claim_date) {
+            try {
+                const d = item.claim_date instanceof Date ? item.claim_date : new Date(item.claim_date);
+                if (!isNaN(d)) claimDateStr = d.toISOString().slice(0,10);
+            } catch(e){}
+        }
+
         await pool.query(`
             INSERT INTO wafi_claims_items
-                (session_id, employee_id, employee_name_db, location, department, claim_type, expense_type,
-                 description, raw_amount, claim_date, ot_hours, ot_multiplier, time_from, time_to,
-                 line_manager, wbs_cost_center, raw_row_data, has_error, error_msg)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+                (session_id, tab_name, row_number, employee_id, employee_code_raw,
+                 employee_name_raw, employee_name_db, name_similarity,
+                 claim_date, claim_type, ot_hours, ot_multiplier, ot_multiplier_factor,
+                 ot_payout, expense_type, description, raw_amount,
+                 location, department, line_manager, patient_name,
+                 day_type, active)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,TRUE)
         `, [
-            sessionId, r.employee_id, r.employee_name_db, r.location, r.department,
-            r.claim_type, r.expense_type, r.description, r.raw_amount, r.claim_date,
-            r.ot_hours, r.ot_multiplier, r.time_from, r.time_to,
-            r.line_manager, r.wbs_cost_center, r.raw_row_data,
-            !!r._error, r._error || r.note
+            sessionId, item.tab_name, item.row_number,
+            item.employee_id || null, item.employee_code_raw || null,
+            item.employee_name_raw || null, item.employee_name_db || null,
+            item.name_similarity != null ? item.name_similarity.toFixed(3) : null,
+            claimDateStr, claimTypeField,
+            item.ot_hours || null, item.ot_multiplier || null, item.ot_multiplier_factor || null,
+            otPayout,
+            item.expense_type || null, item.description || null, item.raw_amount || null,
+            item.location || null, item.department || null, item.line_manager || null,
+            item.patient_name || null,
+            item.day_type || null,
         ]);
     }
 
