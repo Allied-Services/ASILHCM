@@ -141,7 +141,7 @@ async function createGmailDraft(gmail, threadId, toEmail, subject, htmlBody, ccE
         return data.id;
     } catch (e) {
         console.warn('[Wafi Claims] Failed to create Gmail draft:', e.message);
-        return null;
+        throw new Error('Gmail API Error: ' + e.message);
     }
 }
 
@@ -1558,7 +1558,7 @@ async function createVerificationDraft(gmail, threadId, senderEmail, ccEmails, s
         return draftId;
     } catch (e) {
         console.warn('[Wafi Claims] Verification draft warning:', e.message);
-        return null;
+        throw e;
     }
 }
 
