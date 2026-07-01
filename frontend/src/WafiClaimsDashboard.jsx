@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Inbox, RefreshCw, Play, CheckCircle, XCircle, AlertTriangle,
   Clock, FileText, Download, ChevronDown, ChevronUp, Filter,
@@ -1229,7 +1229,7 @@ export default function WafiClaimsDashboard({ user }) {
                                   <div style={{ overflowX: 'auto' }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                                       <thead><tr>
-                                        {['Row','Code','Submitted Name','Name (DB)','Date','Day','Type','OT Hrs','Rate','LL ✓','Amount','Payout'].map(h => <th key={h} style={{ ...s.th, fontSize: '0.68rem' }}>{h}</th>)}
+                                        {['Row','Code','Name','Date','Day','Type','OT Hrs','Rate','Description','Amount','Payout'].map(h => <th key={h} style={{ ...s.th, fontSize: '0.68rem' }}>{h}</th>)}
                                       </tr></thead>
                                       <tbody>
                                         {sessionDetail.items.map(item => {
@@ -1248,20 +1248,21 @@ export default function WafiClaimsDashboard({ user }) {
                                           <tr key={item.id}>
                                             <td style={{ ...s.td, fontSize: '0.73rem', textAlign: 'center', color: '#64748b' }}>{item.row_number}</td>
                                             <td style={{ ...s.td, fontSize: '0.72rem', color: '#94a3b8' }}>{item.employee_id || item.employee_code_raw}</td>
-                                            <td style={{ ...s.td, fontSize: '0.75rem' }}>{item.employee_name_db || '—'}</td>
+                                            <td style={{ ...s.td, fontSize: '0.75rem' }}>
+                                                {item.employee_name_db || item.employee_name_raw || '—'}
+                                                {simPct < 0.8 && <span style={{ color:'#f59e0b', fontSize:'0.72rem', fontWeight:700, marginLeft:'4px' }}>⚠ {(simPct*100).toFixed(0)}%</span>}
+                                            </td>
                                             <td style={{ ...s.td, fontSize: '0.73rem', whiteSpace: 'nowrap' }}>{fmtD(item.claim_date)}</td>
+                                            <td style={{ ...s.td, fontSize: '0.73rem', color: dayColor, fontWeight: 600 }}>{dayType || '—'}</td>
                                             <td style={s.td}><ClaimTypeBadge type={item.claim_type} /></td>
                                             <td style={{ ...s.td, textAlign: 'center', color: '#a78bfa' }}>{item.ot_hours || '—'}</td>
-                                            <td style={{ ...s.td, fontSize: '0.72rem', color: '#94a3b8' }}>{item.ot_multiplier || '—'}</td>
+                                            <td style={{ ...s.td, fontSize: '0.72rem', color: '#94a3b8' }}>
+                                                {item.ot_multiplier || '—'}
+                                                {llOk === false && <span style={{ color:'#ef4444', marginLeft:'4px' }}>⚠</span>}
+                                            </td>
+                                            <td style={{ ...s.td, fontSize: '0.72rem', color: '#475569' }}>{item.description || item.expense_type || '—'}</td>
                                             <td style={{ ...s.td, textAlign: 'right', color: '#f59e0b' }}>{item.raw_amount ? `PKR ${fmt(item.raw_amount)}` : '—'}</td>
                                             <td style={{ ...s.td, textAlign: 'right', color: '#22c55e' }}>{item.ot_payout ? `PKR ${fmt(item.ot_payout)}` : '—'}</td>
-                                            <td style={s.td}>
-                                              {item.name_similarity != null && parseFloat(item.name_similarity) < 0.8 ? (
-                                                <span style={{ color:'#f59e0b', fontSize:'0.72rem', fontWeight:700 }}>⚠ {(parseFloat(item.name_similarity)*100).toFixed(0)}%</span>
-                                              ) : (
-                                                <span style={{ color:'#22c55e', fontSize:'0.72rem' }}>✓</span>
-                                              )}
-                                            </td>
                                           </tr>
                                          );
                                          })}

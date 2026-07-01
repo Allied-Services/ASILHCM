@@ -639,14 +639,14 @@ function parseWafiExcel(buffer, filename) {
     const expSheet = sheetNames.find(n => n.toLowerCase().includes(SHEET_KEYWORDS.expense));
     const medSheet = sheetNames.find(n => n.toLowerCase().includes(SHEET_KEYWORDS.medical));
 
-    if (!otSheet || !expSheet || !medSheet) {
+    if (!otSheet || !expSheet) {
         const missing = [];
         if (!otSheet)  missing.push('"Overtime"');
         if (!expSheet) missing.push('"Expense"');
-        if (!medSheet) missing.push('"Medical"');
+        if (!medSheet) missing.push('"Medical"'); // Just log it, but wait, the mismatch only triggers on OT/EXP now
         return { mismatch: true, found: sheetNames, missing };
     }
-    return { wb, otSheet, expSheet, medSheet };
+    return { wb, otSheet, expSheet, medSheet: medSheet || null };
 }
 
 function getSheetRows(wb, sheetName) {
@@ -811,13 +811,15 @@ function checkPakistanLabourLaw(claimDate, otHours, multRaw, timeFromRaw, timeTo
     // ── Rule 2: Maximum OT hours per day ─────────────────────────────────
     // Pakistan Labour Law: total work ≤ 12 hours/day → max 4 OT hours (after 8 regular)
     // Exception: some employers allow up to 6 OT hours on holidays — treated as warning
-    const isHoliday = dateType.type === 'EID' || dateType.type === 'HOLIDAY';
-    const maxOtHours = isHoliday ? 6 : 4;
-    if (otHours > maxOtHours) {
-        violations.push({
-            severity: 'WARNING',
-            message: `High OT: ${otHours}h claimed on ${claimDate.toLocaleDateString('en-GB', {day:'2-digit', month:'short'})}. Max allowed is ${maxOtHours}h/day.`,
-        });
+    if (dateType.type !== 'SUNDAY') {
+        const isHoliday = dateType.type === 'EID' || dateType.type === 'HOLIDAY';
+        const maxOtHours = isHoliday ? 6 : 4;
+        if (otHours > maxOtHours) {
+            violations.push({
+                severity: 'WARNING',
+                message: `High OT: ${otHours}h claimed on ${claimDate.toLocaleDateString('en-GB', {day:'2-digit', month:'short'})}. Max allowed is ${maxOtHours}h/day.`,
+            });
+        }
     }
 
     // ── Rule 3: Time arithmetic check — expected OT = shift − 8h standard ───
@@ -828,8 +830,9 @@ function checkPakistanLabourLaw(claimDate, otHours, multRaw, timeFromRaw, timeTo
         let totalShiftHours = tTo - tFrom;
         if (totalShiftHours < 0) totalShiftHours += 24; // overnight crossing
 
-        // Expected OT = total shift minus standard 8-hour working day
-        const STANDARD_HOURS = 8;
+        // Expected OT = total shift minus standard 8-hour working day (0 on rest days)
+        const isRestDay = dateType.type === 'SUNDAY' || dateType.type === 'EID' || dateType.type === 'HOLIDAY';
+        const STANDARD_HOURS = isRestDay ? 0 : 8;
         const expectedOt = Math.max(0, totalShiftHours - STANDARD_HOURS);
         const discrepancyRegular = otHours - expectedOt; // e.g. 10h shift = 2h OT
         const discrepancyOTOnly = otHours - totalShiftHours; // e.g. 2h shift = 2h OT (only OT logged)
