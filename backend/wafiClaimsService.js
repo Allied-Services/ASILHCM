@@ -831,9 +831,10 @@ function checkPakistanLabourLaw(claimDate, otHours, multRaw, timeFromRaw, timeTo
         // Expected OT = total shift minus standard 8-hour working day
         const STANDARD_HOURS = 8;
         const expectedOt = Math.max(0, totalShiftHours - STANDARD_HOURS);
-        const discrepancy = otHours - expectedOt; // positive = over-claimed, negative = under-claimed
+        const discrepancyRegular = otHours - expectedOt; // e.g. 10h shift = 2h OT
+        const discrepancyOTOnly = otHours - totalShiftHours; // e.g. 2h shift = 2h OT (only OT logged)
 
-        if (Math.abs(discrepancy) > 0.5) { // allow 30-min rounding tolerance
+        if (Math.abs(discrepancyRegular) > 0.5 && Math.abs(discrepancyOTOnly) > 0.5) { 
             violations.push({
                 severity: 'WARNING',
                 message: `Time Mismatch: ${totalShiftHours.toFixed(1)} hrs shift, ${otHours} hrs OT Claimed`,
@@ -877,7 +878,6 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
         const aiResult = await aiAnalyzeClaimsDates(rows.slice(1), dateFmt, null, 'Overtime Claims', filename);
         if (aiResult && (aiResult.confidence === 'high' || aiResult.confidence === 'medium')) {
             dateFmt = aiResult.format || dateFmt;
-            warnings.push({ type: 'DATE_FORMAT_AI', sheet: 'Overtime Claims', note: `AI date detection: ${aiResult.reason} -> using ${dateFmt}` });
         }
     }
     console.log(`[Wafi Claims] OT sheet: month=${monthResult.month}/${monthResult.year} fmt=${dateFmt} source=${monthResult.source}`);
@@ -999,6 +999,8 @@ async function processOvertimeSheet(pool, rows, errors, warnings, filename) {
             line_manager: lineMgr || null,
             raw_amount: null,
             salary: parseFloat(emp.salary) || 0,
+            time_from: row[7],
+            time_to: row[8],
         });
     }
     return items;
@@ -1023,7 +1025,10 @@ async function processExpenseSheet(pool, rows, errors, warnings, filename) {
     const expRawDates = rows.slice(1).map(r => r[0]);
     const expMonthResult = detectClaimMonth(expRawDates, null);
     let dateFmt = expMonthResult.fmt;
+    
+    // If detection was not confident, ask AI for clarification
     if (!expMonthResult.confident) {
+        console.log('[Wafi Claims] EXP: month detection ambiguous — calling AI fallback');
         const aiResult = await aiAnalyzeClaimsDates(rows.slice(1), dateFmt, null, 'Expense Claims', filename);
         if (aiResult && (aiResult.confidence === 'high' || aiResult.confidence === 'medium')) {
             dateFmt = aiResult.format || dateFmt;
@@ -1121,7 +1126,10 @@ async function processMedicalSheet(pool, rows, errors, warnings, filename) {
     const medRawDates = rows.slice(1).map(r => r[0]);
     const medMonthResult = detectClaimMonth(medRawDates, null);
     let dateFmt = medMonthResult.fmt;
+
+    // If detection was not confident, ask AI for clarification
     if (!medMonthResult.confident) {
+        console.log('[Wafi Claims] MED: month detection ambiguous — calling AI fallback');
         const aiResult = await aiAnalyzeClaimsDates(rows.slice(1), dateFmt, null, 'Medical & IPD Claims', filename);
         if (aiResult && (aiResult.confidence === 'high' || aiResult.confidence === 'medium')) {
             dateFmt = aiResult.format || dateFmt;
@@ -2463,5 +2471,5 @@ module.exports = {
     matchLineManagerEmailsExported:     matchLineManagerEmails,
     createVerificationDraftExported:    createVerificationDraft,
     downloadAttachmentFromGmailExported: downloadAttachmentFromGmail,
-    processOvertimeSheetExported:       processOvertimeSheet,
+    processUploadedFixExported:         processUploadedFix,
 };

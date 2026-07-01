@@ -6303,8 +6303,8 @@ app.post('/api/wafi-claims/sessions/:id/upload-excel', requireAuth, upload.singl
         console.log(`[Wafi Claims] Reprocessing session ${sessionId} with uploaded file: ${file.originalname}`);
 
         // Re-process the excel using wafiClaimsService logic
-        // processOvertimeSheet requires: buffer, sessionId, senderEmail, attachmentFilename
-        const result = await wafiClaims.processOvertimeSheetExported(
+        const result = await wafiClaims.processUploadedFixExported(
+            pool,
             file.buffer, 
             sessionId, 
             sess.sender_email, 
