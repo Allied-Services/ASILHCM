@@ -2458,6 +2458,62 @@ async function reprocessSession(pool, sessionId) {
     return { success: true, sessionId, previousStatus: session.processing_status, msgId, threadId, queuedMessages: msgsToQueue.size, note: 'Run Poll Now to reprocess.' };
 }
 
+// ── Upload Fix logic ────────────────────────────────────────────────────────
+async function processUploadedFix(pool, buffer, sessionId, senderEmail, filename) {
+    const parseResult = parseWafiExcel(buffer, filename);
+    if (!parseResult || parseResult.mismatch) return { success: false, error: 'Invalid Excel template structure' };
+
+    const errors = [];
+    const warnings = [];
+
+    const { wb, otSheet, expSheet, medSheet } = parseResult;
+    const otRawRows  = getSheetRows(wb, otSheet);
+    const expRawRows = getSheetRows(wb, expSheet);
+    const medRawRows = getSheetRows(wb, medSheet);
+
+    const otItems  = await processOvertimeSheet(pool, otRawRows, errors, warnings, filename);
+    const expItems = await processExpenseSheet(pool, expRawRows, errors, warnings, filename);
+    const medItems = await processMedicalSheet(pool, medRawRows, errors, warnings, filename);
+
+    const allItems   = [...otItems, ...expItems, ...medItems];
+    const validItems = allItems.filter(r => !r._error);
+
+    const hasErrors = errors.length > 0;
+    const status = hasErrors ? 'VALIDATION_FAILED' : 'PENDING_REVIEW';
+
+    const otCount  = otItems.filter(r => !r._error).length;
+    const expCount = expItems.filter(r => !r._error).length;
+    const medCount = medItems.filter(r => !r._error).length;
+
+    // Replace items
+    await pool.query('DELETE FROM wafi_claims_items WHERE session_id = $1', [sessionId]);
+
+    await pool.query(`
+        UPDATE wafi_claims_sessions
+        SET processing_status = $1, validation_errors = $2::jsonb, name_warnings = $3::jsonb,
+            total_ot_rows = $4, total_expense_rows = $5, total_medical_rows = $6, attachment_filename = $7
+        WHERE id = $8
+    `, [status, JSON.stringify(errors), JSON.stringify(warnings), otCount, expCount, medCount, filename, sessionId]);
+
+    for (const r of allItems) {
+        await pool.query(`
+            INSERT INTO wafi_claims_items
+                (session_id, employee_id, employee_name_db, location, department, claim_type, expense_type,
+                 description, raw_amount, claim_date, ot_hours, ot_multiplier, time_from, time_to,
+                 line_manager, wbs_cost_center, raw_row_data, has_error, error_msg)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        `, [
+            sessionId, r.employee_id, r.employee_name_db, r.location, r.department,
+            r.claim_type, r.expense_type, r.description, r.raw_amount, r.claim_date,
+            r.ot_hours, r.ot_multiplier, r.time_from, r.time_to,
+            r.line_manager, r.wbs_cost_center, r.raw_row_data,
+            !!r._error, r._error || r.note
+        ]);
+    }
+
+    return { success: true };
+}
+
 module.exports = {
     startWafiClaimsService,
     triggerWafiManualPoll,
