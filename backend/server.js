@@ -6267,8 +6267,11 @@ app.get('/api/wafi-claims/sessions/:id/download-excel', requireAuth, async (req,
         const gmail = wafiClaims.createGmailClientExported();
         if (!gmail) return res.status(500).send('Gmail not configured');
 
+        // Handle composite IDs used when an email has multiple attachments (e.g. "msgId::filename")
+        const actualMsgId = rows[0].gmail_message_id.split('::')[0];
+
         const buffer = await wafiClaims.downloadAttachmentFromGmailExported(
-            gmail, rows[0].gmail_message_id, rows[0].attachment_filename
+            gmail, actualMsgId, rows[0].attachment_filename
         );
         if (!buffer) return res.status(404).send('Attachment could not be downloaded from Gmail');
 
