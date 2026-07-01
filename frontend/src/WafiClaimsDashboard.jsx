@@ -47,6 +47,7 @@ const STATUS = {
   REVISED:                { label: 'Revised',       color: '#38bdf8', bg: 'rgba(56,189,248,0.15)',   rowBg: 'rgba(56,189,248,0.05)', rowBorder: '#0284c7' },
   PENDING_REVIEW:         { label: '⏳ Action Needed', color: '#fbbf24', bg: 'rgba(251,191,36,0.2)', rowBg: 'rgba(251,191,36,0.08)', rowBorder: '#d97706', pulse: true },
   IRRELEVANT:             { label: 'Not Relevant',  color: '#64748b', bg: 'rgba(100,116,139,0.12)',  rowBg: 'rgba(15,23,42,0.2)',    rowBorder: '#334155' },
+  SUPERSEDED:             { label: 'Superseded',    color: '#9ca3af', bg: 'rgba(156,163,175,0.12)',  rowBg: 'rgba(15,23,42,0.1)',    rowBorder: '#4b5563', strike: true },
   VERIFIED:               { label: '✓ Verified',    color: '#10b981', bg: 'rgba(16,185,129,0.18)',   rowBg: 'rgba(16,185,129,0.07)', rowBorder: '#059669' },
   SKIPPED:                { label: 'Skipped',       color: '#475569', bg: 'rgba(71,85,105,0.12)',    rowBg: 'rgba(15,23,42,0.15)',   rowBorder: '#1e293b' },
   WRONG_FORMAT:           { label: '⚠ Wrong Format', color: '#f97316', bg: 'rgba(249,115,22,0.18)', rowBg: 'rgba(249,115,22,0.07)', rowBorder: '#ea580c' },
@@ -55,7 +56,7 @@ const STATUS = {
 function StatusBadge({ status }) {
   const cfg = STATUS[status] || { label: status || '—', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' };
   return (
-    <span style={{ padding: '3px 10px', borderRadius: '99px', fontSize: '0.73rem', fontWeight: 700, color: cfg.color, background: cfg.bg, whiteSpace: 'nowrap', animation: cfg.pulse ? 'wafi_pulse 2s ease-in-out infinite' : 'none' }}>
+    <span style={{ padding: '3px 10px', borderRadius: '99px', fontSize: '0.73rem', fontWeight: 700, color: cfg.color, background: cfg.bg, whiteSpace: 'nowrap', textDecoration: cfg.strike ? 'line-through' : 'none', animation: cfg.pulse ? 'wafi_pulse 2s ease-in-out infinite' : 'none' }}>
       {cfg.label}
     </span>
   );

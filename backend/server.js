@@ -5685,7 +5685,7 @@ app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
             vals.push(status);   
             where += ` AND wcs.processing_status = $${vals.length}`; 
         } else {
-            where += ` AND wcs.processing_status != 'IRRELEVANT'`;
+            where += ` AND wcs.processing_status NOT IN ('IRRELEVANT', 'SUPERSEDED')`;
         }
         if (dateFrom) { vals.push(dateFrom); where += ` AND wcs.received_at >= $${vals.length}::timestamptz`; }
         if (dateTo)   { vals.push(dateTo);   where += ` AND wcs.received_at <= $${vals.length}::timestamptz`; }
@@ -7981,6 +7981,7 @@ if (require.main === module) app.listen(PORT, async () => {
                 confirm_email_sent   BOOLEAN DEFAULT FALSE,
                 pushed_to_payroll    BOOLEAN DEFAULT FALSE,
                 payroll_month        DATE,
+                file_hash            VARCHAR(64),
                 created_at           TIMESTAMPTZ DEFAULT NOW()
             )
         `);
@@ -8039,6 +8040,7 @@ if (require.main === module) app.listen(PORT, async () => {
             `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS verified_by           TEXT`,
             `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS gmail_draft_id        TEXT`,
             `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS settlement_month      DATE`,
+            `ALTER TABLE wafi_claims_sessions ADD COLUMN IF NOT EXISTS file_hash             VARCHAR(64)`,
         ];
         for (const sql of wafiSessionCols) {
             try { await pool.query(sql); } catch (e) { /* already exists */ }

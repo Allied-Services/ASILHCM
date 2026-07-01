@@ -18,6 +18,7 @@ const { google }  = require('googleapis');
 const XLSX        = require('xlsx');
 const { Resend }  = require('resend');
 const OpenAI      = require('openai');
+const crypto      = require('crypto');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const GMAIL_USER          = process.env.GMAIL_USER          || 'ops-support@asil.com.pk';
@@ -1242,29 +1243,40 @@ async function processMedicalSheet(pool, rows, errors, warnings, filename) {
 }
 
 // ── Revision Detection ────────────────────────────────────────────────────────
-async function detectAndMarkRevisions(pool, employeeIds, claimDate) {
-    if (!employeeIds.length || !claimDate) return { revised: false, oldSessionId: null };
+async function detectAndMarkRevisions(pool, employeeIds, claimDate, senderEmail) {
+    if (!employeeIds.length || !claimDate) return { revised: false, oldSessionId: null, autoSuperseded: false };
     try {
         const { rows } = await pool.query(`
-            SELECT wci.session_id
+            SELECT wci.session_id, wcs.processing_status
             FROM wafi_claims_items wci
             JOIN wafi_claims_sessions wcs ON wcs.id = wci.session_id
             WHERE wci.employee_id = ANY($1::text[])
               AND wci.active = TRUE
               AND DATE_TRUNC('month', wci.claim_date) = DATE_TRUNC('month', $2::date)
-              AND wcs.processing_status IN ('PROCESSED_SUCCESSFULLY','VERIFIED')
+              AND wcs.sender_email = $3
+              AND wcs.processing_status NOT IN ('SUPERSEDED', 'REJECTED', 'IRRELEVANT', 'SKIPPED')
+            ORDER BY wcs.received_at DESC
             LIMIT 1
-        `, [employeeIds, claimDate.toISOString().slice(0, 10)]);
+        `, [employeeIds, claimDate.toISOString().slice(0, 10), senderEmail]);
 
-        if (!rows.length) return { revised: false, oldSessionId: null };
+        if (!rows.length) return { revised: false, oldSessionId: null, autoSuperseded: false };
         const oldSessionId = rows[0].session_id;
-        await pool.query(`UPDATE wafi_claims_items SET active = FALSE WHERE session_id = $1 AND employee_id = ANY($2::text[])`, [oldSessionId, employeeIds]);
-        await pool.query(`UPDATE wafi_claims_sessions SET processing_status = 'REVISED' WHERE id = $1`, [oldSessionId]);
-        console.log(`[Wafi Claims] Marked session ${oldSessionId} as REVISED`);
-        return { revised: true, oldSessionId };
+        const oldStatus = rows[0].processing_status;
+
+        if (['PENDING_REVIEW', 'VALIDATION_FAILED', 'ACTION_NEEDED'].includes(oldStatus)) {
+            await pool.query(`UPDATE wafi_claims_items SET active = FALSE WHERE session_id = $1 AND employee_id = ANY($2::text[])`, [oldSessionId, employeeIds]);
+            await pool.query(`UPDATE wafi_claims_sessions SET processing_status = 'SUPERSEDED' WHERE id = $1`, [oldSessionId]);
+            console.log(`[Wafi Claims] Auto-Superseded unprocessed session ${oldSessionId}`);
+            return { revised: false, oldSessionId, autoSuperseded: true };
+        } else {
+            await pool.query(`UPDATE wafi_claims_items SET active = FALSE WHERE session_id = $1 AND employee_id = ANY($2::text[])`, [oldSessionId, employeeIds]);
+            await pool.query(`UPDATE wafi_claims_sessions SET processing_status = 'REVISED' WHERE id = $1`, [oldSessionId]);
+            console.log(`[Wafi Claims] Marked verified session ${oldSessionId} as REVISED`);
+            return { revised: true, oldSessionId, autoSuperseded: false };
+        }
     } catch (e) {
         console.warn('[Wafi Claims] Revision detection error:', e.message);
-        return { revised: false, oldSessionId: null };
+        return { revised: false, oldSessionId: null, autoSuperseded: false };
     }
 }
 
@@ -1943,7 +1955,35 @@ async function processOneMessage(pool, gmail, msg) {
             }
         }
 
-        validAttachments.push({ att, buf, sessionMsgId });
+        // Tier 1 Duplicate Handling: Exact MD5 Hash Match
+        const fileHash = crypto.createHash('md5').update(buf).digest('hex');
+        const hashCheck = await pool.query(`
+            SELECT id, received_at FROM wafi_claims_sessions
+            WHERE sender_email = $1 AND file_hash = $2
+            ORDER BY received_at DESC LIMIT 1
+        `, [senderEmail, fileHash]);
+
+        if (hashCheck.rows.length) {
+            const prevDate = new Date(hashCheck.rows[0].received_at).toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
+            console.log(`[Wafi Claims] Exact duplicate hash blocked for "${att.filename}" (matches Session #${hashCheck.rows[0].id} from ${prevDate})`);
+            
+            // Mark as IRRELEVANT instantly, so it never reaches the queue
+            try {
+                const blankReason = `EXACT DUPLICATE FILE: This file is identical to one submitted on ${prevDate} (Session #${hashCheck.rows[0].id}).`;
+                await pool.query(`
+                    INSERT INTO wafi_claims_sessions
+                        (received_at, sender_email, subject, gmail_message_id, gmail_thread_id,
+                         attachment_filename, processing_status, email_summary, is_first_time_sender,
+                         total_ot_rows, total_expense_rows, total_medical_rows, file_hash,
+                         validation_errors, name_warnings)
+                    VALUES ($1,$2,$3,$4,$5,$6,'IRRELEVANT',$7,$8,0,0,0,$9,'[]'::jsonb,'[]'::jsonb)
+                    ON CONFLICT (gmail_message_id) DO NOTHING
+                `, [receivedAt, senderEmail, subject, sessionMsgId, threadId, att.filename, blankReason, isFirstTimeSender, fileHash]);
+            } catch (e) { console.warn('[Wafi Claims] Failed to save duplicate hash session:', e.message); }
+            continue;
+        }
+
+        validAttachments.push({ att, buf, sessionMsgId, fileHash });
     }
 
     // ── No valid claims attachments found ───────────────────────────────────────
@@ -2154,9 +2194,12 @@ async function processOneMessage(pool, gmail, msg) {
         const employeeIds = [...new Set(validItems.map(r => r.employee_id).filter(Boolean))];
         const firstDate   = validItems.find(r => r.claim_date)?.claim_date;
         if (employeeIds.length && firstDate) {
-            const rev = await detectAndMarkRevisions(pool, employeeIds, firstDate);
+            const rev = await detectAndMarkRevisions(pool, employeeIds, firstDate, senderEmail);
             isRevision = rev.revised;
             supersedesSessionId = rev.oldSessionId;
+            if (rev.autoSuperseded) {
+                warnings.push({ type: 'AUTO_SUPERSEDED', note: `Supersedes an earlier unprocessed submission (Session #${rev.oldSessionId}).` });
+            }
         }
     }
 
