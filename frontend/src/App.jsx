@@ -59,6 +59,9 @@ const ROLE_BADGE = {
 };
 
 function App() {
+  const portalPath = window.location.pathname === '/portal' || window.location.pathname === '/portal/';
+  if (portalPath) return <EmployeePortal />;
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showESS, setShowESS] = useState(false);
   const [user, setUser] = useState(null);

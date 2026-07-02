@@ -17,7 +17,10 @@ export const MASTER_COLUMNS = [
     'Child 2 Name', 'Child 2 Age', 'Child 2 CNIC/Bay Form',
     'Medical Coverage (Type)', 'Medical Coverage Maternity', 'Total Medical Coverage (Self & Family)',
     'Bank Name', 'Bank Account', 'Account Title',
-    'NEXT OF KIN NAME', 'NEXT OF KIN RELATION', 'NEXT OF KIN CONTACT'
+    'NEXT OF KIN NAME', 'NEXT OF KIN RELATION', 'NEXT OF KIN CONTACT',
+    // ── Operational fields (2026-07-02) ───────────────────────────────────────────────────────────
+    'SESSI Number', 'Shirt Size', 'Trouser Size', 'Safety Shoe Size',
+    'Last Uniform Issue Date', 'Last PPE Issue Date', 'Gate Pass Expiry', 'Payroll Cycle Type',
 ];
 
 const STATUS_CLR = { Active: '#22c55e', Inactive: '#eab308', Terminated: '#ef4444', Suspended: '#f97316' };
@@ -152,7 +155,7 @@ export default function EmployeeInformation({ user }) {
 
     // ── Download template ─────────────────────────────────────────────────────
     const downloadTpl = () => {
-        const ex = ['ASIL/SPL-001/25', 'WafiBPO', 'LSC Security Services', 'Yes', 'Client Name Ltd', 'Trading & Supply', 'Security Services', 'Security Guard', 'Karachi', 'Sindh', 'Muhammad Ali', 'Father Name', 'Mother Name', '42101-1234567-1', '01-Jan-20', '01-Jan-30', 'Karachi', 'EOBI-001', 'Islam', '"38,000.00"', 'Married', '0300-1234567', '0311-9876543', 'email@example.com', 'Present Address', 'Permanent Address', '01-Jan-1990', '', '01-Jan-2024', '1.0', '"38,000.00"', 'Spouse Name', '30', 'XXXXX-XXXXXXX-X', 'Child 1', '5', 'B-Form', 'Child 2', '3', 'B-Form', 'Self & Family', 'Yes', '500000', 'HBL', '12345678901', 'Muhammad Ali', 'NOK Name', 'Father', '0300-0000000'].join(',');
+        const ex = ['ASIL/SPL-001/25', 'WafiBPO', 'LSC Security Services', 'Yes', 'Client Name Ltd', 'Trading & Supply', 'Security Services', 'Security Guard', 'Karachi', 'Sindh', 'Muhammad Ali', 'Father Name', 'Mother Name', '42101-1234567-1', '01-Jan-20', '01-Jan-30', 'Karachi', 'EOBI-001', 'Islam', '"38,000.00"', 'Married', '0300-1234567', '0311-9876543', 'email@example.com', 'Present Address', 'Permanent Address', '01-Jan-1990', '', '01-Jan-2024', '1.0', '"38,000.00"', 'Spouse Name', '30', 'XXXXX-XXXXXXX-X', 'Child 1', '5', 'B-Form', 'Child 2', '3', 'B-Form', 'Self & Family', 'Yes', '500000', 'HBL', '12345678901', 'Muhammad Ali', 'NOK Name', 'Father', '0300-0000000', 'SESSI-0001', 'M', '32', '42', '01-Jan-2024', '01-Jan-2024', '31-Dec-2025', 'Monthly', 'O+', 'Bachelors', 'None', '5', 'p@email.com', 'ABC-123', 'Yes', 'HR Manager'].join(',');
         const blob = new Blob([MASTER_COLUMNS.join(',') + '\n' + ex], { type: 'text/csv' });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ASIL_Employee_Master_Template.csv'; a.click();
     };
@@ -248,6 +251,15 @@ export default function EmployeeInformation({ user }) {
                         nokName:     getF(obj, 'NEXT OF KIN NAME', 'NOK Name', 'Next of Kin', 'NOK'),
                         nokRelation: getF(obj, 'NEXT OF KIN RELATION', 'NOK Relation', 'Next of Kin Relation'),
                         nokContact:  getF(obj, 'NEXT OF KIN CONTACT', 'NOK Contact', 'Next of Kin Contact'),
+                        // ── Operational fields (2026-07-02) ────────────────────────────────────────────
+                        sessiNo:             getF(obj, 'SESSI Number', 'SESSI No', 'SESSI'),
+                        shirtSize:           getF(obj, 'Shirt Size'),
+                        trouserSize:         getF(obj, 'Trouser Size'),
+                        safetyShoeSizeVal:   getF(obj, 'Safety Shoe Size', 'Shoe Size'),
+                        lastUniformIssueDate:getF(obj, 'Last Uniform Issue Date', 'Uniform Issue Date'),
+                        lastPpeIssueDate:    getF(obj, 'Last PPE Issue Date', 'PPE Issue Date'),
+                        gatePassExpiry:      getF(obj, 'Gate Pass Expiry', 'Gate Pass Expiry Date'),
+                        payrollCycleType:    getF(obj, 'Payroll Cycle Type', 'Payroll Cycle') || 'Monthly',
                         salaryHistory: parseSalary(getF(obj, 'Salary')) ? [{ date: getF(obj, 'Date of Joining', 'DOJ') || '', basic: parseSalary(getF(obj, 'Salary')), hra: 0, conveyance: 0, medical: 0, other: 0, gross: parseSalary(getF(obj, 'Salary')), note: 'Imported from CSV' }] : [],
                         leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
                     };
@@ -259,6 +271,7 @@ export default function EmployeeInformation({ user }) {
     };
 
     const [importResult, setImportResult] = useState(null); // { saved, errors: [{id,name,error}] }
+    const [notifyNew, setNotifyNew] = useState(false);
 
     const importBulk = async () => {
         if (csvRows.some(r => r._contractError && !r._contractError.startsWith('⚠'))) {
@@ -266,7 +279,7 @@ export default function EmployeeInformation({ user }) {
         }
         setSaving(true);
         try {
-            const data = await api.bulkImportEmployees(csvRows);
+            const data = await api.bulkImportEmployees(csvRows, notifyNew);
             // UPSERT behaviour — update existing, add new, avoid duplicates
             setEmps(p => {
                 const map = new Map(p.map(e => [e.id, e]));
@@ -275,7 +288,8 @@ export default function EmployeeInformation({ user }) {
             });
             setCsvRows([]); setShowAdd(false);
             if (fileRef.current) fileRef.current.value = '';
-            setImportResult({ saved: data.saved, errors: data.errors || [] });
+            const smsSentNote = data.smsSent?.length ? ` SMS sent to ${data.smsSent.length} new employee(s).` : '';
+            setImportResult({ saved: data.saved, errors: data.errors || [], smsSentNote });
         } catch (err) { alert('Import error: ' + err.message); }
         setSaving(false);
     };
@@ -370,7 +384,131 @@ export default function EmployeeInformation({ user }) {
     const F = (props) => FormField({ ...props, form, setForm });
 
 
+    // ── Pending change-request state ─────────────────────────────────────────────────────────────────
+    const [mainView, setMainView] = useState('list'); // 'list' | 'requests'
+    const [changeRequests, setChangeRequests] = useState([]);
+    const [crLoading, setCrLoading] = useState(false);
+    const [rejectNoteId, setRejectNoteId] = useState(null);
+    const [rejectNote, setRejectNote] = useState('');
+
+    const loadChangeRequests = async (status = 'Pending') => {
+        setCrLoading(true);
+        try {
+            const data = await api.getChangeRequests(status);
+            setChangeRequests(data.requests || []);
+        } catch (_) {}
+        setCrLoading(false);
+    };
+
+    const handleApprove = async (id) => {
+        if (!window.confirm('Approve this change and apply it to the employee record?')) return;
+        try {
+            await api.approveChangeRequest(id);
+            setChangeRequests(p => p.filter(r => r.id !== id));
+        } catch (err) { alert('Error: ' + err.message); }
+    };
+
+    const handleReject = async (id) => {
+        try {
+            await api.rejectChangeRequest(id, rejectNote);
+            setChangeRequests(p => p.filter(r => r.id !== id));
+            setRejectNoteId(null); setRejectNote('');
+        } catch (err) { alert('Error: ' + err.message); }
+    };
+
     if (profile) return <EmployeeProfile employee={profile} user={user} onBack={() => setProfile(null)} onUpdate={updateEmployee} allEmployees={emps} />;
+
+    // ── Pending Requests view ──────────────────────────────────────────────────────────────────
+    if (mainView === 'requests') return (
+        <div className="dashboard">
+            <header className="header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button onClick={() => setMainView('list')} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>← Back to Roster</button>
+                    <div>
+                        <h1 style={{ margin: 0 }}>Employee Change Requests</h1>
+                        <p style={{ margin: 0 }}>Submitted via Employee Self-Service Portal</p>
+                    </div>
+                </div>
+            </header>
+            <div style={{ padding: '1.5rem 0' }}>
+                {/* Status filter */}
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '1.5rem' }}>
+                    {['Pending', 'Approved', 'Rejected', 'All'].map(s => (
+                        <button key={s} onClick={() => loadChangeRequests(s)}
+                            style={{ padding: '6px 18px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>{s}</button>
+                    ))}
+                    {crLoading && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', alignSelf: 'center' }}>Loading…</span>}
+                </div>
+                {/* Reject note modal */}
+                {rejectNoteId && (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border)', padding: '1.5rem', width: '420px' }}>
+                            <h3 style={{ margin: '0 0 1rem' }}>Reject Request</h3>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: '0 0 0.75rem' }}>Optional: provide a reason (will be sent to the employee via SMS).</p>
+                            <textarea value={rejectNote} onChange={e => setRejectNote(e.target.value)} rows={3}
+                                placeholder="e.g. Incomplete documentation provided"
+                                style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', boxSizing: 'border-box', resize: 'vertical' }} />
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '1rem', justifyContent: 'flex-end' }}>
+                                <button onClick={() => { setRejectNoteId(null); setRejectNote(''); }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                                <button onClick={() => handleReject(rejectNoteId)} style={{ background: '#ef4444', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>Reject & Notify</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {/* Table */}
+                {changeRequests.length === 0 && !crLoading ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3rem', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                        No change requests found.
+                    </div>
+                ) : (
+                    <div style={{ overflowX: 'auto', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                            <thead>
+                                <tr style={{ background: 'var(--bg-dark)' }}>
+                                    {['Employee', 'Field', 'Current Value', 'Proposed Value', 'Submitted', 'Status', 'Actions'].map(h => (
+                                        <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {changeRequests.map(cr => (
+                                    <tr key={cr.id} style={{ borderTop: '1px solid var(--border)' }}>
+                                        <td style={{ padding: '10px 14px' }}>
+                                            <div style={{ fontWeight: 600 }}>{cr.employee_name}</div>
+                                            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{cr.employee_id}</div>
+                                            {cr.designation && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{cr.designation} · {cr.client}</div>}
+                                        </td>
+                                        <td style={{ padding: '10px 14px', color: '#a78bfa', fontWeight: 600 }}>{cr.field_label}</td>
+                                        <td style={{ padding: '10px 14px', color: 'var(--text-muted)', maxWidth: '180px', wordBreak: 'break-all' }}>{cr.old_value || '—'}</td>
+                                        <td style={{ padding: '10px 14px', maxWidth: '200px', wordBreak: 'break-all' }}><strong>{cr.new_value}</strong></td>
+                                        <td style={{ padding: '10px 14px', whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{new Date(cr.submitted_at).toLocaleDateString('en-PK')}</td>
+                                        <td style={{ padding: '10px 14px' }}>
+                                            <span style={{ padding: '2px 10px', borderRadius: '99px', fontSize: '0.78rem', fontWeight: 700,
+                                                background: cr.status === 'Approved' ? 'rgba(34,197,94,0.15)' : cr.status === 'Rejected' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                                                color: cr.status === 'Approved' ? '#22c55e' : cr.status === 'Rejected' ? '#ef4444' : '#f59e0b' }}>
+                                                {cr.status}
+                                            </span>
+                                            {cr.notes && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>Note: {cr.notes}</div>}
+                                        </td>
+                                        <td style={{ padding: '10px 14px' }}>
+                                            {cr.status === 'Pending' && (
+                                                <div style={{ display: 'flex', gap: '6px' }}>
+                                                    <button onClick={() => handleApprove(cr.id)}
+                                                        style={{ background: 'rgba(34,197,94,0.15)', border: '1px solid #22c55e40', color: '#22c55e', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>✓ Approve</button>
+                                                    <button onClick={() => { setRejectNoteId(cr.id); setRejectNote(''); }}
+                                                        style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid #ef444440', color: '#f87171', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>✗ Reject</button>
+                                                </div>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 
     return (
         <div className="dashboard">
@@ -399,6 +537,11 @@ export default function EmployeeInformation({ user }) {
                                 <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{importResult.errors.length ? '❌ Skipped (errors below)' : '✅ No Errors'}</div>
                             </div>
                         </div>
+                        {importResult.smsSentNote && (
+                            <div style={{ padding: '0.6rem 2rem', background: 'rgba(56,189,248,0.08)', borderBottom: '1px solid var(--border)', color: '#38bdf8', fontSize: '0.85rem', fontWeight: 600 }}>
+                                📱 {importResult.smsSentNote}
+                            </div>
+                        )}
                         {/* Error table */}
                         {importResult.errors.length > 0 && (
                             <div style={{ flex: 1, overflowY: 'auto', padding: '0 2rem 1rem' }}>
@@ -511,6 +654,12 @@ export default function EmployeeInformation({ user }) {
                 <button onClick={() => { setShowAdd(true); setAddMode('single'); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', color: 'white', border: 'none', padding: '0.55rem 1.25rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                     <Plus size={18} /> Add Employee
                 </button>
+                {(user?.role === 'superadmin' || user?.role === 'operations' || user?.role === 'payroll_initiator') && (
+                    <button onClick={() => { setMainView('requests'); loadChangeRequests('Pending'); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.4)', color: '#a78bfa', padding: '0.55rem 1.25rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                        📋 Pending Requests
+                    </button>
+                )}
             </div>
 
             {/* Filter Row */}
@@ -866,13 +1015,22 @@ export default function EmployeeInformation({ user }) {
                                                     </tbody>
                                                 </table>
                                             </div>
-                                            <button
-                                                onClick={importBulk}
-                                                disabled={saving || hardErrors.length > 0}
-                                                title={hardErrors.length > 0 ? 'Fix contract errors above before importing' : ''}
-                                                style={{ marginTop: '1rem', background: hardErrors.length > 0 ? '#374151' : '#22c55e', border: '1px solid', borderColor: hardErrors.length > 0 ? '#ef444455' : '#22c55e', color: hardErrors.length > 0 ? '#9ca3af' : 'white', padding: '0.75rem 2rem', borderRadius: '8px', cursor: hardErrors.length > 0 ? 'not-allowed' : 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: hardErrors.length > 0 ? 0.6 : 1 }}>
-                                                <CheckCircle size={18} /> {hardErrors.length > 0 ? `Blocked — Fix ${hardErrors.length} Contract Error(s)` : `Import ${csvRows.length} Employees`}
-                                            </button>
+                                            <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                                                {user?.role === 'superadmin' && (
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                                    <input type="checkbox" checked={notifyNew} onChange={e => setNotifyNew(e.target.checked)}
+                                                        style={{ width: '16px', height: '16px', accentColor: '#38bdf8', cursor: 'pointer' }} />
+                                                    Send welcome SMS to newly added employees
+                                                </label>
+                                                )}
+                                                <button
+                                                    onClick={importBulk}
+                                                    disabled={saving || hardErrors.length > 0}
+                                                    title={hardErrors.length > 0 ? 'Fix contract errors above before importing' : ''}
+                                                    style={{ background: hardErrors.length > 0 ? '#374151' : '#22c55e', border: '1px solid', borderColor: hardErrors.length > 0 ? '#ef444455' : '#22c55e', color: hardErrors.length > 0 ? '#9ca3af' : 'white', padding: '0.75rem 2rem', borderRadius: '8px', cursor: hardErrors.length > 0 ? 'not-allowed' : 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: hardErrors.length > 0 ? 0.6 : 1 }}>
+                                                    <CheckCircle size={18} /> {hardErrors.length > 0 ? `Blocked — Fix ${hardErrors.length} Contract Error(s)` : `Import ${csvRows.length} Employees`}
+                                                </button>
+                                            </div>
                                         </div>
                                     );
                                 })()}

@@ -288,3 +288,44 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- LIVE PRODUCTION SCHEMA ADDITIONS (employees table — not employee_master)
+-- migration 2026-07-02 — Phase 1 Data Layer & Portal Upgrade
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- Operational fields appended to live `employees` table
+-- ALTER TABLE employees ADD COLUMN IF NOT EXISTS sessi_no TEXT;
+-- ALTER TABLE employees ADD COLUMN IF NOT EXISTS shirt_size TEXT;
+-- ALTER TABLE employees ADD COLUMN IF NOT EXISTS trouser_size TEXT;
+-- ALTER TABLE employees ADD COLUMN IF NOT EXISTS safety_shoe_size TEXT;
+-- ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_uniform_issue_date DATE;
+-- ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_ppe_issue_date DATE;
+-- ALTER TABLE employees ADD COLUMN IF NOT EXISTS gate_pass_expiry DATE;
+-- ALTER TABLE employees ADD COLUMN IF NOT EXISTS payroll_cycle_type TEXT DEFAULT 'Monthly';
+
+CREATE TABLE IF NOT EXISTS portal_otps (
+    id          SERIAL PRIMARY KEY,
+    phone       TEXT NOT NULL,
+    otp         TEXT NOT NULL,
+    used        BOOLEAN DEFAULT FALSE,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS employee_change_requests (
+    id              SERIAL PRIMARY KEY,
+    employee_id     TEXT NOT NULL,
+    employee_name   TEXT,
+    field_name      TEXT NOT NULL,
+    field_label     TEXT NOT NULL,
+    old_value       TEXT,
+    new_value       TEXT NOT NULL,
+    status          TEXT DEFAULT 'Pending',
+    submitted_at    TIMESTAMPTZ DEFAULT NOW(),
+    reviewed_by     TEXT,
+    reviewed_at     TIMESTAMPTZ,
+    notes           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_chgreq_status ON employee_change_requests(status);
+CREATE INDEX IF NOT EXISTS idx_chgreq_empid ON employee_change_requests(employee_id);

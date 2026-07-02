@@ -198,5 +198,25 @@ export const api = {
     getAttendanceTeams:  ()           => apiFetch('/api/attendance/teams'),
     assignTeam:          (d)          => apiFetch('/api/attendance/teams/assign', { method: 'POST', body: JSON.stringify(d) }),
     removeTeamMember:    (id)         => apiFetch(`/api/attendance/teams/${id}`, { method: 'DELETE' }),
-};
 
+    // ── Employee Change Requests (portal → office approval) ───────────────────
+    // Called from EmployeePortal.jsx using a portal token (not the main HCM token)
+    portalSubmitChangeRequest: (portalToken, fieldName, newValue) => {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        return fetch(`${API_URL}/api/portal/change-request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${portalToken}` },
+            body: JSON.stringify({ field_name: fieldName, new_value: newValue }),
+        }).then(r => r.json());
+    },
+    portalGetMyRequests: (portalToken) => {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        return fetch(`${API_URL}/api/portal/my-requests`, {
+            headers: { Authorization: `Bearer ${portalToken}` },
+        }).then(r => r.json());
+    },
+    // Called from EmployeeInformation.jsx with the normal HCM staff token
+    getChangeRequests:   (status = 'Pending') => apiFetch(`/api/change-requests?status=${status}`),
+    approveChangeRequest:(id)                 => apiFetch(`/api/change-requests/${id}/approve`, { method: 'PATCH' }),
+    rejectChangeRequest: (id, note)           => apiFetch(`/api/change-requests/${id}/reject`, { method: 'PATCH', body: JSON.stringify({ note: note || '' }) }),
+};

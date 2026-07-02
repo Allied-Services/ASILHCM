@@ -6,27 +6,10 @@
   "scripts": {
     "start": "node --max-old-space-size=400 server.js",
     "dev": "node server.js",
-    "test": "jest --forceExit",
-    "test:auth": "jest --forceExit --testPathPattern=auth",
-    "test:payroll": "jest --forceExit --testPathPattern=payroll",
-    "test:coverage": "jest --forceExit --coverage"
-  },
-  "jest": {
-    "testEnvironment": "node",
-    "setupFiles": [
-      "./tests/setup.js"
-    ],
-    "testMatch": [
-      "**/tests/**/*.test.js"
-    ],
-    "testTimeout": 30000,
-    "collectCoverageFrom": [
-      "server.js",
-      "taxEngine.js"
-    ],
-    "coveragePathIgnorePatterns": [
-      "/node_modules/"
-    ]
+    "test": "jest --runInBand --forceExit",
+    "test:auth": "jest --runInBand --forceExit --testPathPattern=auth",
+    "test:payroll": "jest --runInBand --forceExit --testPathPattern=payroll",
+    "test:coverage": "jest --runInBand --forceExit --coverage"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -59,6 +59,11 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Rate Limiters ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const globalLimiter = rateLimit({ windowMs: 60*1000, max: 200, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests, slow down.' } });
 const strictLimiter = rateLimit({ windowMs: 60*1000, max: 10, message: { error: 'Too many attempts. Try again in a minute.' } });
+const portalOtpLimiter = rateLimit({
+  windowMs: 15*60*1000, max: 5, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many OTP requests. Try again in 15 minutes.' },
+  skip: () => process.env.NODE_ENV === 'test',
+});
 app.use(globalLimiter);
 // Strict limits on sensitive endpoints applied inline below
 
@@ -366,6 +371,15 @@ const empToDb = (e) => ({
     region: e.region || null,
     line_manager_name:  e.lineManagerName  || null,
     line_manager_email: e.lineManagerEmail || null,
+    // ── Operational fields (2026-07-02) ─────────────────────────────────────
+    sessi_no:                e.sessiNo               || null,
+    shirt_size:              e.shirtSize             || null,
+    trouser_size:            e.trouserSize           || null,
+    safety_shoe_size:        e.safetyShoeSizeVal     || null,
+    last_uniform_issue_date: nullDate(e.lastUniformIssueDate),
+    last_ppe_issue_date:     nullDate(e.lastPpeIssueDate),
+    gate_pass_expiry:        nullDate(e.gatePassExpiry),
+    payroll_cycle_type:      e.payrollCycleType      || 'Monthly',
 });
 
 const empFromDb = (r) => ({
@@ -399,11 +413,20 @@ const empFromDb = (r) => ({
     region: r.region || null,
     lineManagerName:  r.line_manager_name  || null,
     lineManagerEmail: r.line_manager_email || null,
+    // ── Operational fields (2026-07-02) ─────────────────────────────────────
+    sessiNo:             r.sessi_no               || null,
+    shirtSize:           r.shirt_size             || null,
+    trouserSize:         r.trouser_size           || null,
+    safetyShoeSizeVal:   r.safety_shoe_size       || null,
+    lastUniformIssueDate:toDateStr(r.last_uniform_issue_date),
+    lastPpeIssueDate:    toDateStr(r.last_ppe_issue_date),
+    gatePassExpiry:      toDateStr(r.gate_pass_expiry),
+    payrollCycleType:    r.payroll_cycle_type     || 'Monthly',
     salaryHistory: [],
     leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Employee Routes ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// ── Employee Routes ──────────────────────────────────────────────────────────
 app.get('/api/employees', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(`
@@ -429,51 +452,17 @@ app.get('/api/employees', requireAuth, async (req, res) => {
             ORDER BY e.name ASC
         `);
         res.json({ employees: rows.map(empFromDb) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/employees', requireAuth, async (req, res) => {
-    try {
-        const d = empToDb(req.body);
-        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email'];
-        const vals = cols.map(c => d[c]);
-        const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
-        const updates = cols.slice(1).map((c, i) => `${c}=EXCLUDED.${c}`).join(',');
-        const { rows } = await pool.query(
-            `INSERT INTO employees (${cols.join(',')}) VALUES (${placeholders}) ON CONFLICT (id) DO UPDATE SET ${updates}, updated_at=NOW() RETURNING *`,
-            vals
-        );
-        res.json({ employee: empFromDb(rows[0]) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.put('/api/employees/:id', requireAuth, async (req, res) => {
-    try {
-        const d = empToDb({ ...req.body, id: req.params.id });
-        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email'];
-        const setClauses = cols.map((c, i) => `${c}=$${i + 1}`).join(',');
-        const vals = [...cols.map(c => d[c]), req.params.id];
-        const { rows } = await pool.query(
-            `UPDATE employees SET ${setClauses}, updated_at=NOW() WHERE id=$${cols.length + 1} RETURNING *`,
-            vals
-        );
-        if (!rows.length) return res.status(404).json({ error: 'Not found' });
-        res.json({ employee: empFromDb(rows[0]) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/employees/:id', requireAuth, async (req, res) => {
-    try {
-        await pool.query('DELETE FROM employees WHERE id=$1', [req.params.id]);
-        res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        console.error('[GET /api/employees]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 app.post('/api/employees/bulk', requireAuth, async (req, res) => {
-    const { employees = [] } = req.body;
-    const saved = [], errors = [];
+    const { employees = [], notifyNew = false } = req.body;
+    const saved = [], errors = [], newEmployees = [];
 
-    // \u2500\u2500 Step 1: Build contract lookup from DB \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // ── Step 1: Build contract lookup from DB ─────────────────────────────────
     const ctRows = (await pool.query(`
         SELECT c.id, c.contract_name, c.costs, c.financials, cl.name AS client_name, c.status
         FROM contracts c LEFT JOIN clients cl ON c.client_id = cl.id
@@ -491,36 +480,66 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
         'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id',
         'medical_type', 'medical_maternity', 'total_medical_coverage',
         'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact',
-        'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email'];
+        'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email',
+        'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size',
+        'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
     const placeholders = COLS.map((_, i) => `$${i + 1}`).join(',');
     const updates = COLS.slice(1).map(c => `${c}=EXCLUDED.${c}`).join(',');
 
+    // ── Step 2: Batch ID + CNIC lookups (single round-trip each) ────────────
+    const importIds = [...new Set(employees.map(e => e.id).filter(Boolean))];
+    const importCnic = [...new Set(employees.map(e => e.cnic).filter(Boolean))];
+    const idToDbCnic = {};
+    const cnicToDbId = {};
+    if (importIds.length) {
+        const { rows } = await pool.query('SELECT id, cnic FROM employees WHERE id = ANY($1)', [importIds]);
+        rows.forEach(r => { idToDbCnic[r.id] = r.cnic; });
+    }
+    if (importCnic.length) {
+        const { rows } = await pool.query('SELECT id, cnic FROM employees WHERE cnic = ANY($1)', [importCnic]);
+        rows.forEach(r => { if (r.cnic) cnicToDbId[r.cnic] = r.id; });
+    }
+
     for (const emp of employees) {
-        // \u2500\u2500 Step 2: Resolve contract \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        // ── Step 3: Resolve contract ──────────────────────────────────────────
         const rawContract = emp.contractName || emp.contractId || '';
         let resolvedCt = null;
         if (rawContract) {
-            // Try exact ID first, then name (case-insensitive)
             resolvedCt = ctById[rawContract]
                 || ctByName[rawContract.toLowerCase().trim()]
                 || null;
         }
 
-        // \u2500\u2500 Step 3: Hard-reject unrecognised contract names \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        // ── Step 4: Hard-reject unrecognised contract names ───────────────────
         if (rawContract && !resolvedCt) {
             errors.push({
                 id: emp.id, name: emp.name,
                 error: `Contract "${rawContract}" not found in database. Please register this contract first or correct the name.`
             });
-            continue; // skip this row \u2014 do NOT save to DB
+            continue;
         }
 
-        // \u2500\u2500 Step 4: Inherit contract fields if resolved \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        // ── Step 5: Inherit contract fields if resolved ───────────────────────
         if (resolvedCt) {
             emp.contractId   = resolvedCt.id;
             emp.contractName = resolvedCt.contract_name;
-            // Auto-fill client name from contract if not provided
             if (!emp.client) emp.client = resolvedCt.client_name || emp.client;
+        }
+
+        // ── Step 6: Strict ID + CNIC validation ─────────────────────────────
+        if (emp.cnic && cnicToDbId[emp.cnic] && cnicToDbId[emp.cnic] !== emp.id) {
+            errors.push({
+                id: emp.id, name: emp.name,
+                error: `CNIC ${emp.cnic} already belongs to employee ${cnicToDbId[emp.cnic]}. Cannot overwrite a different record. Update the existing employee directly.`
+            });
+            continue;
+        }
+        if (emp.id && emp.cnic && idToDbCnic[emp.id] && idToDbCnic[emp.id] !== emp.cnic) {
+            errors.push({
+                id: emp.id, name: emp.name,
+                error: `Employee ID/CNIC mismatch — refusing to overwrite. ID ${emp.id} is registered to CNIC ${idToDbCnic[emp.id]}, but CSV has CNIC ${emp.cnic}.`
+            });
+            continue;
         }
 
         try {
@@ -529,16 +548,89 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
             const { rows } = await pool.query(
                 `INSERT INTO employees (${COLS.join(',')}) VALUES (${placeholders})
                  ON CONFLICT (id) DO UPDATE SET ${updates}, updated_at=NOW()
-                 RETURNING *`,
+                 RETURNING *, (xmax = 0) AS is_new_row`,
                 vals
             );
-            if (rows.length) saved.push(empFromDb(rows[0]));
-        } catch (err) { errors.push({ id: emp.id, name: emp.name, error: err.message }); }
+            if (rows.length) {
+                const empObj = empFromDb(rows[0]);
+                saved.push(empObj);
+                // Track new inserts (not updates) for SMS notification
+                if (rows[0].is_new_row && notifyNew) newEmployees.push(empObj);
+            }
+        } catch (err) {
+            console.error('[bulk-import]', err);
+            errors.push({ id: emp.id, name: emp.name, error: 'Internal server error' });
+        }
     }
-    res.json({ saved: saved.length, errors, employees: saved });
+
+    // ── Step 6: Send welcome SMS to newly added employees (opt-in) ────────────
+    const smsSent = [];
+    if (notifyNew && newEmployees.length) {
+        for (const newEmp of newEmployees) {
+            const phone = newEmp.primaryContact;
+            if (!phone) continue;
+            const msg = `Welcome to ASIL! Your employment has been confirmed. Employee ID: ${newEmp.id}. For queries contact HR.`;
+            try {
+                await sendJazzSMS(phone, msg);
+                await pool.query(
+                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                    [newEmp.id, msg, 'system-bulk-import']
+                ).catch(() => {});
+                smsSent.push(newEmp.id);
+            } catch (_) { /* SMS failure is non-fatal */ }
+        }
+    }
+
+    res.json({ saved: saved.length, errors, employees: saved, smsSent });
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Admin: diagnostics + cleanup (SuperAdmin only) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+app.post('/api/employees', requireAuth, async (req, res) => {
+    try {
+        const d = empToDb(req.body);
+        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
+        const vals = cols.map(c => d[c]);
+        const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
+        const updates = cols.slice(1).map((c, i) => `${c}=EXCLUDED.${c}`).join(',');
+        const { rows } = await pool.query(
+            `INSERT INTO employees (${cols.join(',')}) VALUES (${placeholders}) ON CONFLICT (id) DO UPDATE SET ${updates}, updated_at=NOW() RETURNING *`,
+            vals
+        );
+        res.json({ employee: empFromDb(rows[0]) });
+    } catch (err) {
+        console.error('[POST /api/employees]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.put('/api/employees/:id', requireAuth, async (req, res) => {
+    try {
+        const d = empToDb({ ...req.body, id: req.params.id });
+        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
+        const setClauses = cols.map((c, i) => `${c}=$${i + 1}`).join(',');
+        const vals = [...cols.map(c => d[c]), req.params.id];
+        const { rows } = await pool.query(
+            `UPDATE employees SET ${setClauses}, updated_at=NOW() WHERE id=$${cols.length + 1} RETURNING *`,
+            vals
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Not found' });
+        res.json({ employee: empFromDb(rows[0]) });
+    } catch (err) {
+        console.error('[PUT /api/employees/:id]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.delete('/api/employees/:id', requireAuth, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM employees WHERE id=$1', [req.params.id]);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[DELETE /api/employees/:id]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ── Admin: diagnostics + cleanup (SuperAdmin only) ──────────────────────────
 // Find duplicate employees by CNIC
 app.get('/api/admin/employee-duplicates', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
@@ -603,10 +695,10 @@ app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin')
 });
 
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ SMS Routes (Jazz CMT) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// ── SMS Routes (Jazz CMT) ───────────────────────────────────────────────────
 const https = require('https');
 
-// Normalise Pakistani mobile numbers ├óΓÇáΓÇÖ 03XXXXXXXXX (10 digits starting with 0)
+// Normalise Pakistani mobile numbers — 03XXXXXXXXX (10 digits starting with 0)
 const normalisePhone = (raw = '') => {
     const digits = raw.replace(/\D/g, '');
     if (digits.startsWith('92') && digits.length === 12) return '0' + digits.slice(2);
@@ -638,7 +730,7 @@ const sendJazzSMS = (to, message) => new Promise(async (resolve, reject) => {
     try {
         const resp = await fetch(url, { method: 'GET' });
         const text = await resp.text();
-        console.log(`Jazz SMS ├óΓÇáΓÇÖ ${phone}: ${text}`);
+        console.log(`Jazz SMS — ${phone}: ${text}`);
         resolve({ to: phone, response: text.trim() });
     } catch (err) {
         reject(err);
@@ -688,9 +780,9 @@ app.post('/api/sms/bulk', requireAuth, async (req, res) => {
 });
 
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Bills / Procurement (persisted) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// ── Bills / Procurement (persisted) ──────────────────────────────────────────
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ OCR endpoint ├óΓé¼ΓÇ¥ GPT-4o Vision ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// ── OCR endpoint — GPT-4o Vision ─────────────────────────────────────────────
 app.post('/api/bills/ocr', requireAuth, async (req, res) => {
     const { imageBase64, mimeType = 'image/jpeg' } = req.body;
     if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
@@ -705,11 +797,11 @@ This image may contain a handwritten or printed bill in Urdu, English, or both.
 
 IMPORTANT RULES:
 1. Pakistani bills often show: vendor name in Urdu at top, items listed with Urdu descriptions, amounts on the right side
-2. Amounts are in Pakistani Rupees (Rs) ├óΓé¼ΓÇ¥ numbers like 2600, 5000, 2800 are PKR amounts
+2. Amounts are in Pakistani Rupees (Rs) — numbers like 2600, 5000, 2800 are PKR amounts
 3. The last/largest number at the bottom is usually the GRAND TOTAL
 4. Translate any Urdu item descriptions to English (best effort)
-5. If unit price is not shown, calculate it from total ├â┬╖ qty
-6. Do NOT invent data ├óΓé¼ΓÇ¥ if something is unclear, write "?" for text or 0 for numbers
+5. If unit price is not shown, calculate it from total ÷ qty
+6. Do NOT invent data — if something is unclear, write "?" for text or 0 for numbers
 7. The confidence score must reflect actual legibility (blurry/old receipts = 0.3-0.6)
 8. CRITICAL FOR HANDWRITTEN/URDU: Even if mostly unreadable, ALWAYS extract:
    a) vendor: the largest text at the TOP of the receipt (usually shop/vendor name)
@@ -767,7 +859,7 @@ Verify: items totals should sum to subtotal. grandTotal = subtotal + gst.`;
         try {
             extracted = JSON.parse(cleaned);
         } catch {
-            return res.status(502).json({ error: 'Could not parse OCR response ├óΓé¼ΓÇ¥ try a clearer image' });
+            return res.status(502).json({ error: 'Could not parse OCR response — try a clearer image' });
         }
 
         // Ensure items array is valid
@@ -818,7 +910,7 @@ pool.query(`
     )
 `).catch(e => console.error('bills table init error:', e.message));
 
-// Idempotent migrations ├óΓé¼ΓÇ¥ add columns that may not exist on older live tables
+// Idempotent migrations — add columns that may not exist on older live tables
 [
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS contract     TEXT`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS contract_id  TEXT`,
@@ -855,6 +947,14 @@ pool.query(`
         printed_by  TEXT,
         created_at  TIMESTAMPTZ DEFAULT NOW()
     )`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS sessi_no TEXT`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS shirt_size TEXT`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS trouser_size TEXT`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS safety_shoe_size TEXT`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_uniform_issue_date DATE`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_ppe_issue_date DATE`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS gate_pass_expiry DATE`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS payroll_cycle_type TEXT DEFAULT 'Monthly'`,
 ].forEach(sql => pool.query(sql).catch(e => console.error('bills migration:', e.message)));
 
 // Employee table migrations
@@ -867,7 +967,7 @@ pool.query(`
     `ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE`,
 ].forEach(sql => pool.query(sql).catch(e => console.error('clients migration:', e.message)));
 
-// Named-user role assignments ├óΓé¼ΓÇ¥ enforced on every startup
+// Named-user role assignments — enforced on every startup
 [
     ['laiba.mughal@asil.com.pk',    'finance_proposer'],
     ['huzaifa.rafaqat@asil.com.pk', 'finance_approver'],
@@ -947,7 +1047,7 @@ app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approve
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/bills/:id/unlock ├óΓé¼ΓÇ¥ password-protected unlock for paid bills
+// POST /api/bills/:id/unlock — password-protected unlock for paid bills
 app.post('/api/bills/:id/unlock', requireAuth, async (req, res) => {
     const { password } = req.body;
     const correctPwd = process.env.BILLS_UNLOCK_PASSWORD;
@@ -959,7 +1059,7 @@ app.post('/api/bills/:id/unlock', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/bills/:id/challan ├óΓé¼ΓÇ¥ generate or retrieve a delivery challan
+// POST /api/bills/:id/challan — generate or retrieve a delivery challan
 // PUT /api/bills/:id — maker can edit own bills before approval
 app.put('/api/bills/:id', requireAuth, async (req, res) => {
     const b = req.body;
@@ -1043,7 +1143,7 @@ app.post('/api/bills/:id/challan', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/bills/:id/challan ├óΓé¼ΓÇ¥ retrieve existing challan for a bill
+// GET /api/bills/:id/challan — retrieve existing challan for a bill
 app.get('/api/bills/:id/challan', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query('SELECT * FROM delivery_challans WHERE bill_id=$1', [req.params.id]);
@@ -1069,7 +1169,7 @@ app.delete('/api/bills/:id', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Client Mappers ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// ── Client Mappers ──────────────────────────────────────────────────────────
 
 const clientFromDb = (r) => ({
     id: r.id, name: r.name, hq: r.hq, ntn: r.ntn, strn: r.strn, industry: r.industry,
@@ -1078,7 +1178,7 @@ const clientFromDb = (r) => ({
     contracts: [],  // loaded separately
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Client Routes ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// ── Client Routes ──────────────────────────────────────────────────────────
 app.get('/api/clients', requireAuth, async (req, res) => {
     try {
         // ?all=true → return every client (used by Client Management admin page)
@@ -1294,9 +1394,9 @@ app.patch('/api/contracts/:id/reassign', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 // VENDOR MANAGEMENT
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 app.get('/api/vendors', requireAuth, async (req, res) => {
     try {
@@ -1383,9 +1483,9 @@ app.post('/api/vendors/:id/payments', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
-// SYSTEM CONFIGURATION (FBR Tax Tables ├óΓé¼ΓÇ¥ editable)
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
+// SYSTEM CONFIGURATION (FBR Tax Tables — editable)
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 app.get('/api/config/:key', requireAuth, async (req, res) => {
     try {
@@ -1407,9 +1507,9 @@ app.put('/api/config/:key', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 // EMPLOYEE DOCUMENTS (Fitness to Work, Police Clearance, CNIC etc.)
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 app.get('/api/employees/:id/documents', requireAuth, async (req, res) => {
     try {
@@ -1475,9 +1575,9 @@ app.get('/api/employees/:id/messages', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 // ADVANCES & LOANS
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 app.get('/api/employees/:id/advances', requireAuth, async (req, res) => {
     try {
@@ -1542,9 +1642,9 @@ app.get('/api/payroll/advance-deductions', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
-// PF LEDGER ├óΓé¼ΓÇ¥ full ledger with opening balance, contributions, withdrawals
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
+// PF LEDGER — full ledger with opening balance, contributions, withdrawals
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 // Auto-migrate: add new columns if they don't exist yet
 const migratePFLedger = async () => {
@@ -1552,6 +1652,11 @@ const migratePFLedger = async () => {
     await pool.query(`ALTER TABLE employee_pf_ledger ADD COLUMN IF NOT EXISTS narration TEXT`).catch(() => {});
     await pool.query(`ALTER TABLE employee_pf_ledger ADD COLUMN IF NOT EXISTS reference_no TEXT`).catch(() => {});
     await pool.query(`ALTER TABLE employee_pf_ledger ADD COLUMN IF NOT EXISTS withdrawal_amount NUMERIC(12,2) DEFAULT 0`).catch(() => {});
+    await pool.query(`CREATE TABLE IF NOT EXISTS employee_change_requests (
+        id SERIAL PRIMARY KEY, employee_id TEXT, employee_name TEXT, field_name TEXT,
+        field_label TEXT, old_value TEXT, new_value TEXT, status TEXT DEFAULT 'Pending',
+        submitted_at TIMESTAMPTZ DEFAULT NOW(), reviewed_at TIMESTAMPTZ, reviewed_by TEXT, notes TEXT
+    )`).catch(() => {});
 };
 migratePFLedger();
 
@@ -1588,7 +1693,7 @@ const migrateContractCostDefaults = async () => {
 };
 migrateContractCostDefaults();
 
-// GET ├óΓé¼ΓÇ¥ returns all entries sorted oldest first + computed running balance
+// GET — returns all entries sorted oldest first + computed running balance
 app.get('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(
@@ -1610,7 +1715,7 @@ app.get('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST monthly contribution (existing endpoint ├óΓé¼ΓÇ¥ keeps backward compat)
+// POST monthly contribution (existing endpoint — keeps backward compat)
 app.post('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
     try {
         const { month, year, ee_contribution, er_contribution, narration } = req.body;
@@ -1629,7 +1734,7 @@ app.post('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST opening balance ├óΓé¼ΓÇ¥ only one allowed per employee (upsert on year=0, month=0)
+// POST opening balance — only one allowed per employee (upsert on year=0, month=0)
 app.post('/api/employees/:id/pf-ledger/opening-balance', requireAuth, async (req, res) => {
     try {
         const { amount, narration } = req.body;
@@ -1646,7 +1751,7 @@ app.post('/api/employees/:id/pf-ledger/opening-balance', requireAuth, async (req
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST withdrawal ├óΓé¼ΓÇ¥ records a debit with cheque/bank ref
+// POST withdrawal — records a debit with cheque/bank ref
 app.post('/api/employees/:id/pf-ledger/withdrawal', requireAuth, async (req, res) => {
     try {
         const { amount, reference_no, narration, month, year } = req.body;
@@ -1667,7 +1772,7 @@ app.post('/api/employees/:id/pf-ledger/withdrawal', requireAuth, async (req, res
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// DELETE a ledger entry (superadmin only ├óΓé¼ΓÇ¥ irreversible)
+// DELETE a ledger entry (superadmin only — irreversible)
 app.delete('/api/employees/:id/pf-ledger/:entryId', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         await pool.query('DELETE FROM employee_pf_ledger WHERE id=$1 AND employee_id=$2',
@@ -1677,9 +1782,9 @@ app.delete('/api/employees/:id/pf-ledger/:entryId', requireAuth, requireRole('su
 });
 
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 // GRATUITY LEDGER
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 app.get('/api/employees/:id/gratuity-ledger', requireAuth, async (req, res) => {
     try {
@@ -1703,9 +1808,9 @@ app.post('/api/employees/:id/gratuity-ledger', requireAuth, async (req, res) => 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 // ASSET / UNIFORM ISSUANCES
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 app.get('/api/employees/:id/assets', requireAuth, async (req, res) => {
     try {
@@ -1752,9 +1857,9 @@ app.delete('/api/employees/:id/assets/:assetId', requireAuth, async (req, res) =
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 // INVOICES (persistent DB-backed)
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 app.get('/api/invoices', requireAuth, async (req, res) => {
     try {
@@ -1806,9 +1911,9 @@ app.delete('/api/invoices/:id', requireAuth, requireRole('superadmin'), async (r
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 // PAYSLIP GENERATION
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) => {
     try {
@@ -1827,7 +1932,7 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const monthName = new Date(2000, parseInt(month)-1, 1).toLocaleString('en-PK', { month: 'long' });
         const fmt = v => Math.round(parseFloat(v)||0).toLocaleString('en-PK');
 
-        // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Salary components from employee master (prorated if paid_days saved) ├óΓÇ¥Γé¼
+        // ─ Salary components from employee master (prorated if paid_days saved) ─
         const grossSalary  = parseFloat(emp.salary) || 0;
         const workDays     = 26;
         const paidDays     = parseFloat(pay?.paid_days ?? workDays);
@@ -1838,8 +1943,8 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const medical      = Math.round(grossSalary * 0.07 * ratio);
         const otherAllow   = Math.round(grossSalary * 0.03 * ratio);
 
-        // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Variable components from payroll_transactions ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
-        // OT rate = Gross / (26├âΓÇö8) = Gross / 208
+        // ─ Variable components from payroll_transactions ────────────────────────
+        // OT rate = Gross / (26×8) = Gross / 208
         const otAmount       = Math.round(parseFloat(pay?.ot2_hrs||0) * 2 * (grossSalary/workDays/8)
                                          + parseFloat(pay?.ot3_hrs||0) * 3 * (grossSalary/workDays/8));
         const opdClaim       = Math.round(parseFloat(pay?.opd_claim||0));
@@ -1849,12 +1954,12 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const fuelMobile     = Math.round(parseFloat(pay?.fuel_mobile||0));
         const bonusAmount    = Math.round(parseFloat(pay?.bonus_amount||0));
 
-        // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Gross = sum of all earnings ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+        // ─ Gross = sum of all earnings ──────────────────────────────────────────
         // Gross = sum of all earnings including bonus (bonus is taxable, paid in disbursement month)
         const grossTotal = basicSalary + hra + conveyance + medical + otherAllow
                          + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile + bonusAmount;
 
-        // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Deductions ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+        // ─ Deductions ──────────────────────────────────────────────────────────
         // WHT: use saved DB value if available, else calculate from gross
         const incomeTax = (() => {
             if (pay?.wht && parseFloat(pay.wht) > 0) return Math.round(parseFloat(pay.wht));
@@ -1871,8 +1976,8 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const advanceDed   = Math.round(parseFloat(pay?.advance_deduction||0));
         const loanDed      = Math.round(parseFloat(pay?.loan_deduction||0));
         const otherDed     = Math.round(parseFloat(pay?.other_deduction||0));
-        // PF: gross/24 ├óΓé¼ΓÇ¥ ONLY if contract eosb_type is 'Provident Fund'
-        // emp.pf_enrolled does NOT exist as a DB column ├óΓé¼ΓÇ¥ check contract via JOIN
+        // PF: gross/24 — ONLY if contract eosb_type is 'Provident Fund'
+        // emp.pf_enrolled does NOT exist as a DB column — check contract via JOIN
         const empContractRes = await pool.query(
             `SELECT c.costs->>'eosb_type' AS eosb_type FROM contracts c WHERE c.contract_name=$1`,
             [emp.contract_name || '']
@@ -1883,13 +1988,13 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const totalDeductions = incomeTax + eobiEE + pfEE + advanceDed + loanDed + otherDed;
         const netPay          = grossTotal - totalDeductions;
 
-        // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Helper: only emit row if value > 0 ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+        // ─ Helper: only emit row if value > 0 ──────────────────────────────────
         const row = (label, val, isDeduction = false) =>
             val > 0 ? `<tr><td>${label}</td><td class="amount${isDeduction?' deduction':''}">
                 ${isDeduction ? '- ' : ''}${fmt(val)}</td></tr>` : '';
 
         const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>Salary Slip ├óΓé¼ΓÇ¥ ${emp.name} ├óΓé¼ΓÇ¥ ${monthName} ${year}</title>
+<title>Salary Slip — ${emp.name} — ${monthName} ${year}</title>
 <style>
   @media print { body { margin: 0; } .page { padding: 16px 20px; } }
   body { font-family: Arial, sans-serif; font-size: 10pt; color: #000; margin: 0; background: #f0f4f8; }
@@ -1923,7 +2028,7 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
   <div>
     <h2>SALARY SLIP</h2>
     <p>Allied Services International (Pvt.) Ltd.</p>
-    <p>NTN: 7483900-1 &nbsp;|&nbsp; accounts@asil.com.pk</p>
+    <p>NTN: 7483900-1  |  accounts@asil.com.pk</p>
   </div>
   <div class="hdr-right">
     <p style="font-size:12pt;font-weight:700">${monthName} ${year}</p>
@@ -1935,10 +2040,10 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
 <div class="meta">
   <div class="meta-cell"><label>Employee Name</label><span>${emp.name}</span></div>
   <div class="meta-cell"><label>Employee Code</label><span>${emp.id}</span></div>
-  <div class="meta-cell"><label>Designation</label><span>${emp.designation||'├óΓé¼ΓÇ¥'}</span></div>
-  <div class="meta-cell"><label>Client / Location</label><span>${emp.client||'├óΓé¼ΓÇ¥'} / ${emp.location||'├óΓé¼ΓÇ¥'}</span></div>
-  <div class="meta-cell"><label>CNIC</label><span>${emp.cnic||'├óΓé¼ΓÇ¥'}</span></div>
-  <div class="meta-cell"><label>Bank Account</label><span>${emp.bank_name||'├óΓé¼ΓÇ¥'} &nbsp;├óΓé¼ΓÇ¥&nbsp; ${emp.bank_account||'├óΓé¼ΓÇ¥'}</span></div>
+  <div class="meta-cell"><label>Designation</label><span>${emp.designation||'—'}</span></div>
+  <div class="meta-cell"><label>Client / Location</label><span>${emp.client||'—'} / ${emp.location||'—'}</span></div>
+  <div class="meta-cell"><label>CNIC</label><span>${emp.cnic||'—'}</span></div>
+  <div class="meta-cell"><label>Bank Account</label><span>${emp.bank_name||'—'}  —  ${emp.bank_account||'—'}</span></div>
 </div>
 
 <div class="section">
@@ -1980,13 +2085,13 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
 <div class="net-box">
   <div>
     <div class="label">NET SALARY PAYABLE</div>
-    <div class="sub">${monthName} ${year} &nbsp;|&nbsp; Gross ${fmt(grossTotal)} ├ó╦åΓÇÖ Deductions ${fmt(totalDeductions)}</div>
+    <div class="sub">${monthName} ${year}  |  Gross ${fmt(grossTotal)} ─ Deductions ${fmt(totalDeductions)}</div>
   </div>
   <div class="amount">Rs. ${fmt(netPay)}</div>
 </div>
 
 <div class="footer">
-  This is a system-generated salary slip and does not require a signature.&nbsp;&nbsp;|&nbsp;&nbsp;Allied Services International (Pvt.) Ltd.
+  This is a system-generated salary slip and does not require a signature.  |  Allied Services International (Pvt.) Ltd.
 </div>
 </div></body></html>`;
 
@@ -2000,9 +2105,9 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
-// HITL FLAGS ├óΓé¼ΓÇ¥ Bills where OCR total ├óΓÇ░┬á items sum
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
+// HITL FLAGS — Bills where OCR total ≠ items sum
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 app.get('/api/bills/hitl-flags', requireAuth, async (req, res) => {
     try {
@@ -2022,9 +2127,9 @@ app.get('/api/bills/hitl-flags', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 // BULK PAYROLL SMS
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
 app.post('/api/sms/payroll-batch', requireAuth, async (req, res) => {
     try {
@@ -2054,19 +2159,16 @@ app.post('/api/sms/payroll-batch', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
-// EMPLOYEE PORTAL ├óΓé¼ΓÇ¥ OTP LOGIN + SELF-SERVICE
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
+// EMPLOYEE PORTAL — OTP LOGIN + SELF-SERVICE
+// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
-// Request OTP ├óΓé¼ΓÇ¥ looks up employee by phone, sends OTP via Jazz SMS
-app.post('/api/portal/request-otp', async (req, res) => {
+// Request OTP — looks up employee by phone, sends OTP via Jazz SMS
+app.post('/api/portal/request-otp', portalOtpLimiter, async (req, res) => {
     try {
         const { phone } = req.body;
         if (!phone) return res.status(400).json({ error: 'Phone number required' });
-        // Normalise phone
-        let p = phone.replace(/\D/g, '');
-        if (p.startsWith('92') && p.length === 12) p = '0' + p.slice(2);
-        if (p.startsWith('3') && p.length === 10) p = '0' + p;
+        const p = normalisePhone(phone);
 
         // Find employee with this phone
         const { rows } = await pool.query(
@@ -2090,16 +2192,17 @@ app.post('/api/portal/request-otp', async (req, res) => {
         await sendJazzSMS(p, message);
 
         res.json({ ok: true, message: `OTP sent to ${p.slice(0,5)}****${p.slice(-2)}`, employeeName: rows[0].name });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        console.error('[POST /api/portal/request-otp]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
-// Verify OTP ├óΓé¼ΓÇ¥ returns portal JWT
+// Verify OTP — returns portal JWT
 app.post('/api/portal/verify-otp', async (req, res) => {
     try {
         const { phone, otp } = req.body;
-        let p = (phone||'').replace(/\D/g, '');
-        if (p.startsWith('92') && p.length === 12) p = '0' + p.slice(2);
-        if (p.startsWith('3') && p.length === 10) p = '0' + p;
+        const p = normalisePhone(phone || '');
 
         const { rows: otpRows } = await pool.query(
             `SELECT * FROM portal_otps WHERE phone=$1 AND otp=$2 AND used=FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
@@ -2125,10 +2228,13 @@ app.post('/api/portal/verify-otp', async (req, res) => {
             { expiresIn: '24h' }
         );
         res.json({ ok: true, token, employee: { id: emp.id, name: emp.name, designation: emp.designation, client: emp.client, location: emp.location } });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        console.error('[POST /api/portal/verify-otp]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
-// Portal middleware ├óΓé¼ΓÇ¥ validates portal JWT
+// Portal middleware — validates portal JWT
 function requirePortalAuth(req, res, next) {
     const auth = req.headers.authorization;
     if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'Portal auth required' });
@@ -2180,11 +2286,193 @@ app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
             })),
             leaves: leavesRes.rows
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        console.error('[portal/me]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Tax Calculation (public) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
-app.post('/api/calculate', (req, res) => {
+// ── Portal: submit a change request ──────────────────────────────────────────
+// Allowed fields employees can request changes to (no salary/contract/ID changes)
+const PORTAL_CHANGEABLE_FIELDS = {
+    present_address:   'Present Address',
+    permanent_address: 'Permanent Address',
+    primary_contact:   'Primary Contact',
+    emergency_contact: 'Emergency Contact',
+    email:             'Email Address',
+    bank_name:         'Bank Name',
+    bank_account:      'Bank Account Number',
+    account_title:     'Account Title',
+    nok_name:          'Next of Kin Name',
+    nok_relation:      'Next of Kin Relation',
+    nok_contact:       'Next of Kin Contact',
+};
+
+app.post('/api/portal/change-request', requirePortalAuth, async (req, res) => {
+    try {
+        const empId = req.portalEmployee.employeeId;
+        const { field_name, new_value } = req.body;
+
+        if (!field_name || !new_value) {
+            return res.status(400).json({ error: 'field_name and new_value are required' });
+        }
+        if (!PORTAL_CHANGEABLE_FIELDS[field_name]) {
+            return res.status(400).json({ error: 'This field cannot be changed via the portal' });
+        }
+
+        // Snapshot the current value from the employees table
+        const { rows: empRows } = await pool.query(
+            `SELECT name, ${field_name} AS current_val FROM employees WHERE id=$1`, [empId]
+        );
+        if (!empRows.length) return res.status(404).json({ error: 'Employee not found' });
+        const old_value = empRows[0].current_val;
+
+        const { rows } = await pool.query(
+            `INSERT INTO employee_change_requests
+             (employee_id, employee_name, field_name, field_label, old_value, new_value)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING *`,
+            [empId, empRows[0].name, field_name, PORTAL_CHANGEABLE_FIELDS[field_name], old_value, new_value]
+        );
+        res.json({ ok: true, request: rows[0] });
+    } catch (err) {
+        console.error('[portal/change-request]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Portal: get own change requests (history)
+app.get('/api/portal/my-requests', requirePortalAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, field_label, old_value, new_value, status, submitted_at, reviewed_at, notes
+             FROM employee_change_requests
+             WHERE employee_id=$1
+             ORDER BY submitted_at DESC LIMIT 50`,
+            [req.portalEmployee.employeeId]
+        );
+        res.json({ requests: rows });
+    } catch (err) {
+        console.error('[portal/my-requests]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ── Office: list pending change requests ─────────────────────────────────────
+app.get('/api/change-requests', requireAuth, requireRole('superadmin', 'operations', 'payroll_initiator'), async (req, res) => {
+    try {
+        const { status = 'Pending' } = req.query;
+        const { rows } = await pool.query(
+            `SELECT cr.*, e.designation, e.client, e.location
+             FROM employee_change_requests cr
+             LEFT JOIN employees e ON e.id = cr.employee_id
+             WHERE ($1 = 'All' OR cr.status = $1)
+             ORDER BY cr.submitted_at DESC`,
+            [status]
+        );
+        res.json({ requests: rows });
+    } catch (err) {
+        console.error('[GET /api/change-requests]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ── Office: approve a change request → apply to employees table ───────────────
+app.patch('/api/change-requests/:id/approve', requireAuth, requireRole('superadmin', 'operations', 'payroll_initiator'), async (req, res) => {
+    try {
+        const reqId = parseInt(req.params.id);
+
+        // Fetch the request
+        const { rows: crRows } = await pool.query(
+            'SELECT * FROM employee_change_requests WHERE id=$1', [reqId]
+        );
+        if (!crRows.length) return res.status(404).json({ error: 'Change request not found' });
+        const cr = crRows[0];
+        if (cr.status !== 'Pending') {
+            return res.status(400).json({ error: `Request is already ${cr.status}` });
+        }
+        if (!PORTAL_CHANGEABLE_FIELDS[cr.field_name]) {
+            return res.status(400).json({ error: 'Field not in allowed list — cannot apply' });
+        }
+
+        // Apply change to employees table (safe: field_name is whitelist-validated above)
+        await pool.query(
+            `UPDATE employees SET ${cr.field_name}=$1, updated_at=NOW() WHERE id=$2`,
+            [cr.new_value, cr.employee_id]
+        );
+
+        // Mark request as Approved
+        await pool.query(
+            `UPDATE employee_change_requests SET status='Approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2`,
+            [req.user.email, reqId]
+        );
+
+        // Send approval SMS to employee
+        try {
+            const { rows: empRows } = await pool.query(
+                'SELECT primary_contact FROM employees WHERE id=$1', [cr.employee_id]
+            );
+            if (empRows.length && empRows[0].primary_contact) {
+                const smsMsg = `ASIL HR: Your request to update '${cr.field_label}' has been APPROVED. The change is now in effect.`;
+                await sendJazzSMS(empRows[0].primary_contact, smsMsg);
+                await pool.query(
+                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                    [cr.employee_id, smsMsg, req.user.email]
+                ).catch(() => {});
+            }
+        } catch (_) { /* SMS failure is non-fatal */ }
+
+        res.json({ ok: true, message: 'Change request approved and applied' });
+    } catch (err) {
+        console.error('[PATCH /api/change-requests/:id/approve]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ── Office: reject a change request ──────────────────────────────────────────
+app.patch('/api/change-requests/:id/reject', requireAuth, requireRole('superadmin', 'operations', 'payroll_initiator'), async (req, res) => {
+    try {
+        const reqId = parseInt(req.params.id);
+        const { note } = req.body;
+
+        const { rows: crRows } = await pool.query(
+            'SELECT * FROM employee_change_requests WHERE id=$1', [reqId]
+        );
+        if (!crRows.length) return res.status(404).json({ error: 'Change request not found' });
+        const cr = crRows[0];
+        if (cr.status !== 'Pending') {
+            return res.status(400).json({ error: `Request is already ${cr.status}` });
+        }
+
+        await pool.query(
+            `UPDATE employee_change_requests SET status='Rejected', reviewed_by=$1, reviewed_at=NOW(), notes=$2 WHERE id=$3`,
+            [req.user.email, note || null, reqId]
+        );
+
+        // Send rejection SMS to employee
+        try {
+            const { rows: empRows } = await pool.query(
+                'SELECT primary_contact FROM employees WHERE id=$1', [cr.employee_id]
+            );
+            if (empRows.length && empRows[0].primary_contact) {
+                const reason = note ? ` Reason: ${note}` : '';
+                const smsMsg = `ASIL HR: Your request to update '${cr.field_label}' has been REJECTED.${reason} Contact HR for assistance.`;
+                await sendJazzSMS(empRows[0].primary_contact, smsMsg);
+                await pool.query(
+                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                    [cr.employee_id, smsMsg, req.user.email]
+                ).catch(() => {});
+            }
+        } catch (_) { /* SMS failure is non-fatal */ }
+
+        res.json({ ok: true, message: 'Change request rejected' });
+    } catch (err) {
+        console.error('[PATCH /api/change-requests/:id/reject]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+﻿app.post('/api/calculate', (req, res) => {
     const { grossSalary, joiningDate, calcDate } = req.body;
     if (!grossSalary) return res.status(400).json({ error: 'Gross salary required' });
     const gross = parseFloat(grossSalary);
@@ -2197,11 +2485,11 @@ app.post('/api/calculate', (req, res) => {
     res.json({ parameters: { gross, join, calc }, results: { eobi, sessi, incomeTax, gratuity, netSalary: gross - eobi.employeeShare - incomeTax, totalCostToCompany: gross + eobi.employerShare + sessi } });
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 // INVENTORY MANAGEMENT
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Inventory Items (catalog) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Inventory Items (catalog) Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
 app.get('/api/inventory/items', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(`
@@ -2252,7 +2540,7 @@ app.delete('/api/inventory/items/:id', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Stock In (procurement) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Stock In (procurement) Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
 app.get('/api/inventory/stock', requireAuth, async (req, res) => {
     try {
         const { item_id } = req.query;
@@ -2287,7 +2575,7 @@ app.delete('/api/inventory/stock/:id', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Issuances ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Issuances Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
 app.get('/api/inventory/issuances', requireAuth, async (req, res) => {
     try {
         const { employee_id, item_id, status } = req.query;
@@ -2341,11 +2629,11 @@ app.delete('/api/inventory/issuances/:id', requireAuth, async (req, res) => {
 
 
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
-// PAYROLL TRANSACTIONS ├óΓé¼ΓÇ¥ persistent storage for monthly payroll data
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
+// PAYROLL TRANSACTIONS Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ persistent storage for monthly payroll data
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 
-// GET /api/payroll/:year/:month ├óΓé¼ΓÇ¥ load saved overrides for a given month
+// GET /api/payroll/:year/:month Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ load saved overrides for a given month
 app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
     try {
         const { year, month } = req.params;
@@ -2391,7 +2679,7 @@ app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/payroll/:year/:month ├óΓé¼ΓÇ¥ bulk UPSERT (newest import wins, blocked if locked)
+// POST /api/payroll/:year/:month Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ bulk UPSERT (newest import wins, blocked if locked)
 app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer'), async (req, res) => {
     try {
         const { year, month } = req.params;
@@ -2461,7 +2749,7 @@ app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PATCH /api/payroll/:year/:month/lock ├óΓé¼ΓÇ¥ lock a payroll month + auto-post PF/Gratuity
+// PATCH /api/payroll/:year/:month/lock Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ lock a payroll month + auto-post PF/Gratuity
 app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_approver'), async (req, res) => {
     try {
         const { year, month } = req.params;
@@ -2490,10 +2778,10 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
             lockedEmpIds = lockedRows.map(r => r.employee_id);
         }
 
-        // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Auto-post PF and Gratuity accrual for each newly locked employee ├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+        // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Auto-post PF and Gratuity accrual for each newly locked employee Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
         if (lockedEmpIds && lockedEmpIds.length > 0) {
             // Join contracts to get eosb_type from costs JSON
-            // pf_enrolled does NOT exist as a column ├óΓé¼ΓÇ¥ eosb_type lives in contracts.costs
+            // pf_enrolled does NOT exist as a column Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ eosb_type lives in contracts.costs
             const { rows: emps } = await pool.query(
                 `SELECT e.id, e.salary, e.contract_name,
                         c.costs->>'eosb_type' AS eosb_type
@@ -2508,10 +2796,10 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
                 const isPF       = eosbType === 'Provident Fund';
                 const isGratuity = eosbType === 'Gratuity';
 
-                // PF: gross/24 per month ├óΓé¼ΓÇ¥ ONLY when Provident Fund scheme
+                // PF: gross/24 per month Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ ONLY when Provident Fund scheme
                 const pfContrib = isPF ? Math.round(gross / 24) : 0;
 
-                // Gratuity: gross/12 per month ├óΓé¼ΓÇ¥ ONLY when Gratuity scheme (mutually exclusive with PF)
+                // Gratuity: gross/12 per month Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ ONLY when Gratuity scheme (mutually exclusive with PF)
                 const gratuityAccrual = isGratuity ? Math.round(gross / 12) : 0;
 
                 if (pfContrib > 0) {
@@ -2542,14 +2830,14 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PATCH /api/payroll/:year/:month/unlock ├óΓé¼ΓÇ¥ unlock a payroll month (scoped to employee_ids if provided)
+// PATCH /api/payroll/:year/:month/unlock Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ unlock a payroll month (scoped to employee_ids if provided)
 app.patch('/api/payroll/:year/:month/unlock', requireAuth, requireRole('finance_approver'), async (req, res) => {
     try {
         const { year, month } = req.params;
         const { employee_ids } = req.body || {};
         const yr = parseInt(year), mo = parseInt(month);
         if (employee_ids && employee_ids.length > 0) {
-            // Scoped unlock ├óΓé¼ΓÇ¥ only the specified employees
+            // Scoped unlock Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ only the specified employees
             await pool.query(
                 `UPDATE payroll_transactions SET locked=FALSE, locked_by=NULL, locked_at=NULL
                  WHERE year=$1 AND month=$2 AND employee_id = ANY($3)`,
@@ -2567,7 +2855,7 @@ app.patch('/api/payroll/:year/:month/unlock', requireAuth, requireRole('finance_
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// DELETE /api/payroll/:year/:month/:employeeId — delete one employee's payroll row (superadmin only)
+// DELETE /api/payroll/:year/:month/:employeeId ΓÇö delete one employee's payroll row (superadmin only)
 app.delete('/api/payroll/:year/:month/:employeeId', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         const { year, month, employeeId } = req.params;
@@ -2575,12 +2863,12 @@ app.delete('/api/payroll/:year/:month/:employeeId', requireAuth, requireRole('su
             'DELETE FROM payroll_transactions WHERE employee_id=$1 AND year=$2 AND month=$3 RETURNING employee_id',
             [employeeId, parseInt(year), parseInt(month)]
         );
-        // If 0 rows deleted the employee simply never had a saved override — treat as success
+        // If 0 rows deleted the employee simply never had a saved override ΓÇö treat as success
         res.json({ ok: true, deleted: result.rows.length });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// DELETE /api/payroll/:year/:month — bulk-reset (erase all entered data) for a payroll month
+// DELETE /api/payroll/:year/:month ΓÇö bulk-reset (erase all entered data) for a payroll month
 // Requires a password stored in the PAYROLL_RESET_PASSWORD env variable.
 // Refuses if any rows are locked (locked payroll cannot be erased without unlocking first).
 app.delete('/api/payroll/:year/:month', requireAuth, requireRole('superadmin', 'finance_approver'), async (req, res) => {
@@ -2592,7 +2880,7 @@ app.delete('/api/payroll/:year/:month', requireAuth, requireRole('superadmin', '
         // 1. Verify password
         const RESET_PWD = process.env.PAYROLL_RESET_PASSWORD;
         if (!RESET_PWD) {
-            return res.status(503).json({ error: 'PAYROLL_RESET_PASSWORD is not configured on the server. Set it in Render → Environment.' });
+            return res.status(503).json({ error: 'PAYROLL_RESET_PASSWORD is not configured on the server. Set it in Render ΓåÆ Environment.' });
         }
         if (!password || password !== RESET_PWD) {
             return res.status(403).json({ error: 'Incorrect reset password.' });
@@ -2623,7 +2911,7 @@ app.delete('/api/payroll/:year/:month', requireAuth, requireRole('superadmin', '
 
 
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Payroll CSV Export (server-side, avoids CSP/blob issues) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Payroll CSV Export (server-side, avoids CSP/blob issues) Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
 app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
     try {
         const { year, month } = req.params;
@@ -2639,7 +2927,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         // Province tax rates from System Config (Tax by Region), falls back to statutory defaults
         const _dbRates = regionTaxRes.rows[0]?.value || [];
 
-        // Build contract lookup by name (lowercase) ├óΓÇáΓÇÖ enrich employees with financials
+        // Build contract lookup by name (lowercase) Γö£├│╬ô├ç├í╬ô├ç├û enrich employees with financials
         const ctByName = {};
         contractRes.rows.forEach(c => { if (c.contract_name) ctByName[c.contract_name.toLowerCase().trim()] = c; });
 
@@ -2657,8 +2945,8 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             emp._medical_sp   = parseFloat(costs.medical_sp   || 0);
             emp._medical_ch   = parseFloat(costs.medical_child || 0);
             emp._life_ins     = parseFloat(costs.life_insurance || 0);
-            // bonus_months ├âΓÇö gross gives ANNUAL bonus; /12 = monthly accrual
-            // We store bonus_months in costs ├óΓé¼ΓÇ¥ gross comes from emp.salary in calcRow
+            // bonus_months Γö£├ó╬ô├ç├╢ gross gives ANNUAL bonus; /12 = monthly accrual
+            // We store bonus_months in costs Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ gross comes from emp.salary in calcRow
             emp._bonus_months = parseFloat(costs.bonus_months || 0);
             emp._overhead_per_employee = parseFloat(costs.overhead_per_employee || 0);
             emp._svc_pct      = parseFloat(fin.service_charges_pct || 0);
@@ -2668,7 +2956,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         const payMap = {};
         payRes.rows.forEach(p => { payMap[p.employee_id] = p; });
 
-        // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Apply active UI filters to restrict export scope ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+        // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Apply active UI filters to restrict export scope Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
         let filteredEmps = empRes.rows;
         if (filterClient && filterClient !== 'All') {
             filteredEmps = filteredEmps.filter(e =>
@@ -2677,7 +2965,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             );
         }
         if (filterContract && filterContract !== 'All') {
-            // EXACT match ├óΓé¼ΓÇ¥ do NOT use .includes() which matches 'Facility Management'
+            // EXACT match Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ do NOT use .includes() which matches 'Facility Management'
             // against 'Facility Management (Trading & Supply)' incorrectly
             filteredEmps = filteredEmps.filter(e =>
                 e.contract_name === filterContract ||
@@ -2693,7 +2981,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         const WD = 26;
 
         const whtCalc = (a) => {
-            // FBR 2025-26 Salaried Individual — Finance Act 2024 (matches frontend calcWHT)
+            // FBR 2025-26 Salaried Individual ΓÇö Finance Act 2024 (matches frontend calcWHT)
             if (a <= 600000) return 0;
             if (a <= 1200000) return Math.round(((a - 600000) * 0.01) / 12);
             if (a <= 2200000) return Math.round((6000 + (a - 1200000) * 0.11) / 12);
@@ -2702,7 +2990,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             return Math.round((616000 + (a - 4100000) * 0.35) / 12);
         };
 
-        // Province ├óΓÇáΓÇÖ provincial service tax rate (DB-driven from System Config Tax by Region)
+        // Province Γö£├│╬ô├ç├í╬ô├ç├û provincial service tax rate (DB-driven from System Config Tax by Region)
         const provinceTaxRate = (province) => {
             const p = (province || '').toLowerCase();
             if (_dbRates && _dbRates.length > 0) {
@@ -2747,7 +3035,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
 
             const wht = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
             const eobi_ee  = 400, eobi_er = 2000;
-            // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ EOSB: PF and Gratuity are MUTUALLY EXCLUSIVE ├óΓé¼ΓÇ¥ mirrors frontend exactly ├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+            // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ EOSB: PF and Gratuity are MUTUALLY EXCLUSIVE Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ mirrors frontend exactly Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
             // Source of truth: contract costs.eosb_type ('Provident Fund' | 'Gratuity' | 'None')
             const eosbType       = emp._eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
             const isPF_scheme      = eosbType === 'Provident Fund';
@@ -2771,7 +3059,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const empNumChildren = [emp.child1_name, emp.child2_name].filter(n => n && String(n).trim() && String(n).trim() !== '0').length;
 
             const medEE  = Math.round(parseFloat(pay?.medical_ee != null ? pay.medical_ee : emp._medical_ee || 0));
-            // UNCONDITIONAL family gate — no spouse = medSP always 0, even if DB has stale value.
+            // UNCONDITIONAL family gate ΓÇö no spouse = medSP always 0, even if DB has stale value.
             // Mirrors payrollUtils.js logic exactly so export matches the UI.
             const medSP  = !empHasSpouse    ? 0
                          : (savedMedSP  != null && savedMedSP  > 0) ? savedMedSP  : Math.round(emp._medical_sp || 0);
@@ -2782,7 +3070,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const medTotal = medEE + medSP + medCh1 + medCh2;
             // Life Insurance: from contract costs
             const lifeIns = Math.round(parseFloat(emp._life_ins || emp.life_insurance || 0));
-            // Bonus accrual: bonus_months ├âΓÇö gross / 12 per month
+            // Bonus accrual: bonus_months Γö£├ó╬ô├ç├╢ gross / 12 per month
             const bonusMonths  = parseFloat(emp._bonus_months || emp.bonus_months || 0);
             const bonusAccrual = Math.round(bonusMonths * gross / 12);
             // Overhead: fixed per-employee charge from contract
@@ -2808,7 +3096,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         const monthAbbr = new Date(2000, moInt-1, 1).toLocaleString('en-US', { month: 'short' }); // 'Mar'
         const yr2 = String(yrInt).slice(-2); // '26'
 
-        // Build locked ID set ├óΓé¼ΓÇ¥ always from the full month's payroll_transactions
+        // Build locked ID set Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ always from the full month's payroll_transactions
         const lockedIds = new Set(payRes.rows.filter(p => p.locked).map(p => p.employee_id));
         // ALWAYS export locked-only rows scoped to the current filter.
         // bankEmps = employees who (a) match current filter AND (b) are locked in this month.
@@ -2816,7 +3104,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         const bankEmps = filteredEmps.filter(e => lockedIds.has(e.id));
 
         if (type === 'payroll') {
-            // Payroll CSV always locked+filtered ├óΓé¼ΓÇ¥ never all 514
+            // Payroll CSV always locked+filtered Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ never all 514
             rows = bankEmps.map(emp => {
                 const c = calcRow(emp, payMap[emp.id]);
                 return {
@@ -2875,7 +3163,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             filename = `Payroll_${year}-${String(month).padStart(2,'0')}${filterClient && filterClient !== 'All' ? '_' + filterClient.replace(/\s+/g,'_').slice(0,20) : ''}.csv`;
 
         } else if (type === 'hbl_same') {
-            // HBL to HBL transfers ├óΓé¼ΓÇ¥ only employees with HBL accounts, locked rows only
+            // HBL to HBL transfers Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ only employees with HBL accounts, locked rows only
             rows = bankEmps.filter(isHBL).map((emp, i) => {
                 const c = calcRow(emp, payMap[emp.id]);
                 const ref1 = `PR${monthAbbr}${yr2}-${emp.id}`;
@@ -2894,7 +3182,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             filename = `HBL_to_HBL_${monthAbbr}${yr2}.csv`;
 
         } else if (type === 'hbl_other') {
-            // HBL to Other Banks (IBFT) ├óΓé¼ΓÇ¥ non-HBL bank accounts, locked rows only
+            // HBL to Other Banks (IBFT) Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ non-HBL bank accounts, locked rows only
             rows = bankEmps.filter(e => !isHBL(e)).map((emp, i) => {
                 const c = calcRow(emp, payMap[emp.id]);
                 const ref1 = `PR${monthAbbr}${yr2}-${emp.id}`;
@@ -2913,7 +3201,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             filename = `HBL_to_Others_${monthAbbr}${yr2}.csv`;
 
         } else if (type === 'hbl') {
-            // Legacy single HBL file ├óΓé¼ΓÇ¥ redirect to split files message
+            // Legacy single HBL file Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ redirect to split files message
             rows = bankEmps.map((emp, i) => {
                 const c = calcRow(emp, payMap[emp.id]);
                 return { 'Beneficiary Name': emp.name,
@@ -3006,7 +3294,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             filename = `Invoice_File_Upload_on_Xero_${monthLbl.substring(0,3)}-${String(yrInt).slice(-2)}.csv`;
 
         } else if (type === 'invoice_summary') {
-            // Invoice summary grouped by Client → Contract → Province (mirrors AT:AW columns)
+            // Invoice summary grouped by Client ΓåÆ Contract ΓåÆ Province (mirrors AT:AW columns)
             const sumGroups = {};
             bankEmps.forEach(emp => {
                 const c        = calcRow(emp, payMap[emp.id]);
@@ -3062,7 +3350,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Send payslips by email ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Send payslips by email Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
 app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res) => {
     try {
         const { year, month } = req.params;
@@ -3109,8 +3397,8 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
             const eobi = 400;
             const adv  = Math.round(parseFloat(pay?.advance_deduction||0));
             const loan = Math.round(parseFloat(pay?.loan_deduction||0));
-            // PF: gross/24 ├óΓé¼ΓÇ¥ ONLY when Provident Fund scheme (eosb_type in contract costs)
-            // pf_enrolled is NOT a DB column on employees ├óΓé¼ΓÇ¥ use emp._eosb_type enriched above
+            // PF: gross/24 Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ ONLY when Provident Fund scheme (eosb_type in contract costs)
+            // pf_enrolled is NOT a DB column on employees Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ use emp._eosb_type enriched above
             const pfDedEmail = emp._isPF ? Math.round(gross / 24) : 0;
             // netPay computed after pfDedEmail is known
             const html = `
@@ -3134,7 +3422,7 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
 </style></head><body>
 <div class="card">
   <div class="header">
-    <h2>Salary Slip ├óΓé¼ΓÇ¥ ${monthName} ${year}</h2>
+    <h2>Salary Slip Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ ${monthName} ${year}</h2>
     <p>Allied Services International (Pvt.) Ltd.</p>
   </div>
   <div class="body">
@@ -3182,7 +3470,7 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
                 await resend.emails.send({
                     from: EMAIL_FROM,
                     to: emp.email,
-                    subject: `Salary Slip ├óΓé¼ΓÇ¥ ${monthName} ${year} | Allied Services International`,
+                    subject: `Salary Slip Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ ${monthName} ${year} | Allied Services International`,
                     html: emailHtml,
                 });
                 sent++;
@@ -3193,16 +3481,16 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 // XERO INTEGRATION
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 // Env vars required:
-//   XERO_CLIENT_ID     ├óΓé¼ΓÇ¥ OAuth2 Client ID from Xero Developer Portal
-//   XERO_CLIENT_SECRET ├óΓé¼ΓÇ¥ OAuth2 Client Secret
-//   XERO_REDIRECT_URI  ├óΓé¼ΓÇ¥ e.g. https://asilhcm.onrender.com/api/xero/callback
+//   XERO_CLIENT_ID     Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ OAuth2 Client ID from Xero Developer Portal
+//   XERO_CLIENT_SECRET Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ OAuth2 Client Secret
+//   XERO_REDIRECT_URI  Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ e.g. https://asilhcm.onrender.com/api/xero/callback
 //
-// Flow: Admin visits /api/xero/connect ├óΓÇáΓÇÖ Xero login ├óΓÇáΓÇÖ /api/xero/callback
-//       ├óΓÇáΓÇÖ stores refresh_token + expires_at in system_config ├óΓÇáΓÇÖ all future POSTs
+// Flow: Admin visits /api/xero/connect Γö£├│╬ô├ç├í╬ô├ç├û Xero login Γö£├│╬ô├ç├í╬ô├ç├û /api/xero/callback
+//       Γö£├│╬ô├ç├í╬ô├ç├û stores refresh_token + expires_at in system_config Γö£├│╬ô├ç├í╬ô├ç├û all future POSTs
 //       use refresh_token only when access_token is near expiry (< 5 min).
 
 const XERO_CLIENT_ID     = process.env.XERO_CLIENT_ID     || '';
@@ -3262,7 +3550,7 @@ async function xeroGetAccessToken() {
         accessToken = tokens.access_token;
     }
 
-    // Get tenantId ├óΓé¼ΓÇ¥ use cached value if stored, otherwise fetch once
+    // Get tenantId Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ use cached value if stored, otherwise fetch once
     let tenantId = tokens.tenant_id;
     if (!tenantId) {
         const tenantsResp = await fetch('https://api.xero.com/connections', {
@@ -3283,7 +3571,7 @@ async function xeroGetAccessToken() {
     return { accessToken, tenantId, expiresAt: tokens.expires_at };
 }
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ 0. Xero Status Check ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ 0. Xero Status Check Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
 app.get('/api/xero/status', requireAuth, async (req, res) => {
     try {
         const cfg = await pool.query(`SELECT value FROM system_config WHERE key = 'xero_tokens'`);
@@ -3298,7 +3586,7 @@ app.get('/api/xero/status', requireAuth, async (req, res) => {
                 connected: true,
                 tenant_id: tokens.tenant_id || null,
                 expires_in_minutes: expiresIn,
-                message: `Connected ├ó┼ôΓÇ£ ├óΓé¼ΓÇ¥ token valid for ~${expiresIn} more minutes`,
+                message: `Connected Γö£├│Γö╝├┤╬ô├ç┬ú Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ token valid for ~${expiresIn} more minutes`,
             });
         }
         // Otherwise attempt a refresh to test validity
@@ -3313,7 +3601,7 @@ app.get('/api/xero/status', requireAuth, async (req, res) => {
                 connected: true,
                 tenant_id: newTokens.tenant_id || null,
                 expires_in_minutes: Math.round((resp.expires_in || 1800) / 60),
-                message: 'Connected ├ó┼ôΓÇ£ ├óΓé¼ΓÇ¥ token refreshed',
+                message: 'Connected Γö£├│Γö╝├┤╬ô├ç┬ú Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ token refreshed',
             });
         } catch(e) {
             res.json({ connected: false, message: 'Token expired or revoked. Please reconnect at /api/xero/connect. Reason: ' + e.message });
@@ -3321,7 +3609,7 @@ app.get('/api/xero/status', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ 1. Initiate Xero OAuth ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ 1. Initiate Xero OAuth Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
 app.get('/api/xero/connect', (req, res) => {
     if (!XERO_CLIENT_ID) return res.status(500).send('<h2>XERO_CLIENT_ID is not configured in Render environment variables.</h2>');
     const state = Buffer.from(JSON.stringify({ ts: Date.now() })).toString('base64');
@@ -3335,7 +3623,7 @@ app.get('/api/xero/connect', (req, res) => {
     res.redirect(url);
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ 2. Xero OAuth Callback ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ 2. Xero OAuth Callback Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
 app.get('/api/xero/callback', async (req, res) => {
     try {
         const { code, error } = req.query;
@@ -3353,7 +3641,7 @@ app.get('/api/xero/callback', async (req, res) => {
             `INSERT INTO system_config(key, value) VALUES('xero_tokens', $1) ON CONFLICT(key) DO UPDATE SET value=$1, updated_at=NOW()`,
             [JSON.stringify(tokensToStore)]
         );
-        res.send(`<h2 style="font-family:sans-serif;color:#00B5C8">├ó┼ôΓÇ£ Xero Connected Successfully!</h2>
+        res.send(`<h2 style="font-family:sans-serif;color:#00B5C8">Γö£├│Γö╝├┤╬ô├ç┬ú Xero Connected Successfully!</h2>
             <p>Your Xero account is now linked to ASIL HCM. You can close this window.</p>
             <script>setTimeout(() => window.close(), 3000);</script>`);
     } catch (err) {
@@ -3398,7 +3686,7 @@ app.get('/api/xero/chart-of-accounts', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ 3c. Get cached Chart of Accounts (no Xero call needed) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ 3c. Get cached Chart of Accounts (no Xero call needed) Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
 app.get('/api/xero/chart-of-accounts/cached', requireAuth, async (req, res) => {
     try {
         const cfg = await pool.query(`SELECT value, updated_at FROM system_config WHERE key = 'xero_chart_of_accounts'`);
@@ -3407,7 +3695,7 @@ app.get('/api/xero/chart-of-accounts/cached', requireAuth, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ 4. Push invoice to Xero ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ 4. Push invoice to Xero Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
 app.post('/api/xero/invoices', requireAuth, async (req, res) => {
     try {
         const { invoice } = req.body;
@@ -3418,10 +3706,10 @@ app.post('/api/xero/invoices', requireAuth, async (req, res) => {
         // Build Xero line items from payrolls + debit notes
         const lineItems = [
             ...(invoice.payrolls || []).map(p => ({
-                Description:  `Manpower Services ├óΓé¼ΓÇ¥ ${p.contract?.split('├óΓé¼ΓÇ¥')[1]?.trim() || p.contract} (${p.period}, ${p.employees} employees)`,
+                Description:  `Manpower Services Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ ${p.contract?.split('Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ')[1]?.trim() || p.contract} (${p.period}, ${p.employees} employees)`,
                 Quantity:     1,
                 UnitAmount:   p.totalPayrollCost,
-                AccountCode:  '200', // default sales account ├óΓé¼ΓÇ¥ customise as needed
+                AccountCode:  '200', // default sales account Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ customise as needed
             })),
             ...(invoice.debitNotes || []).map(d => ({
                 Description:  `${d.description} [Debit Note ${d.id}]`,
@@ -3483,9 +3771,9 @@ app.post('/api/xero/invoices', requireAuth, async (req, res) => {
     }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 // BANKS MASTER
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 
 app.get('/api/banks', requireAuth, async (req, res) => {
     try {
@@ -3506,11 +3794,11 @@ app.post('/api/banks', requireAuth, requireRole('superadmin'), async (req, res) 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
-// AP PAYMENT QUEUE ├óΓé¼ΓÇ¥ Accounts Payable
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
+// AP PAYMENT QUEUE Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ Accounts Payable
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 
-// GET /api/ap/payroll-queue ├óΓé¼ΓÇ¥ locked payroll batches grouped by client+contract+month
+// GET /api/ap/payroll-queue Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ locked payroll batches grouped by client+contract+month
 app.get('/api/ap/payroll-queue', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
     try {
         const { rows } = await pool.query(`
@@ -3537,7 +3825,7 @@ app.get('/api/ap/payroll-queue', requireAuth, requireRole('ap_team','finance_man
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/ap/payroll-queue/:year/:month ├óΓé¼ΓÇ¥ employee details scoped by client+contract
+// GET /api/ap/payroll-queue/:year/:month Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ employee details scoped by client+contract
 app.get('/api/ap/payroll-queue/:year/:month', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
     try {
         const { year, month } = req.params;
@@ -3564,7 +3852,7 @@ app.get('/api/ap/payroll-queue/:year/:month', requireAuth, requireRole('ap_team'
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/ap/payroll-queue/:year/:month/confirm ├óΓé¼ΓÇ¥ AP team confirms payment + selects bank
+// POST /api/ap/payroll-queue/:year/:month/confirm Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ AP team confirms payment + selects bank
 app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
     try {
         const { year, month } = req.params;
@@ -3591,7 +3879,7 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
            : [yr, mo]);
         const t = totals.rows[0];
 
-        // Create payment batch ├óΓé¼ΓÇ¥ scoped to client+contract if provided
+        // Create payment batch Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ scoped to client+contract if provided
         const batchId = `PB-${yr}-${String(mo).padStart(2,'0')}-${(bank_name||'').replace(/\s+/g,'').slice(0,8)}-${Date.now()}`;
         const { rows: batchRows } = await pool.query(`
             INSERT INTO payment_batches
@@ -3607,7 +3895,7 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
             parseFloat(t.total_net)||0, parseInt(t.employee_count)||0, notes||null, req.user.email,
             client_filter||null, contract_filter||null]);
 
-        // Create payment ledger entries ├óΓé¼ΓÇ¥ scoped to client+contract filter
+        // Create payment ledger entries Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ scoped to client+contract filter
         const empRows = await pool.query(`
             SELECT pt.*, e.name, e.client, e.contract_name, e.location, e.bank_name, e.bank_account
             FROM payroll_transactions pt
@@ -3623,7 +3911,7 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
         const monthName = new Date(2000, mo-1, 1).toLocaleString('en-US', { month: 'short' });
         const yr2 = String(yr).slice(-2);
 
-        // ── Bulk payment_ledger INSERT (replaces N+1 per-employee loop) ──────
+        // ΓöÇΓöÇ Bulk payment_ledger INSERT (replaces N+1 per-employee loop) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         if (empRows.rows.length > 0) {
             const plBatch    = empRows.rows.map(() => batchRows[0].id);
             const plEmpIds   = empRows.rows.map(e => e.employee_id);
@@ -3685,7 +3973,7 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/ap/bills-queue ├óΓé¼ΓÇ¥ bills pending AP confirmation
+// GET /api/ap/bills-queue Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ bills pending AP confirmation
 app.get('/api/ap/bills-queue', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
     try {
         const { rows } = await pool.query(`
@@ -3699,7 +3987,7 @@ app.get('/api/ap/bills-queue', requireAuth, requireRole('ap_team','finance_manag
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/ap/bills/:id/confirm ├óΓé¼ΓÇ¥ AP team confirms bill payment
+// POST /api/ap/bills/:id/confirm Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ AP team confirms bill payment
 app.post('/api/ap/bills/:id/confirm', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
     try {
         const { bank_id, bank_name, payment_date, reference_no, billable, notes, push_to_xero = false } = req.body;
@@ -3759,7 +4047,7 @@ app.post('/api/ap/bills/:id/confirm', requireAuth, requireRole('ap_team','financ
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/payment-ledger ├óΓé¼ΓÇ¥ full payment ledger view
+// GET /api/payment-ledger Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ full payment ledger view
 app.get('/api/payment-ledger', requireAuth, requireRole('ap_team','ar_team','finance_manager','finance_approver','superadmin'), async (req, res) => {
     try {
         const { batch_id, billable, payment_type } = req.query;
@@ -3780,9 +4068,9 @@ app.get('/api/payment-ledger', requireAuth, requireRole('ap_team','ar_team','fin
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 // AR / CLIENT INVOICES
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 
 // Helper: generate next invoice number for a given month+year
 async function generateInvoiceNumber(year, month) {
@@ -3798,7 +4086,7 @@ async function generateInvoiceNumber(year, month) {
     return `${prefix}-${String(seq).padStart(3,'0')}`;
 }
 
-// GET /api/client-invoices — all client invoices (AR queue), enriched with client address/NTN
+// GET /api/client-invoices ΓÇö all client invoices (AR queue), enriched with client address/NTN
 app.get('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
     try {
         const { status, client } = req.query;
@@ -3820,7 +4108,7 @@ app.get('/api/client-invoices', requireAuth, requireRole('ar_team','finance_mana
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/client-invoices — AR team raises an invoice
+// POST /api/client-invoices ΓÇö AR team raises an invoice
 app.post('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
     try {
         const { client, contract, contract_id, period_month, period_year, po_number, due_date,
@@ -3845,7 +4133,7 @@ app.post('/api/client-invoices', requireAuth, requireRole('ar_team','finance_man
 });
 
 
-// POST /api/bills/:id/create-invoice ├óΓé¼ΓÇ¥ auto-create a draft client invoice from a billable bill
+// POST /api/bills/:id/create-invoice Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ auto-create a draft client invoice from a billable bill
 app.post('/api/bills/:id/create-invoice', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
     try {
         const { id } = req.params;
@@ -3868,7 +4156,7 @@ app.post('/api/bills/:id/create-invoice', requireAuth, requireRole('ar_team','fi
 
         const items = (b.items && b.items.length > 0)
             ? b.items.map(it => ({ description: (it.desc || 'Item'), amount: parseFloat(it.total) || 0 }))
-            : [{ description: (b.bill_type + ' ├óΓé¼ΓÇ¥ ' + (b.vendor || 'Vendor') + (b.purpose ? ' | ' + b.purpose : '')), amount: parseFloat(b.total) || 0 }];
+            : [{ description: (b.bill_type + ' Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ ' + (b.vendor || 'Vendor') + (b.purpose ? ' | ' + b.purpose : '')), amount: parseFloat(b.total) || 0 }];
 
         const subtotal = parseFloat(b.total) || 0;
         const { rows } = await pool.query(
@@ -3885,7 +4173,7 @@ app.post('/api/bills/:id/create-invoice', requireAuth, requireRole('ar_team','fi
     }
 });
 
-// PATCH /api/client-invoices/:id ├óΓé¼ΓÇ¥ update invoice (AR can override number, change status)
+// PATCH /api/client-invoices/:id Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ update invoice (AR can override number, change status)
 app.patch('/api/client-invoices/:id', requireAuth, requireRole('ar_team','finance_manager','finance_approver','superadmin'), async (req, res) => {
     try {
         const { invoice_number, status, po_number, due_date, notes, xero_invoice_id, xero_url } = req.body;
@@ -3909,7 +4197,7 @@ app.patch('/api/client-invoices/:id', requireAuth, requireRole('ar_team','financ
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/client-invoices/:id/push-xero ├óΓé¼ΓÇ¥ push to Xero as AR invoice
+// POST /api/client-invoices/:id/push-xero Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ push to Xero as AR invoice
 app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team','finance_manager','superadmin'), async (req, res) => {
     try {
         const inv = await pool.query('SELECT * FROM client_invoices WHERE id=$1', [req.params.id]);
@@ -3945,11 +4233,11 @@ app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
+// Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 
-// ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+// ╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë
 // PAYROLL INV-STATUS
-// ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+// ╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë╬ô├▓├ë
 app.get('/api/payroll/:year/:month/invoice-status', requireAuth, async (req, res) => {
     try {
         const yr = parseInt(req.params.year), mo = parseInt(req.params.month);
@@ -4038,7 +4326,7 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
         const ZERO = { gross:0,net:0,wht:0,eobi_ee:0,service_charges:0,sales_tax:0,total_invoice:0,overtime:0,overhead:0,opd_claim:0,reimbursement:0,arrears:0 };
 
         // Build invoice groups
-        // Key = region|bu — component splits happen within the same region/bu group
+        // Key = region|bu ΓÇö component splits happen within the same region/bu group
         const groupMap = {};
         for (const r of rows) {
             const regionKey = byRegion ? (r.emp_region || 'No Region') : 'ALL';
@@ -4141,7 +4429,7 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
         // Grand totals across all groups (no double-counting: use allTotals from rows)
         const grandTotals = rows.reduce(sumRow, { ...ZERO });
 
-        // ── Auto-match active POs for this client ──────────────────────────────
+        // ΓöÇΓöÇ Auto-match active POs for this client ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         // Load once, then match per group by BU and contract (best-fit logic)
         let clientPOs = [];
         try {
@@ -4171,7 +4459,7 @@ app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, re
                 p.bu_name && p.bu_name.toLowerCase().trim() === buL && !p.contract_name
             );
             // Partial BU match
-            if (!po && buL) po = clientPOs.find(p =>
+if (!po && buL) po = clientPOs.find(p =>
                 p.bu_name && (p.bu_name.toLowerCase().includes(buL) || buL.includes(p.bu_name.toLowerCase()))
             );
             // Client-level PO (no BU set on PO)
@@ -8073,6 +8361,42 @@ if (require.main === module) app.listen(PORT, async () => {
         }
         console.log('Migration OK: wafi_focal_points table ready');
 
+        // ═══ Operational fields on employees (2026-07-02) ═════════════════════
+        for (const colSql of [
+            'ALTER TABLE employees ADD COLUMN IF NOT EXISTS sessi_no TEXT',
+            'ALTER TABLE employees ADD COLUMN IF NOT EXISTS shirt_size TEXT',
+            'ALTER TABLE employees ADD COLUMN IF NOT EXISTS trouser_size TEXT',
+            'ALTER TABLE employees ADD COLUMN IF NOT EXISTS safety_shoe_size TEXT',
+            'ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_uniform_issue_date DATE',
+            'ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_ppe_issue_date DATE',
+            'ALTER TABLE employees ADD COLUMN IF NOT EXISTS gate_pass_expiry DATE',
+            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS payroll_cycle_type TEXT DEFAULT 'Monthly'",
+        ]) {
+            await pool.query(colSql).catch(() => {});
+        }
+        console.log('Migration OK: employees operational fields');
+
+        // ═══ Employee Change Requests table (2026-07-02) ══════════════════════
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS employee_change_requests (
+                id              SERIAL PRIMARY KEY,
+                employee_id     TEXT NOT NULL,
+                employee_name   TEXT,
+                field_name      TEXT NOT NULL,
+                field_label     TEXT NOT NULL,
+                old_value       TEXT,
+                new_value       TEXT NOT NULL,
+                status          TEXT DEFAULT 'Pending',
+                submitted_at    TIMESTAMPTZ DEFAULT NOW(),
+                reviewed_by     TEXT,
+                reviewed_at     TIMESTAMPTZ,
+                notes           TEXT
+            )
+        `);
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_chgreq_status ON employee_change_requests(status)').catch(() => {});
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_chgreq_empid ON employee_change_requests(employee_id)').catch(() => {});
+        console.log('Migration OK: employee_change_requests');
+
         // ═══ Start Email Claims Listener Service ══════════════════════════════
         startEmailClaimsService(pool);
 
@@ -8084,4 +8408,3 @@ if (require.main === module) app.listen(PORT, async () => {
         console.warn('Migration warning (non-fatal):', e.message);
     }
 });
-

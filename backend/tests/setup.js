@@ -36,6 +36,15 @@ process.env.FRONTEND_URL     = 'http://localhost:5173';
 process.env.BACKEND_URL      = 'http://localhost:3000';
 process.env.EXECUTION_ENV    = 'local_sandbox';
 process.env.RESEND_API_KEY   = 're_test_placeholder_key_for_jest';
+process.env.JAZZ_SMS_USER    = 'test-jazz-user';
+process.env.JAZZ_SMS_PASS    = 'test-jazz-pass';
+
+jest.setTimeout(30000);
+
+// Stub outbound Jazz SMS HTTP calls
+global.fetch = jest.fn().mockResolvedValue({
+  text: () => Promise.resolve('OK'),
+});
 
 // ── Mock pool factory ────────────────────────────────────────────────────────
 // Exported so individual test files can push custom query responses.
@@ -95,5 +104,15 @@ const makeToken = (overrides = {}) => {
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '8h' });
 };
 
+const makePortalToken = (overrides = {}) => {
+  const payload = {
+    employeeId: 'ASIL-TEST-001',
+    name:       'Portal Test User',
+    portal:     true,
+    ...overrides,
+  };
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' });
+};
+
 // ── Exports ──────────────────────────────────────────────────────────────────
-module.exports = { mockPool, makeToken };
+module.exports = { mockPool, makeToken, makePortalToken };

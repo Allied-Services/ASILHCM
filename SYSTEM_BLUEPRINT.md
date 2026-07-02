@@ -432,7 +432,7 @@ This endpoint is public (no `requireAuth`), returns the server's outbound IP, an
 - `POST /api/employees` — Create/upsert single employee
 - `PUT /api/employees/:id` — Update employee
 - `DELETE /api/employees/:id` — Delete employee
-- `POST /api/employees/bulk` — Bulk import with contract validation
+- `POST /api/employees/bulk` — Bulk import with contract validation + strict ID/CNIC guard; optional `notifyNew` welcome SMS (superadmin)
 - `GET /api/employees/:id/documents` + `POST/PUT/DELETE` — Employee documents
 - `GET /api/employees/:id/messages` + `POST` — Message log
 - `GET /api/employees/:id/advances` + `POST/DELETE` — Advance/loan
@@ -495,6 +495,18 @@ This endpoint is public (no `requireAuth`), returns the server's outbound IP, an
 - `GET /api/ap/queue` — Locked payroll batches (filtered by client/contract)
 - `GET /api/ap/queue/:batchId` — Batch detail with employee list
 - `POST /api/ap/confirm` — Confirm batch payment → create batch + ledger
+
+### Employee Portal (Self-Service — Phone OTP)
+- `POST /api/portal/request-otp` — Public; rate-limited; sends 6-digit OTP via Jazz SMS
+- `POST /api/portal/verify-otp` — Public; returns 24h portal-scoped JWT
+- `GET /api/portal/me` — Read-only profile, payslips, advances (portal JWT)
+- `POST /api/portal/change-request` — Submit field correction request (whitelist-validated)
+- `GET /api/portal/my-requests` — Worker's own change-request history
+
+### Employee Change Requests (Office Approval)
+- `GET /api/change-requests?status=Pending|Approved|Rejected|All` — Queue (superadmin, operations, payroll_initiator)
+- `PATCH /api/change-requests/:id/approve` — Apply proposed value to `employees`
+- `PATCH /api/change-requests/:id/reject` — Reject with optional note + SMS notification
 
 ### SMS
 - `POST /api/sms/send` — Single SMS
@@ -572,7 +584,7 @@ This endpoint is public (no `requireAuth`), returns the server's outbound IP, an
 2. **Employee Contract Date**: Auto-matched using LIKE-based client name matching. If client name changes in the master, existing employees lose their auto-match.
 3. **Payroll Advance Deduction**: Pulled from `employee_advances` at payroll view time. If an advance is deleted after payroll is locked, the deduction disappears from the payslip retrospectively.
 4. **Bill IDs**: Generated as `BILL-<timestamp>` — two simultaneous bill creations in the same millisecond could theoretically conflict (extremely unlikely but not impossible).
-5. **Duplicate Employee Bulk Import**: If the same employee (by CNIC) is imported in two separate bulk uploads, the second import silently overwrites the first (by ASIL-ID conflict). The CNIC is not used as the uniqueness key.
+5. **Duplicate Employee Bulk Import**: Resolved 2026-07-02 — bulk import now rejects CNIC/ID mismatches instead of silent overwrites.
 
 ---
 
