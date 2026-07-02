@@ -295,6 +295,8 @@ $$ LANGUAGE plpgsql;
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- Operational fields appended to live `employees` table
+-- employees.dept stores Department (canonical column name since v1)
+-- ALTER TABLE employees ADD COLUMN IF NOT EXISTS site TEXT;
 -- ALTER TABLE employees ADD COLUMN IF NOT EXISTS sessi_no TEXT;
 -- ALTER TABLE employees ADD COLUMN IF NOT EXISTS shirt_size TEXT;
 -- ALTER TABLE employees ADD COLUMN IF NOT EXISTS trouser_size TEXT;

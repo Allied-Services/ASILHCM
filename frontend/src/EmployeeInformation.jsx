@@ -7,7 +7,7 @@ import EmployeeProfile from './EmployeeProfile';
 // ── Exact columns from Master Data.csv ───────────────────────────────────────
 export const MASTER_COLUMNS = [
     'ASIL Employee Code', 'ASIL BU', 'Contract Name', 'Active', 'CLIENT NAME', 'Client Business Unit',
-    'Department', 'Designation', 'Client Location', 'Province', 'Employee Name',
+    'Department', 'Designation', 'Client Location', 'Site', 'Province', 'Employee Name',
     "Father's Name", "Mother's Name", 'CNIC Number', 'CNIC Issue', 'CNIC Expiry',
     'Place of Birth', 'EOBI No', 'Religion', 'Salary', 'Marital Status',
     'Primary Contact', 'Emergency Contact', 'Email Address', 'Present Address',
@@ -32,7 +32,7 @@ const parseSalary = (s) => parseFloat(String(s || '0').replace(/,/g, '')) || 0;
 
 const EMPTY_FORM = {
     id: '', bu: '', active: 'Yes', client: '', clientBU: '', dept: '', designation: '',
-    location: '', province: '', contractName: '', contractId: '',
+    location: '', site: '', province: '', contractName: '', contractId: '',
     name: '', fatherName: '', motherName: '',
     cnic: '', cnicIssue: '', cnicExpiry: '', placeOfBirth: '', eobiNo: '', religion: 'Islam',
     salary: '', maritalStatus: 'Single',
@@ -211,7 +211,8 @@ export default function EmployeeInformation({ user }) {
                         clientBU:     getF(obj, 'Client Business Unit', 'Client BU', 'ClientBU'),
                         dept:         getF(obj, 'Department', 'Dept'),
                         designation:  getF(obj, 'Designation', 'Position', 'Job Title'),
-                        location:     getF(obj, 'Client Location', 'Location', 'Site'),
+                        location:     getF(obj, 'Client Location', 'Location'),
+                        site:         getF(obj, 'Site', 'Work Site', 'Site Name'),
                         province:     getF(obj, 'Province'),
                         name:         getF(obj, 'Employee Name', 'Name', 'Full Name'),
                         fatherName:   getF(obj, "Father's Name", 'Father Name', 'Fathers Name', 'Father'),
