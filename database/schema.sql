@@ -339,3 +339,6 @@ CREATE INDEX IF NOT EXISTS idx_chgreq_empid ON employee_change_requests(employee
 -- petty_cash_funds, petty_cash_ledger, employee_leaves, employee_leave_balances
 -- attendance_records extended: site, dept, status includes 'unexcused'
 -- contracts extended: allied_focal_email, client_focal_name, client_focal_email
+-- CMMS site onboarding (2026-07-03): cmms_sites, cmms_client_users, client_otps
+-- maintenance_tickets extended: due_date, billable_to_client, raised_via, cc_email
+-- site_escalation_rules extended: basis (hours_open | hours_overdue)

@@ -129,5 +129,16 @@ const makePortalToken = (overrides = {}) => {
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' });
 };
 
+const makeCmmsClientToken = (overrides = {}) => {
+  const payload = {
+    cmmsClient: true,
+    email:      'sami.abdul@wafi-energy.com',
+    site:       'LOBP',
+    name:       'Sami Abdul',
+    ...overrides,
+  };
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' });
+};
+
 // ── Exports ──────────────────────────────────────────────────────────────────
-module.exports = { mockPool, makeToken, makePortalToken };
+module.exports = { mockPool, makeToken, makePortalToken, makeCmmsClientToken };

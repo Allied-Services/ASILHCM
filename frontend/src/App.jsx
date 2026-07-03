@@ -14,6 +14,7 @@ import BillingProcurement from './BillingProcurement';
 import InvoiceSection from './InvoiceSection';
 import AccountsPayable from './AccountsPayable';
 import EmployeePortal from './EmployeePortal';
+import ClientCMMSPortal from './ClientCMMSPortal';
 import LoginScreen from './LoginScreen';
 import InventoryManagement from './InventoryManagement';
 import SystemConfig from './SystemConfig';
@@ -62,6 +63,9 @@ const ROLE_BADGE = {
 function App() {
   const portalPath = window.location.pathname === '/portal' || window.location.pathname === '/portal/';
   if (portalPath) return <EmployeePortal />;
+
+  const cmmsPath = window.location.pathname === '/cmms' || window.location.pathname === '/cmms/';
+  if (cmmsPath) return <ClientCMMSPortal />;
 
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showESS, setShowESS] = useState(false);

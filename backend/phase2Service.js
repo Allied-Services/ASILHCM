@@ -3,6 +3,7 @@
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const cmmsSite = require('./cmmsSiteService');
 
 const LEAVE_ENTITLEMENTS = { CL: 10, ML: 8, EL: 14 };
 const UNEXCUSED_SMS = 'Ap aaj duty se ghair-hazir hain. Baraye meherbani apne supervisor se foran rabta karien. - Allied Services';
@@ -32,7 +33,8 @@ function dateRange(from, to) {
     return dates;
 }
 
-async function setupPhase2Tables(pool) {
+async function setupPhase2Tables(pool, opts = {}) {
+    const { sendAppEmail } = opts;
     await pool.query(`
         CREATE TABLE IF NOT EXISTS uploaded_files (
             id           SERIAL PRIMARY KEY,
@@ -226,6 +228,8 @@ async function setupPhase2Tables(pool) {
     await pool.query('CREATE INDEX IF NOT EXISTS idx_petty_site ON petty_cash_ledger(site, entry_date)').catch(() => {});
     await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_status ON employee_leaves(status)').catch(() => {});
 
+    await cmmsSite.setupCmmsSiteTables(pool, sendAppEmail);
+
     console.log('Phase 2 tables: OK');
 }
 
@@ -386,34 +390,7 @@ async function runReportDispatch(pool, sendAppEmail) {
 }
 
 async function runEscalationCheck(pool, sendAppEmail, sendJazzSMS) {
-    const { rows: tickets } = await pool.query(`
-        SELECT t.*, EXTRACT(EPOCH FROM (NOW() - t.created_at))/3600 AS hours_open
-        FROM maintenance_tickets t
-        WHERE t.status IN ('open','in_progress')
-    `);
-    for (const ticket of tickets) {
-        const { rows: rules } = await pool.query(`
-            SELECT * FROM site_escalation_rules
-            WHERE site=$1 AND priority=$2 AND active=true AND hours_open <= $3
-            ORDER BY hours_open DESC
-        `, [ticket.site, ticket.priority, parseFloat(ticket.hours_open)]);
-        for (const rule of rules) {
-            const dup = await pool.query(
-                `SELECT id FROM ticket_escalations WHERE ticket_id=$1 AND rule_id=$2`,
-                [ticket.id, rule.id]
-            );
-            if (dup.rows.length) continue;
-
-            const html = `<p>Ticket <strong>${escapeHtml(ticket.id)}</strong> at ${escapeHtml(ticket.site)} (${ticket.priority}) has been open ${Math.round(parseFloat(ticket.hours_open))}h.</p>
-                <p><strong>${escapeHtml(ticket.title)}</strong></p><p>${escapeHtml(ticket.description || '')}</p>`;
-            await sendAppEmail({ to: [rule.escalate_to_email], subject: `[ASIL CMMS] Escalation — ${ticket.id}`, html });
-            if (rule.escalate_to_phone && sendJazzSMS) {
-                sendJazzSMS(rule.escalate_to_phone, `CMMS: Ticket ${ticket.id} at ${ticket.site} requires attention.`).catch(() => {});
-            }
-            await pool.query(`INSERT INTO ticket_escalations (ticket_id, rule_id) VALUES ($1,$2)`, [ticket.id, rule.id]);
-            break;
-        }
-    }
+    return cmmsSite.runEscalationCheckEnhanced(pool, sendAppEmail, sendJazzSMS);
 }
 
 function registerPhase2Routes(app, deps) {
@@ -605,23 +582,30 @@ function registerPhase2Routes(app, deps) {
 
     app.post('/api/maintenance/tickets', requireAuth, upload.single('photo'), async (req, res) => {
         try {
-            const { site, category, priority, title, description, is_minor_petty_cash, petty_cash_amount } = req.body;
+            const { site, category, priority, title, description, is_minor_petty_cash, petty_cash_amount, due_date, cc_email, billable_to_client } = req.body;
             if (!site || !category || !title) return res.status(400).json({ error: 'site, category, title required' });
             if (!req.file) return res.status(400).json({ error: 'Photo upload is mandatory' });
+
+            const siteRow = await cmmsSite.getSiteRow(pool, site);
+            const assignedTo = siteRow?.default_assignee_email || null;
 
             const fileRes = await pool.query(`
                 INSERT INTO uploaded_files (kind, filename, mime, size_bytes, data, uploaded_by)
                 VALUES ('cmms_photo',$1,$2,$3,$4,$5) RETURNING id
             `, [req.file.originalname, req.file.mimetype, req.file.size, req.file.buffer, req.user.email]);
             const photoId = fileRes.rows[0].id;
-            const ticketId = `MT-${Date.now()}`;
+            const ticketId = `MT-${site}-${Date.now()}`;
 
             const { rows } = await pool.query(`
-                INSERT INTO maintenance_tickets (id, site, category, priority, title, description, reported_by, is_minor_petty_cash, petty_cash_amount, photo_file_id)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *
-            `, [ticketId, site, category, priority || 'normal', title, description || null, req.user.email,
+                INSERT INTO maintenance_tickets (
+                    id, site, category, priority, title, description, reported_by, assigned_to,
+                    is_minor_petty_cash, petty_cash_amount, photo_file_id, due_date, cc_email,
+                    raised_via, billable_to_client
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'staff',$14) RETURNING *
+            `, [ticketId, site, category, priority || 'normal', title, description || null, req.user.email, assignedTo,
                 is_minor_petty_cash === 'true' || is_minor_petty_cash === true,
-                parseFloat(petty_cash_amount) || 0, photoId]);
+                parseFloat(petty_cash_amount) || 0, photoId, due_date || null,
+                cc_email || siteRow?.cc_email || null, billable_to_client || 'tbd']);
 
             if (rows[0].is_minor_petty_cash && parseFloat(petty_cash_amount) > 0) {
                 await pool.query(`
@@ -631,6 +615,7 @@ function registerPhase2Routes(app, deps) {
                 await checkPettyCashAlert(pool, site, sendAppEmail);
             }
 
+            await cmmsSite.sendAssignmentEmail(sendAppEmail, rows[0], siteRow, APP_BASE_URL);
             res.json({ ticket: rows[0] });
         } catch (err) {
             console.error('[POST maintenance ticket]', err);
@@ -638,16 +623,31 @@ function registerPhase2Routes(app, deps) {
         }
     });
 
-    app.patch('/api/maintenance/tickets/:id', requireAuth, requireRole('operations', 'procurement_manager', 'superadmin', 'supervisor'), async (req, res) => {
+    app.patch('/api/maintenance/tickets/:id', requireAuth, requireRole('operations', 'procurement_manager', 'superadmin', 'supervisor', 'finance_manager', 'finance_proposer'), async (req, res) => {
         try {
-            const { status, assigned_to, resolution_note } = req.body;
+            const { status, assigned_to, resolution_note, due_date, billable_to_client, cc_email } = req.body;
+            const { rows: prevRows } = await pool.query('SELECT * FROM maintenance_tickets WHERE id=$1', [req.params.id]);
+            if (!prevRows.length) return res.status(404).json({ error: 'Ticket not found' });
+            const prev = prevRows[0];
+
             const resolvedAt = ['resolved', 'closed'].includes(status) ? new Date() : null;
             const { rows } = await pool.query(`
-                UPDATE maintenance_tickets SET status=COALESCE($1,status), assigned_to=COALESCE($2,assigned_to),
-                    resolution_note=COALESCE($3,resolution_note), resolved_at=COALESCE($4,resolved_at)
-                WHERE id=$5 RETURNING *
-            `, [status, assigned_to, resolution_note, resolvedAt, req.params.id]);
+                UPDATE maintenance_tickets SET
+                    status=COALESCE($1,status),
+                    assigned_to=COALESCE($2,assigned_to),
+                    resolution_note=COALESCE($3,resolution_note),
+                    resolved_at=COALESCE($4,resolved_at),
+                    due_date=COALESCE($5,due_date),
+                    billable_to_client=COALESCE($6,billable_to_client),
+                    cc_email=COALESCE($7,cc_email)
+                WHERE id=$8 RETURNING *
+            `, [status, assigned_to, resolution_note, resolvedAt, due_date, billable_to_client, cc_email, req.params.id]);
             if (!rows.length) return res.status(404).json({ error: 'Ticket not found' });
+
+            if (assigned_to && assigned_to !== prev.assigned_to) {
+                const siteRow = await cmmsSite.getSiteRow(pool, rows[0].site);
+                await cmmsSite.sendAssignmentEmail(sendAppEmail, rows[0], siteRow, APP_BASE_URL);
+            }
             res.json({ ticket: rows[0] });
         } catch (err) {
             console.error('[PATCH maintenance ticket]', err);
@@ -667,14 +667,14 @@ function registerPhase2Routes(app, deps) {
 
     app.post('/api/maintenance/escalation-rules', requireAuth, requireRole('superadmin', 'operations'), async (req, res) => {
         try {
-            const { site, priority, hours_open, escalate_to_name, escalate_to_email, escalate_to_phone } = req.body;
-            if (!site || !priority || !hours_open || !escalate_to_email) {
+            const { site, priority, hours_open, escalate_to_name, escalate_to_email, escalate_to_phone, basis } = req.body;
+            if (!site || !priority || hours_open == null || !escalate_to_email) {
                 return res.status(400).json({ error: 'site, priority, hours_open, escalate_to_email required' });
             }
             const { rows } = await pool.query(`
-                INSERT INTO site_escalation_rules (site, priority, hours_open, escalate_to_name, escalate_to_email, escalate_to_phone)
-                VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
-            `, [site, priority, hours_open, escalate_to_name, escalate_to_email, escalate_to_phone]);
+                INSERT INTO site_escalation_rules (site, priority, hours_open, escalate_to_name, escalate_to_email, escalate_to_phone, basis)
+                VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *
+            `, [site, priority, hours_open, escalate_to_name, escalate_to_email, escalate_to_phone, basis || 'hours_open']);
             res.json({ rule: rows[0] });
         } catch (err) {
             console.error('[POST escalation rule]', err);
@@ -879,6 +879,8 @@ function registerPhase2Routes(app, deps) {
             res.status(400).send('<html><body><h2>Invalid or expired link</h2></body></html>');
         }
     });
+
+    cmmsSite.registerCmmsSiteRoutes(app, { pool, requireAuth, requireRole, sendAppEmail, JWT_SECRET, APP_BASE_URL, upload });
 
     app.get('/api/portal/leave-balance', deps.requirePortalAuth, async (req, res) => {
         try {

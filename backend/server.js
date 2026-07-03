@@ -7594,7 +7594,7 @@ phase2.registerPhase2Routes(app, {
     JWT_SECRET,
     APP_BASE_URL,
 });
-phase2.setupPhase2Tables(pool).catch(e => console.warn('Phase 2 table setup warning:', e.message));
+phase2.setupPhase2Tables(pool, { sendAppEmail }).catch(e => console.warn('Phase 2 table setup warning:', e.message));
 
 module.exports = app;
 

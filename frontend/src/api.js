@@ -261,6 +261,20 @@ export const api = {
     getEscalationRules: () => apiFetch('/api/maintenance/escalation-rules'),
     createEscalationRule: (d) => apiFetch('/api/maintenance/escalation-rules', { method: 'POST', body: JSON.stringify(d) }),
 
+    // ── CMMS Sites & Client ───────────────────────────────────────────────────
+    getCmmsSites: () => apiFetch('/api/cmms/sites'),
+    createCmmsSite: (d) => apiFetch('/api/cmms/sites', { method: 'POST', body: JSON.stringify(d) }),
+    updateCmmsSite: (id, d) => apiFetch(`/api/cmms/sites/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+    getCmmsClientUsers: () => apiFetch('/api/cmms/client-users'),
+    createCmmsClientUser: (d) => apiFetch('/api/cmms/client-users', { method: 'POST', body: JSON.stringify(d) }),
+    getCmmsBillingReport: (q = {}) => apiFetch('/api/cmms/billing-report?' + new URLSearchParams(q).toString()),
+    getCmmsBillingReportCsv: (q = {}) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        return fetch(`${API}/api/cmms/billing-report?` + new URLSearchParams({ ...q, format: 'csv' }).toString(), {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+    },
+
     // ── Phase 2: Petty Cash ─────────────────────────────────────────────────────
     getPettyCashFunds: () => apiFetch('/api/petty-cash/funds'),
     savePettyCashFund: (d) => apiFetch('/api/petty-cash/funds', { method: 'POST', body: JSON.stringify(d) }),
