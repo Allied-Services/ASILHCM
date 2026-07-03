@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail, Inbox } from 'lucide-react';
+import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail, Inbox, Wrench } from 'lucide-react';
 import EmailClaimsListener from './EmailClaimsListener';
 import WafiClaimsDashboard from './WafiClaimsDashboard';
 import Dashboard from './Dashboard';
@@ -20,6 +20,7 @@ import SystemConfig from './SystemConfig';
 import UserManagement from './UserManagement';
 import POTracking from './POTracking';
 import AttendanceManagement from './AttendanceManagement';
+import MaintenanceCMMS from './MaintenanceCMMS';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -27,15 +28,15 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','email_claims','wafi_claims'],
-    supervisor:           ['attendance'],
-    operations:           ['employee','documents','client','attendance'],
+    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
+    supervisor:           ['attendance','maintenance'],
+    operations:           ['employee','documents','client','attendance','maintenance'],
     procurement_proposer: ['billing','vendor','inventory'],
     procurement_approver: ['billing','vendor','inventory'],
-    procurement_manager:  ['billing','vendor','inventory','ap'],
-    finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure'],
+    procurement_manager:  ['billing','vendor','inventory','ap','maintenance'],
+    finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance'],
     finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims'],
-    finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','email_claims','wafi_claims'],
+    finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
     ap_team:              ['ap','billing'],
     ar_team:              ['invoices','po_tracking','billing'],
     payroll_initiator:    ['payroll','employee'],
@@ -165,6 +166,7 @@ function App() {
     { key: 'config',    label: 'System Configs',         icon: <Settings size={20} /> },
     { key: 'users',       label: 'User Management',        icon: <Shield size={20} /> },
     { key: 'attendance',    label: 'Attendance',              icon: <Clock size={20} /> },
+    { key: 'maintenance',   label: 'Maintenance & CMMS',      icon: <Wrench size={20} /> },
     { key: 'email_claims',  label: 'Email Claims',            icon: <Mail size={20} /> },
     { key: 'wafi_claims',   label: 'Wafi Claims',             icon: <Inbox size={20} /> },
   ];
@@ -242,6 +244,7 @@ function App() {
           {effectiveTab === 'config'     && <SystemConfig user={user} />}
           {effectiveTab === 'users'      && <UserManagement user={user} />}
           {effectiveTab === 'attendance'   && <AttendanceManagement user={user} />}
+          {effectiveTab === 'maintenance'  && <MaintenanceCMMS user={user} />}
           {effectiveTab === 'email_claims' && <EmailClaimsListener user={user} />}
           {effectiveTab === 'wafi_claims'  && <WafiClaimsDashboard user={user} />}
         </main>

@@ -9,6 +9,7 @@ const yesterday = () => new Date(Date.now()-86400000).toISOString().slice(0,10);
 const STATUS_CFG = {
   present:  { label: 'P',        color: '#22c55e', bg: 'rgba(34,197,94,0.15)',   full: 'Present'  },
   absent:   { label: 'A',        color: '#ef4444', bg: 'rgba(239,68,68,0.15)',   full: 'Absent'   },
+  unexcused:{ label: 'U',        color: '#f97316', bg: 'rgba(249,115,22,0.15)', full: 'Unexcused' },
   half_day: { label: '½',        color: '#f59e0b', bg: 'rgba(245,158,11,0.15)', full: 'Half Day' },
   leave:    { label: 'L',        color: '#38bdf8', bg: 'rgba(56,189,248,0.15)', full: 'Leave'    },
   ot:       { label: 'OT',       color: '#a78bfa', bg: 'rgba(167,139,250,0.15)',full: 'Overtime' },
@@ -61,7 +62,7 @@ function DailyMarking({user}) {
 
   const counts = Object.values(records);
   const present = counts.filter(s=>s==='present'||s==='ot').length;
-  const absent  = counts.filter(s=>s==='absent').length;
+  const absent  = counts.filter(s=>s==='absent'||s==='unexcused').length;
   const half    = counts.filter(s=>s==='half_day').length;
   const leave   = counts.filter(s=>s==='leave').length;
 
@@ -463,12 +464,63 @@ function TeamAdmin({user}) {
   );
 }
 
+// ── Leave Desk (Step 1 internal approval) ────────────────────────────────────
+function LeaveDesk() {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = () => {
+    setLoading(true);
+    api.getLeaveRequests('pending').then(d => setRequests(d.requests || [])).catch(() => {}).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const decide = async (id, decision) => {
+    try {
+      await api.leaveInternalDecision(id, decision);
+      load();
+    } catch (e) { alert(e.message); }
+  };
+
+  if (loading) return <div style={{padding:'2rem',textAlign:'center',color:'var(--text-muted)'}}>Loading leave requests...</div>;
+
+  return (
+    <Card>
+      <h3 style={{margin:'0 0 1rem'}}>Pending Leave Requests (Step 1 — Allied Focal)</h3>
+      {!requests.length ? <p style={{color:'var(--text-muted)'}}>No pending requests.</p> : (
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.85rem'}}>
+          <thead><tr style={{borderBottom:'1px solid var(--border)'}}>
+            {['Employee','Type','Dates','Days','Reason','Actions'].map(h=><th key={h} style={{padding:'8px',textAlign:'left',color:'var(--text-muted)'}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {requests.map(r => (
+              <tr key={r.id} style={{borderBottom:'1px solid var(--border)'}}>
+                <td style={{padding:'8px'}}><strong>{r.employee_name}</strong><br/><span style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>{r.employee_id}</span></td>
+                <td style={{padding:'8px'}}>{r.leave_type}</td>
+                <td style={{padding:'8px'}}>{r.from_date} → {r.to_date}</td>
+                <td style={{padding:'8px'}}>{r.days}</td>
+                <td style={{padding:'8px',maxWidth:'200px'}}>{r.reason || '—'}</td>
+                <td style={{padding:'8px'}}>
+                  <button onClick={()=>decide(r.id,'approve')} style={{marginRight:'6px',padding:'4px 12px',background:'#22c55e',border:'none',borderRadius:'6px',color:'#fff',cursor:'pointer',fontWeight:600}}>Approve</button>
+                  <button onClick={()=>decide(r.id,'reject')} style={{padding:'4px 12px',background:'#ef4444',border:'none',borderRadius:'6px',color:'#fff',cursor:'pointer',fontWeight:600}}>Reject</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
 export default function AttendanceManagement({ user }) {
   const isSupervisor = user?.role === 'supervisor';
   const isAdmin = ['superadmin','admin','hr_manager','finance_manager','finance_approver'].includes(user?.role);
+  const isLeaveDesk = ['operations','superadmin','hr_manager','admin'].includes(user?.role);
 
   const TABS = [
     ...(isSupervisor || isAdmin ? [{ key:'mark', label:'📋 Daily Marking' }] : []),
+    ...(isLeaveDesk ? [{ key:'leave', label:'🏖 Leave Desk' }] : []),
     ...(isAdmin ? [
       { key:'monthly', label:'📊 Monthly Report' },
       { key:'teams',   label:'👥 Team Setup'     },
@@ -505,6 +557,7 @@ export default function AttendanceManagement({ user }) {
       </div>
 
       {tab==='mark'    && <DailyMarking user={user}/>}
+      {tab==='leave'   && <LeaveDesk/>}
       {tab==='monthly' && <MonthlyReport user={user}/>}
       {tab==='teams'   && <TeamAdmin user={user}/>}
     </div>

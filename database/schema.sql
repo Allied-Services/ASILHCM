@@ -331,3 +331,11 @@ CREATE TABLE IF NOT EXISTS employee_change_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_chgreq_status ON employee_change_requests(status);
 CREATE INDEX IF NOT EXISTS idx_chgreq_empid ON employee_change_requests(employee_id);
+
+-- ═══ Phase 2 Operations Mandate (2026-07-03) ═══════════════════════════════
+-- Tables created idempotently at startup via backend/phase2Service.js:
+-- uploaded_files, employee_warnings, report_subscriptions, report_dispatch_log,
+-- maintenance_tickets, site_escalation_rules, ticket_escalations,
+-- petty_cash_funds, petty_cash_ledger, employee_leaves, employee_leave_balances
+-- attendance_records extended: site, dept, status includes 'unexcused'
+-- contracts extended: allied_focal_email, client_focal_name, client_focal_email

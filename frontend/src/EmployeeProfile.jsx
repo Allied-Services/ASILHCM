@@ -329,6 +329,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
         { key: 'medical', label: 'Medical & Insurance', icon: <Heart size={15} /> },
         { key: 'assets', label: 'Assets & Uniform', icon: <Package size={15} /> },
         { key: 'advances', label: 'Advances & Loans', icon: <CreditCard size={15} /> },
+        { key: 'warnings', label: 'Warnings', icon: <AlertTriangle size={15} /> },
         { key: 'pf_ledger', label: 'PF Ledger', icon: <Landmark size={15} /> },
         { key: 'settlement', label: 'Final Settlement', icon: <AlertTriangle size={15} /> },
     ];
@@ -348,6 +349,17 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     const [pfForm, setPfForm] = useState(null); // null | 'opening_balance' | 'withdrawal'
     const [pfFormData, setPfFormData] = useState({ amount: '', reference_no: '', narration: '' });
 
+    const [warnings, setWarnings] = useState([]);
+    const [warningsLoaded, setWarningsLoaded] = useState(false);
+    const [warnForm, setWarnForm] = useState({ warning_type: 'written', subject: '', body: '' });
+    const [showAddWarning, setShowAddWarning] = useState(false);
+
+
+    useEffect(() => {
+        if (tab === 'warnings' && !warningsLoaded) {
+            api.getWarnings(emp.id).then(d => { setWarnings(d.warnings || []); setWarningsLoaded(true); }).catch(() => setWarningsLoaded(true));
+        }
+    }, [tab, emp.id, warningsLoaded]);
 
     useEffect(() => {
         if (tab === 'assets' && !assetsLoaded) {
@@ -1057,6 +1069,68 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
             })()}
 
             {/* ── TAB: Final Settlement ── */}
+            {tab === 'warnings' && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+                        <button onClick={() => setShowAddWarning(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', color: 'white', border: 'none', padding: '0.7rem 1.25rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                            <Plus size={16} /> Issue Warning
+                        </button>
+                    </div>
+                    {!warnings.length ? <Card><p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>No warnings on record.</p></Card> : warnings.map(w => (
+                        <Card key={w.id} style={{ marginBottom: '1rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                <strong>{w.subject}</strong>
+                                <span style={{ fontSize: '0.75rem', color: w.status === 'acknowledged' ? '#22c55e' : '#f59e0b' }}>{w.status}</span>
+                            </div>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>{w.body}</p>
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <a href={api.getWarningPrintUrl(w.id)} target="_blank" rel="noreferrer" style={{ padding: '6px 12px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--primary)', textDecoration: 'none', fontSize: '0.8rem' }}>Download PDF</a>
+                                {w.status !== 'acknowledged' && (
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                                        Upload signed copy
+                                        <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={async (e) => {
+                                            const file = e.target.files[0];
+                                            if (!file) return;
+                                            try {
+                                                const up = await api.uploadFile(file, 'warning_ack', String(w.id));
+                                                await api.acknowledgeWarning(w.id, up.file.id);
+                                                const d = await api.getWarnings(emp.id);
+                                                setWarnings(d.warnings || []);
+                                            } catch (err) { alert(err.message); }
+                                        }} />
+                                    </label>
+                                )}
+                                {w.ack_file_id && <a href={api.getFileUrl(w.ack_file_id)} target="_blank" rel="noreferrer" style={{ fontSize: '0.8rem', color: '#22c55e' }}>View signed copy</a>}
+                            </div>
+                        </Card>
+                    ))}
+                    {showAddWarning && (
+                        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
+                            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem', width: '480px', maxWidth: '95vw' }}>
+                                <h3 style={{ margin: '0 0 1rem' }}>Issue Formal Warning</h3>
+                                <select value={warnForm.warning_type} onChange={e => setWarnForm(p => ({ ...p, warning_type: e.target.value }))} style={{ width: '100%', marginBottom: '0.75rem', padding: '8px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)' }}>
+                                    <option value="verbal">Verbal</option><option value="written">Written</option><option value="final">Final</option>
+                                </select>
+                                <input placeholder="Subject" value={warnForm.subject} onChange={e => setWarnForm(p => ({ ...p, subject: e.target.value }))} style={{ width: '100%', marginBottom: '0.75rem', padding: '8px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)' }} />
+                                <textarea placeholder="Warning body" rows={4} value={warnForm.body} onChange={e => setWarnForm(p => ({ ...p, body: e.target.value }))} style={{ width: '100%', marginBottom: '1rem', padding: '8px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)' }} />
+                                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                    <button onClick={() => setShowAddWarning(false)} style={{ padding: '8px 16px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', cursor: 'pointer' }}>Cancel</button>
+                                    <button onClick={async () => {
+                                        try {
+                                            await api.createWarning(emp.id, warnForm);
+                                            setShowAddWarning(false);
+                                            setWarnForm({ warning_type: 'written', subject: '', body: '' });
+                                            const d = await api.getWarnings(emp.id);
+                                            setWarnings(d.warnings || []);
+                                        } catch (err) { alert(err.message); }
+                                    }} style={{ padding: '8px 16px', background: 'var(--primary)', border: 'none', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>Issue</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {tab === 'settlement' && (
                 <div>
                     <Card style={{ marginBottom: '1.5rem', borderColor: 'rgba(234,179,8,0.3)', background: 'rgba(234,179,8,0.04)' }}>

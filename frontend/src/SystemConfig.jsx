@@ -367,7 +367,7 @@ function RegionTaxEditor({ rates, onChange }) {
 }
 
 // ─── Main SystemConfig ────────────────────────────────────────────────────────
-const TABS = ['Employee Taxes', 'Vendor WHT Rates', 'Tax by Region', 'Statutory Reference', 'Integrations'];
+const TABS = ['Employee Taxes', 'Vendor WHT Rates', 'Tax by Region', 'Statutory Reference', 'Integrations', 'Report Distribution'];
 
 const DEFAULT_SLABS = [
     { from: 0,       to: 600000,  rate: 0,  base: 0,      label: 'Up to Rs. 600,000' },
@@ -407,8 +407,18 @@ export default function SystemConfig({ user }) {
     const [saving, setSaving] = useState('');
     const [toast, setToast] = useState('');
     const [xeroStatus, setXeroStatus] = useState(null); // null | loading | connected | disconnected
+    const [reportSubs, setReportSubs] = useState([]);
+    const [dispatchLog, setDispatchLog] = useState([]);
+    const [subForm, setSubForm] = useState({ site: '', recipients: '' });
 
     const showToast = msg => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+
+    useEffect(() => {
+        if (tab === 'Report Distribution') {
+            api.getReportSubscriptions().then(d => setReportSubs(d.subscriptions || [])).catch(() => {});
+            api.getReportDispatchLog().then(d => setDispatchLog(d.log || [])).catch(() => {});
+        }
+    }, [tab]);
 
     useEffect(() => {
         if (tab === 'Integrations' && xeroStatus === null) {
@@ -685,6 +695,75 @@ export default function SystemConfig({ user }) {
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#00B5C8', border: 'none', color: 'white', padding: '10px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.9rem', opacity: xeroStatus === 'loading' ? 0.7 : 1 }}>
                                 {xeroStatus === 'loading' ? 'Checking…' : '⚡ Connect to Xero'}
                             </button>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Report Distribution Tab ─────────────────────────────────── */}
+            {tab === 'Report Distribution' && (
+                <div>
+                    <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem' }}>Report Distribution Panel</h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>Configure who receives daily attendance logs per site. Dispatches automatically at 18:00 PKT.</p>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+                        <h3 style={{ margin: '0 0 1rem', fontSize: '0.95rem' }}>Add Subscription</h3>
+                        <form onSubmit={async (e) => {
+                            e.preventDefault();
+                            try {
+                                await api.createReportSubscription({ site: subForm.site, recipients: subForm.recipients.split(',').map(s => s.trim()).filter(Boolean) });
+                                setSubForm({ site: '', recipients: '' });
+                                const d = await api.getReportSubscriptions();
+                                setReportSubs(d.subscriptions || []);
+                                showToast('Subscription saved');
+                            } catch (err) { alert(err.message); }
+                        }} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <input required placeholder="Site name (matches employee location)" value={subForm.site} onChange={e => setSubForm(p => ({ ...p, site: e.target.value }))}
+                                style={{ flex: 1, minWidth: '180px', padding: '8px 12px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)' }} />
+                            <input required placeholder="Recipients (comma-separated emails)" value={subForm.recipients} onChange={e => setSubForm(p => ({ ...p, recipients: e.target.value }))}
+                                style={{ flex: 2, minWidth: '240px', padding: '8px 12px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)' }} />
+                            <button type="submit" style={{ padding: '8px 20px', background: 'var(--primary)', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Add</button>
+                        </form>
+                    </div>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+                        <h3 style={{ margin: '0 0 1rem', fontSize: '0.95rem' }}>Active Subscriptions</h3>
+                        {!reportSubs.length ? <p style={{ color: 'var(--text-muted)' }}>No subscriptions configured.</p> : (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                    {['Site', 'Recipients', 'Active', ''].map(h => <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-muted)' }}>{h}</th>)}
+                                </tr></thead>
+                                <tbody>
+                                    {reportSubs.map(s => (
+                                        <tr key={s.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                            <td style={{ padding: '8px' }}>{s.site}</td>
+                                            <td style={{ padding: '8px' }}>{(s.recipients || []).join(', ')}</td>
+                                            <td style={{ padding: '8px' }}>{s.active ? 'Yes' : 'No'}</td>
+                                            <td style={{ padding: '8px' }}>
+                                                <button onClick={async () => { await api.deleteReportSubscription(s.id); setReportSubs(p => p.filter(x => x.id !== s.id)); }} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>Delete</button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
+                        <h3 style={{ margin: '0 0 1rem', fontSize: '0.95rem' }}>Recent Dispatch Log</h3>
+                        {!dispatchLog.length ? <p style={{ color: 'var(--text-muted)' }}>No dispatches yet.</p> : (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                    {['Site', 'Date', 'Status', 'Sent At'].map(h => <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-muted)' }}>{h}</th>)}
+                                </tr></thead>
+                                <tbody>
+                                    {dispatchLog.map(l => (
+                                        <tr key={l.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                            <td style={{ padding: '8px' }}>{l.site}</td>
+                                            <td style={{ padding: '8px' }}>{l.report_date}</td>
+                                            <td style={{ padding: '8px', color: l.status === 'sent' ? '#22c55e' : '#ef4444' }}>{l.status}</td>
+                                            <td style={{ padding: '8px' }}>{l.sent_at ? new Date(l.sent_at).toLocaleString() : '—'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         )}
                     </div>
                 </div>

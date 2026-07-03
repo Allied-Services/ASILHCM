@@ -219,4 +219,63 @@ export const api = {
     getChangeRequests:   (status = 'Pending') => apiFetch(`/api/change-requests?status=${status}`),
     approveChangeRequest:(id)                 => apiFetch(`/api/change-requests/${id}/approve`, { method: 'PATCH' }),
     rejectChangeRequest: (id, note)           => apiFetch(`/api/change-requests/${id}/reject`, { method: 'PATCH', body: JSON.stringify({ note: note || '' }) }),
+
+    // ── Phase 2: Files ────────────────────────────────────────────────────────
+    uploadFile: async (file, kind, refId) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('kind', kind);
+        if (refId) fd.append('ref_id', refId);
+        const res = await fetch(`${API}/api/files`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: fd });
+        if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.error || 'Upload failed'); }
+        return res.json();
+    },
+    getFileUrl: (id) => `${API}/api/files/${id}`,
+
+    // ── Phase 2: Warnings ─────────────────────────────────────────────────────
+    getWarnings: (empId) => apiFetch(`/api/employees/${encodeURIComponent(empId)}/warnings`),
+    createWarning: (empId, data) => apiFetch(`/api/employees/${encodeURIComponent(empId)}/warnings`, { method: 'POST', body: JSON.stringify(data) }),
+    getWarningPrintUrl: (id) => `${API}/api/warnings/${id}/print`,
+    acknowledgeWarning: (id, ackFileId, ackNote) => apiFetch(`/api/warnings/${id}/acknowledge`, { method: 'POST', body: JSON.stringify({ ack_file_id: ackFileId, ack_note: ackNote }) }),
+
+    // ── Phase 2: Report Distribution ──────────────────────────────────────────
+    getReportSubscriptions: () => apiFetch('/api/report-subscriptions'),
+    createReportSubscription: (d) => apiFetch('/api/report-subscriptions', { method: 'POST', body: JSON.stringify(d) }),
+    updateReportSubscription: (id, d) => apiFetch(`/api/report-subscriptions/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+    deleteReportSubscription: (id) => apiFetch(`/api/report-subscriptions/${id}`, { method: 'DELETE' }),
+    getReportDispatchLog: () => apiFetch('/api/report-subscriptions/dispatch-log'),
+
+    // ── Phase 2: Maintenance / CMMS ───────────────────────────────────────────
+    getMaintenanceTickets: (q = {}) => apiFetch('/api/maintenance/tickets?' + new URLSearchParams(q).toString()),
+    createMaintenanceTicket: async (data, photoFile) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const fd = new FormData();
+        Object.entries(data).forEach(([k, v]) => fd.append(k, v));
+        fd.append('photo', photoFile);
+        const res = await fetch(`${API}/api/maintenance/tickets`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: fd });
+        if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.error || 'Failed'); }
+        return res.json();
+    },
+    updateMaintenanceTicket: (id, d) => apiFetch(`/api/maintenance/tickets/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+    getEscalationRules: () => apiFetch('/api/maintenance/escalation-rules'),
+    createEscalationRule: (d) => apiFetch('/api/maintenance/escalation-rules', { method: 'POST', body: JSON.stringify(d) }),
+
+    // ── Phase 2: Petty Cash ─────────────────────────────────────────────────────
+    getPettyCashFunds: () => apiFetch('/api/petty-cash/funds'),
+    savePettyCashFund: (d) => apiFetch('/api/petty-cash/funds', { method: 'POST', body: JSON.stringify(d) }),
+    getPettyCashLedger: (q = {}) => apiFetch('/api/petty-cash/ledger?' + new URLSearchParams(q).toString()),
+    addPettyCashEntry: (d) => apiFetch('/api/petty-cash/ledger', { method: 'POST', body: JSON.stringify(d) }),
+
+    // ── Phase 2: Leave Engine ─────────────────────────────────────────────────
+    getLeaveRequests: (status = 'pending') => apiFetch(`/api/leave/requests?status=${status}`),
+    leaveInternalDecision: (id, decision, note) => apiFetch(`/api/leave/requests/${id}/internal-decision`, { method: 'POST', body: JSON.stringify({ decision, note }) }),
+    portalLeaveRequest: (portalToken, data) => {
+        return fetch(`${API}/api/portal/leave-request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${portalToken}` },
+            body: JSON.stringify(data),
+        }).then(r => r.json());
+    },
+    portalLeaveBalance: (portalToken) => fetch(`${API}/api/portal/leave-balance`, { headers: { Authorization: `Bearer ${portalToken}` } }).then(r => r.json()),
 };

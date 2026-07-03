@@ -36,7 +36,8 @@ const EMPTY_CONTRACT = {
         eosb_type: 'None',   // 'None' | 'Gratuity' | 'Provident Fund'
         overhead_per_employee: 0, // Fixed monthly overhead charged per employee (e.g. management fee)
     },
-    financials: { wht_pct: 7, service_charges_pct: 15, credit_cycle_days: 30, invoice_segregation: 'combined' }
+    financials: { wht_pct: 7, service_charges_pct: 15, credit_cycle_days: 30, invoice_segregation: 'combined' },
+    alliedFocalEmail: '', clientFocalName: '', clientFocalEmail: '',
 };
 
 // No sample data — loaded from Neon DB
@@ -128,6 +129,9 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                         <FRow label="Status"><FSelect value={c.status} onChange={e => set('status', e.target.value)} opts={STATUS_OPTS} /></FRow>
                         <FRow label="Start Date"><FInput type="date" value={c.startDate} onChange={e => set('startDate', e.target.value)} /></FRow>
                         <FRow label="End Date"><FInput type="date" value={c.endDate} onChange={e => set('endDate', e.target.value)} /></FRow>
+                        <FRow label="Allied Contract Focal Email"><FInput value={c.alliedFocalEmail || ''} onChange={e => set('alliedFocalEmail', e.target.value)} ph="internal@asil.com.pk" /></FRow>
+                        <FRow label="Client Focal Name"><FInput value={c.clientFocalName || ''} onChange={e => set('clientFocalName', e.target.value)} ph="External client approver" /></FRow>
+                        <FRow label="Client Focal Email"><FInput value={c.clientFocalEmail || ''} onChange={e => set('clientFocalEmail', e.target.value)} ph="client@company.com" /></FRow>
                     </div>
                 </div>
 

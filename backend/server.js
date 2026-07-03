@@ -13,6 +13,8 @@ const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratu
 const { startEmailClaimsService, triggerManualPoll } = require('./emailClaimsService');
 const wafiClaims = require('./wafiClaimsService');
 const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmailClient, buildConfirmationHtml, createGmailDraft, reprocessSession } = wafiClaims;
+const phase2 = require('./phase2Service');
+const { startOperationsScheduler } = require('./operationsScheduler');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -29,12 +31,24 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
+const APP_BASE_URL = process.env.APP_BASE_URL || BACKEND_URL;
 const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_' + Math.random().toString(36);
 const ALLOWED_DOMAIN = process.env.ALLOWED_DOMAIN || 'asil.com.pk';
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Resend Email Client ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const resend = new Resend(process.env.RESEND_API_KEY || '');
 const EMAIL_FROM = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
+
+async function sendAppEmail({ to, subject, html }) {
+    const recipients = Array.isArray(to) ? to : [to];
+    if (!process.env.RESEND_API_KEY || !recipients.length) return;
+    try {
+        await resend.emails.send({ from: EMAIL_FROM, to: recipients, subject, html });
+    } catch (err) {
+        console.error('[sendAppEmail]', err);
+        throw err;
+    }
+}
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ DB Pool ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const pool = new Pool({
@@ -1199,6 +1213,9 @@ app.get('/api/clients', requireAuth, async (req, res) => {
                 startDate: toDateStr(ct.start_date),
                 endDate: toDateStr(ct.end_date),
                 costs: ct.costs || {}, financials: ct.financials || {},
+                alliedFocalEmail: ct.allied_focal_email || '',
+                clientFocalName: ct.client_focal_name || '',
+                clientFocalEmail: ct.client_focal_email || '',
             }))
         }));
         res.json({ clients: result });
@@ -1231,15 +1248,15 @@ app.put('/api/clients/:id', requireAuth, async (req, res) => {
         const contracts = req.body.contracts || [];
         for (const ct of contracts) {
             await pool.query(
-                `INSERT INTO contracts (id, client_id, contract_name, location, service_type, headcount, status, start_date, end_date, costs, financials)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-                 ON CONFLICT (id) DO UPDATE SET contract_name=EXCLUDED.contract_name, location=EXCLUDED.location, service_type=EXCLUDED.service_type, headcount=EXCLUDED.headcount, status=EXCLUDED.status, start_date=EXCLUDED.start_date, end_date=EXCLUDED.end_date, costs=EXCLUDED.costs, financials=EXCLUDED.financials`,
-                [ct.id || `CTR-${Date.now()}`, req.params.id, ct.contractName || null, ct.location || null, ct.serviceType || null, ct.headcount || 0, ct.status || 'Active', nullDate(ct.startDate), nullDate(ct.endDate), JSON.stringify(ct.costs || {}), JSON.stringify(ct.financials || {})]
+                `INSERT INTO contracts (id, client_id, contract_name, location, service_type, headcount, status, start_date, end_date, costs, financials, allied_focal_email, client_focal_name, client_focal_email)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                 ON CONFLICT (id) DO UPDATE SET contract_name=EXCLUDED.contract_name, location=EXCLUDED.location, service_type=EXCLUDED.service_type, headcount=EXCLUDED.headcount, status=EXCLUDED.status, start_date=EXCLUDED.start_date, end_date=EXCLUDED.end_date, costs=EXCLUDED.costs, financials=EXCLUDED.financials, allied_focal_email=EXCLUDED.allied_focal_email, client_focal_name=EXCLUDED.client_focal_name, client_focal_email=EXCLUDED.client_focal_email`,
+                [ct.id || `CTR-${Date.now()}`, req.params.id, ct.contractName || null, ct.location || null, ct.serviceType || null, ct.headcount || 0, ct.status || 'Active', nullDate(ct.startDate), nullDate(ct.endDate), JSON.stringify(ct.costs || {}), JSON.stringify(ct.financials || {}), ct.alliedFocalEmail || null, ct.clientFocalName || null, ct.clientFocalEmail || null]
             );
         }
         // Return updated client with contracts
         const { rows: ctRows } = await pool.query('SELECT * FROM contracts WHERE client_id=$1', [req.params.id]);
-        res.json({ client: { ...clientFromDb(rows[0]), contracts: ctRows.map(ct => ({ id: ct.id, contractName: ct.contract_name, location: ct.location, serviceType: ct.service_type, headcount: ct.headcount, status: ct.status, startDate: toDateStr(ct.start_date), endDate: toDateStr(ct.end_date), costs: ct.costs, financials: ct.financials })) } });
+        res.json({ client: { ...clientFromDb(rows[0]), contracts: ctRows.map(ct => ({ id: ct.id, contractName: ct.contract_name, location: ct.location, serviceType: ct.service_type, headcount: ct.headcount, status: ct.status, startDate: toDateStr(ct.start_date), endDate: toDateStr(ct.end_date), costs: ct.costs, financials: ct.financials, alliedFocalEmail: ct.allied_focal_email, clientFocalName: ct.client_focal_name, clientFocalEmail: ct.client_focal_email })) } });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2258,7 +2275,7 @@ app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
             pool.query('SELECT * FROM employees WHERE id=$1', [empId]),
             pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 ORDER BY year DESC, month DESC LIMIT 12', [empId]),
             pool.query('SELECT * FROM employee_advances WHERE employee_id=$1 ORDER BY created_at DESC', [empId]),
-            pool.query('SELECT * FROM employee_leaves WHERE employee_id=$1 ORDER BY taken_on DESC LIMIT 20', [empId]).catch(() => ({ rows: [] }))
+            pool.query('SELECT * FROM employee_leaves WHERE employee_id=$1 ORDER BY from_date DESC LIMIT 20', [empId]).catch(() => ({ rows: [] }))
         ]);
 
         const emp = empRes.rows[0];
@@ -5297,7 +5314,7 @@ async function setupAttendanceTables() {
             id          SERIAL PRIMARY KEY,
             employee_id TEXT NOT NULL,
             date        DATE NOT NULL,
-            status      TEXT NOT NULL CHECK (status IN ('present','absent','half_day','leave','ot')),
+            status      TEXT NOT NULL CHECK (status IN ('present','absent','unexcused','half_day','leave','ot')),
             marked_by   TEXT NOT NULL,
             remarks     TEXT,
             created_at  TIMESTAMPTZ DEFAULT NOW(),
@@ -5367,23 +5384,51 @@ app.post('/api/attendance/mark', requireAuth, async (req, res) => {
     if (invalid.length) return res.status(403).json({ error: 'One or more employees not in your team.' });
 
     try {
-        // Bulk UPSERT attendance records
+        const { rows: teamMeta } = await pool.query(`
+            SELECT st.employee_id, st.site, e.dept, e.location, e.primary_contact
+            FROM supervisor_teams st
+            JOIN employees e ON e.id = st.employee_id
+            WHERE st.supervisor_email=$1 AND st.active=true
+        `, [req.user.email]);
+        const metaMap = Object.fromEntries(teamMeta.map(r => [r.employee_id, r]));
+
         const empIds   = records.map(r => r.employee_id);
         const statuses = records.map(r => r.status);
         const remarks  = records.map(r => r.remarks || null);
         const dates    = records.map(() => date);
         const markers  = records.map(() => req.user.email);
+        const sites    = records.map(r => metaMap[r.employee_id]?.site || metaMap[r.employee_id]?.location || null);
+        const depts    = records.map(r => metaMap[r.employee_id]?.dept || null);
 
         await pool.query(`
-            INSERT INTO attendance_records (employee_id, date, status, marked_by, remarks, updated_at)
+            INSERT INTO attendance_records (employee_id, date, status, marked_by, remarks, site, dept, updated_at)
             SELECT unnest($1::text[]), unnest($2::date[]), unnest($3::text[]),
-                   unnest($4::text[]), unnest($5::text[]), NOW()
+                   unnest($4::text[]), unnest($5::text[]), unnest($6::text[]), unnest($7::text[]), NOW()
             ON CONFLICT (employee_id, date)
             DO UPDATE SET status=EXCLUDED.status, remarks=EXCLUDED.remarks,
-                          marked_by=EXCLUDED.marked_by, updated_at=NOW()
-        `, [empIds, dates, statuses, markers, remarks]);
+                          marked_by=EXCLUDED.marked_by, site=EXCLUDED.site, dept=EXCLUDED.dept, updated_at=NOW()
+        `, [empIds, dates, statuses, markers, remarks, sites, depts]);
+
+        for (const r of records) {
+            if (r.status === 'unexcused') {
+                const phone = metaMap[r.employee_id]?.primary_contact;
+                if (phone) {
+                    sendJazzSMS(phone, phase2.UNEXCUSED_SMS).catch(err => console.error('[unexcused-sms]', err));
+                    try {
+                        await pool.query(
+                            `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                            [r.employee_id, phase2.UNEXCUSED_SMS, req.user.email]
+                        );
+                    } catch (_) {}
+                }
+            }
+        }
+
         res.json({ ok: true, saved: records.length, date });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        console.error('[POST /api/attendance/mark]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 
@@ -5407,6 +5452,7 @@ app.get('/api/attendance/report/monthly', requireAuth, requireRole('hr_manager',
                 e.designation, e.salary,
                 COUNT(*) FILTER (WHERE ar.status = 'present') AS present,
                 COUNT(*) FILTER (WHERE ar.status = 'absent')  AS absent,
+                COUNT(*) FILTER (WHERE ar.status = 'unexcused') AS unexcused,
                 COUNT(*) FILTER (WHERE ar.status = 'half_day') AS half_day,
                 COUNT(*) FILTER (WHERE ar.status = 'leave')   AS on_leave,
                 COUNT(*) FILTER (WHERE ar.status = 'ot')      AS overtime,
@@ -5429,12 +5475,13 @@ app.get('/api/attendance/report/monthly', requireAuth, requireRole('hr_manager',
         const summary = rows.map(r => {
             const pres     = parseInt(r.present)   || 0;
             const abs      = parseInt(r.absent)    || 0;
+            const unexc    = parseInt(r.unexcused) || 0;
             const half     = parseInt(r.half_day)  || 0;
             const leave    = parseInt(r.on_leave)  || 0;
             const effPres  = pres + (half * 0.5); // half-day counts as 0.5
             const pct      = workingDays > 0 ? Math.round((effPres / workingDays) * 100) : null;
             const dailyRate = parseFloat(r.salary || 0) / workingDays;
-            const deduction = Math.round(abs * dailyRate + half * dailyRate * 0.5);
+            const deduction = Math.round((abs + unexc) * dailyRate + half * dailyRate * 0.5);
             return { ...r, working_days: workingDays, attendance_pct: pct, salary_deduction: deduction };
         });
 
@@ -7537,6 +7584,18 @@ process.on('SIGINT', async () => {
 });
 
 // Export app for supertest (tests import server.js without starting a live server)
+phase2.registerPhase2Routes(app, {
+    pool,
+    requireAuth,
+    requireRole,
+    requirePortalAuth,
+    sendJazzSMS,
+    sendAppEmail,
+    JWT_SECRET,
+    APP_BASE_URL,
+});
+phase2.setupPhase2Tables(pool).catch(e => console.warn('Phase 2 table setup warning:', e.message));
+
 module.exports = app;
 
 // Only bind a port when this file is run directly: `node server.js`
@@ -8404,6 +8463,13 @@ if (require.main === module) app.listen(PORT, async () => {
 
         // ═══ Start Wafi Claims Service ════════════════════════════════════════
         startWafiClaimsService(pool);
+
+        // ═══ Phase 2 Operations Scheduler ═════════════════════════════════════
+        startOperationsScheduler({
+            pool,
+            runReportDispatch: (p) => phase2.runReportDispatch(p, sendAppEmail),
+            runEscalationCheck: (p) => phase2.runEscalationCheck(p, sendAppEmail, sendJazzSMS),
+        });
 
 
     } catch (e) {

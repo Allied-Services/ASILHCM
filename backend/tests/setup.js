@@ -38,6 +38,7 @@ process.env.EXECUTION_ENV    = 'local_sandbox';
 process.env.RESEND_API_KEY   = 're_test_placeholder_key_for_jest';
 process.env.JAZZ_SMS_USER    = 'test-jazz-user';
 process.env.JAZZ_SMS_PASS    = 'test-jazz-pass';
+process.env.APP_BASE_URL     = 'http://localhost:3000';
 
 jest.setTimeout(30000);
 
@@ -76,6 +77,20 @@ jest.mock('../wafiClaimsService', () => ({
   createGmailDraft:        jest.fn(),
   reprocessSession:        jest.fn(),
 }));
+
+jest.mock('../operationsScheduler', () => ({
+  startOperationsScheduler: jest.fn(),
+}));
+
+jest.mock('../phase2Service', () => {
+  const actual = jest.requireActual('../phase2Service');
+  return {
+    ...actual,
+    setupPhase2Tables: jest.fn().mockResolvedValue(undefined),
+    runReportDispatch: jest.fn().mockResolvedValue(undefined),
+    runEscalationCheck: jest.fn().mockResolvedValue(undefined),
+  };
+});
 
 // ── Stub Resend email client ──────────────────────────────────────────────────
 // server.js line 35 instantiates `new Resend(apiKey)` at module load time.

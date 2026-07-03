@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, FileText, CreditCard, Umbrella, Phone, Home, LogOut, Clock, CheckCircle, AlertCircle, Download, ChevronRight, Building, MapPin, Calendar, Briefcase, Mail, Phone as PhoneIcon, Shield } from 'lucide-react';
+import { api } from './api';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 const PORTAL_TOKEN_KEY = 'asil_portal_token';
@@ -139,6 +140,9 @@ function PortalDashboard({ token, empBasic, onLogout }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [leaveData, setLeaveData] = useState(null);
+    const [leaveForm, setLeaveForm] = useState({ leave_type: 'CL', from_date: '', to_date: '', reason: '' });
+    const [leaveMsg, setLeaveMsg] = useState('');
 
     useEffect(() => {
         portalFetch('/api/portal/me', token)
@@ -147,11 +151,17 @@ function PortalDashboard({ token, empBasic, onLogout }) {
             .finally(() => setLoading(false));
     }, [token]);
 
+    useEffect(() => {
+        if (activeTab === 'leaves' && token) {
+            api.portalLeaveBalance(token).then(setLeaveData).catch(() => {});
+        }
+    }, [activeTab, token]);
+
     const TABS = [
         { id: 'home', label: 'Home', icon: Home },
         { id: 'payslips', label: 'My Payslips', icon: FileText },
         { id: 'profile', label: 'My Profile', icon: User },
-        { id: 'leaves', label: 'Leave Balances', icon: Umbrella },
+        { id: 'leaves', label: 'Leave & Time Off', icon: Umbrella },
         { id: 'advances', label: 'My Advances', icon: CreditCard },
         { id: 'contact', label: 'Contact HR', icon: Phone },
     ];
@@ -358,33 +368,61 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                     {/* ── LEAVES ───────────────────────────────────────── */}
                     {activeTab === 'leaves' && (
                         <div>
-                            <h2 style={{ margin: '0 0 1.5rem', fontSize: '1.2rem', fontWeight: 800 }}>Leave Balances</h2>
+                            <h2 style={{ margin: '0 0 1.5rem', fontSize: '1.2rem', fontWeight: 800 }}>Leave & Time Off</h2>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-                                {[
-                                    { type: 'CL', label: 'Casual Leave', total: 10, color: '#38bdf8' },
-                                    { type: 'ML', label: 'Medical Leave', total: 8, color: '#a78bfa' },
-                                    { type: 'EL', label: 'Earned Leave', total: 14, color: '#22c55e' },
-                                ].map(lt => (
-                                    <div key={lt.type} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.5rem', textAlign: 'center' }}>
-                                        <div style={{ fontSize: '2rem', fontWeight: 900, color: lt.color }}>{lt.total}</div>
-                                        <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '2px' }}>{lt.type}</div>
-                                        <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{lt.label}</div>
-                                        <div style={{ marginTop: '0.75rem', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '99px', overflow: 'hidden' }}>
-                                            <div style={{ height: '100%', width: '100%', background: lt.color, borderRadius: '99px' }} />
+                                {['CL', 'ML', 'EL'].map(lt => {
+                                    const bal = leaveData?.balances?.[lt];
+                                    const entitled = parseFloat(bal?.entitled) || (lt === 'CL' ? 10 : lt === 'ML' ? 8 : 14);
+                                    const used = parseFloat(bal?.used) || 0;
+                                    const remaining = entitled - used;
+                                    const colors = { CL: '#38bdf8', ML: '#a78bfa', EL: '#22c55e' };
+                                    return (
+                                        <div key={lt} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.5rem', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '2rem', fontWeight: 900, color: colors[lt] }}>{remaining}</div>
+                                            <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{lt}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{used} used of {entitled}</div>
                                         </div>
-                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>Full balance available</div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
-                            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
-                                <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Leave Policy</h3>
-                                <ul style={{ margin: 0, padding: '0 0 0 1.25rem', color: '#94a3b8', fontSize: '0.82rem', lineHeight: 1.8 }}>
-                                    <li>Casual Leave (CL): 10 days per year, renewed on anniversary of joining date.</li>
-                                    <li>Medical Leave (ML): 8 days per year, requires medical certificate for 3+ days.</li>
-                                    <li>Earned Leave (EL): 14 days per year, can be accumulated (max 1 year carry-forward).</li>
-                                    <li>To apply for leave, contact your line manager or HR at leave@asil.com.pk.</li>
-                                </ul>
+                            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.25rem 1.5rem', marginBottom: '1.5rem' }}>
+                                <h3 style={{ margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 700 }}>Request Leave</h3>
+                                <form onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    setLeaveMsg('');
+                                    try {
+                                        const res = await api.portalLeaveRequest(token, leaveForm);
+                                        if (res.error) throw new Error(res.error);
+                                        setLeaveMsg('Leave request submitted. Allied focal will review shortly.');
+                                        setLeaveForm({ leave_type: 'CL', from_date: '', to_date: '', reason: '' });
+                                        api.portalLeaveBalance(token).then(setLeaveData);
+                                    } catch (err) { setLeaveMsg(err.message); }
+                                }} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                                    <select value={leaveForm.leave_type} onChange={e => setLeaveForm(p => ({ ...p, leave_type: e.target.value }))}
+                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }}>
+                                        <option value="CL">Casual Leave</option><option value="ML">Medical Leave</option><option value="EL">Earned Leave</option>
+                                    </select>
+                                    <input type="date" required value={leaveForm.from_date} onChange={e => setLeaveForm(p => ({ ...p, from_date: e.target.value }))}
+                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }} />
+                                    <input type="date" required value={leaveForm.to_date} onChange={e => setLeaveForm(p => ({ ...p, to_date: e.target.value }))}
+                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }} />
+                                    <input placeholder="Reason" value={leaveForm.reason} onChange={e => setLeaveForm(p => ({ ...p, reason: e.target.value }))}
+                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }} />
+                                    <button type="submit" style={{ gridColumn: '1/-1', padding: '12px', background: 'linear-gradient(135deg,#38bdf8,#6366f1)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Submit Leave Request</button>
+                                </form>
+                                {leaveMsg && <p style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: leaveMsg.includes('submitted') ? '#22c55e' : '#f87171' }}>{leaveMsg}</p>}
                             </div>
+                            {(leaveData?.history || []).length > 0 && (
+                                <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
+                                    <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>My Requests</h3>
+                                    {leaveData.history.map(l => (
+                                        <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.82rem' }}>
+                                            <span>{l.leave_type} · {l.from_date} → {l.to_date}</span>
+                                            <span style={{ color: l.status === 'approved' ? '#22c55e' : l.status === 'pending' ? '#f59e0b' : '#94a3b8' }}>{l.status}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 
