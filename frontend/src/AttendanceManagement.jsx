@@ -516,7 +516,7 @@ function LeaveDesk() {
 export default function AttendanceManagement({ user }) {
   const isSupervisor = user?.role === 'supervisor';
   const isAdmin = ['superadmin','admin','hr_manager','finance_manager','finance_approver'].includes(user?.role);
-  const isLeaveDesk = ['operations','superadmin','hr_manager','admin'].includes(user?.role);
+  const isLeaveDesk = ['operations','superadmin','hr_manager','admin','finance_manager','finance_approver'].includes(user?.role);
 
   const TABS = [
     ...(isSupervisor || isAdmin ? [{ key:'mark', label:'📋 Daily Marking' }] : []),
@@ -527,7 +527,14 @@ export default function AttendanceManagement({ user }) {
     ] : []),
   ];
 
-  const [tab, setTab] = useState(TABS[0]?.key||'mark');
+  const [tab, setTab] = useState(TABS[0]?.key || 'mark');
+
+  // Keep visible tab in sync when role-based tabs differ (prevents blank content area)
+  useEffect(() => {
+    if (TABS.length && !TABS.some(t => t.key === tab)) {
+      setTab(TABS[0].key);
+    }
+  }, [user?.role, TABS.map(t => t.key).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!TABS.length) return (
     <div style={{padding:'4rem',textAlign:'center',color:'var(--text-muted)'}}>

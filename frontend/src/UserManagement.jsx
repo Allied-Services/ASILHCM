@@ -5,7 +5,8 @@ import {
   CheckCircle, XCircle, Search, Users, Grid, BookOpen,
   Lock, Unlock, Save, X, LayoutDashboard, FileText,
   Calculator, FilePlus, Receipt, CreditCard, Building,
-  Truck, Package, ScanLine, Settings, UserPlus, Info
+  Truck, Package, ScanLine, Settings, UserPlus, Info,
+  Mail, Inbox, Wrench,
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
@@ -106,24 +107,39 @@ const MODULES = [
   {
     key: 'attendance', label: 'Attendance', navKey: 'attendance',
     icon: <Clock size={16} />,
-    subPerms: ['mark_attendance'],
+    subPerms: ['view', 'mark_attendance', 'approve_leave'],
+  },
+  {
+    key: 'maintenance', label: 'Maintenance & CMMS', navKey: 'maintenance',
+    icon: <Wrench size={16} />,
+    subPerms: ['view', 'create', 'escalation_config'],
+  },
+  {
+    key: 'email_claims', label: 'Email Claims', navKey: 'email_claims',
+    icon: <Mail size={16} />,
+    subPerms: ['view', 'trigger_poll'],
+  },
+  {
+    key: 'wafi_claims', label: 'Wafi Claims', navKey: 'wafi_claims',
+    icon: <Inbox size={16} />,
+    subPerms: ['view', 'approve', 'export'],
   },
 ];
 
 // ─── Default permissions per role (derived from blueprint ROLE_NAV) ───────────
 const ROLE_NAV_SET = {
-  superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users'],
-  operations:           ['employee','documents','client'],
+  superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
+  operations:           ['employee','documents','client','attendance','maintenance'],
   procurement_proposer: ['billing','vendor','inventory'],
   procurement_approver: ['billing','vendor','inventory'],
-  procurement_manager:  ['billing','vendor','inventory','ap'],
-  finance_proposer:     ['billing','invoices','po_tracking','annexure'],
-  finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users'],
-  finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users'],
+  procurement_manager:  ['billing','vendor','inventory','ap','maintenance'],
+  finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance'],
+  finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims'],
+  finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
   ap_team:              ['ap','billing'],
   ar_team:              ['invoices','po_tracking','billing'],
   payroll_initiator:    ['payroll','employee'],
-  supervisor:           ['attendance'],
+  supervisor:           ['attendance','maintenance'],
   pending:              [],
 };
 
@@ -144,7 +160,10 @@ const ROLE_SUB_PERMS = {
     annexure:    ['view','approve'],
     config:      ['view','edit'],
     users:       ['view','create','assign_role'],
-    attendance:  ['mark_attendance'],
+    attendance:  ['view','mark_attendance','approve_leave'],
+    maintenance: ['view','create','escalation_config'],
+    email_claims: ['view','trigger_poll'],
+    wafi_claims: ['view','approve','export'],
   },
   finance_proposer: {
     billing:     ['view','create','edit'],
@@ -166,6 +185,9 @@ const ROLE_SUB_PERMS = {
     annexure:    ['view','approve'],
     config:      ['view','edit'],
     users:       ['view','assign_role'],
+    attendance:  ['view','approve_leave'],
+    email_claims: ['view','trigger_poll'],
+    wafi_claims: ['view','approve','export'],
   },
   finance_manager: {
     payroll:     ['view','edit','lock','export'],
@@ -178,6 +200,10 @@ const ROLE_SUB_PERMS = {
     annexure:    ['view','approve'],
     config:      ['view','edit'],
     users:       ['view','create','assign_role'],
+    attendance:  ['view','approve_leave'],
+    maintenance: ['view','create','escalation_config'],
+    email_claims: ['view','trigger_poll'],
+    wafi_claims: ['view','approve','export'],
   },
   procurement_proposer: {
     billing:   ['view','create','edit'],
@@ -212,9 +238,12 @@ const ROLE_SUB_PERMS = {
     employee:  ['view','create','edit'],
     documents: ['view','generate'],
     client:    ['view'],
+    attendance: ['view','mark_attendance','approve_leave'],
+    maintenance: ['view','create'],
   },
   supervisor: {
-    attendance: ['mark_attendance'],
+    attendance: ['view','mark_attendance'],
+    maintenance: ['view','create'],
   },
   pending: {},
 };
@@ -224,6 +253,9 @@ const SUB_PERM_LABELS = {
   create:           { label: 'Create',          color: '#10b981' },
   edit:             { label: 'Edit',            color: '#f59e0b' },
   mark_attendance:  { label: 'Mark Attendance', color: '#22c55e' },
+  approve_leave:    { label: 'Approve Leave',   color: '#38bdf8' },
+  escalation_config:{ label: 'Escalation Config', color: '#f97316' },
+  trigger_poll:     { label: 'Trigger Poll',    color: '#38bdf8' },
   delete:      { label: 'Delete',      color: '#ef4444' },
   approve:     { label: 'Approve',     color: '#a78bfa' },
   mark_paid:   { label: 'Mark Paid',   color: '#22c55e' },
@@ -290,7 +322,9 @@ function PermissionsPanel({ user, onClose, onSaved }) {
       const saved = user.permissions;
       const defaults = buildDefaultPerms(user.role);
       const merged = { ...defaults };
-      Object.keys(saved).forEach(k => { if (merged[k] !== undefined) merged[k] = saved[k]; });
+      Object.keys(defaults).forEach(k => {
+        if (saved[k] !== undefined) merged[k] = saved[k];
+      });
       return merged;
     }
     return buildDefaultPerms(user.role);

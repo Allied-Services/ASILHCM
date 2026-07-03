@@ -709,8 +709,12 @@ export default function EmployeeInformation({ user }) {
                     </thead>
                     <tbody>
                         {filtered.map(emp => (
-                            <tr key={emp.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: selected.has(emp.id) ? 'rgba(56,189,248,0.05)' : 'transparent' }} onMouseEnter={e => { if (!selected.has(emp.id)) e.currentTarget.style.background = 'var(--bg-dark)'; }} onMouseLeave={e => { if (!selected.has(emp.id)) e.currentTarget.style.background = 'transparent'; }}>
-                                <td style={{ padding: '0.85rem 0.75rem' }}>
+                            <tr key={emp.id}
+                                onClick={() => setProfile(emp)}
+                                style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: selected.has(emp.id) ? 'rgba(56,189,248,0.05)' : 'transparent', cursor: 'pointer' }}
+                                onMouseEnter={e => { if (!selected.has(emp.id)) e.currentTarget.style.background = 'var(--bg-dark)'; }}
+                                onMouseLeave={e => { if (!selected.has(emp.id)) e.currentTarget.style.background = 'transparent'; }}>
+                                <td style={{ padding: '0.85rem 0.75rem' }} onClick={e => e.stopPropagation()}>
                                     <input type="checkbox" checked={selected.has(emp.id)} onChange={() => toggleSelect(emp.id)}
                                         style={{ cursor: 'pointer', accentColor: '#38bdf8', width: '15px', height: '15px' }} />
                                 </td>
@@ -718,7 +722,7 @@ export default function EmployeeInformation({ user }) {
                                 <td style={{ padding: '0.85rem 1rem' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                         <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg,var(--primary),#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '0.78rem', flexShrink: 0 }}>
-                                            {emp.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
+                                            {(emp.name || '?').split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('')}
                                         </div>
                                         <div>
                                             <div style={{ fontWeight: 600, lineHeight: 1.2 }}>{emp.name}</div>
@@ -749,10 +753,10 @@ export default function EmployeeInformation({ user }) {
                                 <td style={{ padding: '0.85rem 1rem' }}>
                                     <span style={{ background: emp.active === 'Yes' ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: emp.active === 'Yes' ? '#22c55e' : '#eab308', padding: '3px 10px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 600 }}>{emp.active === 'Yes' ? 'Active' : 'Inactive'}</span>
                                 </td>
-                                <td style={{ padding: '0.85rem 1rem' }}>
+                                <td style={{ padding: '0.85rem 1rem' }} onClick={e => e.stopPropagation()}>
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                         <button onClick={() => setProfile(emp)} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>View Profile</button>
-                                        {user?.role === 'super_admin' && (
+                                        {user?.role === 'superadmin' && (
                                             <button onClick={() => deleteEmployee(emp)} title="Delete employee" style={{ background: 'transparent', border: '1px solid #ef444460', color: '#ef4444', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' }}>🗑</button>
                                         )}
                                         {emp.email && (
