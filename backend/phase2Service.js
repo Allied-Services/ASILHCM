@@ -682,6 +682,32 @@ function registerPhase2Routes(app, deps) {
         }
     });
 
+    app.put('/api/maintenance/escalation-rules/:id', requireAuth, requireRole('superadmin', 'operations'), async (req, res) => {
+        try {
+            const { site, priority, hours_open, escalate_to_name, escalate_to_email, escalate_to_phone, basis, active } = req.body;
+            if (!site || !priority || hours_open == null || !escalate_to_email) {
+                return res.status(400).json({ error: 'site, priority, hours_open, escalate_to_email required' });
+            }
+            const { rows } = await pool.query(`
+                UPDATE site_escalation_rules SET
+                    site = $1,
+                    priority = $2,
+                    hours_open = $3,
+                    escalate_to_name = $4,
+                    escalate_to_email = $5,
+                    escalate_to_phone = $6,
+                    basis = $7,
+                    active = COALESCE($8, active)
+                WHERE id = $9 RETURNING *
+            `, [site, priority, hours_open, escalate_to_name || null, escalate_to_email, escalate_to_phone || null, basis || 'hours_open', active, req.params.id]);
+            if (!rows.length) return res.status(404).json({ error: 'Rule not found' });
+            res.json({ rule: rows[0] });
+        } catch (err) {
+            console.error('[PUT escalation rule]', err);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
     app.delete('/api/maintenance/escalation-rules/:id', requireAuth, requireRole('superadmin', 'operations'), async (req, res) => {
         try {
             await pool.query('DELETE FROM site_escalation_rules WHERE id=$1', [req.params.id]);

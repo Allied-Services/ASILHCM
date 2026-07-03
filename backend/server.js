@@ -152,6 +152,32 @@ const requireRole = (...roles) => (req, res, next) => {
     return res.status(403).json({ error: 'Forbidden: insufficient role', required: roles, got: req.user.role });
 };
 
+const TEAM_SETUP_ROLE_FALLBACK = ['hr_manager', 'admin', 'operations', 'finance_manager', 'finance_approver'];
+
+async function requireTeamSetup(req, res, next) {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    if (req.user.role === 'superadmin') return next();
+    try {
+        const { rows } = await pool.query(
+            'SELECT role, permissions FROM hcm_users WHERE LOWER(email)=LOWER($1)',
+            [req.user.email]
+        );
+        const db = rows[0];
+        const customPerms = db?.permissions && typeof db.permissions === 'object' && Object.keys(db.permissions).length > 0;
+        if (customPerms) {
+            const att = db.permissions.attendance;
+            if (att?.access && att?.subPerms?.includes('team_setup')) return next();
+            return res.status(403).json({ error: 'Forbidden: team_setup permission required' });
+        }
+        const role = req.user.role || db?.role;
+        if (TEAM_SETUP_ROLE_FALLBACK.includes(role)) return next();
+        return res.status(403).json({ error: 'Forbidden: insufficient role', got: role });
+    } catch (err) {
+        console.error('[requireTeamSetup]', err);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+}
+
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Auth Routes ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 app.get('/auth/google/callback',
@@ -5558,7 +5584,7 @@ app.get('/api/attendance/export', requireAuth, requireRole('hr_manager','finance
 });
 
 // ── GET /api/attendance/teams — list all supervisor teams (admin) ─────────────
-app.get('/api/attendance/teams', requireAuth, requireRole('hr_manager','superadmin','admin'), async (req, res) => {
+app.get('/api/attendance/teams', requireAuth, requireTeamSetup, async (req, res) => {
     try {
         const { rows } = await pool.query(`
             SELECT st.supervisor_email, st.employee_id, st.site, st.client,
@@ -5581,7 +5607,7 @@ app.get('/api/attendance/teams', requireAuth, requireRole('hr_manager','superadm
 });
 
 // ── POST /api/attendance/teams/assign — assign employees to a supervisor ───────
-app.post('/api/attendance/teams/assign', requireAuth, requireRole('hr_manager','superadmin','admin'), async (req, res) => {
+app.post('/api/attendance/teams/assign', requireAuth, requireTeamSetup, async (req, res) => {
     const { supervisor_email, employee_ids, site, client, contract_id } = req.body;
     if (!supervisor_email || !employee_ids?.length) return res.status(400).json({ error: 'supervisor_email and employee_ids required' });
 
@@ -5604,7 +5630,7 @@ app.post('/api/attendance/teams/assign', requireAuth, requireRole('hr_manager','
 });
 
 // ── DELETE /api/attendance/teams/:id — remove assignment ─────────────────────
-app.delete('/api/attendance/teams/:id', requireAuth, requireRole('hr_manager','superadmin','admin'), async (req, res) => {
+app.delete('/api/attendance/teams/:id', requireAuth, requireTeamSetup, async (req, res) => {
     try {
         await pool.query('DELETE FROM supervisor_teams WHERE id=$1', [req.params.id]);
         res.json({ ok: true });

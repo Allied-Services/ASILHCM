@@ -284,22 +284,62 @@ function SitesPanel() {
 }
 
 function EscalationMatrix() {
+  const emptyForm = { site: '', priority: 'any', hours_open: '0', basis: 'hours_overdue', escalate_to_name: '', escalate_to_email: '', escalate_to_phone: '', active: true };
   const [rules, setRules] = useState([]);
-  const [form, setForm] = useState({ site: '', priority: 'any', hours_open: '0', basis: 'hours_overdue', escalate_to_name: '', escalate_to_email: '', escalate_to_phone: '' });
+  const [form, setForm] = useState(emptyForm);
+  const [editingId, setEditingId] = useState(null);
 
   const load = () => api.getEscalationRules().then(d => setRules(d.rules || [])).catch(() => {});
   useEffect(() => { load(); }, []);
 
-  const add = async (e) => {
+  const resetForm = () => { setForm(emptyForm); setEditingId(null); };
+
+  const startEdit = (rule) => {
+    setEditingId(rule.id);
+    setForm({
+      site: rule.site || '',
+      priority: rule.priority || 'any',
+      hours_open: String(rule.hours_open ?? '0'),
+      basis: rule.basis || 'hours_open',
+      escalate_to_name: rule.escalate_to_name || '',
+      escalate_to_email: rule.escalate_to_email || '',
+      escalate_to_phone: rule.escalate_to_phone || '',
+      active: rule.active !== false,
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const save = async (e) => {
     e.preventDefault();
-    try { await api.createEscalationRule(form); setForm({ site: '', priority: 'any', hours_open: '0', basis: 'hours_overdue', escalate_to_name: '', escalate_to_email: '', escalate_to_phone: '' }); load(); } catch (err) { alert(err.message); }
+    try {
+      const payload = { ...form, hours_open: parseFloat(form.hours_open) };
+      if (editingId) {
+        await api.updateEscalationRule(editingId, payload);
+      } else {
+        await api.createEscalationRule(payload);
+      }
+      resetForm();
+      load();
+    } catch (err) { alert(err.message); }
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm('Delete this escalation rule?')) return;
+    try {
+      await api.deleteEscalationRule(id);
+      if (editingId === id) resetForm();
+      load();
+    } catch (err) { alert(err.message); }
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <Card>
-        <h3 style={{ margin: '0 0 1rem' }}>Site Escalation Matrix</h3>
-        <form onSubmit={add} style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '0.75rem' }}>
+        <h3 style={{ margin: '0 0 0.25rem' }}>Site Escalation Matrix</h3>
+        <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+          {editingId ? 'Editing rule — update fields below and click Save.' : 'Add a new escalation step. Use hours overdue when tickets have deadlines; hours open when they do not.'}
+        </p>
+        <form onSubmit={save} style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '0.75rem' }}>
           {['site', 'escalate_to_name', 'escalate_to_email', 'escalate_to_phone'].map(f => (
             <div key={f}>
               <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{f.replace(/_/g, ' ')}</label>
@@ -327,23 +367,43 @@ function EscalationMatrix() {
             <input type="number" step="0.5" required value={form.hours_open} onChange={e => setForm(p => ({ ...p, hours_open: e.target.value }))}
               style={{ width: '100%', padding: '8px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)' }} />
           </div>
-          <div><button type="submit" style={{ marginTop: '18px', padding: '8px 16px', background: 'var(--primary)', border: 'none', borderRadius: '8px', color: '#fff', cursor: 'pointer' }}>Add Rule</button></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '18px' }}>
+            <input type="checkbox" id="rule-active" checked={form.active} onChange={e => setForm(p => ({ ...p, active: e.target.checked }))} />
+            <label htmlFor="rule-active" style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Active</label>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '18px' }}>
+            <button type="submit" style={{ padding: '8px 16px', background: 'var(--primary)', border: 'none', borderRadius: '8px', color: '#fff', cursor: 'pointer' }}>
+              {editingId ? 'Save Changes' : 'Add Rule'}
+            </button>
+            {editingId && (
+              <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: 'transparent', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
       </Card>
       <Card>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
           <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
-            {['Site', 'Priority', 'Basis', 'Threshold (h)', 'Manager', 'Email'].map(h => <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-muted)' }}>{h}</th>)}
+            {['Site', 'Priority', 'Basis', 'Threshold (h)', 'Manager', 'Email', 'Active', 'Actions'].map(h => (
+              <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-muted)' }}>{h}</th>
+            ))}
           </tr></thead>
           <tbody>
             {rules.map(r => (
-              <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
+              <tr key={r.id} style={{ borderBottom: '1px solid var(--border)', background: editingId === r.id ? 'rgba(99,102,241,0.08)' : 'transparent' }}>
                 <td style={{ padding: '8px' }}>{r.site}</td>
                 <td style={{ padding: '8px' }}>{r.priority}</td>
                 <td style={{ padding: '8px' }}>{r.basis || 'hours_open'}</td>
                 <td style={{ padding: '8px' }}>{r.hours_open}h</td>
-                <td style={{ padding: '8px' }}>{r.escalate_to_name}</td>
+                <td style={{ padding: '8px' }}>{r.escalate_to_name || '—'}</td>
                 <td style={{ padding: '8px' }}>{r.escalate_to_email}</td>
+                <td style={{ padding: '8px' }}>{r.active === false ? 'No' : 'Yes'}</td>
+                <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
+                  <button onClick={() => startEdit(r)} style={{ marginRight: '6px', padding: '3px 10px', fontSize: '0.75rem', cursor: 'pointer' }}>Edit</button>
+                  <button onClick={() => remove(r.id)} style={{ padding: '3px 10px', fontSize: '0.75rem', cursor: 'pointer', color: '#ef4444' }}>Delete</button>
+                </td>
               </tr>
             ))}
           </tbody>

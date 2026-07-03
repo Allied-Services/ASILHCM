@@ -159,6 +159,30 @@ describe('CMMS Site Onboarding — LOBP', () => {
     });
   });
 
+  describe('PUT /api/maintenance/escalation-rules/:id', () => {
+    it('updates rule for operations role', async () => {
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{ id: 1, site: 'LOBP', priority: 'any', hours_open: 48, escalate_to_email: 'rabia.bhutto@asil.com.pk', basis: 'hours_overdue', active: true }],
+      });
+      const token = makeToken({ role: 'operations' });
+      const res = await request(app)
+        .put('/api/maintenance/escalation-rules/1')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ site: 'LOBP', priority: 'any', hours_open: 48, escalate_to_email: 'rabia.bhutto@asil.com.pk', basis: 'hours_overdue', active: true });
+      expect(res.status).toBe(200);
+      expect(res.body.rule.hours_open).toBe(48);
+    });
+
+    it('rejects supervisor role', async () => {
+      const token = makeToken({ role: 'supervisor' });
+      const res = await request(app)
+        .put('/api/maintenance/escalation-rules/1')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ site: 'LOBP', priority: 'any', hours_open: 0, escalate_to_email: 'obaid.rana@asil.com.pk' });
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe('GET /api/cmms/billing-report', () => {
     it('requires finance or operations role', async () => {
       const token = makeToken({ role: 'supervisor' });

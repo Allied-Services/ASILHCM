@@ -514,17 +514,27 @@ function LeaveDesk() {
 }
 
 export default function AttendanceManagement({ user }) {
+  const hasAttPerm = (perm, roleFallback = []) => {
+    if (user?.role === 'superadmin') return true;
+    const hasCustom = user?.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0;
+    if (hasCustom) {
+      const att = user.permissions.attendance;
+      return !!(att?.access && att?.subPerms?.includes(perm));
+    }
+    return roleFallback.includes(user?.role);
+  };
+
   const isSupervisor = user?.role === 'supervisor';
   const isAdmin = ['superadmin','admin','hr_manager','finance_manager','finance_approver'].includes(user?.role);
-  const isLeaveDesk = ['operations','superadmin','hr_manager','admin','finance_manager','finance_approver'].includes(user?.role);
+  const isLeaveDesk = hasAttPerm('approve_leave', ['operations','hr_manager','admin','finance_manager','finance_approver']);
+  const canTeamSetup = hasAttPerm('team_setup', ['admin','hr_manager','finance_manager','finance_approver','operations']);
+  const canMark = isSupervisor || isAdmin || hasAttPerm('mark_attendance', ['operations']);
 
   const TABS = [
-    ...(isSupervisor || isAdmin ? [{ key:'mark', label:'📋 Daily Marking' }] : []),
+    ...(canMark ? [{ key:'mark', label:'📋 Daily Marking' }] : []),
     ...(isLeaveDesk ? [{ key:'leave', label:'🏖 Leave Desk' }] : []),
-    ...(isAdmin ? [
-      { key:'monthly', label:'📊 Monthly Report' },
-      { key:'teams',   label:'👥 Team Setup'     },
-    ] : []),
+    ...(isAdmin ? [{ key:'monthly', label:'📊 Monthly Report' }] : []),
+    ...(canTeamSetup ? [{ key:'teams', label:'👥 Team Setup' }] : []),
   ];
 
   const [tab, setTab] = useState(TABS[0]?.key || 'mark');
@@ -534,7 +544,7 @@ export default function AttendanceManagement({ user }) {
     if (TABS.length && !TABS.some(t => t.key === tab)) {
       setTab(TABS[0].key);
     }
-  }, [user?.role, TABS.map(t => t.key).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.role, user?.permissions, TABS.map(t => t.key).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!TABS.length) return (
     <div style={{padding:'4rem',textAlign:'center',color:'var(--text-muted)'}}>

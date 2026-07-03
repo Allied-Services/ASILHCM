@@ -107,7 +107,7 @@ const MODULES = [
   {
     key: 'attendance', label: 'Attendance', navKey: 'attendance',
     icon: <Clock size={16} />,
-    subPerms: ['view', 'mark_attendance', 'approve_leave'],
+    subPerms: ['view', 'mark_attendance', 'approve_leave', 'team_setup'],
   },
   {
     key: 'maintenance', label: 'Maintenance & CMMS', navKey: 'maintenance',
@@ -160,7 +160,7 @@ const ROLE_SUB_PERMS = {
     annexure:    ['view','approve'],
     config:      ['view','edit'],
     users:       ['view','create','assign_role'],
-    attendance:  ['view','mark_attendance','approve_leave'],
+    attendance:  ['view','mark_attendance','approve_leave','team_setup'],
     maintenance: ['view','create','escalation_config'],
     email_claims: ['view','trigger_poll'],
     wafi_claims: ['view','approve','export'],
@@ -238,7 +238,7 @@ const ROLE_SUB_PERMS = {
     employee:  ['view','create','edit'],
     documents: ['view','generate'],
     client:    ['view'],
-    attendance: ['view','mark_attendance','approve_leave'],
+    attendance: ['view','mark_attendance','approve_leave','team_setup'],
     maintenance: ['view','create'],
   },
   supervisor: {
@@ -254,6 +254,7 @@ const SUB_PERM_LABELS = {
   edit:             { label: 'Edit',            color: '#f59e0b' },
   mark_attendance:  { label: 'Mark Attendance', color: '#22c55e' },
   approve_leave:    { label: 'Approve Leave',   color: '#38bdf8' },
+  team_setup:       { label: 'Team Setup',      color: '#a78bfa' },
   escalation_config:{ label: 'Escalation Config', color: '#f97316' },
   trigger_poll:     { label: 'Trigger Poll',    color: '#38bdf8' },
   delete:      { label: 'Delete',      color: '#ef4444' },

@@ -260,6 +260,8 @@ export const api = {
     updateMaintenanceTicket: (id, d) => apiFetch(`/api/maintenance/tickets/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
     getEscalationRules: () => apiFetch('/api/maintenance/escalation-rules'),
     createEscalationRule: (d) => apiFetch('/api/maintenance/escalation-rules', { method: 'POST', body: JSON.stringify(d) }),
+    updateEscalationRule: (id, d) => apiFetch(`/api/maintenance/escalation-rules/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+    deleteEscalationRule: (id) => apiFetch(`/api/maintenance/escalation-rules/${id}`, { method: 'DELETE' }),
 
     // ── CMMS Sites & Client ───────────────────────────────────────────────────
     getCmmsSites: () => apiFetch('/api/cmms/sites'),
