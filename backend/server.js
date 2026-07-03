@@ -15,6 +15,8 @@ const wafiClaims = require('./wafiClaimsService');
 const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmailClient, buildConfirmationHtml, createGmailDraft, reprocessSession } = wafiClaims;
 const phase2 = require('./phase2Service');
 const { startOperationsScheduler } = require('./operationsScheduler');
+const { sendJazzSMS, sendJazzOtpSMS, normalisePhone } = require('./lib/sms');
+const { isJazzProxyConfigured } = require('./lib/jazz_http_transport');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -327,55 +329,6 @@ app.get('/api/debug/bonus-check', requireAuth, requireRole('superadmin'), async 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-
-// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ SMS Routes ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
-
-// Single SMS
-app.post('/api/sms/send', requireAuth, async (req, res) => {
-    try {
-        const { to, message, employee_id } = req.body;
-        if (!to || !message) return res.status(400).json({ error: 'to and message are required' });
-        const result = await sendJazzSMS(to, message);
-        // Log to DB if employee_id given
-        if (employee_id) {
-            await pool.query(
-                `INSERT INTO employee_messages (employee_id, channel, subject, body, sender) VALUES ($1,'sms','SMS',$2,$3)`,
-                [employee_id, message, req.user.email]
-            ).catch(() => {});
-        }
-        res.json({ ok: true, response: result.response });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Bulk SMS
-app.post('/api/sms/bulk', requireAuth, async (req, res) => {
-    try {
-        const { recipients, message } = req.body; // recipients: [{id, phone, name}]
-        if (!recipients?.length || !message) return res.status(400).json({ error: 'recipients and message are required' });
-        const results = [];
-        // Batch SMS log entries to avoid N+1 query per recipient
-        const smsLogIds = [], smsLogBodies = [], smsLogSenders = [];
-        for (const r of recipients) {
-            if (!r.phone) { results.push({ name: r.name, ok: false, error: 'No phone' }); continue; }
-            try {
-                const smsMsg = message.replace('{name}', r.name || '');
-                const result = await sendJazzSMS(r.phone, smsMsg);
-                if (r.id) { smsLogIds.push(r.id); smsLogBodies.push(smsMsg); smsLogSenders.push(req.user.email); }
-                results.push({ name: r.name, phone: r.phone, ok: true, response: result.response });
-            } catch (e) { results.push({ name: r.name, phone: r.phone, ok: false, error: e.message }); }
-        }
-        // Single bulk INSERT for all SMS log entries
-        if (smsLogIds.length > 0) {
-            await pool.query(
-                `INSERT INTO employee_messages (employee_id, channel, subject, body, sender)
-                  SELECT unnest($1::text[]),'sms','Bulk SMS',unnest($2::text[]),unnest($3::text[])`,
-                [smsLogIds, smsLogBodies, smsLogSenders]
-            ).catch(() => {});
-        }
-        res.json({ sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 const nullDate = (d) => (d && d !== '' && d !== 'undefined') ? d : null;
 const toDateStr = d => !d ? '' : (d instanceof Date ? d.toISOString().slice(0,10) : String(d).slice(0,10));
 const nullNum = (n) => (n !== '' && n != null) ? parseFloat(n) || null : null;
@@ -611,7 +564,8 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
             if (!phone) continue;
             const msg = `Welcome to ASIL! Your employment has been confirmed. Employee ID: ${newEmp.id}. For queries contact HR.`;
             try {
-                await sendJazzSMS(phone, msg);
+                const result = await sendJazzSMS(phone, msg);
+                if (!result.ok) continue;
                 await pool.query(
                     `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
                     [newEmp.id, msg, 'system-bulk-import']
@@ -735,86 +689,51 @@ app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin')
 });
 
 
-// ── SMS Routes (Jazz CMT) ───────────────────────────────────────────────────
-const https = require('https');
-
-// Normalise Pakistani mobile numbers — 03XXXXXXXXX (10 digits starting with 0)
-const normalisePhone = (raw = '') => {
-    const digits = raw.replace(/\D/g, '');
-    if (digits.startsWith('92') && digits.length === 12) return '0' + digits.slice(2);
-    if (digits.startsWith('3') && digits.length === 10) return '0' + digits;
-    if (digits.startsWith('03') && digits.length === 11) return digits;
-    return digits; // return as-is if unrecognised, let Jazz CMT reject it
-};
-
-const sendJazzSMS = (to, message) => new Promise(async (resolve, reject) => {
-    const SMS_USER = process.env.JAZZ_SMS_USER;
-    const SMS_PASS = process.env.JAZZ_SMS_PASS;
-    const SMS_MASK = process.env.JAZZ_SMS_MASK || 'ALLIED SERV';
-    if (!SMS_USER || !SMS_PASS) {
-        return reject(new Error('JAZZ_SMS_USER / JAZZ_SMS_PASS not set in environment. SMS not configured.'));
-    }
-    const phone    = normalisePhone(to);
-
-    // Call Jazz CMT API directly (Render server IP is whitelisted)
-    // Jazz uses a GET request with query parameters
-    const params = new URLSearchParams({
-        Username: SMS_USER,
-        Password: SMS_PASS,
-        From:     SMS_MASK,
-        To:       phone,
-        Message:  message,
-    });
-    const url = `https://connect.jazzcmt.com/sendsms_url.html?${params.toString()}&`;
-
-    try {
-        const resp = await fetch(url, { method: 'GET' });
-        const text = await resp.text();
-        console.log(`Jazz SMS — ${phone}: ${text}`);
-        resolve({ to: phone, response: text.trim() });
-    } catch (err) {
-        reject(err);
-    }
-});
-
-// Send to a single number
+// ── SMS Routes (Jazz CMT via Fixie) ─────────────────────────────────────────
 app.post('/api/sms/send', requireAuth, async (req, res) => {
     const { to, message } = req.body;
     if (!to || !message) return res.status(400).json({ error: 'to and message are required' });
     if (message.length > 160) return res.status(400).json({ error: 'Message exceeds 160 characters' });
     try {
         const result = await sendJazzSMS(to, message);
-        // Log to employee_messages table if employee_id provided
+        if (!result.ok) return res.status(502).json({ error: result.response, ...result });
         if (req.body.employee_id) {
-            try {
-                await pool.query(
-                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
-                    [req.body.employee_id, message, req.user.email]
-                );
-            } catch (_) {}
+            await pool.query(
+                `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                [req.body.employee_id, message, req.user.email]
+            ).catch(() => {});
         }
-        res.json({ ok: true, ...result });
+        res.json(result);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Send to multiple employees at once
 app.post('/api/sms/bulk', requireAuth, async (req, res) => {
-    const { recipients = [], message } = req.body; // recipients = [{ employee_id, phone, name }]
+    const { recipients = [], message } = req.body;
     if (!message || !recipients.length) return res.status(400).json({ error: 'recipients and message required' });
     const results = [];
+    const smsLogIds = [], smsLogBodies = [], smsLogSenders = [];
     for (const r of recipients) {
+        if (!r.phone) { results.push({ name: r.name, ok: false, error: 'No phone' }); continue; }
         try {
-            const result = await sendJazzSMS(r.phone, message);
-            try {
-                await pool.query(
-                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
-                    [r.employee_id, message, req.user.email]
-                );
-            } catch (_) {}
-            results.push({ name: r.name, phone: r.phone, ok: true, response: result.response });
+            const smsMsg = message.replace('{name}', r.name || '');
+            const result = await sendJazzSMS(r.phone, smsMsg);
+            const empId = r.employee_id || r.id;
+            if (result.ok && empId) {
+                smsLogIds.push(empId);
+                smsLogBodies.push(smsMsg);
+                smsLogSenders.push(req.user.email);
+            }
+            results.push({ name: r.name, phone: r.phone, ok: result.ok, response: result.response, error: result.ok ? undefined : result.response });
         } catch (err) {
             results.push({ name: r.name, phone: r.phone, ok: false, error: err.message });
         }
+    }
+    if (smsLogIds.length > 0) {
+        await pool.query(
+            `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by)
+              SELECT unnest($1::text[]),'sms','out',unnest($2::text[]),unnest($3::text[])`,
+            [smsLogIds, smsLogBodies, smsLogSenders]
+        ).catch(() => {});
     }
     res.json({ sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
 });
@@ -2197,7 +2116,7 @@ app.post('/api/sms/payroll-batch', requireAuth, async (req, res) => {
                 ? messageTemplate.replace('{name}', emp.name).replace('{net}', net.toLocaleString()).replace('{month}', monthName).replace('{year}', year||new Date().getFullYear())
                 : `Dear ${emp.name}, your ${monthName} ${year||new Date().getFullYear()} salary of Rs. ${net.toLocaleString()} has been processed. Allied Services`;
             const result = await sendJazzSMS(emp.primary_contact, message);
-            results.push({ name: emp.name, phone: emp.primary_contact, ok: true, response: result.response });
+            results.push({ name: emp.name, phone: emp.primary_contact, ok: result.ok, response: result.response, error: result.ok ? undefined : result.response });
         }
         res.json({ sent: results.filter(r=>r.ok).length, failed: results.filter(r=>!r.ok).length, results });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2233,7 +2152,8 @@ app.post('/api/portal/request-otp', portalOtpLimiter, async (req, res) => {
 
         // Send via Jazz SMS
         const message = `Your ASIL HCM login code is: ${otp}. Valid for 10 minutes. Do not share this code.`;
-        await sendJazzSMS(p, message);
+        const smsResult = await sendJazzOtpSMS(p, message);
+        if (!smsResult.ok) return res.status(502).json({ error: 'Failed to send OTP SMS', detail: smsResult.response });
 
         res.json({ ok: true, message: `OTP sent to ${p.slice(0,5)}****${p.slice(-2)}`, employeeName: rows[0].name });
     } catch (err) {
@@ -7632,6 +7552,7 @@ if (require.main === module) app.listen(PORT, async () => {
     console.log(`ASIL HCM Backend running on port ${PORT}`);
     console.log(`[DB] Pool configured: max=10, idle=30s`);
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
+    console.log(`[SMS] Jazz proxy ${isJazzProxyConfigured() ? 'active (Fixie)' : 'NOT configured — SMS will fail with IP not authorized'}`);
     // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ One-time migrations (safe to run every restart, IF NOT EXISTS guards) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼
     try {
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ hcm_users table (RBAC) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼

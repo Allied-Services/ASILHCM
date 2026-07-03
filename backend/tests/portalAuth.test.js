@@ -4,15 +4,17 @@ const jwt = require('jsonwebtoken');
 const { mockPool, makeToken, makePortalToken } = require('./setup');
 
 let app;
+let sendJazzOtpSMS;
 beforeAll(() => {
   jest.resetModules();
+  ({ sendJazzOtpSMS } = require('../lib/sms'));
   app = require('../server');
 });
 
 beforeEach(() => {
   mockPool.query.mockReset();
   mockPool.query.mockResolvedValue({ rows: [], rowCount: 0 });
-  global.fetch.mockClear();
+  sendJazzOtpSMS.mockClear();
 });
 
 afterAll(async () => {
@@ -35,7 +37,7 @@ describe('POST /api/portal/request-otp', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.employeeName).toBe('Ali Khan');
     expect(mockPool.query.mock.calls[0][1]).toEqual(['03001234567']);
-    expect(global.fetch).toHaveBeenCalled();
+    expect(sendJazzOtpSMS).toHaveBeenCalled();
   });
 
   test('returns 404 when no active employee matches phone', async () => {

@@ -3,15 +3,17 @@
 const { mockPool, makeToken, makePortalToken } = require('./setup');
 
 let app;
+let sendJazzSMS;
 beforeAll(() => {
   jest.resetModules();
+  ({ sendJazzSMS } = require('../lib/sms'));
   app = require('../server');
 });
 
 beforeEach(() => {
   mockPool.query.mockReset();
   mockPool.query.mockResolvedValue({ rows: [], rowCount: 0 });
-  global.fetch.mockClear();
+  sendJazzSMS.mockClear();
 });
 
 afterAll(async () => {

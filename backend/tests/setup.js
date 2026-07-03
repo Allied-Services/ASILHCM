@@ -42,9 +42,14 @@ process.env.APP_BASE_URL     = 'http://localhost:3000';
 
 jest.setTimeout(30000);
 
-// Stub outbound Jazz SMS HTTP calls
-global.fetch = jest.fn().mockResolvedValue({
-  text: () => Promise.resolve('OK'),
+const smsOk = { ok: true, to: '03001234567', response: 'OK', status: 200 };
+jest.mock('../lib/sms', () => {
+  const actual = jest.requireActual('../lib/sms');
+  return {
+    ...actual,
+    sendJazzSMS:    jest.fn().mockResolvedValue(smsOk),
+    sendJazzOtpSMS: jest.fn().mockResolvedValue(smsOk),
+  };
 });
 
 // ── Mock pool factory ────────────────────────────────────────────────────────

@@ -3,15 +3,17 @@
 const { mockPool, makeToken } = require('./setup');
 
 let app;
+let sendJazzSMS;
 beforeAll(() => {
   jest.resetModules();
+  ({ sendJazzSMS } = require('../lib/sms'));
   app = require('../server');
 });
 
 beforeEach(() => {
   mockPool.query.mockReset();
   mockPool.query.mockResolvedValue({ rows: [], rowCount: 0 });
-  global.fetch.mockClear();
+  sendJazzSMS.mockClear();
 });
 
 afterAll(async () => {
@@ -125,6 +127,6 @@ describe('POST /api/employees/bulk', () => {
     expect(res.status).toBe(200);
     expect(res.body.saved).toBe(1);
     expect(res.body.smsSent).toEqual([baseEmployee.id]);
-    expect(global.fetch).toHaveBeenCalled();
+    expect(sendJazzSMS).toHaveBeenCalled();
   });
 });
