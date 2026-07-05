@@ -1,6 +1,6 @@
 ﻿# ASIL HCM — Antigravity Agent Operational Rules
 **Workspace:** `BPOFMSystem` -> `shezad/ASILHCM`
-**Last Updated:** 2026-06-27
+**Last Updated:** 2026-07-05
 **Read this file before writing a single line of code.**
 
 ---
@@ -31,6 +31,23 @@ The following route patterns in `server.js` are **OFF-LIMITS for modification** 
 - The `payment_batches` and `payment_ledger` INSERT logic
 
 **Why:** These routes directly control whether ~500 employees get paid. A silent bug here has immediate real-world payroll consequences. No fix is worth the risk without a test harness.
+
+### 2.6 Restructure Modules (2026-07-05)
+New BPO/FM restructure code lives under `backend/src/` — **not** inside `server.js` body:
+- `backend/src/core/` — db pool helper, pg-boss jobs, mailer, migrations runner
+- `backend/src/intake/` — unified email intake hub (IMAP)
+- `backend/src/modules/*/` — constraints, pnl, intake admin, projects, claims, onboarding, bizdev
+- `backend/migrations/` — **all new DDL** via `node-pg-migrate` (`npm run migrate`)
+- `backend/mountModules.js` — single mount point wired from `server.js` (2 lines only)
+- `backend/worker.js` — Render Background Worker entry for pg-boss jobs
+
+**Rules:**
+- New routes go in `backend/src/modules/<name>/routes.js`, mounted via `mountModules.js`
+- Never add CREATE TABLE to `server.js` startup for restructure features
+- Payroll lock / AP confirm routes remain frozen (Section 2.2)
+- After adding routes: update `frontend/src/api.js` and document in `SYSTEM_BLUEPRINT.md`
+
+---
 
 ### 2.3 DDL / Schema Changes — Stage First
 Any database structural change (new table, new column, index, constraint) must be:

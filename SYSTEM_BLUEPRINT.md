@@ -519,6 +519,30 @@ This endpoint is public (no `requireAuth`), returns the server's outbound IP, an
 - `GET /health/ip` — Server IP (⚠️ should be protected)
 - `GET /` — Root info
 
+### Restructure Modules (2026-07-05 — `backend/src/modules/`)
+- `GET /api/constraints/policies/:contractId` — Contract policy (OT, medical caps, billing model)
+- `POST /api/constraints/policies` — Upsert contract policy
+- `POST /api/constraints/validate` — Validate action against policy
+- `GET /api/intake/messages` — Intake hub message queue
+- `POST /api/intake/trigger-poll` — Manual IMAP poll
+- `PATCH /api/intake/messages/:id/retry` — Requeue failed message
+- `GET /api/projects` — Projects/sites list
+- `POST /api/projects/backfill` — Backfill projects from employee sites
+- `GET /api/pnl/contracts` — Contract P&L view
+- `POST /api/pnl/refresh` — Post-lock payroll allocation sweep
+- `GET /api/cashflow/weekly` — 8-week cash-flow forecast
+- `POST /api/payroll/pr-preview` — PR-sheet parity payroll preview
+- `GET /api/claims/employee` — Employee claims queue
+- `POST /api/claims` — Create claim with focal verification
+- `GET /api/claims/medical-utilization/:employeeId` — Medical cap ledger
+- `POST /api/onboarding/start` — Start contract onboarding checklist
+- `GET /api/onboarding/:contractId` — Onboarding status
+- `PATCH /api/onboarding/tasks/:id/complete` — Complete onboarding task
+- `GET /api/bizdev/leads` — BD pipeline leads
+- `POST /api/bizdev/leads` — Create lead
+- `PATCH /api/bizdev/leads/:id/stage` — Update stage (won → auto onboarding)
+- `GET /api/bizdev/renewals` — Contract renewal tracker
+
 ---
 
 ## SECTION 9 — FUTURE ROADMAP (Priority Order)

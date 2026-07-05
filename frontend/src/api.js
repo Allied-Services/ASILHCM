@@ -294,4 +294,31 @@ export const api = {
         }).then(r => r.json());
     },
     portalLeaveBalance: (portalToken) => fetch(`${API}/api/portal/leave-balance`, { headers: { Authorization: `Bearer ${portalToken}` } }).then(r => r.json()),
+
+    // ── Restructure: P&L, Cashflow, Constraints ───────────────────────────────
+    getContractPnl: (q = {}) => apiFetch('/api/pnl/contracts?' + new URLSearchParams(Object.fromEntries(Object.entries(q).filter(([, v]) => v != null))).toString()),
+    refreshPnlAllocations: (month, year) => apiFetch('/api/pnl/refresh', { method: 'POST', body: JSON.stringify({ month, year }) }),
+    getWeeklyCashflow: (weeks = 8) => apiFetch(`/api/cashflow/weekly?weeks=${weeks}`),
+    getContractPolicy: (contractId, projectId) => apiFetch(`/api/constraints/policies/${encodeURIComponent(contractId)}${projectId ? '?project_id=' + encodeURIComponent(projectId) : ''}`),
+    saveContractPolicy: (data) => apiFetch('/api/constraints/policies', { method: 'POST', body: JSON.stringify(data) }),
+
+    // ── Restructure: Intake Hub ────────────────────────────────────────────────
+    getIntakeMessages: (status) => apiFetch(`/api/intake/messages${status ? '?status=' + status : ''}`),
+    triggerIntakePoll: () => apiFetch('/api/intake/trigger-poll', { method: 'POST' }),
+
+    // ── Restructure: Projects ──────────────────────────────────────────────────
+    getProjects: (q = {}) => apiFetch('/api/projects?' + new URLSearchParams(Object.fromEntries(Object.entries(q).filter(([, v]) => v))).toString()),
+
+    // ── Restructure: Claims ────────────────────────────────────────────────────
+    getEmployeeClaims: () => apiFetch('/api/claims/employee'),
+    getMedicalUtilization: (employeeId, contractId) => apiFetch(`/api/claims/medical-utilization/${encodeURIComponent(employeeId)}?contract_id=${encodeURIComponent(contractId || '')}`),
+
+    // ── Restructure: Onboarding & BizDev ───────────────────────────────────────
+    getOnboardingStatus: (contractId) => apiFetch(`/api/onboarding/${encodeURIComponent(contractId)}`),
+    startOnboarding: (data) => apiFetch('/api/onboarding/start', { method: 'POST', body: JSON.stringify(data) }),
+    completeOnboardingTask: (taskId) => apiFetch(`/api/onboarding/tasks/${taskId}/complete`, { method: 'PATCH' }),
+    getBdLeads: () => apiFetch('/api/bizdev/leads'),
+    createBdLead: (data) => apiFetch('/api/bizdev/leads', { method: 'POST', body: JSON.stringify(data) }),
+    getBdRenewals: () => apiFetch('/api/bizdev/renewals'),
+    prPayrollPreview: (data) => apiFetch('/api/payroll/pr-preview', { method: 'POST', body: JSON.stringify(data) }),
 };

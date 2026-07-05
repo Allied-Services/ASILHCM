@@ -2,19 +2,21 @@
 
 Simple instructions for supervisors, operations, and finance using **Maintenance & CMMS** in ASIL HCM.
 
-**Staff login:** https://asil-hcm-frontend.onrender.com  
-**Client portal (external focals):** https://asil-hcm-frontend.onrender.com/cmms
+**Staff login:** [https://asil-hcm-frontend.onrender.com](https://asil-hcm-frontend.onrender.com)  
+**Client portal (external focals):** [https://asil-hcm-frontend.onrender.com/cmms](https://asil-hcm-frontend.onrender.com/cmms)
 
 ---
 
 ## 1. Who does what
 
-| Role | Access | Main tasks |
-|------|--------|------------|
-| **Site supervisor** (e.g. Mukesh) | HCM → Maintenance & CMMS → Tickets | Log issues with photo, update status, spend petty cash on minor fixes |
-| **Operations** | Tickets, Sites, Escalation Matrix | Manage sites, escalation chain, reassign tickets |
-| **Finance** | Billing Report, Emergency Petty Cash | Mark billable vs internal, monthly reporting, fund top-ups |
-| **Client focal** (e.g. Wafi) | `/cmms` email OTP | View all site tickets, log new issues (photo optional) |
+
+| Role                              | Access                               | Main tasks                                                            |
+| --------------------------------- | ------------------------------------ | --------------------------------------------------------------------- |
+| **Site supervisor** (e.g. Mukesh) | HCM → Maintenance & CMMS → Tickets   | Log issues with photo, update status, spend petty cash on minor fixes |
+| **Operations**                    | Tickets, Sites, Escalation Matrix    | Manage sites, escalation chain, reassign tickets                      |
+| **Finance**                       | Billing Report, Emergency Petty Cash | Mark billable vs internal, monthly reporting, fund top-ups            |
+| **Client focal** (e.g. Wafi)      | `/cmms` email OTP                    | View all site tickets, log new issues (photo optional)                |
+
 
 ---
 
@@ -28,6 +30,7 @@ Simple instructions for supervisors, operations, and finance using **Maintenance
 6. Click **Submit Ticket**.
 
 **What happens next:**
+
 - Ticket is auto-assigned to the site’s default supervisor (LOBP → Mukesh).
 - An **email** goes to the assignee (and CC if configured).
 - If the deadline passes, escalation emails fire automatically (see section 5).
@@ -40,10 +43,12 @@ Simple instructions for supervisors, operations, and finance using **Maintenance
 
 On the **Open Tickets** table:
 
-| Action | When to use |
-|--------|-------------|
-| **Start** | Work has begun (`in_progress`) |
-| **Resolve** | Issue is fixed (`resolved`) |
+
+| Action      | When to use                    |
+| ----------- | ------------------------------ |
+| **Start**   | Work has begun (`in_progress`) |
+| **Resolve** | Issue is fixed (`resolved`)    |
+
 
 Overdue tickets (past deadline, still open) show in **red**.
 
@@ -51,11 +56,13 @@ Overdue tickets (past deadline, still open) show in **red**.
 
 **Billable column** (operations/finance only):
 
-| Value | Meaning |
-|-------|---------|
-| **tbd** | Not yet decided — default for new tickets |
-| **billable** | Cost can be charged to the client |
-| **internal** | Allied absorbs the cost — not invoiced |
+
+| Value        | Meaning                                   |
+| ------------ | ----------------------------------------- |
+| **tbd**      | Not yet decided — default for new tickets |
+| **billable** | Cost can be charged to the client         |
+| **internal** | Allied absorbs the cost — not invoiced    |
+
 
 Set this when you know how the spend or work should be treated.
 
@@ -66,12 +73,14 @@ Set this when you know how the spend or work should be treated.
 **Purpose:** Track small on-site spends (supplies, urgent fixes) per site, linked to tickets.
 
 ### When logging a ticket with spend
+
 - Tick **Minor Issue — Emergency Petty Cash used**.
 - Enter the **amount spent** (Rs).
 - Submit with photo as usual.
 - A **ledger spend row** is created automatically with the ticket ID.
 
 ### Finance: configure a site fund
+
 1. **Maintenance & CMMS → Emergency Petty Cash**
 2. Enter **Site**, **Monthly threshold**, and **Finance emails** (comma-separated).
 3. Click **Save**.
@@ -79,7 +88,9 @@ Set this when you know how the spend or work should be treated.
 When balance drops below 20% of threshold, finance receives an **email alert**.
 
 ### Manual ledger entries
+
 Use **Ledger Entry** for allocations or replenishments (not tied to a ticket):
+
 - **Allocation** — opening balance for the month
 - **Replenishment** — top-up after approval
 - **Spend** — manual spend (prefer ticket-linked spend via the ticket form instead)
@@ -96,13 +107,16 @@ Escalation emails are sent automatically every ~10 minutes when rules match.
 
 ### Two trigger types
 
-| Basis | Use when |
-|-------|----------|
-| **Hours overdue** | Ticket has a **deadline** — fires after the deadline passes |
-| **Hours open** | Ticket has **no deadline** — fires based on time since creation |
+
+| Basis             | Use when                                                        |
+| ----------------- | --------------------------------------------------------------- |
+| **Hours overdue** | Ticket has a **deadline** — fires after the deadline passes     |
+| **Hours open**    | Ticket has **no deadline** — fires based on time since creation |
+
 
 **Threshold (hours):** How long after the trigger point before this step fires.  
 Example LOBP chain (deadline-based):
+
 - **0h overdue** → Obaid (deadline just passed)
 - **48h overdue** → Rabia
 - **120h overdue** → Shezad
@@ -110,6 +124,7 @@ Example LOBP chain (deadline-based):
 **Priority `any`** = applies to all priority levels at that site.
 
 ### Editing rules
+
 1. Click **Edit** on a row — the form fills at the top.
 2. Change fields, toggle **Active** off to pause a rule without deleting.
 3. Click **Save Changes**, or **Cancel** to discard.
@@ -122,11 +137,13 @@ Example LOBP chain (deadline-based):
 **Maintenance & CMMS → Sites**
 
 ### Add a new site
+
 1. Site name (must match attendance site name, e.g. `LOBP`).
 2. Client name, categories (comma-separated), default assignee email, CC email.
 3. Click **Add Site**.
 
 ### Give a client focal access
+
 1. Under **Client Portal Access**, enter client **email**, **name**, and **site**.
 2. Click **Add Client**.
 3. Client goes to `/cmms`, enters email, receives OTP, and sees all tickets at their site.
@@ -147,13 +164,15 @@ Ensure tickets are marked **billable** or **internal** before month-end close.
 
 ## 8. LOBP quick reference (Wafi Energy)
 
-| Item | Value |
-|------|-------|
-| Site code | LOBP |
-| Client portal | Sami.Abdul@wafi-energy.com |
-| Default assignee | Mukesh (mukesh.solanky@asil.com.pk) |
-| CC | Obaid (obaid.rana@asil.com.pk) |
-| Escalation | Obaid → Rabia → Shezad (deadline-based) |
+
+| Item             | Value                                                                    |
+| ---------------- | ------------------------------------------------------------------------ |
+| Site code        | LOBP                                                                     |
+| Client portal    | [Sami.Abdul@wafi-energy.com](mailto:Sami.Abdul@wafi-energy.com)          |
+| Default assignee | Mukesh ([mukesh.solanky@asil.com.pk](mailto:mukesh.solanky@asil.com.pk)) |
+| CC               | Obaid ([obaid.rana@asil.com.pk](mailto:obaid.rana@asil.com.pk))          |
+| Escalation       | Obaid → Rabia → Shezad (deadline-based)                                  |
+
 
 Seeded backlog tickets: **MT-LOBP-1** through **MT-LOBP-7**.
 

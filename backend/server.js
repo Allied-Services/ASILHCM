@@ -7540,6 +7540,15 @@ phase2.registerPhase2Routes(app, {
     JWT_SECRET,
     APP_BASE_URL,
 });
+
+const { mountRestructureModules, bootstrapRestructure } = require('./mountModules');
+mountRestructureModules(app, {
+    pool,
+    requireAuth,
+    requireRole,
+    sendAppEmail,
+});
+
 phase2.setupPhase2Tables(pool, { sendAppEmail }).catch(e => console.warn('Phase 2 table setup warning:', e.message));
 
 module.exports = app;
@@ -8417,6 +8426,10 @@ if (require.main === module) app.listen(PORT, async () => {
             runReportDispatch: (p) => phase2.runReportDispatch(p, sendAppEmail),
             runEscalationCheck: (p) => phase2.runEscalationCheck(p, sendAppEmail, sendJazzSMS),
         });
+
+        bootstrapRestructure({ pool, sendAppEmail }).catch(e =>
+            console.warn('[restructure] bootstrap warning:', e.message)
+        );
 
 
     } catch (e) {

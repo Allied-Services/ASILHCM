@@ -1,4 +1,7 @@
 -- Core Database Entities: Allied Services Operations Engine
+-- NOTE (2026-07-05): Live production schema migrations for the BPO/FM restructure
+-- are managed in backend/migrations/ via node-pg-migrate (`npm run migrate`).
+-- This file remains the aspirational design reference; do not run wholesale against production.
 
 CREATE TYPE employment_status AS ENUM ('Active', 'Inactive', 'Terminated', 'Suspended');
 CREATE TYPE id_card_status AS ENUM ('Pending', 'Issued', 'Expired', 'Lost');

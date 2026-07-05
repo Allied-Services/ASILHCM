@@ -62,3 +62,8 @@ preview_server.js
 *.bak
 sms_test.ps1
 
+# Client data exports / reference attachments — never commit real PII or client scripts
+Attachments/
+/*.xlsx
+/*.xls
+
