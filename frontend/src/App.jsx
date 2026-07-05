@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail, Inbox, Wrench } from 'lucide-react';
+import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail, Inbox, Wrench, Briefcase, ClipboardList, CheckSquare, TrendingUp } from 'lucide-react';
 import EmailClaimsListener from './EmailClaimsListener';
 import WafiClaimsDashboard from './WafiClaimsDashboard';
 import Dashboard from './Dashboard';
@@ -22,6 +22,12 @@ import UserManagement from './UserManagement';
 import POTracking from './POTracking';
 import AttendanceManagement from './AttendanceManagement';
 import MaintenanceCMMS from './MaintenanceCMMS';
+import IntakeHub from './features/intake/IntakeHub';
+import ClaimsQueue from './features/claims/ClaimsQueue';
+import ContractOps from './features/contracts/ContractOps';
+import BizDevPipeline from './features/bizdev/BizDevPipeline';
+import BillVerification from './features/procurement/BillVerification';
+import ComplianceLedger from './features/compliance/ComplianceLedger';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -29,18 +35,18 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
+    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance'],
     supervisor:           ['attendance','maintenance'],
-    operations:           ['employee','documents','client','attendance','maintenance'],
-    procurement_proposer: ['billing','vendor','inventory'],
-    procurement_approver: ['billing','vendor','inventory'],
-    procurement_manager:  ['billing','vendor','inventory','ap','maintenance'],
-    finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance'],
-    finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims'],
-    finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
+    operations:           ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','contract_ops','bizdev'],
+    procurement_proposer: ['billing','vendor','inventory','bill_verification'],
+    procurement_approver: ['billing','vendor','inventory','bill_verification'],
+    procurement_manager:  ['billing','vendor','inventory','ap','maintenance','bill_verification'],
+    finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
+    finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','contract_ops','compliance','bizdev'],
+    finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','compliance'],
     ap_team:              ['ap','billing'],
-    ar_team:              ['invoices','po_tracking','billing'],
-    payroll_initiator:    ['payroll','employee'],
+    ar_team:              ['invoices','po_tracking','billing','compliance'],
+    payroll_initiator:    ['payroll','employee','claims_queue'],
     pending:              [],
 };
 
@@ -117,7 +123,7 @@ function App() {
   // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
-    allowedTabs = ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'];
+    allowedTabs = ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance'];
   } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
     // Saved custom permissions: show all modules where access === true
     allowedTabs = Object.entries(user.permissions)
@@ -173,6 +179,12 @@ function App() {
     { key: 'maintenance',   label: 'Maintenance & CMMS',      icon: <Wrench size={20} /> },
     { key: 'email_claims',  label: 'Email Claims',            icon: <Mail size={20} /> },
     { key: 'wafi_claims',   label: 'Wafi Claims',             icon: <Inbox size={20} /> },
+    { key: 'intake_hub',    label: 'Intake Hub',              icon: <Inbox size={20} /> },
+    { key: 'claims_queue',  label: 'Claims Queue',            icon: <CheckSquare size={20} /> },
+    { key: 'contract_ops',  label: 'Contract Policies',       icon: <ClipboardList size={20} /> },
+    { key: 'bizdev',        label: 'BD Pipeline',             icon: <Briefcase size={20} /> },
+    { key: 'bill_verification', label: 'Bill Verification',   icon: <ScanLine size={20} /> },
+    { key: 'compliance',    label: 'Compliance Ledger',       icon: <TrendingUp size={20} /> },
   ];
 
   const NAV = ALL_NAV.filter(n => allowedTabs.includes(n.key));
@@ -251,6 +263,12 @@ function App() {
           {effectiveTab === 'maintenance'  && <MaintenanceCMMS user={user} />}
           {effectiveTab === 'email_claims' && <EmailClaimsListener user={user} />}
           {effectiveTab === 'wafi_claims'  && <WafiClaimsDashboard user={user} />}
+          {effectiveTab === 'intake_hub'  && <IntakeHub />}
+          {effectiveTab === 'claims_queue' && <ClaimsQueue />}
+          {effectiveTab === 'contract_ops' && <ContractOps />}
+          {effectiveTab === 'bizdev'       && <BizDevPipeline />}
+          {effectiveTab === 'bill_verification' && <BillVerification />}
+          {effectiveTab === 'compliance'   && <ComplianceLedger />}
         </main>
       </div>
     </>

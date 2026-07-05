@@ -32,8 +32,11 @@ async function getBenefitPolicy(pool, contractId, benefitType, asOfDate = new Da
 }
 
 async function validateAction(pool, action, context) {
-    const policy = context.policy || await getPolicy(pool, context.contractId, context.projectId, context.asOfDate);
-    if (!policy && action !== 'onboarding_check') {
+    const skipPolicy = action === 'bill_approve' || action === 'onboarding_check';
+    const policy = context.policy || (!skipPolicy && pool
+        ? await getPolicy(pool, context.contractId, context.projectId, context.asOfDate)
+        : null);
+    if (!policy && !skipPolicy) {
         return { ok: false, code: 'NO_POLICY', message: 'No contract policy configured for this contract.' };
     }
 

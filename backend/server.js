@@ -7547,6 +7547,7 @@ mountRestructureModules(app, {
     requireAuth,
     requireRole,
     sendAppEmail,
+    sendJazzSMS,
 });
 
 phase2.setupPhase2Tables(pool, { sendAppEmail }).catch(e => console.warn('Phase 2 table setup warning:', e.message));
@@ -8427,7 +8428,7 @@ if (require.main === module) app.listen(PORT, async () => {
             runEscalationCheck: (p) => phase2.runEscalationCheck(p, sendAppEmail, sendJazzSMS),
         });
 
-        bootstrapRestructure({ pool, sendAppEmail }).catch(e =>
+        bootstrapRestructure({ pool, sendAppEmail, sendJazzSMS }).catch(e =>
             console.warn('[restructure] bootstrap warning:', e.message)
         );
 

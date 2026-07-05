@@ -321,4 +321,35 @@ export const api = {
     createBdLead: (data) => apiFetch('/api/bizdev/leads', { method: 'POST', body: JSON.stringify(data) }),
     getBdRenewals: () => apiFetch('/api/bizdev/renewals'),
     prPayrollPreview: (data) => apiFetch('/api/payroll/pr-preview', { method: 'POST', body: JSON.stringify(data) }),
+
+    // ── Restructure: Claims (create) ───────────────────────────────────────────
+    createClaim: (data) => apiFetch('/api/claims', { method: 'POST', body: JSON.stringify(data) }),
+    retryIntakeMessage: (id) => apiFetch(`/api/intake/messages/${id}/retry`, { method: 'PATCH' }),
+    updateBdLeadStage: (id, stage, contractId) => apiFetch(`/api/bizdev/leads/${id}/stage`, { method: 'PATCH', body: JSON.stringify({ stage, contractId }) }),
+
+    // ── Restructure: Attendance Intake ───────────────────────────────────────────
+    parseAttendanceCsv: (data) => apiFetch('/api/attendance/parse-csv', { method: 'POST', body: JSON.stringify(data) }),
+    manualAttendanceBulk: (data) => apiFetch('/api/attendance/manual-bulk', { method: 'POST', body: JSON.stringify(data) }),
+    getAttendanceAlertRules: () => apiFetch('/api/attendance/alert-rules'),
+    saveAttendanceAlertRule: (data) => apiFetch('/api/attendance/alert-rules', { method: 'POST', body: JSON.stringify(data) }),
+    runAttendanceAlerts: () => apiFetch('/api/attendance/run-alerts', { method: 'POST' }),
+
+    // ── Restructure: Procurement Verification ────────────────────────────────────
+    getProcurementQueue: () => apiFetch('/api/procurement/verification-queue'),
+    getBudgetLines: (contractId) => apiFetch(`/api/procurement/budget-lines/${encodeURIComponent(contractId)}`),
+    verifyBillOcr: (billId, data) => apiFetch(`/api/procurement/bills/${encodeURIComponent(billId)}/verify-ocr`, { method: 'POST', body: JSON.stringify(data) }),
+    matchBillBudget: (billId, budgetLineId) => apiFetch(`/api/procurement/bills/${encodeURIComponent(billId)}/match-budget`, { method: 'POST', body: JSON.stringify({ budgetLineId }) }),
+    canApproveBill: (billId) => apiFetch(`/api/procurement/bills/${encodeURIComponent(billId)}/can-approve`),
+
+    // ── Restructure: Compliance ──────────────────────────────────────────────────
+    getComplianceLedger: (month, year) => apiFetch(`/api/compliance/ledger?month=${month}&year=${year}`),
+    computeCompliance: (month, year) => apiFetch('/api/compliance/compute', { method: 'POST', body: JSON.stringify({ month, year }) }),
+    generateFilingPreview: (month, year) => apiFetch('/api/compliance/filing-preview', { method: 'POST', body: JSON.stringify({ month, year }) }),
+    validateInvoiceChallans: (invoiceId) => apiFetch(`/api/compliance/invoice/${encodeURIComponent(invoiceId)}/validate`, { method: 'POST' }),
+
+    // ── Restructure: AR / PO / Dunning ───────────────────────────────────────────
+    getPOBalance: (poId) => apiFetch(`/api/ar/po-balance/${poId}`),
+    validateInvoicePO: (data) => apiFetch('/api/ar/validate-po', { method: 'POST', body: JSON.stringify(data) }),
+    runDunning: () => apiFetch('/api/ar/run-dunning', { method: 'POST' }),
+    getInvoiceSchedules: () => apiFetch('/api/ar/invoice-schedules'),
 };

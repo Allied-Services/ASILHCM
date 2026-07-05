@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api, apiFetch } from './api';
+import AttendanceIntake from './features/attendance/AttendanceIntake';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 const fmt = n => (parseFloat(n)||0).toLocaleString('en-PK');
@@ -530,8 +531,11 @@ export default function AttendanceManagement({ user }) {
   const canTeamSetup = hasAttPerm('team_setup', ['admin','hr_manager','finance_manager','finance_approver','operations']);
   const canMark = isSupervisor || isAdmin || hasAttPerm('mark_attendance', ['operations']);
 
+  const canIntake = isAdmin || hasAttPerm('mark_attendance', ['operations']);
+
   const TABS = [
     ...(canMark ? [{ key:'mark', label:'📋 Daily Marking' }] : []),
+    ...(canIntake ? [{ key:'intake', label:'📥 CSV Intake & Alerts' }] : []),
     ...(isLeaveDesk ? [{ key:'leave', label:'🏖 Leave Desk' }] : []),
     ...(isAdmin ? [{ key:'monthly', label:'📊 Monthly Report' }] : []),
     ...(canTeamSetup ? [{ key:'teams', label:'👥 Team Setup' }] : []),
@@ -574,6 +578,7 @@ export default function AttendanceManagement({ user }) {
       </div>
 
       {tab==='mark'    && <DailyMarking user={user}/>}
+      {tab==='intake'  && <AttendanceIntake />}
       {tab==='leave'   && <LeaveDesk/>}
       {tab==='monthly' && <MonthlyReport user={user}/>}
       {tab==='teams'   && <TeamAdmin user={user}/>}

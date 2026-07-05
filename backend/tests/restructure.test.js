@@ -50,4 +50,30 @@ describe('intake classifier', () => {
         const r = matchInboxRules('user@wafi-energy.com', 'Leave notification');
         expect(['client_event', 'unknown']).toContain(r.classification);
     });
+
+    test('classifies procurement keyword', () => {
+        const r = matchInboxRules('buyer@client.com', 'Procurement request for PPE');
+        expect(r.classification).toBe('procurement');
+    });
+});
+
+describe('constraints validateAction', () => {
+    const { validateAction } = require('../src/modules/constraints/service');
+
+    test('blocks bill approve when unmatched', async () => {
+        const result = await validateAction(null, 'bill_approve', {
+            billable: true,
+            matchStatus: 'unmatched',
+        });
+        expect(result.ok).toBe(false);
+        expect(result.code).toBe('BUDGET_UNMATCHED');
+    });
+
+    test('allows bill approve when matched', async () => {
+        const result = await validateAction(null, 'bill_approve', {
+            billable: true,
+            matchStatus: 'matched',
+        });
+        expect(result.ok).toBe(true);
+    });
 });

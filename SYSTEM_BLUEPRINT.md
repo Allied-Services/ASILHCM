@@ -542,6 +542,26 @@ This endpoint is public (no `requireAuth`), returns the server's outbound IP, an
 - `POST /api/bizdev/leads` — Create lead
 - `PATCH /api/bizdev/leads/:id/stage` — Update stage (won → auto onboarding)
 - `GET /api/bizdev/renewals` — Contract renewal tracker
+- `POST /api/attendance/parse-csv` — Parse CSV attendance into ledger
+- `POST /api/attendance/manual-bulk` — Manual/partial attendance entry
+- `GET /api/attendance/alert-rules` — FM site alert rules
+- `POST /api/attendance/alert-rules` — Save alert rule
+- `POST /api/attendance/run-alerts` — Run unexcused leave alerts
+- `GET /api/procurement/verification-queue` — Bills pending OCR/match
+- `POST /api/procurement/bills/:id/verify-ocr` — Save verified OCR data
+- `POST /api/procurement/bills/:id/match-budget` — Match bill to budget line
+- `GET /api/procurement/bills/:id/can-approve` — Budget match gate check
+- `GET /api/procurement/budget-lines/:contractId` — Contract budget lines
+- `GET /api/compliance/ledger` — Statutory ledger entries
+- `POST /api/compliance/compute` — Compute EOBI/SESSI/tax from locked payroll
+- `POST /api/compliance/filing-preview` — Ready-to-file return preview
+- `POST /api/compliance/invoice/:id/validate` — Invoice challan compliance check
+- `GET /api/ar/po-balance/:poId` — PO utilized vs balance
+- `POST /api/ar/validate-po` — Block invoice if PO exceeded
+- `POST /api/ar/run-dunning` — Overdue invoice reminders
+- `GET /api/ar/invoice-schedules` — Invoice generation schedule
+
+**Frontend screens (2026-07-05 Phase 2–6):** Intake Hub, Claims Queue, Contract Policies, BD Pipeline, Bill Verification, Compliance Ledger, Attendance CSV Intake tab. Live test trace: `docs/LIVE_TEST_TRACE.md`.
 
 ---
 
