@@ -50,7 +50,12 @@ export const api = {
     deleteClient: (id) => apiFetch(`/api/clients/${id}`, { method: 'DELETE' }),
 
     // ── Contracts ─────────────────────────────────────────────────────────────
-    getContracts: () => { const c = _cacheGet('contracts'); if (c) return Promise.resolve(c); return apiFetch('/api/contracts').then(d => { _cacheSet('contracts', d); return d; }); },
+    getContracts: () => {
+        const c = _cacheGet('contracts');
+        const unwrap = (d) => (Array.isArray(d) ? d : (d?.contracts || []));
+        if (c) return Promise.resolve(unwrap(c));
+        return apiFetch('/api/contracts').then(d => { const list = unwrap(d); _cacheSet('contracts', list); return list; });
+    },
     deleteContract: (id) => apiFetch(`/api/contracts/${id}`, { method: 'DELETE' }),
     reassignContract: (id, clientId) => apiFetch(`/api/contracts/${id}/reassign`, { method: 'PATCH', body: JSON.stringify({ client_id: clientId }) }),
 
