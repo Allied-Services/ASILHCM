@@ -9,13 +9,20 @@ const ContractOps = () => {
     const [policy, setPolicy] = useState({});
     const [onboarding, setOnboarding] = useState(null);
     const [budgetLines, setBudgetLines] = useState([]);
+    const [rateCards, setRateCards] = useState([]);
     const [budgetForm, setBudgetForm] = useState({ category: 'supplies', name: '', monthlyCap: '' });
+    const [rateCardForm, setRateCardForm] = useState({ roleTitle: '', billRate: '', costRate: '' });
     const [msg, setMsg] = useState('');
     const [error, setError] = useState('');
 
     const loadBudgetLines = () => {
         if (!selectedContract) return;
         api.getBudgetLines(selectedContract).then(setBudgetLines).catch(() => setBudgetLines([]));
+    };
+
+    const loadRateCards = () => {
+        if (!selectedContract) return;
+        api.getRateCards(selectedContract).then(setRateCards).catch(() => setRateCards([]));
     };
 
     useEffect(() => {
@@ -27,6 +34,7 @@ const ContractOps = () => {
         api.getContractPolicy(selectedContract).then(p => setPolicy(p || {})).catch(() => setPolicy({}));
         api.getOnboardingStatus(selectedContract).then(setOnboarding).catch(() => setOnboarding(null));
         loadBudgetLines();
+        loadRateCards();
     }, [selectedContract]);
 
     const savePolicy = async () => {
@@ -38,6 +46,20 @@ const ContractOps = () => {
         } catch (e) {
             setError(e.message);
         }
+    };
+
+    const applyWafiDefaults = () => {
+        setPolicy(p => ({
+            ...p,
+            medical_annual_cap: 20000,
+            ot_allowed: true,
+            ot_divisor_days: 26,
+            ot_divisor_hours: 8,
+            standard_month_days: 30,
+            service_charge_pct: 0.18,
+            credit_days: 30,
+        }));
+        setMsg('Wafi defaults applied — click Save Policy to persist');
     };
 
     const startOnboarding = async () => {
@@ -92,6 +114,38 @@ const ContractOps = () => {
         }
     };
 
+    const addRateCard = async () => {
+        setError('');
+        if (!rateCardForm.roleTitle.trim() || !rateCardForm.billRate) {
+            setError('Designation and bill rate are required');
+            return;
+        }
+        try {
+            await api.saveRateCard({
+                contractId: selectedContract,
+                roleTitle: rateCardForm.roleTitle.trim(),
+                billRate: Number(rateCardForm.billRate),
+                costRate: rateCardForm.costRate ? Number(rateCardForm.costRate) : null,
+            });
+            setRateCardForm({ roleTitle: '', billRate: '', costRate: '' });
+            loadRateCards();
+            setMsg('Rate card added');
+            setTimeout(() => setMsg(''), 3000);
+        } catch (e) {
+            setError(e.message);
+        }
+    };
+
+    const removeRateCard = async (id) => {
+        if (!window.confirm('Remove this rate card?')) return;
+        try {
+            await api.deleteRateCard(id);
+            loadRateCards();
+        } catch (e) {
+            setError(e.message);
+        }
+    };
+
     const inputStyle = { width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 6, padding: 8, color: 'var(--text)' };
 
     return (
@@ -129,7 +183,41 @@ const ContractOps = () => {
                                 style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 6, padding: 8, color: 'var(--text)' }} /></label>
                             <label>PO Required<input type="checkbox" checked={!!policy.po_required} onChange={e => setPolicy(p => ({ ...p, po_required: e.target.checked }))} /></label>
                         </div>
-                        <button onClick={savePolicy} className="btn-primary" style={{ marginTop: '1rem' }}>Save Policy</button>
+                        <button onClick={savePolicy} className="btn-primary" style={{ marginTop: '1rem', marginRight: '0.5rem' }}>Save Policy</button>
+                        <button type="button" onClick={applyWafiDefaults} className="btn-secondary" style={{ marginTop: '1rem' }}>Apply Wafi defaults</button>
+                    </div>
+
+                    <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1rem' }}>Billing Rate Cards</h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                            Per-designation bill rates used by Payroll Run when employee designation matches.
+                        </p>
+                        {rateCards.length > 0 ? (
+                            <table className="data-table" style={{ marginBottom: '1rem' }}>
+                                <thead>
+                                    <tr><th>Designation</th><th>Monthly Bill Rate</th><th>Cost Rate</th><th>Effective From</th><th></th></tr>
+                                </thead>
+                                <tbody>
+                                    {rateCards.map(rc => (
+                                        <tr key={rc.id}>
+                                            <td>{rc.role_title}</td>
+                                            <td>{Number(rc.bill_rate || 0).toLocaleString()}</td>
+                                            <td>{rc.cost_rate != null ? Number(rc.cost_rate).toLocaleString() : '—'}</td>
+                                            <td>{rc.effective_from?.slice?.(0, 10) || rc.effective_from}</td>
+                                            <td><button type="button" onClick={() => removeRateCard(rc.id)} className="btn-secondary" style={{ fontSize: '0.8rem' }}>Remove</button></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>No rate cards — payroll uses cost-plus billing.</p>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
+                            <input placeholder="Designation (matches employee)" value={rateCardForm.roleTitle} onChange={e => setRateCardForm(f => ({ ...f, roleTitle: e.target.value }))} style={inputStyle} />
+                            <input type="number" placeholder="Monthly bill rate" value={rateCardForm.billRate} onChange={e => setRateCardForm(f => ({ ...f, billRate: e.target.value }))} style={inputStyle} />
+                            <input type="number" placeholder="Cost rate (optional)" value={rateCardForm.costRate} onChange={e => setRateCardForm(f => ({ ...f, costRate: e.target.value }))} style={inputStyle} />
+                            <button type="button" onClick={addRateCard} className="btn-primary">Add rate card</button>
+                        </div>
                     </div>
 
                     <div className="glass-card" style={{ marginBottom: '1.5rem' }}>

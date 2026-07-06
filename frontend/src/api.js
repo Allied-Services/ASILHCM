@@ -366,6 +366,30 @@ export const api = {
     getHolidays: () => apiFetch('/api/holidays'),
     saveHoliday: (data) => apiFetch('/api/holidays', { method: 'POST', body: JSON.stringify(data) }),
     deleteHoliday: (id) => apiFetch(`/api/holidays/${id}`, { method: 'DELETE' }),
+    getRateCards: (contractId) => apiFetch(`/api/rate-cards/${encodeURIComponent(contractId)}`),
+    saveRateCard: (data) => apiFetch('/api/rate-cards', { method: 'POST', body: JSON.stringify(data) }),
+    deleteRateCard: (id) => apiFetch(`/api/rate-cards/${id}`, { method: 'DELETE' }),
+    sendPayrollRunPayslips: (runId) => apiFetch(`/api/payroll-runs/${runId}/send-payslips`, { method: 'POST' }),
+    pushRunInvoiceToXero: (run, invoice) => apiFetch('/api/xero/invoices', {
+        method: 'POST',
+        body: JSON.stringify({
+            invoice: {
+                number: invoice.invoice_number,
+                client: invoice.client,
+                poNumber: invoice.po_number || '',
+                dueDate: invoice.due_date,
+                status: 'Draft',
+                payrolls: [{
+                    contract: invoice.contract,
+                    period: `${run.period_month}/${run.period_year}`,
+                    employees: run.headcount || 1,
+                    totalPayrollCost: invoice.grand_total,
+                }],
+                debitNotes: [],
+            },
+        }),
+    }),
+    logXeroSync: (data) => apiFetch('/api/ar/xero-sync-log', { method: 'POST', body: JSON.stringify(data) }),
 
     assignClaim: (id, employeeId) => apiFetch(`/api/claims/${id}`, { method: 'PATCH', body: JSON.stringify({ employeeId }) }),
 };
