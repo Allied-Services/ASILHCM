@@ -28,6 +28,8 @@ import ContractOps from './features/contracts/ContractOps';
 import BizDevPipeline from './features/bizdev/BizDevPipeline';
 import BillVerification from './features/procurement/BillVerification';
 import ComplianceLedger from './features/compliance/ComplianceLedger';
+import PayrollRun from './features/payroll/PayrollRun';
+import ARDashboard from './features/ar/ARDashboard';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -35,18 +37,18 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance'],
+    superadmin:           ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'],
     supervisor:           ['attendance','maintenance'],
     operations:           ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','contract_ops','bizdev'],
     procurement_proposer: ['billing','vendor','inventory','bill_verification'],
     procurement_approver: ['billing','vendor','inventory','bill_verification'],
     procurement_manager:  ['billing','vendor','inventory','ap','maintenance','bill_verification'],
     finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
-    finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','contract_ops','compliance','bizdev'],
-    finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','compliance'],
+    finance_approver:     ['payroll','payroll_run','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','contract_ops','compliance','bizdev','ar'],
+    finance_manager:      ['payroll','payroll_run','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','compliance','ar'],
     ap_team:              ['ap','billing'],
     ar_team:              ['invoices','po_tracking','billing','compliance'],
-    payroll_initiator:    ['payroll','employee','claims_queue'],
+    payroll_initiator:    ['payroll','payroll_run','employee','claims_queue'],
     pending:              [],
 };
 
@@ -123,7 +125,7 @@ function App() {
   // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
-    allowedTabs = ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance'];
+    allowedTabs = ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'];
   } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
     // Saved custom permissions: show all modules where access === true
     allowedTabs = Object.entries(user.permissions)
@@ -164,6 +166,7 @@ function App() {
     { key: 'dashboard', label: 'Managing Director View', icon: <Home size={20} /> },
     { key: 'employee',  label: 'Employee Information',   icon: <Users size={20} /> },
     { key: 'payroll',   label: 'Payroll Sheet',          icon: <Calculator size={20} /> },
+    { key: 'payroll_run', label: 'Payroll Run',        icon: <Calculator size={20} /> },
     { key: 'documents', label: 'Document Generator',     icon: <FilePlus size={20} /> },
     { key: 'billing',   label: 'Bills & Procurement',    icon: <Receipt size={20} /> },
     { key: 'invoices',    label: 'Invoices (AR)',          icon: <FileText size={20} /> },
@@ -185,6 +188,7 @@ function App() {
     { key: 'bizdev',        label: 'BD Pipeline',             icon: <Briefcase size={20} /> },
     { key: 'bill_verification', label: 'Bill Verification',   icon: <ScanLine size={20} /> },
     { key: 'compliance',    label: 'Compliance Ledger',       icon: <TrendingUp size={20} /> },
+    { key: 'ar',            label: 'AR & Collections',        icon: <TrendingUp size={20} /> },
   ];
 
   const NAV = ALL_NAV.filter(n => allowedTabs.includes(n.key));
@@ -248,6 +252,7 @@ function App() {
           {effectiveTab === 'dashboard'  && <Dashboard />}
           {effectiveTab === 'employee'   && <EmployeeInformation user={user} />}
           {effectiveTab === 'payroll'    && <PayrollSheet user={user} />}
+          {effectiveTab === 'payroll_run' && <PayrollRun />}
           {effectiveTab === 'documents'  && <DocumentGenerator />}
           {effectiveTab === 'billing'    && <BillingProcurement user={user} />}
           {effectiveTab === 'invoices'    && <InvoiceSection user={user} />}
@@ -269,6 +274,7 @@ function App() {
           {effectiveTab === 'bizdev'       && <BizDevPipeline />}
           {effectiveTab === 'bill_verification' && <BillVerification />}
           {effectiveTab === 'compliance'   && <ComplianceLedger />}
+          {effectiveTab === 'ar'           && <ARDashboard />}
         </main>
       </div>
     </>

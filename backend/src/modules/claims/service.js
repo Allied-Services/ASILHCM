@@ -67,4 +67,65 @@ async function getMedicalUtilization(pool, employeeId, contractId) {
     return created[0];
 }
 
-module.exports = { createClaimFromIntake, validateOtClaim, getMedicalUtilization };
+async function assignClaimEmployee(pool, claimId, employeeId) {
+    const { rows } = await pool.query(
+        `UPDATE employee_claims SET employee_id = $2, updated_at = NOW() WHERE id = $1 RETURNING *`,
+        [claimId, employeeId]
+    );
+    if (!rows.length) throw new Error('Claim not found');
+    return rows[0];
+}
+
+async function verifyFocalToken(pool, claimId, token) {
+    const { rows } = await pool.query(`SELECT * FROM employee_claims WHERE id = $1`, [claimId]);
+    if (!rows.length) return { ok: false, status: 404 };
+    const claim = rows[0];
+    if (claim.focal_token_hash !== hashToken(token)) return { ok: false, status: 403 };
+    return { ok: true, claim };
+}
+
+async function processFocalDecision(pool, { claimId, token, decision, comment }) {
+    const check = await verifyFocalToken(pool, claimId, token);
+    if (!check.ok) return check;
+    const claim = check.claim;
+    if (claim.focal_approved_at || claim.focal_rejected_at) {
+        return { ok: false, status: 409, already: true };
+    }
+
+    if (decision === 'approved') {
+        await pool.query(
+            `UPDATE employee_claims SET status = 'focal_approved', focal_approved_at = NOW(), focal_comment = $2, updated_at = NOW() WHERE id = $1`,
+            [claimId, comment || null]
+        );
+        if (claim.claim_type === 'medical' && claim.employee_id) {
+            const items = typeof claim.claimed_items === 'string' ? JSON.parse(claim.claimed_items) : (claim.claimed_items || []);
+            const amount = items.reduce((s, i) => s + Number(i.amount || 0), 0);
+            const { rows: empRows } = await pool.query(`SELECT contract_id FROM employees WHERE id = $1`, [claim.employee_id]);
+            const contractId = empRows[0]?.contract_id;
+            if (amount > 0 && contractId) {
+                await getMedicalUtilization(pool, claim.employee_id, contractId);
+                await pool.query(
+                    `UPDATE benefit_utilization SET used_amount = used_amount + $1, updated_at = NOW()
+                     WHERE employee_id = $2 AND benefit_type = 'medical'
+                       AND cycle_start <= CURRENT_DATE AND cycle_end >= CURRENT_DATE`,
+                    [amount, claim.employee_id]
+                );
+            }
+        }
+    } else {
+        await pool.query(
+            `UPDATE employee_claims SET status = 'focal_rejected', focal_rejected_at = NOW(), focal_comment = $2, updated_at = NOW() WHERE id = $1`,
+            [claimId, comment || null]
+        );
+    }
+    return { ok: true, decision };
+}
+
+module.exports = {
+    createClaimFromIntake,
+    validateOtClaim,
+    getMedicalUtilization,
+    assignClaimEmployee,
+    verifyFocalToken,
+    processFocalDecision,
+};

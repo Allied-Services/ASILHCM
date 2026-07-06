@@ -2,6 +2,7 @@
 
 const { handleRouteError } = require('../../core/validate');
 const { pollIntakeMailbox } = require('../../intake/imapWatcher');
+const { routeIntakeToClaims } = require('../../intake/claimRouter');
 
 function registerIntakeRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail } = deps;
@@ -29,7 +30,8 @@ function registerIntakeRoutes(app, deps) {
     app.post('/api/intake/trigger-poll', requireAuth, requireRole('superadmin', 'operations'), async (req, res) => {
         try {
             const result = await pollIntakeMailbox(pool, { sendAppEmail });
-            res.json(result);
+            const routed = await routeIntakeToClaims(pool);
+            res.json({ ...result, claimsRouted: routed.routed });
         } catch (err) {
             handleRouteError(res, 'intake.poll', err);
         }

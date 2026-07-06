@@ -11,6 +11,7 @@ const BillVerification = () => {
     const [error, setError] = useState('');
     const [msg, setMsg] = useState('');
     const fileRef = useRef(null);
+    const [previewUrl, setPreviewUrl] = useState(null);
 
     const load = () => {
         setLoading(true);
@@ -30,6 +31,8 @@ const BillVerification = () => {
 
     const runOcr = async (file) => {
         if (!file) return;
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(URL.createObjectURL(file));
         setOcrLoading(true);
         setError('');
         try {
@@ -103,6 +106,15 @@ const BillVerification = () => {
             {error && <div className="glass-card" style={{ color: 'var(--danger)', marginBottom: '1rem' }}>{error}</div>}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="glass-card">
+                    <h3 style={{ marginBottom: '1rem' }}>Bill Preview</h3>
+                    {previewUrl ? (
+                        <img src={previewUrl} alt="Bill preview" style={{ maxWidth: '100%', maxHeight: 480, borderRadius: 8, border: '1px solid var(--border)' }} />
+                    ) : (
+                        <p style={{ color: 'var(--text-muted)' }}>Upload a bill photo to preview alongside verification fields</p>
+                    )}
+                </div>
+
                 <div className="glass-card">
                     <h3 style={{ marginBottom: '1rem' }}>Verification Queue</h3>
                     {loading ? <p className="text-muted">Loading…</p> : (

@@ -98,10 +98,23 @@ async function getInvoiceSchedules(pool, { contractId } = {}) {
     return rows;
 }
 
+async function getDunningLog(pool, limit = 50) {
+    const { rows } = await pool.query(
+        `SELECT dl.*, ci.invoice_number, ci.grand_total, ci.client
+         FROM dunning_log dl
+         LEFT JOIN client_invoices ci ON ci.id = dl.invoice_id
+         ORDER BY dl.sent_at DESC NULLS LAST
+         LIMIT $1`,
+        [limit]
+    );
+    return rows;
+}
+
 module.exports = {
     getPOBalance,
     validateInvoiceAgainstPO,
     runDunningCheck,
     logXeroSync,
     getInvoiceSchedules,
+    getDunningLog,
 };

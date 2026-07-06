@@ -7,6 +7,7 @@ const {
     runDunningCheck,
     logXeroSync,
     getInvoiceSchedules,
+    getDunningLog,
 } = require('./service');
 
 function registerArRoutes(app, deps) {
@@ -43,6 +44,14 @@ function registerArRoutes(app, deps) {
             res.json(await getInvoiceSchedules(pool, req.query));
         } catch (err) {
             handleRouteError(res, 'ar.schedules', err);
+        }
+    });
+
+    app.get('/api/ar/dunning-log', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team'), async (req, res) => {
+        try {
+            res.json(await getDunningLog(pool));
+        } catch (err) {
+            handleRouteError(res, 'ar.dunningLog', err);
         }
     });
 
