@@ -9,16 +9,35 @@ const Dashboard = () => {
     const [pnl, setPnl] = useState([]);
     const [intake, setIntake] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [refreshError, setRefreshError] = useState('');
+    const now = new Date();
+    const [pnlMonth, setPnlMonth] = useState(now.getMonth() + 1);
+    const [pnlYear, setPnlYear] = useState(now.getFullYear());
+
+    const loadPnl = () => api.getContractPnl().then(rows => setPnl(Array.isArray(rows) ? rows : [])).catch(() => setPnl([]));
 
     useEffect(() => {
         Promise.all([
-            api.getContractPnl().catch(() => []),
+            loadPnl(),
             api.getIntakeMessages('new').catch(() => []),
-        ]).then(([pnlRows, intakeRows]) => {
-            setPnl(Array.isArray(pnlRows) ? pnlRows : []);
+        ]).then(([, intakeRows]) => {
             setIntake(Array.isArray(intakeRows) ? intakeRows : []);
         }).finally(() => setLoading(false));
     }, []);
+
+    const refreshPnl = async () => {
+        setRefreshing(true);
+        setRefreshError('');
+        try {
+            await api.refreshPnlAllocations(pnlMonth, pnlYear);
+            await loadPnl();
+        } catch (e) {
+            setRefreshError(e.message);
+        } finally {
+            setRefreshing(false);
+        }
+    };
 
     const totalRevenue = pnl.reduce((s, r) => s + Number(r.total_revenue || 0), 0);
     const totalCost = pnl.reduce((s, r) => s + Number(r.total_cost || 0), 0);
@@ -68,6 +87,23 @@ const Dashboard = () => {
             </div>
 
             <CashFlowView />
+
+            <div className="glass-card" style={{ marginTop: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                    <h3 style={{ margin: 0 }}>P&L Allocations</h3>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <select value={pnlMonth} onChange={e => setPnlMonth(Number(e.target.value))}
+                            style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text)' }}>
+                            {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{new Date(2000, i).toLocaleString('default', { month: 'short' })}</option>)}
+                        </select>
+                        <input type="number" value={pnlYear} onChange={e => setPnlYear(Number(e.target.value))} style={{ width: 80, background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text)' }} />
+                        <button type="button" className="btn-secondary" onClick={refreshPnl} disabled={refreshing}>
+                            {refreshing ? 'Refreshing…' : 'Refresh P&L'}
+                        </button>
+                    </div>
+                </div>
+                {refreshError && <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{refreshError}</p>}
+            </div>
 
             {!loading && pnl.length === 0 && (
                 <div className="glass-card" style={{ marginTop: '1.5rem', textAlign: 'center', padding: '2rem' }}>

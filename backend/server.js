@@ -17,6 +17,7 @@ const phase2 = require('./phase2Service');
 const { startOperationsScheduler } = require('./operationsScheduler');
 const { sendJazzSMS, sendJazzOtpSMS, normalisePhone } = require('./lib/sms');
 const { isJazzProxyConfigured } = require('./lib/jazz_http_transport');
+const { canApproveBill } = require('./src/modules/procurement/service');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -996,6 +997,10 @@ app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approve
     const VALID = ['Draft','Pending Approval','Approved','Rejected','Pushed to Xero','Posted','Paid'];
     if (!VALID.includes(status)) return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID.join(', ')}` });
     try {
+        if (status === 'Approved') {
+            const gate = await canApproveBill(pool, req.params.id, req.body.overrideReason);
+            if (!gate.ok) return res.status(400).json({ error: gate.message, ...gate });
+        }
         const extra = status === 'Paid'
             ? `, paid_at=NOW(), paid_by=$3, payment_method=$4, payment_account=$5`
             : '';

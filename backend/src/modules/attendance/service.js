@@ -41,9 +41,14 @@ async function resolveEmployeeId(pool, identifier, strategy = 'exact_id') {
 
 async function upsertAttendance(pool, { employeeId, date, status, projectId, markedBy = 'intake-hub' }) {
     await pool.query(
-        `INSERT INTO attendance_records (employee_id, date, status, marked_by, site, updated_at)
-         VALUES ($1, $2::date, $3, $4, $5, NOW())
-         ON CONFLICT (employee_id, date) DO UPDATE SET status = EXCLUDED.status, site = COALESCE(EXCLUDED.site, attendance_records.site), marked_by = EXCLUDED.marked_by, updated_at = NOW()`,
+        `INSERT INTO attendance_records (employee_id, date, status, marked_by, site, project_id, updated_at)
+         VALUES ($1, $2::date, $3, $4, $5, $5, NOW())
+         ON CONFLICT (employee_id, date) DO UPDATE SET
+           status = EXCLUDED.status,
+           site = COALESCE(EXCLUDED.site, attendance_records.site),
+           project_id = COALESCE(EXCLUDED.project_id, attendance_records.project_id),
+           marked_by = EXCLUDED.marked_by,
+           updated_at = NOW()`,
         [employeeId, date, status, markedBy, projectId || null]
     );
 }
@@ -166,7 +171,7 @@ async function runAlertCheck(pool, { sendAppEmail, sendJazzSMS } = {}) {
             `SELECT ar.employee_id, e.name, e.phone, ar.date
              FROM attendance_records ar
              JOIN employees e ON e.id = ar.employee_id
-             WHERE ar.project_id = $1 AND ar.date = $2::date AND ar.status IN ('unexcused','absent')`,
+             WHERE (ar.project_id = $1 OR ar.site = $1) AND ar.date = $2::date AND ar.status IN ('unexcused','absent')`,
             [rule.project_id, today]
         );
         for (const hit of hits) {

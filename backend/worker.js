@@ -2,14 +2,21 @@
 
 require('dotenv').config();
 
+if ((process.env.JOBS_RUNNER || 'web') !== 'worker') {
+    console.log("[worker] JOBS_RUNNER is not 'worker' — exiting to avoid duplicate job processing");
+    process.exit(0);
+}
+
 const { getPool, closePool } = require('./src/core/db');
 const { runMigrations } = require('./src/core/runMigrations');
 const { initJobs, registerWorkers, stopJobs } = require('./src/core/jobs');
 const { sendAppEmail } = require('./src/core/mailer');
 const { pollIntakeMailbox } = require('./src/intake/imapWatcher');
+const { routeIntakeToClaims } = require('./src/intake/claimRouter');
 const { allocateFromLockedPayroll, getWeeklyCashflow } = require('./src/modules/pnl/service');
 const { runAlertCheck } = require('./src/modules/attendance/service');
 const { runDunningCheck } = require('./src/modules/ar/service');
+const { syncBizdevRenewals } = require('./src/modules/bizdev/service');
 
 let sendJazzSMS = async () => ({ ok: false });
 try {
@@ -30,14 +37,29 @@ async function main() {
         process.exit(1);
     }
 
+    const runPnlAllocateCron = async () => {
+        const now = new Date();
+        const curMonth = now.getMonth() + 1;
+        const curYear = now.getFullYear();
+        const prev = new Date(curYear, now.getMonth() - 1, 1);
+        for (const [month, year] of [[curMonth, curYear], [prev.getMonth() + 1, prev.getFullYear()]]) {
+            await allocateFromLockedPayroll(pool, month, year);
+        }
+    };
+
     await registerWorkers(boss, {
         'intake.poll': async () => {
             const result = await pollIntakeMailbox(pool, { sendAppEmail });
+            await routeIntakeToClaims(pool);
             console.log('[worker intake.poll]', result);
         },
         'pnl.allocate': async data => {
             const result = await allocateFromLockedPayroll(pool, data.month, data.year);
             console.log('[worker pnl.allocate]', result);
+        },
+        'pnl.allocate.cron': async () => {
+            await runPnlAllocateCron();
+            console.log('[worker pnl.allocate.cron] done');
         },
         'cashflow.snapshot': async () => {
             const buckets = await getWeeklyCashflow(pool, 8);
@@ -51,12 +73,18 @@ async function main() {
             const result = await runDunningCheck(pool, sendAppEmail);
             console.log('[worker ar.dunning]', result);
         },
+        'bizdev.renewals': async () => {
+            const result = await syncBizdevRenewals(pool);
+            console.log('[worker bizdev.renewals]', result);
+        },
     });
 
     await boss.schedule('intake.poll', {}, { cron: '*/5 * * * *' });
     await boss.schedule('cashflow.snapshot', {}, { cron: '0 6 * * 1' });
     await boss.schedule('attendance.alerts', {}, { cron: '0 8 * * *' });
     await boss.schedule('ar.dunning', {}, { cron: '0 9 * * 1' });
+    await boss.schedule('pnl.allocate.cron', {}, { cron: '0 2 * * *' });
+    await boss.schedule('bizdev.renewals', {}, { cron: '0 3 * * *' });
 
     console.log('[worker] scheduled jobs registered');
 }

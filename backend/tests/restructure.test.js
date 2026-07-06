@@ -77,3 +77,38 @@ describe('constraints validateAction', () => {
         expect(result.ok).toBe(true);
     });
 });
+
+describe('compliance computeStatutoryForMonth', () => {
+    const { computeStatutoryForMonth } = require('../src/modules/compliance/service');
+
+    test('EOBI and SESSI totals are non-zero for locked payroll', async () => {
+        const pool = {
+            query: async () => ({
+                rows: [{ gross: 35000, province: 'Sindh', contract_id: 'c1' }],
+            }),
+        };
+        const result = await computeStatutoryForMonth(pool, 6, 2026);
+        expect(result.eobi.total).toBeGreaterThan(0);
+        expect(result.sessi.total).toBeGreaterThan(0);
+    });
+});
+
+describe('payroll run helpers', () => {
+    const { classifyOtDate } = require('../src/modules/payrollrun/service');
+    const { computePrSheetRow } = require('../src/payroll/prSheetEngine');
+
+    test('classifyOtDate: Sunday -> ot2, holiday -> ot3', () => {
+        const holidays = new Set(['2026-07-04']);
+        expect(classifyOtDate(new Date('2026-07-05'), holidays)).toBe('ot2'); // Sunday
+        expect(classifyOtDate(new Date('2026-07-04'), holidays)).toBe('ot3'); // holiday
+        expect(classifyOtDate(new Date('2026-07-06'), holidays)).toBe('ot2'); // Monday
+    });
+
+    test('computePrSheetRow OT formula', () => {
+        const policy = { standard_month_days: 30, ot_divisor_days: 26, ot_divisor_hours: 8, service_charge_pct: 0.18 };
+        const salary = 41600;
+        const row = computePrSheetRow({ newSalary: salary, paidDays: 26, workingDays: 30, ot2: 10, ot3: 8, salesTaxRate: 0.18 }, policy);
+        const expectedOt = Math.round(salary / 26 / 8 * (2 * 10 + 3 * 8));
+        expect(row.overtimeAmount).toBe(expectedOt);
+    });
+});

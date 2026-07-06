@@ -106,7 +106,7 @@ export const api = {
     // ── Bills / Procurement ───────────────────────────────────────────────────
     getBills:          ()          => apiFetch('/api/bills'),
     saveBill:          (bill)      => apiFetch('/api/bills', { method: 'POST', body: JSON.stringify(bill) }),
-    updateBillStatus:  (id, status) => apiFetch(`/api/bills/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    updateBillStatus:  (id, status, extra = {}) => apiFetch(`/api/bills/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, ...extra }) }),
     getHitlFlags:      ()          => apiFetch('/api/bills/hitl-flags'),
 
     // ── Advances / Loans ──────────────────────────────────────────────────────
@@ -355,4 +355,17 @@ export const api = {
     validateInvoicePO: (data) => apiFetch('/api/ar/validate-po', { method: 'POST', body: JSON.stringify(data) }),
     runDunning: () => apiFetch('/api/ar/run-dunning', { method: 'POST' }),
     getInvoiceSchedules: () => apiFetch('/api/ar/invoice-schedules'),
+    getDunningLog: () => apiFetch('/api/ar/dunning-log'),
+
+    // ── Payroll Run ──────────────────────────────────────────────────────────────
+    computePayrollRun: (contractId, month, year) => apiFetch('/api/payroll-runs/compute', { method: 'POST', body: JSON.stringify({ contractId, month, year }) }),
+    getPayrollRuns: (contractId, month, year) => apiFetch(`/api/payroll-runs?contractId=${encodeURIComponent(contractId)}&month=${month}&year=${year}`),
+    lockPayrollRun: (id) => apiFetch(`/api/payroll-runs/${id}/lock`, { method: 'POST' }),
+    invoicePayrollRun: (id) => apiFetch(`/api/payroll-runs/${id}/invoice`, { method: 'POST' }),
+    patchPayrollRunRow: (runId, rowId, data) => apiFetch(`/api/payroll-runs/${runId}/rows/${rowId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    getHolidays: () => apiFetch('/api/holidays'),
+    saveHoliday: (data) => apiFetch('/api/holidays', { method: 'POST', body: JSON.stringify(data) }),
+    deleteHoliday: (id) => apiFetch(`/api/holidays/${id}`, { method: 'DELETE' }),
+
+    assignClaim: (id, employeeId) => apiFetch(`/api/claims/${id}`, { method: 'PATCH', body: JSON.stringify({ employeeId }) }),
 };

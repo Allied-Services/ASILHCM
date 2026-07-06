@@ -23,10 +23,10 @@ async function computeStatutoryForMonth(pool, month, year) {
         const eobi = calculateEOBI(salary);
         const sessi = calculateSESSI(salary);
         const tax = calculateMonthlyIncomeTax(salary, row.province || 'Sindh');
-        eobiEmployee += Number(eobi?.employee || 0);
-        eobiEmployer += Number(eobi?.employer || 0);
-        sessiEmployee += Number(sessi?.employee || 0);
-        sessiEmployer += Number(sessi?.employer || 0);
+        eobiEmployee += Number(eobi?.employeeShare || 0);
+        eobiEmployer += Number(eobi?.employerShare || 0);
+        sessiEmployee += 0;
+        sessiEmployer += Number(sessi || 0);
         incomeTax += Number(tax || 0);
         const region = row.province || 'Sindh';
         byRegion[region] = (byRegion[region] || 0) + Number(tax || 0);

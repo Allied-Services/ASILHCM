@@ -1063,10 +1063,24 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
 
     const doQuickApprove = async (bill) => {
         if (!window.confirm(`Approve bill from ${bill.vendor || bill.id}?`)) return;
-        try {
-            await api.updateBillStatus(bill.id, 'Approved');
+        const tryApprove = async (overrideReason) => {
+            await api.updateBillStatus(bill.id, 'Approved', overrideReason ? { overrideReason } : {});
             setBills(p => p.map(b => b.id === bill.id ? { ...b, status: 'Approved' } : b));
-        } catch (err) { alert('Approve failed: ' + err.message); }
+        };
+        try {
+            await tryApprove();
+        } catch (err) {
+            const msg = err.message || '';
+            if (msg.includes('BUDGET_UNMATCHED') || msg.includes('budget line')) {
+                const reason = window.prompt('Match this bill to a budget line in Bill Verification, or enter an override reason to approve anyway:');
+                if (!reason) return;
+                try {
+                    await tryApprove(reason);
+                } catch (e2) { alert('Approve failed: ' + e2.message); }
+            } else {
+                alert('Approve failed: ' + msg);
+            }
+        }
     };
 
     const TYPES     = ['All', 'OCR / Katcha', 'Manual', 'Quotation'];
