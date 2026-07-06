@@ -3505,9 +3505,10 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
 const XERO_CLIENT_ID     = process.env.XERO_CLIENT_ID     || '';
 const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET || '';
 const XERO_REDIRECT_URI  = process.env.XERO_REDIRECT_URI  || 'https://asilhcm.onrender.com/api/xero/callback';
-// accounting.transactions covers invoices + bills; accounting.settings covers chart of accounts.
-// NOTE: 'accounting.invoices' is not a real Xero scope — sending it makes Xero reject with invalid_scope.
-const XERO_SCOPES = 'offline_access openid profile email accounting.contacts accounting.transactions accounting.settings';
+// Granular scopes (required for Xero apps created on/after 2 March 2026):
+// the old broad 'accounting.transactions' scope is rejected with invalid_scope on new apps.
+// accounting.invoices covers the Invoices endpoint; accounting.settings covers chart of accounts.
+const XERO_SCOPES = 'offline_access openid profile email accounting.contacts accounting.invoices accounting.settings';
 
 // system_config.value is JSONB — pg returns it as an object, but older rows may be text
 const parseConfigValue = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
