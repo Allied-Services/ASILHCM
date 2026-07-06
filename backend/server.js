@@ -304,7 +304,14 @@ app.patch('/api/users/:id/permissions', requireAuth, requireRole('superadmin'), 
         res.status(500).json({ error: err.message });
     }
 });
-app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+app.get('/health', (req, res) => {
+    const migrations = getMigrationStatus();
+    res.json({
+        status: migrations === 'ok' ? 'ok' : migrations,
+        time: new Date().toISOString(),
+        migrations,
+    });
+});
 app.get('/health/ip', requireAuth, requireRole('superadmin'), (req, res) => {
     // Returns this server's outbound public IP (for Jazz CMT whitelisting) ├óΓé¼ΓÇ¥ SuperAdmin only
     const https = require('https');
@@ -7546,7 +7553,7 @@ phase2.registerPhase2Routes(app, {
     APP_BASE_URL,
 });
 
-const { mountRestructureModules, bootstrapRestructure } = require('./mountModules');
+const { mountRestructureModules, bootstrapRestructure, getMigrationStatus } = require('./mountModules');
 mountRestructureModules(app, {
     pool,
     requireAuth,

@@ -83,11 +83,13 @@ const ARDashboard = () => {
                 <table className="data-table">
                     <thead><tr><th>Contract</th><th>Period</th><th>Status</th></tr></thead>
                     <tbody>
-                        {schedules.length === 0 ? <tr><td colSpan={3} style={{ color: 'var(--text-muted)' }}>No schedules configured</td></tr> : schedules.map(s => (
+                        {schedules.length === 0 ? (
+                            <tr><td colSpan={3} style={{ color: 'var(--text-muted)' }}>No schedules yet. Schedules generate nightly from contract policies with monthly invoicing.</td></tr>
+                        ) : schedules.map(s => (
                             <tr key={s.id}>
                                 <td>{s.contract_name}</td>
                                 <td>{s.period_month}/{s.period_year}</td>
-                                <td>{s.status || '—'}</td>
+                                <td style={{ color: s.status === 'overdue_to_generate' ? 'var(--danger)' : undefined }}>{s.status || '—'}</td>
                             </tr>
                         ))}
                     </tbody>

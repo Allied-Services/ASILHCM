@@ -15,7 +15,7 @@ const { pollIntakeMailbox } = require('./src/intake/imapWatcher');
 const { routeIntakeToClaims } = require('./src/intake/claimRouter');
 const { allocateFromLockedPayroll, getWeeklyCashflow } = require('./src/modules/pnl/service');
 const { runAlertCheck } = require('./src/modules/attendance/service');
-const { runDunningCheck } = require('./src/modules/ar/service');
+const { runDunningCheck, syncInvoiceSchedules } = require('./src/modules/ar/service');
 const { syncBizdevRenewals } = require('./src/modules/bizdev/service');
 
 let sendJazzSMS = async () => ({ ok: false });
@@ -77,6 +77,10 @@ async function main() {
             const result = await syncBizdevRenewals(pool);
             console.log('[worker bizdev.renewals]', result);
         },
+        'ar.schedules': async () => {
+            const result = await syncInvoiceSchedules(pool);
+            console.log('[worker ar.schedules]', result);
+        },
     });
 
     await boss.schedule('intake.poll', {}, { cron: '*/5 * * * *' });
@@ -85,6 +89,7 @@ async function main() {
     await boss.schedule('ar.dunning', {}, { cron: '0 9 * * 1' });
     await boss.schedule('pnl.allocate.cron', {}, { cron: '0 2 * * *' });
     await boss.schedule('bizdev.renewals', {}, { cron: '0 3 * * *' });
+    await boss.schedule('ar.schedules', {}, { cron: '0 4 * * *' });
 
     console.log('[worker] scheduled jobs registered');
 }

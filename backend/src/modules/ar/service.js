@@ -98,6 +98,47 @@ async function getInvoiceSchedules(pool, { contractId } = {}) {
     return rows;
 }
 
+async function syncInvoiceSchedules(pool) {
+    const now = new Date();
+    const periodMonth = now.getMonth() + 1;
+    const periodYear = now.getFullYear();
+
+    const { rows: policies } = await pool.query(
+        `SELECT * FROM contract_policies WHERE invoice_frequency = 'monthly'`
+    );
+
+    let created = 0;
+    for (const policy of policies) {
+        const day = Math.min(Number(policy.invoice_day_of_month || 1), 28);
+        const dueDate = `${periodYear}-${String(periodMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const { rowCount } = await pool.query(
+            `INSERT INTO invoice_schedules (contract_id, period_month, period_year, due_to_generate_date, status)
+             SELECT $1, $2, $3, $4::date, 'upcoming'
+             WHERE NOT EXISTS (
+               SELECT 1 FROM invoice_schedules WHERE contract_id = $1 AND period_month = $2 AND period_year = $3
+             )`,
+            [policy.contract_id, periodMonth, periodYear, dueDate]
+        );
+        created += rowCount || 0;
+    }
+
+    await pool.query(
+        `UPDATE invoice_schedules ins SET status = 'generated'
+         FROM client_invoices ci
+         WHERE ci.contract_id = ins.contract_id
+           AND ci.period_month = ins.period_month
+           AND ci.period_year = ins.period_year
+           AND ins.status = 'upcoming'`
+    );
+
+    await pool.query(
+        `UPDATE invoice_schedules SET status = 'overdue_to_generate'
+         WHERE status = 'upcoming' AND due_to_generate_date < CURRENT_DATE`
+    );
+
+    return { created };
+}
+
 async function getDunningLog(pool, limit = 50) {
     const { rows } = await pool.query(
         `SELECT dl.*, ci.invoice_number, ci.grand_total, ci.client
@@ -116,5 +157,6 @@ module.exports = {
     runDunningCheck,
     logXeroSync,
     getInvoiceSchedules,
+    syncInvoiceSchedules,
     getDunningLog,
 };

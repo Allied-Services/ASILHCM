@@ -18,7 +18,7 @@ const { pollIntakeMailbox } = require('./src/intake/imapWatcher');
 const { routeIntakeToClaims } = require('./src/intake/claimRouter');
 const { allocateFromLockedPayroll, getWeeklyCashflow } = require('./src/modules/pnl/service');
 const { runAlertCheck } = require('./src/modules/attendance/service');
-const { runDunningCheck } = require('./src/modules/ar/service');
+const { runDunningCheck, syncInvoiceSchedules } = require('./src/modules/ar/service');
 
 function mountRestructureModules(app, deps) {
     registerConstraintRoutes(app, deps);
@@ -35,15 +35,23 @@ function mountRestructureModules(app, deps) {
     registerPayrollRunRoutes(app, deps);
 }
 
+let migrationStatus = 'ok';
+
+function getMigrationStatus() {
+    return migrationStatus;
+}
+
 async function bootstrapRestructure(deps) {
     const { pool, sendAppEmail, sendJazzSMS } = deps;
     if (process.env.NODE_ENV === 'test') return null;
 
     try {
         await runMigrations();
+        migrationStatus = 'ok';
         console.log('[restructure] migrations complete');
     } catch (err) {
-        console.warn('[restructure] migration warning:', err.message);
+        migrationStatus = err.message;
+        console.error(`[restructure] MIGRATION FAILED: ${err.message}`);
     }
 
     const jobsRunner = process.env.JOBS_RUNNER || 'web';
@@ -80,6 +88,7 @@ async function bootstrapRestructure(deps) {
             const { syncBizdevRenewals } = require('./src/modules/bizdev/service');
             return syncBizdevRenewals(pool);
         },
+        'ar.schedules': async () => syncInvoiceSchedules(pool),
     });
 
     await scheduleJob('intake.poll', {}, '*/5 * * * *').catch(() => {});
@@ -88,8 +97,9 @@ async function bootstrapRestructure(deps) {
     await scheduleJob('ar.dunning', {}, '0 9 * * 1').catch(() => {});
     await scheduleJob('pnl.allocate.cron', {}, '0 2 * * *').catch(() => {});
     await scheduleJob('bizdev.renewals', {}, '0 3 * * *').catch(() => {});
+    await scheduleJob('ar.schedules', {}, '0 4 * * *').catch(() => {});
 
     return boss;
 }
 
-module.exports = { mountRestructureModules, bootstrapRestructure };
+module.exports = { mountRestructureModules, bootstrapRestructure, getMigrationStatus };

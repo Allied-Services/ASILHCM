@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FileText, Upload, Edit3, CheckCircle, Loader, Eye, AlertTriangle } from 'lucide-react';
 import { api } from './api';
+import ConfirmModal from './components/ConfirmModal';
 
 // ─── Bill Type Definitions ───────────────────────────────────────────────────
 const BILL_TYPE_DEFS = [
@@ -910,6 +911,7 @@ export default function BillingProcurement({ user }) {
     const [unlockPwd, setUnlockPwd]         = useState('');
     const [unlockError, setUnlockError]     = useState(null);
     const [unlockLoading, setUnlockLoading] = useState(false);
+    const [overrideBill, setOverrideBill] = useState(null);
     useEffect(() => {
         api.getBills()
             .then(data => setBills(Array.isArray(data) ? data : []))
@@ -1072,11 +1074,7 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
         } catch (err) {
             const msg = err.message || '';
             if (msg.includes('BUDGET_UNMATCHED') || msg.includes('budget line')) {
-                const reason = window.prompt('Match this bill to a budget line in Bill Verification, or enter an override reason to approve anyway:');
-                if (!reason) return;
-                try {
-                    await tryApprove(reason);
-                } catch (e2) { alert('Approve failed: ' + e2.message); }
+                setOverrideBill(bill);
             } else {
                 alert('Approve failed: ' + msg);
             }
@@ -1089,6 +1087,25 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
 
     return (
         <div className="dashboard">
+            <ConfirmModal
+                open={!!overrideBill}
+                title="Budget override required"
+                body="Match this bill to a budget line in Bill Verification, or enter an override reason to approve anyway."
+                showInput
+                inputLabel="Override reason"
+                inputPlaceholder="e.g. Emergency purchase approved by MD"
+                confirmLabel="Approve with override"
+                onConfirm={async (reason) => {
+                    const bill = overrideBill;
+                    setOverrideBill(null);
+                    if (!reason?.trim()) return;
+                    try {
+                        await api.updateBillStatus(bill.id, 'Approved', { overrideReason: reason.trim() });
+                        setBills(p => p.map(b => b.id === bill.id ? { ...b, status: 'Approved' } : b));
+                    } catch (e2) { alert('Approve failed: ' + e2.message); }
+                }}
+                onCancel={() => setOverrideBill(null)}
+            />
             <header className="header">
                 <h1>Bills & Procurement</h1>
                 <p>Capture bills from Katcha receipts, manual entry, or quotations. Route expenses to client debit notes or internal ledger.</p>
