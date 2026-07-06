@@ -3505,8 +3505,12 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
 const XERO_CLIENT_ID     = process.env.XERO_CLIENT_ID     || '';
 const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET || '';
 const XERO_REDIRECT_URI  = process.env.XERO_REDIRECT_URI  || 'https://asilhcm.onrender.com/api/xero/callback';
-// Includes accounting.transactions for Bills + read:chart-of-accounts for CoA sync
-const XERO_SCOPES = 'offline_access openid profile email accounting.invoices accounting.contacts accounting.transactions accounting.settings';
+// accounting.transactions covers invoices + bills; accounting.settings covers chart of accounts.
+// NOTE: 'accounting.invoices' is not a real Xero scope — sending it makes Xero reject with invalid_scope.
+const XERO_SCOPES = 'offline_access openid profile email accounting.contacts accounting.transactions accounting.settings';
+
+// system_config.value is JSONB — pg returns it as an object, but older rows may be text
+const parseConfigValue = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
 
 // Helper: exchange code or refresh token for access token
 async function xeroGetToken(params) {
@@ -3528,7 +3532,7 @@ async function xeroGetToken(params) {
 async function xeroGetAccessToken() {
     const cfg = await pool.query(`SELECT value FROM system_config WHERE key = 'xero_tokens'`);
     if (!cfg.rows.length) throw new Error('Xero is not connected. Please visit /api/xero/connect first.');
-    let tokens = JSON.parse(cfg.rows[0].value);
+    let tokens = parseConfigValue(cfg.rows[0].value);
 
     const now = Date.now();
     const expiresAt = tokens.expires_at || 0; // unix ms
@@ -3585,7 +3589,7 @@ app.get('/api/xero/status', requireAuth, async (req, res) => {
     try {
         const cfg = await pool.query(`SELECT value FROM system_config WHERE key = 'xero_tokens'`);
         if (!cfg.rows.length) return res.json({ connected: false, message: 'Not connected. Visit /api/xero/connect to authorise.' });
-        const tokens = JSON.parse(cfg.rows[0].value);
+        const tokens = parseConfigValue(cfg.rows[0].value);
         const now = Date.now();
         const expiresAt = tokens.expires_at || 0;
         const expiresIn = Math.max(0, Math.round((expiresAt - now) / 1000 / 60)); // minutes
@@ -3662,7 +3666,7 @@ app.get('/api/xero/check', requireAuth, async (req, res) => {
     try {
         const cfg = await pool.query(`SELECT value FROM system_config WHERE key = 'xero_tokens'`);
         if (!cfg.rows.length) return res.json({ connected: false });
-        const tokens = JSON.parse(cfg.rows[0].value);
+        const tokens = parseConfigValue(cfg.rows[0].value);
         const now = Date.now();
         const expiresAt = tokens.expires_at || 0;
         res.json({ connected: !!tokens.access_token, tenantId: tokens.tenant_id || null, expires_in_minutes: Math.max(0, Math.round((expiresAt - now) / 60_000)) });
