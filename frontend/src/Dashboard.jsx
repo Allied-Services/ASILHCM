@@ -15,7 +15,8 @@ const Dashboard = () => {
     const [pnlMonth, setPnlMonth] = useState(now.getMonth() + 1);
     const [pnlYear, setPnlYear] = useState(now.getFullYear());
 
-    const loadPnl = () => api.getContractPnl().then(rows => setPnl(Array.isArray(rows) ? rows : [])).catch(() => setPnl([]));
+    const loadPnl = (month = pnlMonth, year = pnlYear) =>
+        api.getContractPnl({ month, year }).then(rows => setPnl(Array.isArray(rows) ? rows : [])).catch(() => setPnl([]));
 
     useEffect(() => {
         Promise.all([
@@ -25,6 +26,8 @@ const Dashboard = () => {
             setIntake(Array.isArray(intakeRows) ? intakeRows : []);
         }).finally(() => setLoading(false));
     }, []);
+
+    useEffect(() => { if (!loading) loadPnl(); }, [pnlMonth, pnlYear]);
 
     const refreshPnl = async () => {
         setRefreshing(true);
@@ -103,6 +106,29 @@ const Dashboard = () => {
                     </div>
                 </div>
                 {refreshError && <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{refreshError}</p>}
+                {pnl.length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No allocations for this period yet. Lock a payroll run, then Refresh P&L.</p>
+                ) : (
+                    <table className="data-table">
+                        <thead>
+                            <tr><th>Contract</th><th>Revenue</th><th>Cost</th><th>Margin</th><th>Margin %</th></tr>
+                        </thead>
+                        <tbody>
+                            {pnl.map(r => {
+                                const marginAbs = Number(r.margin_abs ?? (Number(r.total_revenue || 0) - Number(r.total_cost || 0)));
+                                return (
+                                    <tr key={`${r.contract_id}-${r.period_month}-${r.period_year}`}>
+                                        <td>{r.contract_name || r.contract_id}</td>
+                                        <td>{fmt(r.total_revenue)}</td>
+                                        <td>{fmt(r.total_cost)}</td>
+                                        <td style={{ color: marginAbs < 0 ? 'var(--danger)' : 'var(--success, #16a34a)' }}>{fmt(marginAbs)}</td>
+                                        <td>{r.margin_pct != null ? `${Number(r.margin_pct).toFixed(1)}%` : '—'}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                )}
             </div>
 
             {!loading && pnl.length === 0 && (
