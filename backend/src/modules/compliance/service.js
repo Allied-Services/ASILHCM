@@ -149,6 +149,7 @@ async function getInvoiceChallanStatus(pool, invoiceId) {
 
 module.exports = {
     computeStatutoryForMonth,
+    upsertStatutoryLedger,
     getStatutoryLedger,
     generateFilingPreview,
     getInvoiceChallanStatus,

@@ -4523,7 +4523,7 @@ pool.query(`CREATE TABLE IF NOT EXISTS purchase_orders (
 
 pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id      INT REFERENCES purchase_orders(id) ON DELETE SET NULL`)
     .catch(e => console.warn('po_id col init:', e.message));
-pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT`)
+pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id TEXT`)
     .catch(e => console.warn('ci_contract_id col init:', e.message));
 pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS region      TEXT`)
     .catch(e => console.warn('ci_region col init:', e.message));
@@ -4557,7 +4557,7 @@ app.get('/api/purchase-orders', requireAuth, async (req, res) => {
             created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
         )`).catch(() => {});
         await pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT REFERENCES purchase_orders(id) ON DELETE SET NULL`).catch(() => {});
-        await pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT REFERENCES contracts(id) ON DELETE SET NULL`).catch(() => {});
+        await pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id TEXT REFERENCES contracts(id) ON DELETE SET NULL`).catch(() => {});
         const { client, contract_id, status } = req.query;
         let where = 'WHERE 1=1', params = [];
         if (client)      { params.push(client);      where += ` AND LOWER(po.client_name) = LOWER($${params.length})`; }
@@ -5077,7 +5077,7 @@ app.post('/api/run-migrations', requireAuth, async (req, res) => {
         status VARCHAR(30) DEFAULT 'active', created_by VARCHAR(120),
         created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
     await run('ci_po_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT`);
-    await run('ci_contract_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT`);
+    await run('ci_contract_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id TEXT`);
     res.json({ done, errs });
 });
 
@@ -5190,7 +5190,7 @@ app.post('/api/migrate/asil-migrate-2026-x9k7', requireAuth, requireRole('supera
         status VARCHAR(30) DEFAULT 'active', created_by VARCHAR(120),
         created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
     await run('ci_po_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id INT`);
-    await run('ci_contract_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id INT`);
+    await run('ci_contract_id', `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id TEXT`);
 
     // Seed DUMMY1 PO using first client in DB
     try {
