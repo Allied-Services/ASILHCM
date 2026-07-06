@@ -10,7 +10,7 @@ async function getPolicy(pool, contractId, projectId = null, asOfDate = new Date
            AND ($2::text IS NULL OR project_id IS NULL OR project_id = $2)
            AND effective_from <= $3::date
            AND (effective_to IS NULL OR effective_to >= $3::date)
-         ORDER BY project_id NULLS LAST, effective_from DESC
+         ORDER BY project_id NULLS LAST, effective_from DESC, id DESC
          LIMIT 1`,
         [contractId, projectId, date]
     );
