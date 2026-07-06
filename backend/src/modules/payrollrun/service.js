@@ -165,7 +165,7 @@ async function allocateRunToCosts(pool, runId) {
     let inserted = 0;
     for (const row of prRows) {
         const computed = parseJsonField(row.computed, {});
-        const amount = Number(computed.totalCost || computed.totalPayrollCost || 0);
+        const amount = Number(computed.totalPayrollCost || computed.totalCost || 0);
         const sourceId = `${runId}-${row.employee_id}`;
         const exists = await pool.query(
             `SELECT 1 FROM cost_allocations WHERE source_type = 'payroll_run' AND source_id = $1 LIMIT 1`,
