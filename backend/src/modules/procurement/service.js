@@ -44,6 +44,63 @@ async function getBudgetLines(pool, contractId) {
     }));
 }
 
+async function createBudgetLine(pool, body) {
+    const contractId = body.contractId || body.contract_id;
+    const { category, name } = body;
+    if (!contractId || !category || !name) {
+        throw new Error('contractId, category, and name are required');
+    }
+    const monthlyCap = body.monthlyCap ?? body.monthly_cap;
+    const annualCap = body.annualCap ?? body.annual_cap;
+    const { rows } = await pool.query(
+        `INSERT INTO contract_budget_lines (contract_id, category, name, monthly_cap, annual_cap, active)
+         VALUES ($1, $2, $3, $4, $5, true)
+         RETURNING *`,
+        [
+            contractId,
+            category,
+            name,
+            monthlyCap != null && monthlyCap !== '' ? Number(monthlyCap) : null,
+            annualCap != null && annualCap !== '' ? Number(annualCap) : null,
+        ]
+    );
+    return rows[0];
+}
+
+async function updateBudgetLine(pool, id, body) {
+    const monthlyCap = body.monthlyCap ?? body.monthly_cap;
+    const annualCap = body.annualCap ?? body.annual_cap;
+    const { rows } = await pool.query(
+        `UPDATE contract_budget_lines
+         SET category = COALESCE($2, category),
+             name = COALESCE($3, name),
+             monthly_cap = CASE WHEN $4::text IS NOT NULL THEN $4::numeric ELSE monthly_cap END,
+             annual_cap = CASE WHEN $5::text IS NOT NULL THEN $5::numeric ELSE annual_cap END,
+             active = COALESCE($6, active)
+         WHERE id = $1
+         RETURNING *`,
+        [
+            id,
+            body.category ?? null,
+            body.name ?? null,
+            monthlyCap != null && monthlyCap !== '' ? String(monthlyCap) : null,
+            annualCap != null && annualCap !== '' ? String(annualCap) : null,
+            body.active ?? null,
+        ]
+    );
+    if (!rows[0]) throw new Error('Budget line not found');
+    return rows[0];
+}
+
+async function deactivateBudgetLine(pool, id) {
+    const { rows } = await pool.query(
+        `UPDATE contract_budget_lines SET active = false WHERE id = $1 RETURNING *`,
+        [id]
+    );
+    if (!rows[0]) throw new Error('Budget line not found');
+    return rows[0];
+}
+
 async function getVerificationQueue(pool) {
     const { rows } = await pool.query(
         `SELECT b.*, bd.id AS doc_id, bd.ocr_status, bd.ocr_json, bd.ocr_confidence, bd.verified_by, bd.verified_at,
@@ -115,6 +172,9 @@ module.exports = {
     listProcurementRequests,
     createProcurementRequest,
     getBudgetLines,
+    createBudgetLine,
+    updateBudgetLine,
+    deactivateBudgetLine,
     getVerificationQueue,
     saveOcrVerification,
     matchBillToBudgetLine,

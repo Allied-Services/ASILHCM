@@ -53,10 +53,27 @@ async function persistMessage(pool, msg, classificationMeta, attachments) {
 }
 
 async function pollIntakeMailbox(pool, deps = {}) {
+    const { pollIntakeGmail, isGmailIntakeConfigured } = require('./gmailWatcher');
+    if (isGmailIntakeConfigured()) {
+        try {
+            const gmailResult = await pollIntakeGmail(pool, deps);
+            if (!gmailResult.skipped) {
+                console.log(`[intake] Gmail poll: ${gmailResult.processed} new message(s) from ${gmailResult.mailbox}`);
+                return gmailResult;
+            }
+        } catch (err) {
+            console.error('[intake] Gmail poll failed, trying IMAP fallback:', err.message);
+        }
+    }
+
     const cfg = getIntakeConfig();
     if (!cfg.user || !cfg.pass) {
-        console.log('[intake] Disabled — INTAKE_EMAIL_USER / INTAKE_EMAIL_PASS not set');
-        return { skipped: true, reason: 'no_credentials' };
+        console.log('[intake] Disabled — set GMAIL OAuth (preferred) or INTAKE_EMAIL_USER/PASS');
+        return {
+            skipped: true,
+            reason: isGmailIntakeConfigured() ? 'gmail_failed_no_imap_fallback' : 'no_credentials',
+            hint: 'Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN',
+        };
     }
     if (!ImapFlow) {
         console.warn('[intake] imapflow not installed — poll skipped');
@@ -119,7 +136,7 @@ async function pollIntakeMailbox(pool, deps = {}) {
         await client.logout();
     }
 
-    return { processed };
+    return { processed, channel: 'imap' };
 }
 
 module.exports = { pollIntakeMailbox, getIntakeConfig };

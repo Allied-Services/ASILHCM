@@ -337,6 +337,9 @@ export const api = {
     // ── Restructure: Procurement Verification ────────────────────────────────────
     getProcurementQueue: () => apiFetch('/api/procurement/verification-queue'),
     getBudgetLines: (contractId) => apiFetch(`/api/procurement/budget-lines/${encodeURIComponent(contractId)}`),
+    createBudgetLine: (data) => apiFetch('/api/procurement/budget-lines', { method: 'POST', body: JSON.stringify(data) }),
+    updateBudgetLine: (id, data) => apiFetch(`/api/procurement/budget-lines/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteBudgetLine: (id) => apiFetch(`/api/procurement/budget-lines/${id}`, { method: 'DELETE' }),
     verifyBillOcr: (billId, data) => apiFetch(`/api/procurement/bills/${encodeURIComponent(billId)}/verify-ocr`, { method: 'POST', body: JSON.stringify(data) }),
     matchBillBudget: (billId, budgetLineId) => apiFetch(`/api/procurement/bills/${encodeURIComponent(billId)}/match-budget`, { method: 'POST', body: JSON.stringify({ budgetLineId }) }),
     canApproveBill: (billId) => apiFetch(`/api/procurement/bills/${encodeURIComponent(billId)}/can-approve`),

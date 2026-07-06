@@ -5,6 +5,9 @@ const {
     listProcurementRequests,
     createProcurementRequest,
     getBudgetLines,
+    createBudgetLine,
+    updateBudgetLine,
+    deactivateBudgetLine,
     getVerificationQueue,
     saveOcrVerification,
     matchBillToBudgetLine,
@@ -35,6 +38,30 @@ function registerProcurementRoutes(app, deps) {
             res.json(await getBudgetLines(pool, req.params.contractId));
         } catch (err) {
             handleRouteError(res, 'procurement.budgetLines', err);
+        }
+    });
+
+    app.post('/api/procurement/budget-lines', requireAuth, requireRole('superadmin', 'operations', 'procurement_manager', 'finance_approver'), async (req, res) => {
+        try {
+            res.status(201).json(await createBudgetLine(pool, req.body));
+        } catch (err) {
+            handleRouteError(res, 'procurement.budgetLineCreate', err);
+        }
+    });
+
+    app.patch('/api/procurement/budget-lines/:id', requireAuth, requireRole('superadmin', 'operations', 'procurement_manager', 'finance_approver'), async (req, res) => {
+        try {
+            res.json(await updateBudgetLine(pool, req.params.id, req.body));
+        } catch (err) {
+            handleRouteError(res, 'procurement.budgetLineUpdate', err);
+        }
+    });
+
+    app.delete('/api/procurement/budget-lines/:id', requireAuth, requireRole('superadmin', 'operations', 'procurement_manager', 'finance_approver'), async (req, res) => {
+        try {
+            res.json(await deactivateBudgetLine(pool, req.params.id));
+        } catch (err) {
+            handleRouteError(res, 'procurement.budgetLineDelete', err);
         }
     });
 

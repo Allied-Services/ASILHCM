@@ -1,13 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
 
+const BUDGET_CATEGORIES = ['supplies', 'maintenance', 'utilities', 'travel', 'other'];
+
 const ContractOps = () => {
     const [contracts, setContracts] = useState([]);
     const [selectedContract, setSelectedContract] = useState('');
     const [policy, setPolicy] = useState({});
     const [onboarding, setOnboarding] = useState(null);
+    const [budgetLines, setBudgetLines] = useState([]);
+    const [budgetForm, setBudgetForm] = useState({ category: 'supplies', name: '', monthlyCap: '' });
     const [msg, setMsg] = useState('');
     const [error, setError] = useState('');
+
+    const loadBudgetLines = () => {
+        if (!selectedContract) return;
+        api.getBudgetLines(selectedContract).then(setBudgetLines).catch(() => setBudgetLines([]));
+    };
 
     useEffect(() => {
         api.getContracts().then(setContracts).catch(() => {});
@@ -17,6 +26,7 @@ const ContractOps = () => {
         if (!selectedContract) return;
         api.getContractPolicy(selectedContract).then(p => setPolicy(p || {})).catch(() => setPolicy({}));
         api.getOnboardingStatus(selectedContract).then(setOnboarding).catch(() => setOnboarding(null));
+        loadBudgetLines();
     }, [selectedContract]);
 
     const savePolicy = async () => {
@@ -49,6 +59,40 @@ const ContractOps = () => {
             setError(e.message);
         }
     };
+
+    const addBudgetLine = async () => {
+        setError('');
+        if (!budgetForm.name.trim()) {
+            setError('Budget line name is required');
+            return;
+        }
+        try {
+            await api.createBudgetLine({
+                contractId: selectedContract,
+                category: budgetForm.category,
+                name: budgetForm.name.trim(),
+                monthlyCap: budgetForm.monthlyCap || null,
+            });
+            setBudgetForm({ category: 'supplies', name: '', monthlyCap: '' });
+            loadBudgetLines();
+            setMsg('Budget line added (Trace: P4-PROC-001)');
+            setTimeout(() => setMsg(''), 3000);
+        } catch (e) {
+            setError(e.message);
+        }
+    };
+
+    const removeBudgetLine = async (id) => {
+        if (!window.confirm('Remove this budget line?')) return;
+        try {
+            await api.deleteBudgetLine(id);
+            loadBudgetLines();
+        } catch (e) {
+            setError(e.message);
+        }
+    };
+
+    const inputStyle = { width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 6, padding: 8, color: 'var(--text)' };
 
     return (
         <div className="animate-fade-in">
@@ -86,6 +130,53 @@ const ContractOps = () => {
                             <label>PO Required<input type="checkbox" checked={!!policy.po_required} onChange={e => setPolicy(p => ({ ...p, po_required: e.target.checked }))} /></label>
                         </div>
                         <button onClick={savePolicy} className="btn-primary" style={{ marginTop: '1rem' }}>Save Policy</button>
+                    </div>
+
+                    <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1rem' }}>Procurement Budget Lines</h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                            Katcha bills are matched to these lines during Bill Verification. Set monthly caps per category.
+                        </p>
+                        {budgetLines.length > 0 ? (
+                            <table className="data-table" style={{ marginBottom: '1rem' }}>
+                                <thead>
+                                    <tr><th>Category</th><th>Name</th><th>Monthly Cap (PKR)</th><th>Used</th><th>Remaining</th><th></th></tr>
+                                </thead>
+                                <tbody>
+                                    {budgetLines.map(bl => (
+                                        <tr key={bl.id}>
+                                            <td>{bl.category}</td>
+                                            <td>{bl.name}</td>
+                                            <td>{bl.monthly_cap != null ? Number(bl.monthly_cap).toLocaleString() : '—'}</td>
+                                            <td>{Number(bl.used_amount || 0).toLocaleString()}</td>
+                                            <td>{bl.remaining != null ? Number(bl.remaining).toLocaleString() : '—'}</td>
+                                            <td>
+                                                <button type="button" onClick={() => removeBudgetLine(bl.id)} className="btn-secondary" style={{ fontSize: '0.8rem' }}>Remove</button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>No budget lines yet for this contract.</p>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
+                            <label>
+                                Category
+                                <select value={budgetForm.category} onChange={e => setBudgetForm(f => ({ ...f, category: e.target.value }))} style={inputStyle}>
+                                    {BUDGET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                            </label>
+                            <label>
+                                Line name
+                                <input value={budgetForm.name} onChange={e => setBudgetForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Office supplies" style={inputStyle} />
+                            </label>
+                            <label>
+                                Monthly cap (PKR)
+                                <input type="number" value={budgetForm.monthlyCap} onChange={e => setBudgetForm(f => ({ ...f, monthlyCap: e.target.value }))} placeholder="Optional" style={inputStyle} />
+                            </label>
+                            <button type="button" onClick={addBudgetLine} className="btn-primary">Add budget line</button>
+                        </div>
                     </div>
 
                     <div className="glass-card">
