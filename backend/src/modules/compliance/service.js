@@ -133,7 +133,9 @@ async function getInvoiceChallanStatus(pool, invoiceId) {
         `SELECT ci.*, cp.challans_required
          FROM client_invoices ci
          LEFT JOIN contract_policies cp ON cp.contract_id = ci.contract_id
-         WHERE ci.id = $1`,
+         WHERE ci.id = $1
+         ORDER BY cp.effective_from DESC NULLS LAST, cp.id DESC
+         LIMIT 1`,
         [invoiceId]
     );
     if (!rows.length) return { ok: false, message: 'Invoice not found' };
