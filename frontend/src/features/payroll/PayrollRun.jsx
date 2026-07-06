@@ -43,7 +43,7 @@ const PayrollRun = () => {
     const marginPct = displayBillable ? ((displayMargin / displayBillable) * 100).toFixed(1) : '0';
 
     useEffect(() => {
-        api.getContracts().then(setContracts).catch(() => {});
+        api.getContracts().then(d => setContracts(d.contracts || d || [])).catch(() => {});
         api.getHolidays().then(setHolidays).catch(() => setHolidays([]));
     }, []);
 
@@ -252,7 +252,7 @@ const PayrollRun = () => {
                     <label>Contract
                         <select value={contractId} onChange={e => setContractId(e.target.value)} style={inputStyle}>
                             <option value="">— Select —</option>
-                            {contracts.map(c => <option key={c.id} value={c.id}>{c.contract_name || c.id}</option>)}
+                            {contracts.map(c => <option key={c.id} value={c.id}>{c.contractName || c.contract_name || c.id}</option>)}
                         </select>
                     </label>
                     <label>Month<input type="number" min={1} max={12} value={month} onChange={e => setMonth(Number(e.target.value))} style={inputStyle} /></label>

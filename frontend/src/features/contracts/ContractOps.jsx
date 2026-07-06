@@ -26,7 +26,7 @@ const ContractOps = () => {
     };
 
     useEffect(() => {
-        api.getContracts().then(setContracts).catch(() => {});
+        api.getContracts().then(d => setContracts(d.contracts || d || [])).catch(() => {});
     }, []);
 
     useEffect(() => {
@@ -163,7 +163,7 @@ const ContractOps = () => {
                 <select value={selectedContract} onChange={e => setSelectedContract(e.target.value)}
                     style={{ width: '100%', maxWidth: 400, background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, color: 'var(--text)' }}>
                     <option value="">— Choose contract —</option>
-                    {contracts.map(c => <option key={c.id} value={c.id}>{c.contract_name || c.id}</option>)}
+                    {contracts.map(c => <option key={c.id} value={c.id}>{c.contractName || c.contract_name || c.id}</option>)}
                 </select>
             </div>
 
