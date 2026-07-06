@@ -46,7 +46,10 @@ function registerClaimsRoutes(app, deps) {
             if (!token || !id) return res.status(400).send('Missing token or id');
             const check = await verifyFocalToken(pool, parseInt(id, 10), token);
             if (!check.ok) {
-                return res.status(check.status).send(focalHtmlPage({ error: 'Invalid or expired link.' }));
+                const msg = check.expired
+                    ? 'This verification link has expired — contact ASIL operations.'
+                    : 'Invalid or expired link.';
+                return res.status(check.status).send(focalHtmlPage({ error: msg }));
             }
             const claim = check.claim;
             if (claim.focal_approved_at || claim.focal_rejected_at) {
@@ -126,6 +129,7 @@ function registerClaimsRoutes(app, deps) {
                 claimType,
                 items,
                 focalEmail,
+                contractId,
             });
             if (focalEmail && sendAppEmail) {
                 const link = `${process.env.APP_BASE_URL || process.env.BACKEND_URL}/api/claims/focal-action?token=${focalToken}&id=${claim.id}`;

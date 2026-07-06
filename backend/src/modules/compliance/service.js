@@ -11,12 +11,25 @@ async function computeStatutoryForMonth(pool, month, year) {
         [month, year]
     );
 
+    const { rows: runRows } = await pool.query(
+        `SELECT prr.computed, prr.employee_id, e.province
+         FROM payroll_run_rows prr
+         JOIN payroll_runs pr ON pr.id = prr.run_id
+         JOIN employees e ON e.id = prr.employee_id
+         WHERE pr.period_month = $1 AND pr.period_year = $2 AND pr.status IN ('locked','invoiced')
+           AND prr.employee_id NOT IN (
+             SELECT employee_id FROM payroll_transactions WHERE month = $1 AND year = $2 AND locked = true
+           )`,
+        [month, year]
+    );
+
     let eobiEmployee = 0;
     let eobiEmployer = 0;
     let sessiEmployee = 0;
     let sessiEmployer = 0;
     let incomeTax = 0;
     const byRegion = {};
+    let headcount = payroll.length;
 
     for (const row of payroll) {
         const salary = Number(row.gross || 0);
@@ -32,13 +45,25 @@ async function computeStatutoryForMonth(pool, month, year) {
         byRegion[region] = (byRegion[region] || 0) + Number(tax || 0);
     }
 
+    for (const row of runRows) {
+        const c = typeof row.computed === 'string' ? JSON.parse(row.computed) : row.computed;
+        eobiEmployee += Number(c.eobiEmployee || 0);
+        eobiEmployer += Number(c.eobiEmployer || 0);
+        sessiEmployee += Number(c.sessiEmployee || 0);
+        sessiEmployer += Number(c.sessiEmployer || 0);
+        incomeTax += Number(c.wht || 0);
+        const region = row.province || 'Sindh';
+        byRegion[region] = (byRegion[region] || 0) + Number(c.wht || 0);
+        headcount += 1;
+    }
+
     return {
         period: { month, year },
-        headcount: payroll.length,
+        headcount,
         eobi: { employee: eobiEmployee, employer: eobiEmployer, total: eobiEmployee + eobiEmployer },
         sessi: { employee: sessiEmployee, employer: sessiEmployer, total: sessiEmployee + sessiEmployer },
         incomeTax,
-        salesTaxByRegion: byRegion,
+        incomeTaxByRegion: byRegion,
     };
 }
 
@@ -85,9 +110,9 @@ async function generateFilingPreview(pool, month, year) {
         generatedAt: new Date().toISOString(),
         eobiChallan: { amount: computed.eobi.total, employees: computed.headcount, status: 'ready' },
         sessiChallan: { amount: computed.sessi.total, employees: computed.headcount, status: 'ready' },
-        incomeTaxReturn: { amount: computed.incomeTax, regions: computed.salesTaxByRegion, status: 'ready' },
-        salesTaxReturns: Object.entries(computed.salesTaxByRegion).map(([region, amount]) => ({
-            authority: region.includes('Baloch') ? 'BRA' : region.includes('Punjab') ? 'PRA' : 'SRB',
+        incomeTaxReturn: { amount: computed.incomeTax, regions: computed.incomeTaxByRegion, status: 'ready' },
+        incomeTaxByProvince: Object.entries(computed.incomeTaxByRegion).map(([region, amount]) => ({
+            authority: 'FBR',
             region,
             amount,
             status: 'ready',

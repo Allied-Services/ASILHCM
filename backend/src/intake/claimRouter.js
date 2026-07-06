@@ -12,6 +12,36 @@ function mapClaimType(fromAddress, subject) {
     return 'expense';
 }
 
+async function extractClaimFromEmail(msg) {
+    if (!process.env.OPENAI_API_KEY) return null;
+    try {
+        const OpenAI = require('openai');
+        const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const body = (msg.body_text || '').slice(0, 4000);
+        const response = await client.chat.completions.create({
+            model: 'gpt-4o-mini',
+            response_format: { type: 'json_object' },
+            messages: [
+                {
+                    role: 'system',
+                    content: 'Extract employee claim data from email. Return STRICT JSON: {"claimType":"overtime"|"medical"|"expense","items":[{"ot2":n,"ot3":n}|{"amount":n,"description":str}],"confidence":0-1}',
+                },
+                {
+                    role: 'user',
+                    content: `Subject: ${msg.subject || ''}\n\n${body}`,
+                },
+            ],
+        });
+        const parsed = JSON.parse(response.choices[0]?.message?.content || '{}');
+        if (Number(parsed.confidence || 0) < 0.5) return null;
+        console.log(`[claimRouter] extracted ${(parsed.items || []).length} items (confidence ${parsed.confidence}) for intake #${msg.id}`);
+        return parsed;
+    } catch (err) {
+        console.warn('[claimRouter] extraction failed:', err.message);
+        return null;
+    }
+}
+
 async function resolveEmployeeByEmail(pool, email) {
     if (!email) return null;
     const addr = email.toLowerCase().trim();
@@ -37,7 +67,14 @@ async function routeIntakeToClaims(pool) {
     );
     let routed = 0;
     for (const msg of messages) {
-        const claimType = mapClaimType(msg.from_address, msg.subject);
+        let claimType = mapClaimType(msg.from_address, msg.subject);
+        let items = [];
+        const extracted = await extractClaimFromEmail(msg);
+        if (extracted) {
+            if (extracted.claimType) claimType = extracted.claimType;
+            items = extracted.items || [];
+        }
+
         const employeeId = await resolveEmployeeByEmail(pool, msg.from_address);
         let contractId = null;
         if (employeeId) {
@@ -50,8 +87,9 @@ async function routeIntakeToClaims(pool) {
             intakeMessageId: msg.id,
             employeeId,
             claimType,
-            items: [],
+            items,
             focalEmail,
+            contractId,
         });
 
         await pool.query(`UPDATE intake_messages SET status = 'routed', processed_at = NOW() WHERE id = $1`, [msg.id]);
@@ -60,4 +98,4 @@ async function routeIntakeToClaims(pool) {
     return { routed };
 }
 
-module.exports = { routeIntakeToClaims };
+module.exports = { routeIntakeToClaims, extractClaimFromEmail };

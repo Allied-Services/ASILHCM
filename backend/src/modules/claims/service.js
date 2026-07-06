@@ -5,12 +5,12 @@ const crypto = require('crypto');
 const { validateAction, getPolicy } = require('../constraints/service');
 const { hashToken } = require('../../intake/autoAck');
 
-async function createClaimFromIntake(pool, { intakeMessageId, employeeId, claimType, items, focalEmail }) {
+async function createClaimFromIntake(pool, { intakeMessageId, employeeId, claimType, items, focalEmail, contractId }) {
     const token = crypto.randomBytes(24).toString('hex');
     const { rows } = await pool.query(
         `INSERT INTO employee_claims
-         (intake_message_id, employee_id, claim_type, claimed_items, status, focal_email, focal_token_hash, period_month, period_year)
-         VALUES ($1, $2, $3, $4, 'pending_focal', $5, $6, $7, $8)
+         (intake_message_id, employee_id, claim_type, claimed_items, status, focal_email, focal_token_hash, period_month, period_year, contract_id)
+         VALUES ($1, $2, $3, $4, 'pending_focal', $5, $6, $7, $8, $9)
          RETURNING *`,
         [
             intakeMessageId,
@@ -21,6 +21,7 @@ async function createClaimFromIntake(pool, { intakeMessageId, employeeId, claimT
             hashToken(token),
             monthYear().month,
             monthYear().year,
+            contractId || null,
         ]
     );
     return { claim: rows[0], focalToken: token };
@@ -81,6 +82,10 @@ async function verifyFocalToken(pool, claimId, token) {
     if (!rows.length) return { ok: false, status: 404 };
     const claim = rows[0];
     if (claim.focal_token_hash !== hashToken(token)) return { ok: false, status: 403 };
+    const createdAt = claim.created_at ? new Date(claim.created_at) : null;
+    if (createdAt && (Date.now() - createdAt.getTime()) > 14 * 24 * 60 * 60 * 1000) {
+        return { ok: false, status: 403, expired: true };
+    }
     return { ok: true, claim };
 }
 

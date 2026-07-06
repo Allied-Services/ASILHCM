@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
+import ConfirmModal from '../../components/ConfirmModal';
 
+const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 const fmt = (n) => (n == null || Number.isNaN(n)) ? '—' : Math.round(Number(n)).toLocaleString();
 const inputStyle = { width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 6, padding: 8, color: 'var(--text)' };
 
@@ -13,12 +15,16 @@ const PayrollRun = () => {
     const [run, setRun] = useState(null);
     const [rows, setRows] = useState([]);
     const [warnings, setWarnings] = useState([]);
+    const [runMeta, setRunMeta] = useState({});
+    const [invoice, setInvoice] = useState(null);
     const [holidays, setHolidays] = useState([]);
     const [holidayForm, setHolidayForm] = useState({ holiday_date: '', name: '', multiplier: 3 });
     const [expanded, setExpanded] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [msg, setMsg] = useState('');
+    const [modal, setModal] = useState(null);
+    const [overrideRow, setOverrideRow] = useState(null);
 
     const totals = rows.reduce((acc, r) => {
         const c = r.computed || {};
@@ -27,10 +33,14 @@ const PayrollRun = () => {
         acc.serviceCharges += Number(c.serviceCharges || 0);
         acc.salesTax += Number(c.salesTax || 0);
         acc.invoice += Number(c.totalCost || 0);
+        acc.billable += Number(c.billAmount || c.totalCost || 0);
         return acc;
-    }, { netPay: 0, payrollCost: 0, serviceCharges: 0, salesTax: 0, invoice: 0 });
+    }, { netPay: 0, payrollCost: 0, serviceCharges: 0, salesTax: 0, invoice: 0, billable: 0 });
 
-    const marginPct = totals.invoice ? ((totals.serviceCharges / totals.invoice) * 100).toFixed(1) : '0';
+    const displayBillable = runMeta.totalBillable ?? totals.billable;
+    const displayMargin = runMeta.margin ?? (displayBillable - totals.payrollCost);
+    const hasRateCardBilling = runMeta.hasRateCardBilling || rows.some(r => r.computed?.billSource === 'rate_card');
+    const marginPct = displayBillable ? ((displayMargin / displayBillable) * 100).toFixed(1) : '0';
 
     useEffect(() => {
         api.getContracts().then(setContracts).catch(() => {});
@@ -56,6 +66,11 @@ const PayrollRun = () => {
                 return;
             }
             setRun(result.run);
+            setRunMeta({
+                totalBillable: result.totalBillable,
+                margin: result.margin,
+                hasRateCardBilling: result.hasRateCardBilling,
+            });
             setRows((result.rows || []).map(r => ({ ...r, id: r.id })));
             setWarnings(result.warnings || []);
             setMsg('Payroll computed from attendance');
@@ -67,35 +82,93 @@ const PayrollRun = () => {
         }
     };
 
-    const lockRun = async () => {
-        if (!run?.id || !window.confirm('Lock this payroll run?')) return;
+    const doLockRun = async () => {
         try {
             const locked = await api.lockPayrollRun(run.id);
             setRun(locked);
-            setMsg('Run locked');
+            setMsg('Run locked — P&L allocations updated');
         } catch (e) { setError(e.message); }
     };
 
-    const invoiceRun = async () => {
-        if (!run?.id || !window.confirm('Generate client invoice from this run?')) return;
+    const doInvoiceRun = async () => {
         try {
             const result = await api.invoicePayrollRun(run.id);
+            setInvoice(result.invoice);
             setMsg(`Invoice created #${result.invoice?.invoice_number || result.invoice?.id}. Feeds P&L and AR.`);
             await loadRun();
         } catch (e) { setError(e.message); }
     };
 
-    const overrideRow = async (row) => {
-        const paidDays = window.prompt('Paid days', row.paid_days);
-        if (paidDays == null) return;
-        const ot2 = window.prompt('OT 2X hours', row.ot2_hours);
-        if (ot2 == null) return;
-        const ot3 = window.prompt('OT 3X hours', row.ot3_hours);
-        if (ot3 == null) return;
+    const doOverrideRow = async (values) => {
         try {
-            await api.patchPayrollRunRow(run.id, row.id, { paidDays: Number(paidDays), ot2: Number(ot2), ot3: Number(ot3) });
+            await api.patchPayrollRunRow(run.id, overrideRow.id, {
+                paidDays: Number(values.paidDays),
+                ot2: Number(values.ot2),
+                ot3: Number(values.ot3),
+            });
+            setOverrideRow(null);
             await loadRun();
         } catch (e) { setError(e.message); }
+    };
+
+    const downloadPayslip = async (row) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        try {
+            const res = await fetch(`${API_URL}/api/payroll-runs/${run.id}/payslip/${encodeURIComponent(row.employee_id)}?download=1`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `Payslip_${row.employee_id}_${month}-${year}.html`;
+            a.click();
+        } catch (e) { setError(e.message); }
+    };
+
+    const emailAllPayslips = async () => {
+        try {
+            const result = await api.sendPayrollRunPayslips(run.id);
+            setMsg(`Payslips emailed: ${result.sent} sent, ${result.skipped} skipped`);
+        } catch (e) { setError(e.message); }
+    };
+
+    const viewInvoice = async () => {
+        const token = localStorage.getItem('asil_hcm_token');
+        try {
+            const res = await fetch(`${API_URL}/api/payroll-runs/${run.id}/invoice-html`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            window.open(URL.createObjectURL(blob), '_blank');
+        } catch (e) { setError(e.message); }
+    };
+
+    const pushToXero = async () => {
+        if (!invoice && !run?.invoice_id) {
+            setError('No invoice found for this run');
+            return;
+        }
+        try {
+            const inv = invoice || { invoice_number: run.invoice_id, client: '', contract: '', grand_total: displayBillable };
+            const result = await api.pushRunInvoiceToXero({ ...run, headcount: rows.length }, inv);
+            await api.logXeroSync({
+                entityType: 'client_invoice',
+                entityId: String(inv.id || run.invoice_id),
+                direction: 'push',
+                status: 'success',
+                xeroId: result?.Invoices?.[0]?.InvoiceID || null,
+            }).catch(() => {});
+            setMsg('Invoice pushed to Xero');
+        } catch (e) {
+            const msg = e.message || '';
+            if (msg.toLowerCase().includes('not connected') || msg.toLowerCase().includes('xero')) {
+                setError('Xero is not connected. Connect via System Configs first.');
+            } else {
+                setError(msg);
+            }
+        }
     };
 
     const exportCsv = () => {
@@ -124,8 +197,48 @@ const PayrollRun = () => {
         setHolidayForm({ holiday_date: '', name: '', multiplier: 3 });
     };
 
+    const canPayslip = run?.status === 'locked' || run?.status === 'invoiced';
+
     return (
         <div className="animate-fade-in">
+            <ConfirmModal
+                open={modal === 'lock'}
+                title="Lock payroll run?"
+                body="Locked runs feed P&L and compliance. This cannot be undone without admin help."
+                confirmLabel="Lock run"
+                onConfirm={() => { setModal(null); doLockRun(); }}
+                onCancel={() => setModal(null)}
+            />
+            <ConfirmModal
+                open={modal === 'invoice'}
+                title="Generate client invoice?"
+                body="Creates a draft invoice in AR from this locked run."
+                confirmLabel="Generate invoice"
+                onConfirm={() => { setModal(null); doInvoiceRun(); }}
+                onCancel={() => setModal(null)}
+            />
+            <ConfirmModal
+                open={modal === 'email-payslips'}
+                title="Email all payslips?"
+                body={`Send salary slips to all employees with email addresses for ${month}/${year}.`}
+                confirmLabel="Send emails"
+                onConfirm={() => { setModal(null); emailAllPayslips(); }}
+                onCancel={() => setModal(null)}
+            />
+            <ConfirmModal
+                open={!!overrideRow}
+                title="Override row"
+                body={`Adjust values for ${overrideRow?.employee_name || overrideRow?.employee_id}`}
+                fields={[
+                    { name: 'paidDays', label: 'Paid days', type: 'number', default: overrideRow?.paid_days },
+                    { name: 'ot2', label: 'OT 2X hours', type: 'number', default: overrideRow?.ot2_hours },
+                    { name: 'ot3', label: 'OT 3X hours', type: 'number', default: overrideRow?.ot3_hours },
+                ]}
+                confirmLabel="Save override"
+                onConfirm={doOverrideRow}
+                onCancel={() => setOverrideRow(null)}
+            />
+
             <div className="page-header">
                 <h1 className="page-title">Payroll Run</h1>
                 <p className="page-subtitle">Compute payroll from attendance — PR sheet parity with lock & invoice</p>
@@ -148,6 +261,16 @@ const PayrollRun = () => {
                         {loading ? 'Computing…' : 'Compute from Attendance'}
                     </button>
                 </div>
+                {!contractId && (
+                    <div style={{ marginTop: '1.25rem', padding: '1rem', border: '1px dashed var(--border)', borderRadius: 8 }}>
+                        <strong>Getting started</strong>
+                        <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem', color: 'var(--text-muted)' }}>
+                            <li>Configure Contract Policies (OT rules, service charge %)</li>
+                            <li>Import attendance for the period</li>
+                            <li>Select contract and click Compute from Attendance</li>
+                        </ol>
+                    </div>
+                )}
                 {error === 'No contract policy configured.' && (
                     <p style={{ marginTop: '1rem', color: 'var(--text-muted)' }}>Configure this contract in Contract Policies first (OT rules, service charge %, month days).</p>
                 )}
@@ -158,8 +281,11 @@ const PayrollRun = () => {
                     <div className="grid-3" style={{ marginBottom: '1.5rem' }}>
                         <div className="glass-card"><div className="stat-label">Pay to Employees</div><div className="stat-value">PKR {fmt(totals.netPay)}</div></div>
                         <div className="glass-card"><div className="stat-label">Total Payroll Cost</div><div className="stat-value">PKR {fmt(totals.payrollCost)}</div></div>
-                        <div className="glass-card"><div className="stat-label">Invoice to Client</div><div className="stat-value">PKR {fmt(totals.invoice)}</div></div>
-                        <div className="glass-card"><div className="stat-label">Margin (Service Charge)</div><div className="stat-value">PKR {fmt(totals.serviceCharges)} ({marginPct}%)</div></div>
+                        <div className="glass-card"><div className="stat-label">Invoice to Client</div><div className="stat-value">PKR {fmt(hasRateCardBilling ? displayBillable : totals.invoice)}</div></div>
+                        <div className="glass-card">
+                            <div className="stat-label">{hasRateCardBilling ? 'Margin (Bill − Cost)' : 'Margin (Service Charge)'}</div>
+                            <div className="stat-value">PKR {fmt(hasRateCardBilling ? displayMargin : totals.serviceCharges)} ({marginPct}%)</div>
+                        </div>
                     </div>
 
                     {warnings.length > 0 && (
@@ -172,9 +298,16 @@ const PayrollRun = () => {
                     <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                             <h3 style={{ margin: 0 }}>Run status: {run?.status || '—'}</h3>
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                {run?.status === 'draft' && <button type="button" className="btn-primary" onClick={lockRun}>Lock Run</button>}
-                                {run?.status === 'locked' && <button type="button" className="btn-primary" onClick={invoiceRun}>Generate Invoice</button>}
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                {run?.status === 'draft' && <button type="button" className="btn-primary" onClick={() => setModal('lock')}>Lock Run</button>}
+                                {run?.status === 'locked' && <button type="button" className="btn-primary" onClick={() => setModal('invoice')}>Generate Invoice</button>}
+                                {canPayslip && <button type="button" className="btn-secondary" onClick={() => setModal('email-payslips')}>Email All Payslips</button>}
+                                {run?.status === 'invoiced' && (
+                                    <>
+                                        <button type="button" className="btn-secondary" onClick={viewInvoice}>View Invoice</button>
+                                        <button type="button" className="btn-secondary" onClick={pushToXero}>Push to Xero</button>
+                                    </>
+                                )}
                                 <button type="button" className="btn-secondary" onClick={exportCsv}>Export CSV</button>
                             </div>
                         </div>
@@ -190,10 +323,15 @@ const PayrollRun = () => {
                                 {rows.map(r => {
                                     const c = r.computed || {};
                                     const isOverride = r.inputs?.overridden_by;
+                                    const claimsCount = r.claimsApplied || 0;
                                     return (
                                         <React.Fragment key={r.id || r.employee_id}>
                                             <tr onClick={() => setExpanded(expanded === r.id ? null : r.id)} style={{ cursor: 'pointer' }}>
-                                                <td>{r.employee_name || r.employee_id}{isOverride && <span style={{ fontSize: '0.7rem', color: 'var(--warning)', marginLeft: 4 }}>override</span>}</td>
+                                                <td>
+                                                    {r.employee_name || r.employee_id}
+                                                    {isOverride && <span style={{ fontSize: '0.7rem', color: 'var(--warning)', marginLeft: 4 }}>override</span>}
+                                                    {claimsCount > 0 && <span style={{ fontSize: '0.7rem', color: 'var(--success)', marginLeft: 4 }}>+{claimsCount} claims</span>}
+                                                </td>
                                                 <td>{r.paid_days}</td>
                                                 <td>{r.ot2_hours}</td>
                                                 <td>{r.ot3_hours}</td>
@@ -205,11 +343,15 @@ const PayrollRun = () => {
                                                 <td>{fmt(c.serviceCharges)}</td>
                                                 <td>{fmt(c.salesTax)}</td>
                                                 <td>{fmt(c.totalCost)}</td>
-                                                <td>{run?.status === 'draft' && <button type="button" className="btn-secondary" style={{ fontSize: '0.75rem' }} onClick={e => { e.stopPropagation(); overrideRow(r); }}>Edit</button>}</td>
+                                                <td>
+                                                    {run?.status === 'draft' && <button type="button" className="btn-secondary" style={{ fontSize: '0.75rem' }} onClick={e => { e.stopPropagation(); setOverrideRow(r); }}>Edit</button>}
+                                                    {canPayslip && <button type="button" className="btn-secondary" style={{ fontSize: '0.75rem', marginLeft: 4 }} onClick={e => { e.stopPropagation(); downloadPayslip(r); }}>Payslip</button>}
+                                                </td>
                                             </tr>
                                             {expanded === r.id && (
                                                 <tr><td colSpan={13} style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                                                     Salary for days: {fmt(c.salaryForDays)} · OT amt: {fmt(c.overtimeAmount)} · EOBI ER: {fmt(c.eobiEmployer)} · SESSI ER: {fmt(c.sessiEmployer)} · Bonus accrual: {fmt(c.bonusAccrual)} · Gratuity: {fmt(c.gratuityAccrual)} · Edu cess: {fmt(c.eduCess)}
+                                                    {c.billSource === 'rate_card' && <> · Bill rate: {fmt(c.billAmount)}</>}
                                                 </td></tr>
                                             )}
                                         </React.Fragment>

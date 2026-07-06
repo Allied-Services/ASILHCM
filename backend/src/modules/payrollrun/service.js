@@ -5,6 +5,41 @@ const { getPolicy } = require('../constraints/service');
 
 const DEFAULT_OT_HOURS_PER_DAY = 8;
 
+function parseJsonField(val, fallback) {
+    if (val == null) return fallback;
+    if (typeof val === 'string') {
+        try { return JSON.parse(val); } catch { return fallback; }
+    }
+    return val;
+}
+
+function aggregateClaimInputs(claims) {
+    let ot2 = 0;
+    let ot3 = 0;
+    let opd = 0;
+    let expense = 0;
+    const claimIds = [];
+    for (const claim of claims || []) {
+        claimIds.push(claim.id);
+        const items = parseJsonField(claim.claimed_items, []);
+        if (claim.claim_type === 'overtime') {
+            for (const item of items) {
+                ot2 += Number(item.ot2 || 0);
+                ot3 += Number(item.ot3 || 0);
+            }
+        } else if (claim.claim_type === 'medical') {
+            for (const item of items) {
+                opd += Number(item.amount || 0);
+            }
+        } else if (claim.claim_type === 'expense') {
+            for (const item of items) {
+                expense += Number(item.amount || 0);
+            }
+        }
+    }
+    return { ot2, ot3, opd, expense, claimIds };
+}
+
 function classifyOtDate(date, holidayDateSet) {
     const d = date instanceof Date ? date : new Date(date);
     const key = d.toISOString().slice(0, 10);
@@ -52,15 +87,113 @@ function deriveOtHours(records, holidayDateSet) {
     return { ot2, ot3 };
 }
 
+function buildRateCardMap(rateCards) {
+    const map = new Map();
+    for (const rc of rateCards || []) {
+        if (rc.role_title) map.set(rc.role_title.toLowerCase().trim(), rc);
+    }
+    return map;
+}
+
+function applyBillingAmount(computed, { billRate, paidDays, workingDays, ot2, ot3, policy, rateCardMatch }) {
+    if (!rateCardMatch) {
+        computed.billAmount = computed.totalCost;
+        computed.billOtAmount = 0;
+        computed.billSource = 'cost_plus';
+        return computed;
+    }
+    const billRateNum = Number(billRate || 0);
+    const billBase = workingDays ? billRateNum * paidDays / workingDays : billRateNum;
+    const otDivDays = policy.ot_divisor_days || 26;
+    const otDivHours = policy.ot_divisor_hours || 8;
+    const billHourly = billRateNum / otDivDays / otDivHours;
+    const billOtAmount = Math.round(billHourly * (2 * ot2 + 3 * ot3));
+    computed.billAmount = Math.round(billBase) + billOtAmount;
+    computed.billOtAmount = billOtAmount;
+    computed.billSource = 'rate_card';
+    return computed;
+}
+
+async function listRateCards(pool, contractId) {
+    const { rows } = await pool.query(
+        `SELECT * FROM contract_rate_cards
+         WHERE contract_id = $1 AND (effective_to IS NULL OR effective_to >= CURRENT_DATE)
+         ORDER BY role_title`,
+        [contractId]
+    );
+    return rows;
+}
+
+async function saveRateCard(pool, data) {
+    const { rows } = await pool.query(
+        `INSERT INTO contract_rate_cards (contract_id, role_title, billing_basis, bill_rate, cost_rate, effective_from)
+         VALUES ($1, $2, $3, $4, $5, COALESCE($6::date, CURRENT_DATE))
+         RETURNING *`,
+        [
+            data.contract_id || data.contractId,
+            data.role_title || data.roleTitle,
+            data.billing_basis || data.billingBasis || 'monthly',
+            data.bill_rate != null ? data.bill_rate : data.billRate,
+            data.cost_rate != null ? data.cost_rate : data.costRate,
+            data.effective_from || data.effectiveFrom || null,
+        ]
+    );
+    return rows[0];
+}
+
+async function deleteRateCard(pool, id) {
+    const { rows } = await pool.query(
+        `UPDATE contract_rate_cards SET effective_to = CURRENT_DATE WHERE id = $1 RETURNING *`,
+        [id]
+    );
+    if (!rows.length) throw new Error('Rate card not found');
+    return rows[0];
+}
+
+async function allocateRunToCosts(pool, runId) {
+    const { rows: runRows } = await pool.query(`SELECT * FROM payroll_runs WHERE id = $1`, [runId]);
+    if (!runRows.length) return { processed: 0, inserted: 0 };
+    const run = runRows[0];
+
+    const { rows: prRows } = await pool.query(
+        `SELECT prr.*, e.project_id FROM payroll_run_rows prr
+         JOIN employees e ON e.id = prr.employee_id
+         WHERE prr.run_id = $1`,
+        [runId]
+    );
+
+    let inserted = 0;
+    for (const row of prRows) {
+        const computed = parseJsonField(row.computed, {});
+        const amount = Number(computed.totalCost || computed.totalPayrollCost || 0);
+        const sourceId = `${runId}-${row.employee_id}`;
+        const exists = await pool.query(
+            `SELECT 1 FROM cost_allocations WHERE source_type = 'payroll_run' AND source_id = $1 LIMIT 1`,
+            [sourceId]
+        );
+        if (exists.rows.length) continue;
+        await pool.query(
+            `INSERT INTO cost_allocations (source_type, source_id, contract_id, project_id, period_month, period_year, amount, created_by)
+             VALUES ('payroll_run', $1, $2, $3, $4, $5, $6, 'system')`,
+            [sourceId, run.contract_id, row.project_id, run.period_month, run.period_year, amount]
+        );
+        inserted += 1;
+    }
+    return { processed: prRows.length, inserted };
+}
+
 async function computeRunForContract(pool, { contractId, month, year }) {
     const policy = await getPolicy(pool, contractId);
     if (!policy) return { ok: false, code: 'NO_POLICY', message: 'No contract policy configured.' };
 
     const workingDays = Number(policy.standard_month_days || 30);
     const { rows: employees } = await pool.query(
-        `SELECT id, name, salary, doj FROM employees WHERE contract_id = $1 OR contract_name = $1`,
+        `SELECT id, name, salary, doj, designation FROM employees WHERE contract_id = $1 OR contract_name = $1`,
         [contractId]
     );
+
+    const rateCards = await listRateCards(pool, contractId);
+    const rateCardMap = buildRateCardMap(rateCards);
 
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
     const endDate = new Date(year, month, 0);
@@ -72,6 +205,25 @@ async function computeRunForContract(pool, { contractId, month, year }) {
     );
     const holidayDateSet = new Set(holidays.map(h => h.d.slice(0, 10)));
 
+    const { rows: runRows } = await pool.query(
+        `INSERT INTO payroll_runs (contract_id, period_month, period_year, status, computed_at)
+         VALUES ($1, $2, $3, 'draft', NOW())
+         ON CONFLICT (contract_id, period_month, period_year)
+         DO UPDATE SET computed_at = NOW(), status = CASE WHEN payroll_runs.status = 'invoiced' THEN payroll_runs.status ELSE 'draft' END
+         RETURNING *`,
+        [contractId, month, year]
+    );
+    const run = runRows[0];
+    if (run.status === 'locked' || run.status === 'invoiced') {
+        return { ok: false, code: 'RUN_LOCKED', message: `Run is ${run.status} and cannot be recomputed.` };
+    }
+
+    await pool.query(
+        `UPDATE employee_claims SET status = 'focal_approved', payroll_run_id = NULL
+         WHERE payroll_run_id = $1 AND status = 'in_payroll_run'`,
+        [run.id]
+    );
+
     const warnings = [];
     const rowPayloads = [];
     let totalNetPay = 0;
@@ -79,6 +231,8 @@ async function computeRunForContract(pool, { contractId, month, year }) {
     let totalServiceCharges = 0;
     let totalSalesTax = 0;
     let totalInvoice = 0;
+    let totalBillable = 0;
+    let hasRateCardBilling = false;
 
     for (const emp of employees) {
         const { rows: att } = await pool.query(
@@ -91,7 +245,20 @@ async function computeRunForContract(pool, { contractId, month, year }) {
 
         const paidDays = derivePaidDays(att, workingDays, policy.attendance_input_mode);
         let { ot2, ot3 } = deriveOtHours(att, holidayDateSet);
+
+        const { rows: claimRows } = await pool.query(
+            `SELECT * FROM employee_claims
+             WHERE employee_id = $1 AND status = 'focal_approved'
+               AND period_month = $2 AND period_year = $3`,
+            [emp.id, month, year]
+        );
+        const claimAgg = aggregateClaimInputs(claimRows);
+        ot2 += claimAgg.ot2;
+        ot3 += claimAgg.ot3;
+
         const inputs = {};
+        if (claimAgg.opd) inputs.opd = claimAgg.opd;
+        if (claimAgg.expense) inputs.expense = claimAgg.expense;
 
         if (!policy.ot_allowed) {
             if (ot2 + ot3 > 0) warnings.push({ employeeId: emp.id, code: 'OT_NOT_ALLOWED', message: `${emp.name}: OT not allowed on contract` });
@@ -108,7 +275,7 @@ async function computeRunForContract(pool, { contractId, month, year }) {
             }
         }
 
-        const computed = computePrSheetRow({
+        let computed = computePrSheetRow({
             newSalary: Number(emp.salary || 0),
             paidDays,
             workingDays,
@@ -118,11 +285,25 @@ async function computeRunForContract(pool, { contractId, month, year }) {
             ...inputs,
         }, policy);
 
+        const designation = (emp.designation || '').toLowerCase().trim();
+        const rateCard = designation ? rateCardMap.get(designation) : null;
+        computed = applyBillingAmount(computed, {
+            billRate: rateCard?.bill_rate,
+            paidDays,
+            workingDays,
+            ot2,
+            ot3,
+            policy,
+            rateCardMatch: !!rateCard,
+        });
+        if (computed.billSource === 'rate_card') hasRateCardBilling = true;
+
         totalNetPay += Number(computed.netPay || 0);
         totalPayrollCost += Number(computed.totalPayrollCost || 0);
         totalServiceCharges += Number(computed.serviceCharges || 0);
         totalSalesTax += Number(computed.salesTax || 0);
         totalInvoice += Number(computed.totalCost || 0);
+        totalBillable += Number(computed.billAmount || computed.totalCost || 0);
 
         rowPayloads.push({
             employee_id: emp.id,
@@ -134,20 +315,9 @@ async function computeRunForContract(pool, { contractId, month, year }) {
             inputs,
             computed,
             source: att.length ? 'attendance' : 'default',
+            claimsApplied: claimAgg.claimIds.length,
+            claimIds: claimAgg.claimIds,
         });
-    }
-
-    const { rows: runRows } = await pool.query(
-        `INSERT INTO payroll_runs (contract_id, period_month, period_year, status, computed_at)
-         VALUES ($1, $2, $3, 'draft', NOW())
-         ON CONFLICT (contract_id, period_month, period_year)
-         DO UPDATE SET computed_at = NOW(), status = CASE WHEN payroll_runs.status = 'invoiced' THEN payroll_runs.status ELSE 'draft' END
-         RETURNING *`,
-        [contractId, month, year]
-    );
-    const run = runRows[0];
-    if (run.status === 'locked' || run.status === 'invoiced') {
-        return { ok: false, code: 'RUN_LOCKED', message: `Run is ${run.status} and cannot be recomputed.` };
     }
 
     await pool.query(`DELETE FROM payroll_run_rows WHERE run_id = $1`, [run.id]);
@@ -158,7 +328,16 @@ async function computeRunForContract(pool, { contractId, month, year }) {
             [run.id, row.employee_id, row.paid_days, row.working_days, row.ot2_hours, row.ot3_hours,
                 JSON.stringify(row.inputs), JSON.stringify(row.computed)]
         );
+        if (row.claimIds?.length) {
+            await pool.query(
+                `UPDATE employee_claims SET status = 'in_payroll_run', payroll_run_id = $1, updated_at = NOW()
+                 WHERE id = ANY($2::int[])`,
+                [run.id, row.claimIds]
+            );
+        }
     }
+
+    const margin = totalBillable - totalPayrollCost;
 
     return {
         ok: true,
@@ -170,6 +349,9 @@ async function computeRunForContract(pool, { contractId, month, year }) {
         totalServiceCharges,
         totalSalesTax,
         totalInvoice,
+        totalBillable,
+        margin,
+        hasRateCardBilling,
         warnings,
     };
 }
@@ -185,18 +367,22 @@ async function getPayrollRuns(pool, { contractId, month, year } = {}) {
     if (!runs.length) return { runs: [], rows: [] };
     const run = runs[0];
     const { rows: runRows } = await pool.query(
-        `SELECT prr.*, e.name AS employee_name FROM payroll_run_rows prr
+        `SELECT prr.*, e.name AS employee_name,
+                (SELECT COUNT(*)::int FROM employee_claims ec
+                 WHERE ec.payroll_run_id = $2 AND ec.employee_id = prr.employee_id AND ec.status = 'in_payroll_run') AS claims_applied
+         FROM payroll_run_rows prr
          LEFT JOIN employees e ON e.id = prr.employee_id
          WHERE prr.run_id = $1 ORDER BY e.name`,
-        [run.id]
+        [run.id, run.id]
     );
     return {
         run,
         rows: runRows.map(r => ({
             ...r,
-            computed: typeof r.computed === 'string' ? JSON.parse(r.computed) : r.computed,
-            inputs: typeof r.inputs === 'string' ? JSON.parse(r.inputs) : r.inputs,
-            source: (r.inputs?.overridden_by ? 'override' : (r.inputs?.source || 'attendance')),
+            computed: parseJsonField(r.computed, {}),
+            inputs: parseJsonField(r.inputs, {}),
+            claimsApplied: Number(r.claims_applied || 0),
+            source: (parseJsonField(r.inputs, {})?.overridden_by ? 'override' : (parseJsonField(r.inputs, {})?.source || 'attendance')),
         })),
     };
 }
@@ -207,17 +393,17 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
     if (runRows[0].status !== 'draft') throw new Error('Cannot edit a locked or invoiced run');
 
     const { rows: rowRows } = await pool.query(
-        `SELECT prr.*, e.salary FROM payroll_run_rows prr JOIN employees e ON e.id = prr.employee_id WHERE prr.id = $1 AND prr.run_id = $2`,
+        `SELECT prr.*, e.salary, e.designation FROM payroll_run_rows prr JOIN employees e ON e.id = prr.employee_id WHERE prr.id = $1 AND prr.run_id = $2`,
         [rowId, runId]
     );
     if (!rowRows.length) throw new Error('Row not found');
     const row = rowRows[0];
     const policy = await getPolicy(pool, runRows[0].contract_id);
-    const inputs = { ...(typeof row.inputs === 'string' ? JSON.parse(row.inputs) : row.inputs), ...patch, overridden_by: overriddenBy, source: 'override' };
+    const inputs = { ...parseJsonField(row.inputs, {}), ...patch, overridden_by: overriddenBy, source: 'override' };
     const paidDays = patch.paidDays != null ? Number(patch.paidDays) : Number(row.paid_days);
     const ot2 = patch.ot2 != null ? Number(patch.ot2) : Number(row.ot2_hours);
     const ot3 = patch.ot3 != null ? Number(patch.ot3) : Number(row.ot3_hours);
-    const computed = computePrSheetRow({
+    let computed = computePrSheetRow({
         newSalary: Number(row.salary || 0),
         paidDays,
         workingDays: Number(row.working_days || policy?.standard_month_days || 30),
@@ -226,6 +412,20 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
         salesTaxRate: 0.18,
         ...inputs,
     }, policy || {});
+
+    const rateCards = await listRateCards(pool, runRows[0].contract_id);
+    const rateCardMap = buildRateCardMap(rateCards);
+    const designation = (row.designation || '').toLowerCase().trim();
+    const rateCard = designation ? rateCardMap.get(designation) : null;
+    computed = applyBillingAmount(computed, {
+        billRate: rateCard?.bill_rate,
+        paidDays,
+        workingDays: Number(row.working_days || policy?.standard_month_days || 30),
+        ot2,
+        ot3,
+        policy: policy || {},
+        rateCardMatch: !!rateCard,
+    });
 
     const { rows: updated } = await pool.query(
         `UPDATE payroll_run_rows SET paid_days=$1, ot2_hours=$2, ot3_hours=$3, inputs=$4, computed=$5 WHERE id=$6 RETURNING *`,
@@ -241,6 +441,7 @@ async function lockRun(pool, { runId, lockedBy }) {
         [runId, lockedBy]
     );
     if (!rows.length) throw new Error('Run not found or already locked/invoiced');
+    await allocateRunToCosts(pool, runId);
     return rows[0];
 }
 
@@ -263,19 +464,27 @@ async function generateInvoiceFromRun(pool, { runId, generatedBy }) {
     let serviceCharges = 0;
     let salesTax = 0;
     let grandTotal = 0;
+    let hasRateCardBilling = false;
     for (const r of prRows) {
-        const c = typeof r.computed === 'string' ? JSON.parse(r.computed) : r.computed;
+        const c = parseJsonField(r.computed, {});
+        if (c.billSource === 'rate_card') hasRateCardBilling = true;
         subtotal += Number(c.totalPayrollCost || 0);
         serviceCharges += Number(c.serviceCharges || 0);
         salesTax += Number(c.salesTax || 0);
-        grandTotal += Number(c.totalCost || 0);
+        grandTotal += Number(c.billAmount || c.totalCost || 0);
+    }
+
+    if (hasRateCardBilling) {
+        subtotal = grandTotal;
+        serviceCharges = 0;
+        salesTax = 0;
     }
 
     const invNo = await generateInvoiceNumber(pool, run.period_year, run.period_month);
-    const lineItems = [{
-        description: `Manpower services — ${run.period_month}/${run.period_year} — ${prRows.length} staff`,
-        amount: grandTotal,
-    }];
+    const lineDesc = hasRateCardBilling
+        ? `Manpower services (per contract rate card) — ${run.period_month}/${run.period_year} — ${prRows.length} staff`
+        : `Manpower services — ${run.period_month}/${run.period_year} — ${prRows.length} staff`;
+    const lineItems = [{ description: lineDesc, amount: grandTotal }];
 
     const { rows: invRows } = await pool.query(
         `INSERT INTO client_invoices
@@ -327,12 +536,17 @@ async function deleteHoliday(pool, id) {
 }
 
 module.exports = {
+    aggregateClaimInputs,
     classifyOtDate,
+    allocateRunToCosts,
     computeRunForContract,
     getPayrollRuns,
     patchRunRow,
     lockRun,
     generateInvoiceFromRun,
+    listRateCards,
+    saveRateCard,
+    deleteRateCard,
     listHolidays,
     saveHoliday,
     deleteHoliday,

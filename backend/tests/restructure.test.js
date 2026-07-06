@@ -83,13 +83,52 @@ describe('compliance computeStatutoryForMonth', () => {
 
     test('EOBI and SESSI totals are non-zero for locked payroll', async () => {
         const pool = {
-            query: async () => ({
-                rows: [{ gross: 35000, province: 'Sindh', contract_id: 'c1' }],
-            }),
+            query: async (sql) => {
+                if (sql.includes('payroll_run_rows')) {
+                    return { rows: [] };
+                }
+                return { rows: [{ gross: 35000, province: 'Sindh', contract_id: 'c1' }] };
+            },
         };
         const result = await computeStatutoryForMonth(pool, 6, 2026);
         expect(result.eobi.total).toBeGreaterThan(0);
         expect(result.sessi.total).toBeGreaterThan(0);
+    });
+
+    test('sums legacy payroll and payroll run rows without double count', async () => {
+        let call = 0;
+        const pool = {
+            query: async (sql) => {
+                call += 1;
+                if (sql.includes('payroll_run_rows')) {
+                    expect(sql).toContain('NOT IN');
+                    return {
+                        rows: [{
+                            employee_id: 'emp2',
+                            province: 'Punjab',
+                            computed: { wht: 500, eobiEmployee: 400, eobiEmployer: 800, sessiEmployee: 0, sessiEmployer: 200, gross: 40000 },
+                        }],
+                    };
+                }
+                return { rows: [{ gross: 35000, province: 'Sindh', contract_id: 'c1', employee_id: 'emp1' }] };
+            },
+        };
+        const result = await computeStatutoryForMonth(pool, 6, 2026);
+        expect(result.incomeTax).toBeGreaterThanOrEqual(500);
+        expect(result.headcount).toBe(2);
+        expect(call).toBe(2);
+    });
+});
+
+describe('aggregateClaimInputs', () => {
+    const { aggregateClaimInputs } = require('../src/modules/payrollrun/service');
+
+    test('aggregates OT and medical claim items', () => {
+        const result = aggregateClaimInputs([
+            { id: 1, claim_type: 'overtime', claimed_items: [{ ot2: 5, ot3: 2 }] },
+            { id: 2, claim_type: 'medical', claimed_items: [{ amount: 3000 }] },
+        ]);
+        expect(result).toEqual({ ot2: 5, ot3: 2, opd: 3000, expense: 0, claimIds: [1, 2] });
     });
 });
 

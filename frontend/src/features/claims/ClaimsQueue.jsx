@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
+import ConfirmModal from '../../components/ConfirmModal';
 
 const ClaimsQueue = () => {
     const [claims, setClaims] = useState([]);
@@ -7,6 +8,7 @@ const ClaimsQueue = () => {
     const [error, setError] = useState('');
     const [utilization, setUtilization] = useState({});
     const [form, setForm] = useState({ employeeId: '', claimType: 'overtime', contractId: '', focalEmail: '', ot2: 0, ot3: 0, amount: 0 });
+    const [assignClaimId, setAssignClaimId] = useState(null);
 
     const load = () => {
         setLoading(true);
@@ -27,17 +29,6 @@ const ClaimsQueue = () => {
     };
 
     useEffect(load, []);
-
-    const assignEmployee = async (claimId) => {
-        const employeeId = window.prompt('Enter employee ID to assign:');
-        if (!employeeId) return;
-        try {
-            await api.assignClaim(claimId, employeeId);
-            load();
-        } catch (e) {
-            setError(e.message);
-        }
-    };
 
     const submitClaim = async (e) => {
         e.preventDefault();
@@ -60,8 +51,33 @@ const ClaimsQueue = () => {
         }
     };
 
+    const formatStatus = (c) => {
+        if (c.status === 'in_payroll_run' && c.payroll_run_id) {
+            return `In payroll run #${c.payroll_run_id}`;
+        }
+        return c.status;
+    };
+
     return (
         <div className="animate-fade-in">
+            <ConfirmModal
+                open={!!assignClaimId}
+                title="Assign employee"
+                body="Enter the employee ID to link this claim."
+                showInput
+                inputLabel="Employee ID"
+                onConfirm={async (employeeId) => {
+                    try {
+                        await api.assignClaim(assignClaimId, employeeId);
+                        setAssignClaimId(null);
+                        load();
+                    } catch (e) {
+                        setError(e.message);
+                    }
+                }}
+                onCancel={() => setAssignClaimId(null)}
+            />
+
             <div className="page-header">
                 <h1 className="page-title">Claims Queue</h1>
                 <p className="page-subtitle">Employee OT, expense & medical claims with focal verification (Trace: P2-OPS-003)</p>
@@ -100,7 +116,9 @@ const ClaimsQueue = () => {
             </div>
 
             <div className="glass-card">
-                {loading ? <p className="text-muted">Loading…</p> : (
+                {loading ? <p className="text-muted">Loading…</p> : claims.length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)' }}>No claims yet. Claims arrive automatically from Intake Hub polling when emails are classified as claims.</p>
+                ) : (
                     <table className="data-table">
                         <thead>
                             <tr><th>ID</th><th>Employee</th><th>Type</th><th>Status</th><th>Medical cap</th><th>Focal</th><th>Created</th><th></th></tr>
@@ -111,7 +129,7 @@ const ClaimsQueue = () => {
                                     <td>{c.id}</td>
                                     <td>{c.employee_name || c.employee_id || <em>Unassigned</em>}</td>
                                     <td>{c.claim_type}</td>
-                                    <td>{c.status}</td>
+                                    <td>{formatStatus(c)}</td>
                                     <td>
                                         {c.claim_type === 'medical' && utilization[c.id]
                                             ? `Used ${Number(utilization[c.id].used_amount || 0).toLocaleString()} of ${Number(utilization[c.id].cap_amount || 0).toLocaleString()}`
@@ -121,7 +139,7 @@ const ClaimsQueue = () => {
                                     <td>{c.created_at ? new Date(c.created_at).toLocaleDateString() : '—'}</td>
                                     <td>
                                         {!c.employee_id && (
-                                            <button type="button" className="btn-secondary" style={{ fontSize: '0.8rem' }} onClick={() => assignEmployee(c.id)}>Assign employee</button>
+                                            <button type="button" className="btn-secondary" style={{ fontSize: '0.8rem' }} onClick={() => setAssignClaimId(c.id)}>Assign employee</button>
                                         )}
                                     </td>
                                 </tr>
