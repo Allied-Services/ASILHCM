@@ -914,6 +914,38 @@ pool.query(`
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS gst_exempt       BOOLEAN DEFAULT FALSE`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS paid_at      TIMESTAMPTZ`,
     `ALTER TABLE bills ADD COLUMN IF NOT EXISTS paid_by      TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS xero_invoice_id TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS xero_synced_at TIMESTAMPTZ`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS import_status TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS tracking_category TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS invoiced_in TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS vendor_bank_account TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS vendor_bank_code TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS vendor_bank_name TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS xero_contact_name TEXT`,
+    `ALTER TABLE bills ADD COLUMN IF NOT EXISTS excluded_from_sync BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE contract_policies ADD COLUMN IF NOT EXISTS income_tax_wht_pct NUMERIC(5,2)`,
+    `CREATE TABLE IF NOT EXISTS invoice_receipts (
+        id SERIAL PRIMARY KEY,
+        client TEXT NOT NULL,
+        receipt_date DATE NOT NULL,
+        bank_ref TEXT,
+        total_cash NUMERIC(14,2) DEFAULT 0,
+        total_income_tax_wht NUMERIC(14,2) DEFAULT 0,
+        total_sales_tax_withheld NUMERIC(14,2) DEFAULT 0,
+        total_sales_tax_self_paid NUMERIC(14,2) DEFAULT 0,
+        posted_by TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS invoice_receipt_lines (
+        id SERIAL PRIMARY KEY,
+        receipt_id INTEGER NOT NULL REFERENCES invoice_receipts(id) ON DELETE CASCADE,
+        invoice_id INTEGER NOT NULL,
+        cash_received NUMERIC(14,2) DEFAULT 0,
+        income_tax_wht NUMERIC(14,2) DEFAULT 0,
+        sales_tax_withheld_by_client NUMERIC(14,2) DEFAULT 0,
+        sales_tax_self_paid NUMERIC(14,2) DEFAULT 0
+    )`,
     `CREATE TABLE IF NOT EXISTS delivery_challans (
         id          TEXT PRIMARY KEY,
         bill_id     TEXT NOT NULL,
@@ -3490,7 +3522,7 @@ const XERO_REDIRECT_URI  = process.env.XERO_REDIRECT_URI  || 'https://asilhcm.on
 // Granular scopes (required for Xero apps created on/after 2 March 2026):
 // the old broad 'accounting.transactions' scope is rejected with invalid_scope on new apps.
 // accounting.invoices covers the Invoices endpoint; accounting.settings covers chart of accounts.
-const XERO_SCOPES = 'offline_access openid profile email accounting.contacts accounting.invoices accounting.settings';
+const XERO_SCOPES = 'offline_access openid profile email accounting.contacts accounting.invoices accounting.settings accounting.transactions';
 
 // system_config.value is JSONB — pg returns it as an object, but older rows may be text
 const { parseConfigValue } = require('./src/core/jsonConfig');
@@ -4013,29 +4045,37 @@ app.post('/api/ap/bills/:id/confirm', requireAuth, requireRole('ap_team','financ
         // Mark bill as Posted
         await pool.query(`UPDATE bills SET status='Posted', updated_at=NOW() WHERE id=$1`, [b.id]);
 
-        // Optional Xero push
         let xeroResult = null;
         if (push_to_xero) {
             try {
-                const { accessToken, tenantId } = await xeroGetAccessToken();
-                const xeroPayload = {
-                    Type: 'ACCPAY',
-                    Reference: reference_no || b.id,
-                    CurrencyCode: 'PKR',
-                    Status: 'AUTHORISED',
-                    Contact: { Name: b.vendor },
-                    LineAmountTypes: 'Exclusive',
-                    LineItems: (b.items||[]).length > 0
-                        ? b.items.map(it => ({ Description: it.desc||it.description, Quantity: it.qty||1, UnitAmount: it.unit||it.total, AccountCode: '623' }))
-                        : [{ Description: b.purpose||b.bill_type||'Bill', Quantity: 1, UnitAmount: parseFloat(b.amount)||parseFloat(b.total)||0, AccountCode: '623' }],
-                };
-                const xeroResp = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    body: JSON.stringify({ Invoices: [xeroPayload] }),
-                });
-                const xd = await xeroResp.json();
-                xeroResult = { pushed: xeroResp.ok, xeroId: xd.Invoices?.[0]?.InvoiceID };
+                const { pushXeroBillPayment } = require('./src/modules/xeroBillImport/service');
+                if (b.xero_invoice_id) {
+                    xeroResult = await pushXeroBillPayment(xeroGetAccessToken, b, {
+                        amount: parseFloat(b.total) || 0,
+                        date: payment_date || new Date().toISOString().slice(0, 10),
+                        reference: reference_no || b.id,
+                    });
+                } else {
+                    const { accessToken, tenantId } = await xeroGetAccessToken();
+                    const xeroPayload = {
+                        Type: 'ACCPAY',
+                        Reference: reference_no || b.id,
+                        CurrencyCode: 'PKR',
+                        Status: 'AUTHORISED',
+                        Contact: { Name: b.vendor },
+                        LineAmountTypes: 'Exclusive',
+                        LineItems: (b.items||[]).length > 0
+                            ? b.items.map(it => ({ Description: it.desc||it.description, Quantity: it.qty||1, UnitAmount: it.unit||it.total, AccountCode: '623' }))
+                            : [{ Description: b.purpose||b.bill_type||'Bill', Quantity: 1, UnitAmount: parseFloat(b.amount)||parseFloat(b.total)||0, AccountCode: '623' }],
+                    };
+                    const xeroResp = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ Invoices: [xeroPayload] }),
+                    });
+                    const xd = await xeroResp.json();
+                    xeroResult = { pushed: xeroResp.ok, xeroId: xd.Invoices?.[0]?.InvoiceID };
+                }
             } catch (xe) { xeroResult = { pushed: false, error: xe.message }; }
         }
 
@@ -4233,7 +4273,22 @@ app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team
         // Update invoice with Xero refs
         await pool.query(`UPDATE client_invoices SET xero_invoice_id=$1, xero_url=$2, status='Raised', updated_at=NOW() WHERE id=$3`,
             [xeroId, xeroUrl, req.params.id]);
-        res.json({ ok: true, xeroId, xeroUrl });
+        let linked = { linked: 0 };
+        try {
+            const { linkBillableExpensesToXero } = require('./src/modules/xeroBillImport/billableInvoice');
+            const billIds = (ci.line_items || []).map(li => li.bill_id).filter(Boolean);
+            if (billIds.length && xeroId) {
+                const { rows: xb } = await pool.query(
+                    `SELECT xero_invoice_id FROM bills WHERE id = ANY($1::text[]) AND xero_invoice_id IS NOT NULL`,
+                    [billIds]
+                );
+                const sourceIds = xb.map(r => r.xero_invoice_id);
+                if (sourceIds.length) linked = await linkBillableExpensesToXero(xeroGetAccessToken, xeroId, sourceIds);
+            }
+        } catch (linkErr) {
+            linked = { linked: 0, error: linkErr.message };
+        }
+        res.json({ ok: true, xeroId, xeroUrl, linked });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -7607,6 +7662,7 @@ mountRestructureModules(app, {
     requireRole,
     sendAppEmail,
     sendJazzSMS,
+    getXeroAccessToken: xeroGetAccessToken,
 });
 
 phase2.setupPhase2Tables(pool, { sendAppEmail }).catch(e => console.warn('Phase 2 table setup warning:', e.message));
