@@ -4158,7 +4158,7 @@ app.post('/api/client-invoices', requireAuth, requireRole('ar_team','finance_man
                  wht, grand_total, notes, region, bu, status, created_by)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'Draft',$18)
             RETURNING *
-        `, [invNo, client, contract||null, contract_id ? parseInt(contract_id) : null,
+        `, [invNo, client, contract||null, contract_id ? String(contract_id) : null,
             parseInt(period_month)||null, parseInt(period_year)||null,
             po_number||null, due_date||null, JSON.stringify(line_items||[]),
             parseFloat(subtotal)||0, parseFloat(service_charges)||0, parseFloat(sales_tax)||0,
