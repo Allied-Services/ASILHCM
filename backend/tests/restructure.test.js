@@ -272,6 +272,79 @@ describe('compliance computeStatutoryForMonth', () => {
     });
 });
 
+describe('provinceSalesTaxRate', () => {
+    const { provinceSalesTaxRate } = require('../src/core/regionTax');
+
+    test('uses DB-driven rate when province matches', () => {
+        const rates = [{ province: 'Sindh', salesTaxPct: 10 }];
+        expect(provinceSalesTaxRate('Sindh', rates)).toBe(0.1);
+    });
+
+    test('falls back to statutory Sindh rate when rates empty', () => {
+        expect(provinceSalesTaxRate('Karachi', [])).toBe(0.13);
+    });
+
+    test('unknown province uses federal default', () => {
+        expect(provinceSalesTaxRate('Atlantis', [])).toBe(0.13);
+    });
+});
+
+describe('generateInvoiceNumber', () => {
+    const { generateInvoiceNumber } = require('../src/modules/payrollrun/service');
+
+    test('uses MAX suffix + 1 so deleted numbers are not reused', async () => {
+        const pool = {
+            query: async (sql) => {
+                expect(sql).toContain('MAX(CAST(SUBSTRING');
+                return { rows: [{ max_seq: 5 }] };
+            },
+        };
+        const invNo = await generateInvoiceNumber(pool, 2026, 6);
+        expect(invNo).toBe('INV-JUN26-006');
+    });
+});
+
+describe('generateInvoiceFromRun rate-card billing', () => {
+    const { generateInvoiceFromRun } = require('../src/modules/payrollrun/service');
+
+    test('applies regional sales tax and due_date from policy credit_days', async () => {
+        let insertParams = null;
+        const pool = {
+            query: async (sql, params) => {
+                if (sql.includes('FROM payroll_runs WHERE id')) {
+                    return { rows: [{ id: 7, status: 'locked', contract_id: 'CTR-1', period_month: 6, period_year: 2026 }] };
+                }
+                if (sql.includes('FROM contracts c')) {
+                    return { rows: [{ id: 'CTR-1', contract_name: 'Test Contract', client_name: 'TEST Client' }] };
+                }
+                if (sql.includes('SELECT computed FROM payroll_run_rows')) {
+                    return { rows: [{ computed: { billSource: 'rate_card', billAmount: 100000, totalPayrollCost: 50000 } }] };
+                }
+                if (sql.includes('FROM contract_policies')) {
+                    return { rows: [{ credit_days: 45, challans_required: [] }] };
+                }
+                if (sql.includes("key = 'region_tax'")) return { rows: [] };
+                if (sql.includes('GROUP BY e.province')) {
+                    return { rows: [{ province: 'Sindh', cnt: '1' }] };
+                }
+                if (sql.includes('MAX(CAST(SUBSTRING')) return { rows: [{ max_seq: 0 }] };
+                if (sql.startsWith('INSERT INTO client_invoices')) {
+                    insertParams = params;
+                    return { rows: [{ id: 99, invoice_number: params[0], sales_tax: params[9], grand_total: params[10] }] };
+                }
+                if (sql.includes('UPDATE payroll_runs')) return { rows: [] };
+                return { rows: [] };
+            },
+        };
+
+        await generateInvoiceFromRun(pool, { runId: 7, generatedBy: 'test@asil.com.pk' });
+        expect(insertParams).not.toBeNull();
+        expect(insertParams[9]).toBe(13000);
+        expect(insertParams[10]).toBe(113000);
+        expect(insertParams[13]).toBe('45');
+    });
+});
+
 describe('aggregateClaimInputs', () => {
     const { aggregateClaimInputs } = require('../src/modules/payrollrun/service');
 
