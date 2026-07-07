@@ -51,7 +51,11 @@ async function resolveIncomeTaxWhtPct(pool, contractId) {
 }
 
 async function previewReceiptSplit(pool, { invoice_ids = [] }) {
-    if (!invoice_ids.length) throw new Error('invoice_ids required');
+    if (!invoice_ids.length) {
+        const err = new Error('invoice_ids required');
+        err.status = 400;
+        throw err;
+    }
     const { rows: invoices } = await pool.query(
         `SELECT * FROM client_invoices WHERE id = ANY($1::int[])`,
         [invoice_ids.map(id => parseInt(id, 10))]
