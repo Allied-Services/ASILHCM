@@ -4203,6 +4203,12 @@ app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team
         const lineItems = (ci.line_items||[]).length > 0
             ? ci.line_items.map(li => ({ Description: li.description||li.desc, Quantity: li.qty||1, UnitAmount: li.amount||li.unit_amount||0, AccountCode: li.account_code||'200' }))
             : [{ Description: `Services \u2014 ${ci.contract||ci.client}`, Quantity: 1, UnitAmount: parseFloat(ci.grand_total)||0, AccountCode: '200' }];
+        const toXeroDate = (d) => {
+            const dt = d ? new Date(d) : new Date();
+            return `/Date(${dt.getTime()}+0000)/`;
+        };
+        const invoiceDate = ci.invoice_date || ci.created_at || new Date();
+        const dueDate = ci.due_date || new Date(new Date(invoiceDate).getTime() + 30 * 86400000);
         const xeroPayload = {
             Type: 'ACCREC',
             InvoiceNumber: ci.invoice_number,
@@ -4212,6 +4218,8 @@ app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team
             Contact: { Name: ci.client },
             LineAmountTypes: 'Exclusive',
             LineItems: lineItems,
+            Date: toXeroDate(invoiceDate),
+            DueDate: toXeroDate(dueDate),
         };
         const xeroResp = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
             method: 'POST',
@@ -4225,6 +4233,7 @@ app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team
         // Update invoice with Xero refs
         await pool.query(`UPDATE client_invoices SET xero_invoice_id=$1, xero_url=$2, status='Raised', updated_at=NOW() WHERE id=$3`,
             [xeroId, xeroUrl, req.params.id]);
+        res.json({ ok: true, xeroId, xeroUrl });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
