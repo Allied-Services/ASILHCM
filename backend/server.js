@@ -4225,7 +4225,25 @@ app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team
         // Update invoice with Xero refs
         await pool.query(`UPDATE client_invoices SET xero_invoice_id=$1, xero_url=$2, status='Raised', updated_at=NOW() WHERE id=$3`,
             [xeroId, xeroUrl, req.params.id]);
-        res.json({ ok: true, xeroId, xeroUrl });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/client-invoices/:id/void-xero', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const inv = await pool.query('SELECT * FROM client_invoices WHERE id=$1', [req.params.id]);
+        if (!inv.rows.length) return res.status(404).json({ error: 'Invoice not found' });
+        const ci = inv.rows[0];
+        if (!ci.xero_invoice_id) return res.status(400).json({ error: 'Invoice has not been pushed to Xero' });
+        const { accessToken, tenantId } = await xeroGetAccessToken();
+        const xeroResp = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ Invoices: [{ InvoiceID: ci.xero_invoice_id, Status: 'VOIDED' }] }),
+        });
+        const xd = await xeroResp.json();
+        if (!xeroResp.ok) return res.status(502).json({ error: 'Xero void error', detail: xd });
+        await pool.query(`UPDATE client_invoices SET status='Void', updated_at=NOW() WHERE id=$1`, [req.params.id]);
+        res.json({ ok: true, xeroId: ci.xero_invoice_id, status: xd.Invoices?.[0]?.Status || 'VOIDED' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
