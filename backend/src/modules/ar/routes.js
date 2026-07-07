@@ -9,9 +9,10 @@ const {
     getInvoiceSchedules,
     getDunningLog,
 } = require('./service');
+const { previewReceiptSplit, postReceipt, listReceipts } = require('./receipts');
 
 function registerArRoutes(app, deps) {
-    const { pool, requireAuth, requireRole, sendAppEmail } = deps;
+    const { pool, requireAuth, requireRole, sendAppEmail, getXeroAccessToken } = deps;
 
     app.get('/api/ar/po-balance/:poId', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team', 'finance_proposer'), async (req, res) => {
         try {
@@ -60,6 +61,31 @@ function registerArRoutes(app, deps) {
             res.json(await logXeroSync(pool, req.body));
         } catch (err) {
             handleRouteError(res, 'ar.xeroLog', err);
+        }
+    });
+
+    app.post('/api/ar/receipts/preview-split', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team'), async (req, res) => {
+        try {
+            res.json(await previewReceiptSplit(pool, req.body));
+        } catch (err) {
+            handleRouteError(res, 'ar.receiptPreview', err);
+        }
+    });
+
+    app.post('/api/ar/receipts', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team'), async (req, res) => {
+        try {
+            if (!getXeroAccessToken) return res.status(500).json({ error: 'Xero not configured' });
+            res.json(await postReceipt(pool, getXeroAccessToken, req.body, req.user.email));
+        } catch (err) {
+            handleRouteError(res, 'ar.receiptPost', err);
+        }
+    });
+
+    app.get('/api/ar/receipts', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team'), async (req, res) => {
+        try {
+            res.json({ receipts: await listReceipts(pool, req.query) });
+        } catch (err) {
+            handleRouteError(res, 'ar.receiptList', err);
         }
     });
 }
