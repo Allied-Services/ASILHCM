@@ -78,6 +78,158 @@ describe('constraints validateAction', () => {
     });
 });
 
+describe('constraints upsertPolicy', () => {
+    const { upsertPolicy } = require('../src/modules/constraints/service');
+
+    test('updates existing row for same contract, project, and effective_from', async () => {
+        let updated = false;
+        const pool = {
+            query: async (sql) => {
+                if (sql.includes('SELECT id FROM contract_policies')) {
+                    return { rows: [{ id: 42 }] };
+                }
+                if (sql.startsWith('UPDATE contract_policies')) {
+                    updated = true;
+                    return { rows: [{ id: 42, contract_id: 'CTR-1', challans_required: '["EOBI"]' }] };
+                }
+                throw new Error('unexpected query: ' + sql.slice(0, 40));
+            },
+        };
+        const row = await upsertPolicy(pool, {
+            contract_id: 'CTR-1',
+            challans_required: ['EOBI'],
+            effective_from: '2026-06-01',
+        });
+        expect(updated).toBe(true);
+        expect(row.id).toBe(42);
+    });
+
+    test('inserts when no matching policy exists', async () => {
+        let inserted = false;
+        const pool = {
+            query: async (sql) => {
+                if (sql.includes('SELECT id FROM contract_policies')) return { rows: [] };
+                if (sql.startsWith('INSERT INTO contract_policies')) {
+                    inserted = true;
+                    return { rows: [{ id: 1, contract_id: 'CTR-2' }] };
+                }
+                throw new Error('unexpected query');
+            },
+        };
+        const row = await upsertPolicy(pool, { contract_id: 'CTR-2' });
+        expect(inserted).toBe(true);
+        expect(row.contract_id).toBe('CTR-2');
+    });
+});
+
+describe('parseConfigValue', () => {
+    const { parseConfigValue } = require('../src/core/jsonConfig');
+
+    test('parses JSON string values', () => {
+        expect(parseConfigValue('{"access_token":"abc"}')).toEqual({ access_token: 'abc' });
+    });
+
+    test('returns object values unchanged', () => {
+        const obj = { access_token: 'xyz', expires_at: 123 };
+        expect(parseConfigValue(obj)).toBe(obj);
+    });
+});
+
+describe('purgeContract', () => {
+    const { purgeContract } = require('../src/modules/admin/purgeContract');
+
+    test('preview mode lists employees without deleting', async () => {
+        const deletes = [];
+        const pool = {
+            query: async (sql) => {
+                if (sql.trim().startsWith('DELETE')) deletes.push(sql);
+                if (sql.includes('FROM employees')) return { rows: [{ id: 'TEST-001', name: 'Test' }] };
+                if (sql.includes('FROM contracts')) return { rows: [{ id: 'CTR-1', contract_name: 'Test' }] };
+                return { rows: [] };
+            },
+        };
+        const result = await purgeContract(pool, { contract_id: 'CTR-1' }, { confirm: false });
+        expect(result.preview.employees).toHaveLength(1);
+        expect(result.message).toContain('confirm=yes');
+        expect(deletes).toHaveLength(0);
+    });
+
+    test('confirm mode runs delete statements', async () => {
+        const deletes = [];
+        const pool = {
+            query: async (sql) => {
+                if (sql.trim().startsWith('DELETE')) deletes.push(sql);
+                if (sql.includes('FROM employees')) return { rows: [{ id: 'TEST-001', name: 'Test' }] };
+                return { rowCount: 1, rows: [] };
+            },
+        };
+        const result = await purgeContract(pool, { contract_id: 'CTR-1', client_id: 'CLT-1' }, { confirm: true });
+        expect(result.ok).toBe(true);
+        expect(deletes.length).toBeGreaterThan(5);
+        expect(result.results.contract).toBe(1);
+    });
+});
+
+describe('listContractPnl', () => {
+    const { listContractPnl } = require('../src/modules/pnl/service');
+
+    test('filters by month and year and returns margin fields', async () => {
+        const pool = {
+            query: async (sql, params) => {
+                if (sql.includes('CREATE OR REPLACE VIEW')) return { rows: [] };
+                expect(params).toEqual([2026, 6]);
+                expect(sql).toContain('period_year = $1');
+                expect(sql).toContain('period_month = $2');
+                return {
+                    rows: [{
+                        contract_id: 'CTR-1',
+                        contract_name: 'Test',
+                        period_year: 2026,
+                        period_month: 6,
+                        total_cost: '68176.00',
+                        total_revenue: '115385.00',
+                        margin_abs: '47209.00',
+                        margin_pct: '40.91',
+                    }],
+                };
+            },
+        };
+        const rows = await listContractPnl(pool, { year: 2026, month: 6 });
+        expect(rows[0].contract_id).toBe('CTR-1');
+        expect(rows[0].margin_pct).toBe('40.91');
+    });
+});
+
+describe('invoice challan attachments', () => {
+    const { attachInvoiceChallan, getInvoiceChallanStatus } = require('../src/modules/compliance/service');
+
+    test('attachInvoiceChallan records attachment and status reflects present', async () => {
+        const attachments = [];
+        const pool = {
+            query: async (sql, params) => {
+                if (sql.includes('SELECT id FROM client_invoices')) return { rows: [{ id: 9 }] };
+                if (sql.includes('DELETE FROM invoice_attachments')) return { rows: [] };
+                if (sql.includes('INSERT INTO invoice_attachments')) {
+                    attachments.push(params[1]);
+                    return { rows: [{ id: 1, invoice_id: params[0], attachment_type: params[1] }] };
+                }
+                if (sql.includes('FROM client_invoices ci')) {
+                    return { rows: [{ challans_required: JSON.stringify(['EOBI', 'SESSI']) }] };
+                }
+                if (sql.includes('FROM invoice_attachments')) {
+                    return { rows: attachments.map(t => ({ attachment_type: t })) };
+                }
+                return { rows: [] };
+            },
+        };
+        await attachInvoiceChallan(pool, 9, 'EOBI');
+        const status = await getInvoiceChallanStatus(pool, 9);
+        expect(status.present).toContain('EOBI');
+        expect(status.missing).toEqual(['SESSI']);
+        expect(status.ok).toBe(false);
+    });
+});
+
 describe('compliance computeStatutoryForMonth', () => {
     const { computeStatutoryForMonth } = require('../src/modules/compliance/service');
 

@@ -7,6 +7,7 @@ const {
     getStatutoryLedger,
     generateFilingPreview,
     getInvoiceChallanStatus,
+    attachInvoiceChallan,
 } = require('./service');
 const { validateAction } = require('../constraints/service');
 
@@ -54,6 +55,16 @@ function registerComplianceRoutes(app, deps) {
             res.json(status);
         } catch (err) {
             handleRouteError(res, 'compliance.invoiceChallans', err);
+        }
+    });
+
+    app.post('/api/compliance/invoice/:id/attachments', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team'), async (req, res) => {
+        try {
+            const attachment = await attachInvoiceChallan(pool, req.params.id, req.body.attachment_type);
+            const challanStatus = await getInvoiceChallanStatus(pool, req.params.id);
+            res.json({ attachment, challanStatus });
+        } catch (err) {
+            handleRouteError(res, 'compliance.invoiceAttachment', err);
         }
     });
 

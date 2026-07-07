@@ -699,33 +699,15 @@ app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin')
 // Purge a contract and every record tied to it (runs, invoices, claims,
 // attendance, rate cards, policies, employees, optionally the client).
 // Used to remove TEST/demo data. Requires ?confirm=yes to actually delete.
+const { purgeContract } = require('./src/modules/admin/purgeContract');
 app.delete('/api/admin/purge-contract', requireAuth, requireRole('superadmin'), async (req, res) => {
     const { contract_id, client_id } = req.body || {};
     if (!contract_id) return res.status(400).json({ error: 'contract_id is required' });
     try {
-        const { rows: emps } = await pool.query('SELECT id, name FROM employees WHERE contract_id = $1', [contract_id]);
-        const empIds = emps.map(r => r.id);
-        if (req.query.confirm !== 'yes') {
-            const { rows: c } = await pool.query('SELECT id, contract_name FROM contracts WHERE id = $1', [contract_id]);
-            return res.json({ preview: { contract: c[0] || null, employees: emps }, message: 'Add ?confirm=yes to actually delete' });
-        }
-        const results = {};
-        const del = async (label, sql, params) => {
-            try { const r = await pool.query(sql, params); results[label] = r.rowCount; }
-            catch (e) { results[label] = 'error: ' + e.message; }
-        };
-        await del('claims', `DELETE FROM employee_claims WHERE contract_id = $1 OR employee_id = ANY($2::text[])`, [contract_id, empIds]);
-        await del('cost_allocations', `DELETE FROM cost_allocations WHERE contract_id = $1`, [contract_id]);
-        await del('run_rows', `DELETE FROM payroll_run_rows WHERE run_id IN (SELECT id FROM payroll_runs WHERE contract_id = $1)`, [contract_id]);
-        await del('runs', `DELETE FROM payroll_runs WHERE contract_id = $1`, [contract_id]);
-        await del('invoices', `DELETE FROM client_invoices WHERE contract_id = $1`, [contract_id]);
-        await del('rate_cards', `DELETE FROM contract_rate_cards WHERE contract_id = $1`, [contract_id]);
-        await del('policies', `DELETE FROM contract_policies WHERE contract_id = $1`, [contract_id]);
-        if (empIds.length) await del('attendance', `DELETE FROM attendance_records WHERE employee_id = ANY($1::text[])`, [empIds]);
-        await del('employees', `DELETE FROM employees WHERE contract_id = $1`, [contract_id]);
-        await del('contract', `DELETE FROM contracts WHERE id = $1`, [contract_id]);
-        if (client_id) await del('client', `DELETE FROM clients WHERE id = $1`, [client_id]);
-        res.json({ ok: true, results });
+        const result = await purgeContract(pool, { contract_id, client_id }, {
+            confirm: req.query.confirm === 'yes',
+        });
+        res.json(result);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -3511,7 +3493,7 @@ const XERO_REDIRECT_URI  = process.env.XERO_REDIRECT_URI  || 'https://asilhcm.on
 const XERO_SCOPES = 'offline_access openid profile email accounting.contacts accounting.invoices accounting.settings';
 
 // system_config.value is JSONB — pg returns it as an object, but older rows may be text
-const parseConfigValue = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
+const { parseConfigValue } = require('./src/core/jsonConfig');
 
 // Helper: exchange code or refresh token for access token
 async function xeroGetToken(params) {

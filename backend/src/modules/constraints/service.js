@@ -87,6 +87,49 @@ async function validateAction(pool, action, context) {
 }
 
 async function upsertPolicy(pool, data) {
+    const projectId = data.project_id || null;
+    const effectiveFrom = data.effective_from || formatDate();
+    const params = [
+        data.contract_id, projectId, data.billing_model || 'headcount_rate',
+        data.attendance_input_mode || 'full_ledger', data.standard_month_days || 30,
+        data.ot_allowed !== false, data.ot_monthly_cap_hours || null, data.ot_client_managed || false,
+        data.ot_divisor_days || 26, data.ot_divisor_hours || 8,
+        data.service_charge_pct ?? 0.18, data.medical_annual_cap || null,
+        data.medical_cycle_anchor || 'employment_date', data.credit_days || 30,
+        data.invoice_frequency || 'monthly', data.invoice_day_of_month || 1,
+        data.po_required || false, JSON.stringify(data.challans_required || []),
+        JSON.stringify(data.reminder_cadence || []), data.edu_cess_enabled || false,
+        data.bonus_accrual_months || 12, data.gratuity_accrual_months || 12,
+        effectiveFrom, data.effective_to || null,
+    ];
+
+    const { rows: existing } = await pool.query(
+        `SELECT id FROM contract_policies
+         WHERE contract_id = $1
+           AND (($2::text IS NULL AND project_id IS NULL) OR project_id = $2)
+           AND effective_from::date = $3::date
+         LIMIT 1`,
+        [data.contract_id, projectId, effectiveFrom]
+    );
+
+    if (existing.length) {
+        const updateValues = [...params.slice(2, 22), params[23]];
+        const { rows } = await pool.query(
+            `UPDATE contract_policies SET
+                billing_model = $4, attendance_input_mode = $5, standard_month_days = $6,
+                ot_allowed = $7, ot_monthly_cap_hours = $8, ot_client_managed = $9,
+                ot_divisor_days = $10, ot_divisor_hours = $11, service_charge_pct = $12,
+                medical_annual_cap = $13, medical_cycle_anchor = $14, credit_days = $15,
+                invoice_frequency = $16, invoice_day_of_month = $17, po_required = $18,
+                challans_required = $19, reminder_cadence = $20, edu_cess_enabled = $21,
+                bonus_accrual_months = $22, gratuity_accrual_months = $23, effective_to = $24
+             WHERE id = $25
+             RETURNING *`,
+            [...updateValues, existing[0].id]
+        );
+        return rows[0];
+    }
+
     const { rows } = await pool.query(
         `INSERT INTO contract_policies (
             contract_id, project_id, billing_model, attendance_input_mode, standard_month_days,
@@ -97,19 +140,7 @@ async function upsertPolicy(pool, data) {
         ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24
         ) RETURNING *`,
-        [
-            data.contract_id, data.project_id || null, data.billing_model || 'headcount_rate',
-            data.attendance_input_mode || 'full_ledger', data.standard_month_days || 30,
-            data.ot_allowed !== false, data.ot_monthly_cap_hours || null, data.ot_client_managed || false,
-            data.ot_divisor_days || 26, data.ot_divisor_hours || 8,
-            data.service_charge_pct ?? 0.18, data.medical_annual_cap || null,
-            data.medical_cycle_anchor || 'employment_date', data.credit_days || 30,
-            data.invoice_frequency || 'monthly', data.invoice_day_of_month || 1,
-            data.po_required || false, JSON.stringify(data.challans_required || []),
-            JSON.stringify(data.reminder_cadence || []), data.edu_cess_enabled || false,
-            data.bonus_accrual_months || 12, data.gratuity_accrual_months || 12,
-            data.effective_from || formatDate(), data.effective_to || null,
-        ]
+        params
     );
     return rows[0];
 }

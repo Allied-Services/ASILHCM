@@ -149,10 +149,31 @@ async function getInvoiceChallanStatus(pool, invoiceId) {
     return { ok: missing.length === 0, required, present, missing };
 }
 
+async function attachInvoiceChallan(pool, invoiceId, attachmentType) {
+    const invId = String(invoiceId);
+    const type = String(attachmentType || '').trim();
+    if (!type) throw new Error('attachment_type is required');
+
+    const { rows: inv } = await pool.query(`SELECT id FROM client_invoices WHERE id = $1`, [invId]);
+    if (!inv.length) throw new Error('Invoice not found');
+
+    await pool.query(
+        `DELETE FROM invoice_attachments WHERE invoice_id = $1 AND attachment_type = $2`,
+        [invId, type]
+    );
+    const { rows } = await pool.query(
+        `INSERT INTO invoice_attachments (invoice_id, attachment_type)
+         VALUES ($1, $2) RETURNING *`,
+        [invId, type]
+    );
+    return rows[0];
+}
+
 module.exports = {
     computeStatutoryForMonth,
     upsertStatutoryLedger,
     getStatutoryLedger,
     generateFilingPreview,
     getInvoiceChallanStatus,
+    attachInvoiceChallan,
 };
