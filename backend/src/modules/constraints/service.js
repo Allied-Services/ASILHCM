@@ -100,6 +100,7 @@ async function upsertPolicy(pool, data) {
         data.po_required || false, JSON.stringify(data.challans_required || []),
         JSON.stringify(data.reminder_cadence || []), data.edu_cess_enabled || false,
         data.bonus_accrual_months || 12, data.gratuity_accrual_months || 12,
+        data.income_tax_wht_pct ?? null,
         effectiveFrom, data.effective_to || null,
     ];
 
@@ -113,7 +114,7 @@ async function upsertPolicy(pool, data) {
     );
 
     if (existing.length) {
-        const updateValues = [...params.slice(2, 22), params[23]];
+        const updateValues = [...params.slice(2, 23), params[24]];
         const { rows } = await pool.query(
             `UPDATE contract_policies SET
                 billing_model = $4, attendance_input_mode = $5, standard_month_days = $6,
@@ -122,7 +123,7 @@ async function upsertPolicy(pool, data) {
                 medical_annual_cap = $13, medical_cycle_anchor = $14, credit_days = $15,
                 invoice_frequency = $16, invoice_day_of_month = $17, po_required = $18,
                 challans_required = $19, reminder_cadence = $20, edu_cess_enabled = $21,
-                bonus_accrual_months = $22, gratuity_accrual_months = $23, effective_to = $24
+                bonus_accrual_months = $22, gratuity_accrual_months = $23, income_tax_wht_pct = $24, effective_to = $25
              WHERE id = $25
              RETURNING *`,
             [...updateValues, existing[0].id]
