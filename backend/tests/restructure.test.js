@@ -376,3 +376,148 @@ describe('payroll run helpers', () => {
         expect(row.overtimeAmount).toBe(expectedOt);
     });
 });
+
+describe('xero bill classifier', () => {
+    const { classifyXeroBill } = require('../src/modules/xeroBillImport/classifier');
+
+    test('classifies FM bill with site from account code', () => {
+        const result = classifyXeroBill({
+            InvoiceID: 'abc',
+            LineItems: [{
+                AccountCode: 'FM-106',
+                Description: 'FM-106 - FM - T&S - Bhakkar',
+                Tracking: [{ Name: 'Tracking Category', Option: 'FM' }],
+            }],
+        });
+        expect(result.owned).toBe(true);
+        expect(result.site).toBe('Bhakkar');
+        expect(result.trackingCategory).toBe('FM');
+    });
+
+    test('sends unknown tracking to review', () => {
+        const result = classifyXeroBill({
+            InvoiceID: 'xyz',
+            LineItems: [{ Tracking: [{ Name: 'Tracking Category', Option: 'Karachi' }] }],
+        });
+        expect(result.owned).toBe(false);
+        expect(result.importStatus).toBe('Needs Review');
+    });
+});
+
+describe('receipt split', () => {
+    const { computeReceiptSplit } = require('../src/modules/ar/receipts');
+
+    test('splits grand total into cash, income tax WHT, and sales tax withheld', () => {
+        const split = computeReceiptSplit({
+            id: 1,
+            invoice_number: 'INV-TEST',
+            subtotal: 100000,
+            sales_tax: 16000,
+            grand_total: 116000,
+        }, 6);
+        expect(split.income_tax_wht).toBe(6000);
+        expect(split.sales_tax_withheld_by_client).toBe(3200);
+        expect(split.sales_tax_self_paid).toBe(12800);
+        expect(split.cash_received).toBe(106800);
+    });
+});
+
+describe('HBL export row', () => {
+    const { buildHblRow } = require('../src/modules/xeroBillImport/hblExport');
+
+    test('builds HBL-to-HBL row with template columns', () => {
+        const row = buildHblRow({
+            vendor: 'Acme',
+            total: 50000,
+            vendor_bank_account: '01037901498903',
+            invoice_no: 'BILL-1',
+        }, 'hbl_same', 'BLMay-', 0);
+        expect(row['Beneficiary Account Number']).toBe('01037901498903');
+        expect(row['Transaction Amount']).toBe(50000);
+        expect(row['Customer Reference Number']).toBe('BLMay-0001');
+        expect(row['Purpose of Payment']).toBe('012');
+    });
+
+    test('builds HBL-to-Other row with alternate column names', () => {
+        const row = buildHblRow({
+            vendor: 'Acme',
+            total: 25000,
+            vendor_bank_account: '12345',
+            invoice_no: 'INV-9',
+        }, 'hbl_other', 'REF-', 2);
+        expect(row['Customer Reference No']).toBe('REF-0003');
+        expect(row['Pupose of Payment']).toBe('012');
+        expect(row['Invoice Number']).toBe('INV-9');
+    });
+});
+
+describe('billable invoice builder', () => {
+    const { getBillableCandidates, createInvoiceFromBillable } = require('../src/modules/xeroBillImport/billableInvoice');
+
+    test('getBillableCandidates filters uninvoiced billable bills', async () => {
+        const pool = {
+            query: async (sql, params) => {
+                expect(params[0]).toBe('Wafi Energy');
+                expect(sql).toContain('invoiced_in IS NULL');
+                return { rows: [{ id: 'B1', site: 'Bhakkar', total: 1000 }] };
+            },
+        };
+        const rows = await getBillableCandidates(pool, { client: 'Wafi Energy', period_month: 6, period_year: 2026 });
+        expect(rows).toHaveLength(1);
+    });
+
+    test('createInvoiceFromBillable links bills and sets invoiced_in', async () => {
+        let updateSql = '';
+        const pool = {
+            query: async (sql, params) => {
+                if (sql.includes('FROM bills WHERE id = ANY')) {
+                    return { rows: [{ id: 'B1', amount: 100000, gst: 16000, total: 116000, site: 'Bhakkar', vendor: 'Vendor A' }] };
+                }
+                if (sql.includes('MAX(CAST(SUBSTRING')) return { rows: [{ max_seq: 2 }] };
+                if (sql.startsWith('INSERT INTO client_invoices')) {
+                    return { rows: [{ id: 55, invoice_number: params[0] }] };
+                }
+                if (sql.includes('UPDATE bills SET invoiced_in')) {
+                    updateSql = sql;
+                    return { rows: [] };
+                }
+                return { rows: [] };
+            },
+        };
+        const result = await createInvoiceFromBillable(pool, {
+            client: 'Wafi Energy',
+            period_month: 6,
+            period_year: 2026,
+            bill_ids: ['B1'],
+            created_by: 'test@asil.com.pk',
+        });
+        expect(result.billsLinked).toBe(1);
+        expect(updateSql).toContain('invoiced_in');
+        expect(result.invoice.id).toBe(55);
+    });
+});
+
+describe('receipt preview and post', () => {
+    const { previewReceiptSplit } = require('../src/modules/ar/receipts');
+
+    test('previewReceiptSplit returns lines for multiple invoices', async () => {
+        const pool = {
+            query: async (sql) => {
+                if (sql.includes('FROM client_invoices')) {
+                    return {
+                        rows: [
+                            { id: 1, invoice_number: 'INV-1', subtotal: 50000, sales_tax: 8000, grand_total: 58000, contract_id: null },
+                            { id: 2, invoice_number: 'INV-2', subtotal: 100000, sales_tax: 16000, grand_total: 116000, contract_id: null },
+                        ],
+                    };
+                }
+                if (sql.includes('client_income_tax_wht_pct')) return { rows: [{ value: 6 }] };
+                if (sql.includes('contract_policies')) return { rows: [] };
+                return { rows: [] };
+            },
+        };
+        const result = await previewReceiptSplit(pool, { invoice_ids: [1, 2] });
+        expect(result.lines).toHaveLength(2);
+        expect(result.totals.cash_received).toBeGreaterThan(0);
+    });
+});
