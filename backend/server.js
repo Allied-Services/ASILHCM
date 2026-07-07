@@ -4214,7 +4214,7 @@ app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team
             InvoiceNumber: ci.invoice_number,
             Reference: ci.po_number||'',
             CurrencyCode: 'PKR',
-            Status: 'AUTHORISED',
+            Status: 'DRAFT',
             Contact: { Name: ci.client },
             LineAmountTypes: 'Exclusive',
             LineItems: lineItems,
