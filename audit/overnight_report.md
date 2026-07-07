@@ -1,6 +1,7 @@
 # Overnight report (2026-07-08)
 
-Builder: Composer 2.5. Base commit: \014a28\. Live: https://asilhcm.onrender.com
+Builder: Composer 2.5. Base commit: \
+014a28\. Live: https://asilhcm.onrender.com
 
 ## Step 1 — Code fixes (pushed to \main\)
 
@@ -51,5 +52,5 @@ Command: \python C:\\temp\\live_verify_xero_ar.py\ (repo copy: \scripts/live_ver
 
 ## Notes
 
-- \oid-xero\ 502 may leave a DRAFT in Xero; local rows were voided. Manual Xero cleanup of TEST invoice numbers if needed.
+- void-xero: fixed DRAFT push used VOIDED (Xero validation); now DELETED for drafts, VOIDED for authorised; idempotent if already cancelled.
 - Receipt rows (\invoice_receipts\) remain for TEST runs; no delete API exposed.
