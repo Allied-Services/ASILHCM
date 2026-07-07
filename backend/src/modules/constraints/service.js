@@ -124,7 +124,7 @@ async function upsertPolicy(pool, data) {
                 invoice_frequency = $16, invoice_day_of_month = $17, po_required = $18,
                 challans_required = $19, reminder_cadence = $20, edu_cess_enabled = $21,
                 bonus_accrual_months = $22, gratuity_accrual_months = $23, income_tax_wht_pct = $24, effective_to = $25
-             WHERE id = $25
+             WHERE id = $26
              RETURNING *`,
             [...updateValues, existing[0].id]
         );
@@ -137,9 +137,9 @@ async function upsertPolicy(pool, data) {
             ot_allowed, ot_monthly_cap_hours, ot_client_managed, ot_divisor_days, ot_divisor_hours,
             service_charge_pct, medical_annual_cap, medical_cycle_anchor, credit_days,
             invoice_frequency, invoice_day_of_month, po_required, challans_required, reminder_cadence,
-            edu_cess_enabled, bonus_accrual_months, gratuity_accrual_months, effective_from, effective_to
+            edu_cess_enabled, bonus_accrual_months, gratuity_accrual_months, income_tax_wht_pct, effective_from, effective_to
         ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25
         ) RETURNING *`,
         params
     );
