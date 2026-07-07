@@ -157,6 +157,14 @@ export const api = {
     unlockPayroll: (year, month, employeeIds) => apiFetch(`/api/payroll/${year}/${month}/unlock`, { method: 'PATCH', body: JSON.stringify({ employee_ids: employeeIds || [] }) }),
     resetPayroll:  (year, month, password)    => apiFetch(`/api/payroll/${year}/${month}`,        { method: 'DELETE', body: JSON.stringify({ password }) }),
     xeroStatus:    ()                         => apiFetch('/api/xero/status'),
+    syncXeroBills: (body)                    => apiFetch('/api/xero/bills/sync', { method: 'POST', body: JSON.stringify(body || {}) }),
+    getXeroReviewQueue: ()                  => apiFetch('/api/xero/bills/review-queue'),
+    resolveXeroBillReview: (id, body)       => apiFetch(`/api/xero/bills/${encodeURIComponent(id)}/review`, { method: 'PATCH', body: JSON.stringify(body) }),
+    getBillableCandidates: (q = {})          => apiFetch('/api/client-invoices/billable-candidates?' + new URLSearchParams(Object.fromEntries(Object.entries(q).filter(([,v]) => v != null && v !== ''))).toString()),
+    createInvoiceFromBillable: (body)        => apiFetch('/api/client-invoices/from-billable', { method: 'POST', body: JSON.stringify(body) }),
+    previewReceiptSplit: (body)              => apiFetch('/api/ar/receipts/preview-split', { method: 'POST', body: JSON.stringify(body) }),
+    postReceipt: (body)                      => apiFetch('/api/ar/receipts', { method: 'POST', body: JSON.stringify(body) }),
+    listReceipts: (q = {})                   => apiFetch('/api/ar/receipts?' + new URLSearchParams(Object.fromEntries(Object.entries(q).filter(([,v]) => v))).toString()),
 
     // ── Payslips ──────────────────────────────────────────────────────────────
     getPayslipUrl: (empId, month, year) => `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}`,
@@ -395,6 +403,40 @@ export const api = {
         }),
     }),
     logXeroSync: (data) => apiFetch('/api/ar/xero-sync-log', { method: 'POST', body: JSON.stringify(data) }),
+    previewReceiptSplit: (data) => apiFetch('/api/ar/receipts/preview-split', { method: 'POST', body: JSON.stringify(data) }),
+    postReceipt: (data) => apiFetch('/api/ar/receipts', { method: 'POST', body: JSON.stringify(data) }),
+    getReceipts: (q = {}) => apiFetch('/api/ar/receipts?' + new URLSearchParams(q).toString()),
+
+  // ── Xero bill import / billable invoicing ────────────────────────────────────
+    syncXeroBills: () => apiFetch('/api/xero/bills/sync', { method: 'POST', body: '{}' }),
+    getBillReviewQueue: () => apiFetch('/api/xero/bills/review-queue'),
+    resolveBillReview: (id, data) => apiFetch(`/api/xero/bills/${id}/review`, { method: 'PATCH', body: JSON.stringify(data) }),
+    getBillableCandidates: (q) => apiFetch('/api/bills/billable-candidates?' + new URLSearchParams(q).toString()),
+    createInvoiceFromBillable: (data) => apiFetch('/api/client-invoices/from-billable', { method: 'POST', body: JSON.stringify(data) }),
+    exportHblBills: async (data) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const res = await fetch(`${API}/api/ap/bills/hbl-export`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            throw new Error(d.error || `HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        const disp = res.headers.get('Content-Disposition') || '';
+        const match = disp.match(/filename="([^"]+)"/);
+        const filename = match ? match[1] : 'hbl-export.xlsx';
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        return { ok: true, filename };
+    },
+    markBillsPaid: (data) => apiFetch('/api/ap/bills/mark-paid', { method: 'POST', body: JSON.stringify(data) }),
 
     assignClaim: (id, employeeId) => apiFetch(`/api/claims/${id}`, { method: 'PATCH', body: JSON.stringify({ employeeId }) }),
 };
