@@ -2,6 +2,8 @@
 
 const { computePrSheetRow } = require('../../payroll/prSheetEngine');
 const { getPolicy } = require('../constraints/service');
+const { parseConfigValue } = require('../../core/jsonConfig');
+const { provinceSalesTaxRate } = require('../../core/regionTax');
 
 const DEFAULT_OT_HOURS_PER_DAY = 8;
 
@@ -53,10 +55,11 @@ async function generateInvoiceNumber(pool, year, month) {
     const yr2 = String(year).slice(-2);
     const prefix = `INV-${monthAbbr}${yr2}`;
     const { rows } = await pool.query(
-        `SELECT COUNT(*) AS cnt FROM client_invoices WHERE invoice_number LIKE $1`,
+        `SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '(\\d+)$') AS INT)), 0) AS max_seq
+         FROM client_invoices WHERE invoice_number LIKE $1`,
         [`${prefix}-%`]
     );
-    const seq = parseInt(rows[0].cnt, 10) + 1;
+    const seq = parseInt(rows[0].max_seq, 10) + 1;
     return `${prefix}-${String(seq).padStart(3, '0')}`;
 }
 
@@ -474,10 +477,39 @@ async function generateInvoiceFromRun(pool, { runId, generatedBy }) {
         grandTotal += Number(c.billAmount || c.totalCost || 0);
     }
 
+    const policy = await getPolicy(pool, contract.id);
+    const creditDays = Number(policy?.credit_days) || 30;
+
+    let invoiceNotes = `Generated from payroll run #${runId}`;
+
     if (hasRateCardBilling) {
         subtotal = grandTotal;
         serviceCharges = 0;
         salesTax = 0;
+
+        const { rows: taxCfg } = await pool.query(`SELECT value FROM system_config WHERE key = 'region_tax'`);
+        const regionRatesRaw = taxCfg.length ? parseConfigValue(taxCfg[0].value) : [];
+        const regionRates = Array.isArray(regionRatesRaw) ? regionRatesRaw : [];
+
+        const { rows: provinceRows } = await pool.query(
+            `SELECT e.province, COUNT(*) AS cnt
+             FROM payroll_run_rows prr
+             JOIN employees e ON e.id = prr.employee_id
+             WHERE prr.run_id = $1 AND e.province IS NOT NULL AND TRIM(e.province) <> ''
+             GROUP BY e.province
+             ORDER BY cnt DESC
+             LIMIT 1`,
+            [runId]
+        );
+        const majorityProvince = provinceRows[0]?.province || null;
+
+        if (majorityProvince) {
+            const rate = provinceSalesTaxRate(majorityProvince, regionRates);
+            salesTax = Math.round(grandTotal * rate);
+            grandTotal += salesTax;
+        } else {
+            invoiceNotes += ' No employee province — sales tax not applied.';
+        }
     }
 
     const invNo = await generateInvoiceNumber(pool, run.period_year, run.period_month);
@@ -489,8 +521,8 @@ async function generateInvoiceFromRun(pool, { runId, generatedBy }) {
     const { rows: invRows } = await pool.query(
         `INSERT INTO client_invoices
          (invoice_number, client, contract, contract_id, period_month, period_year,
-          line_items, subtotal, service_charges, sales_tax, wht, grand_total, notes, status, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11,$12,'Draft',$13) RETURNING *`,
+          line_items, subtotal, service_charges, sales_tax, wht, grand_total, notes, status, created_by, due_date)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11,$12,'Draft',$13,(CURRENT_DATE + ($14 || ' days')::interval)::date) RETURNING *`,
         [
             invNo,
             contract.client_name || contract.contract_name,
@@ -503,8 +535,9 @@ async function generateInvoiceFromRun(pool, { runId, generatedBy }) {
             serviceCharges,
             salesTax,
             grandTotal,
-            `Generated from payroll run #${runId}`,
+            invoiceNotes,
             generatedBy,
+            String(creditDays),
         ]
     );
 
@@ -544,6 +577,7 @@ module.exports = {
     patchRunRow,
     lockRun,
     generateInvoiceFromRun,
+    generateInvoiceNumber,
     listRateCards,
     saveRateCard,
     deleteRateCard,
