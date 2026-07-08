@@ -310,6 +310,7 @@ app.get('/health', (req, res) => {
         status: migrations === 'ok' ? 'ok' : migrations,
         time: new Date().toISOString(),
         migrations,
+        commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
     });
 });
 app.get('/health/ip', requireAuth, requireRole('superadmin'), (req, res) => {
@@ -4158,7 +4159,7 @@ app.post('/api/client-invoices', requireAuth, requireRole('ar_team','finance_man
                  wht, grand_total, notes, region, bu, status, created_by)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'Draft',$18)
             RETURNING *
-        `, [invNo, client, contract||null, contract_id ? String(contract_id) : null,
+        `, [invNo, client, contract||null, contract_id ? parseInt(contract_id) : null,
             parseInt(period_month)||null, parseInt(period_year)||null,
             po_number||null, due_date||null, JSON.stringify(line_items||[]),
             parseFloat(subtotal)||0, parseFloat(service_charges)||0, parseFloat(sales_tax)||0,
@@ -4294,16 +4295,20 @@ app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team
 
 app.post('/api/client-invoices/:id/void-xero', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
-        const { cancelXeroReceivableInvoice } = require('./src/modules/ar/xeroCancelInvoice');
         const inv = await pool.query('SELECT * FROM client_invoices WHERE id=$1', [req.params.id]);
         if (!inv.rows.length) return res.status(404).json({ error: 'Invoice not found' });
         const ci = inv.rows[0];
         if (!ci.xero_invoice_id) return res.status(400).json({ error: 'Invoice has not been pushed to Xero' });
         const { accessToken, tenantId } = await xeroGetAccessToken();
-        const result = await cancelXeroReceivableInvoice(accessToken, tenantId, ci.xero_invoice_id);
-        if (!result.ok) return res.status(502).json({ error: 'Xero void error', detail: result.detail });
-        await pool.query(`UPDATE client_invoices SET status='Voided', updated_at=NOW() WHERE id=$1`, [req.params.id]);
-        res.json({ ok: true, xeroId: ci.xero_invoice_id, status: result.status, alreadyCancelled: !!result.alreadyCancelled });
+        const xeroResp = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ Invoices: [{ InvoiceID: ci.xero_invoice_id, Status: 'VOIDED' }] }),
+        });
+        const xd = await xeroResp.json();
+        if (!xeroResp.ok) return res.status(502).json({ error: 'Xero void error', detail: xd });
+        await pool.query(`UPDATE client_invoices SET status='Void', updated_at=NOW() WHERE id=$1`, [req.params.id]);
+        res.json({ ok: true, xeroId: ci.xero_invoice_id, status: xd.Invoices?.[0]?.Status || 'VOIDED' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
