@@ -60,4 +60,12 @@ async function stopJobs() {
     }
 }
 
-module.exports = { initJobs, scheduleJob, registerWorkers, stopJobs, getBoss: () => boss };
+
+
+async function enqueueJob(name, data) {
+    if (!boss) return null;
+    await boss.createQueue(name).catch(() => {});
+    return boss.send(name, data || {});
+}
+
+module.exports = { initJobs, scheduleJob, registerWorkers, stopJobs, getBoss, enqueueJob };

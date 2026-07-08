@@ -1,4 +1,4 @@
-﻿# Production rollout report (Increment 1)
+# Production rollout report (Increment 1)
 
 Date: 2026-07-08 (UTC)
 
@@ -37,5 +37,5 @@ Previous baseline: `c1b2ebd`.
 
 ## Follow-up
 
-- Consider moving bill sync to pg-boss job trigger for manual smoke (POST already exists; nightly `xero.bills.sync` at 01:00 UTC+server).
+- **POST /api/xero/bills/sync:** manual sync enqueues `xero.bills.sync` (**202** `{queued,jobId}`); smoke polls **GET /api/xero/bills/sync-status** (`xero_bills_sync_last`).
 - Re-run smoke after sync timeout is addressed or invoke sync from worker with log tail.

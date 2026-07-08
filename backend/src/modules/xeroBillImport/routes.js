@@ -1,8 +1,9 @@
 'use strict';
 
 const { handleRouteError } = require('../../core/validate');
+const { enqueueJob } = require('../../core/jobs');
 const {
-    syncXeroBills,
+    getXeroBillsSyncLast,
     getReviewQueue,
     resolveReview,
     pushXeroBillPayment,
@@ -16,10 +17,20 @@ function registerXeroBillImportRoutes(app, deps) {
     app.post('/api/xero/bills/sync', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
         try {
             if (!getXeroAccessToken) return res.status(500).json({ error: 'Xero not configured' });
-            const result = await syncXeroBills(pool, getXeroAccessToken, req.body || {});
-            res.json(result);
+            const jobId = await enqueueJob('xero.bills.sync', req.body || {});
+            if (!jobId) return res.status(503).json({ error: 'Job queue unavailable' });
+            res.status(202).json({ queued: true, jobId });
         } catch (err) {
             handleRouteError(res, 'xero.sync', err);
+        }
+    });
+
+    app.get('/api/xero/bills/sync-status', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'ap_team'), async (req, res) => {
+        try {
+            const last = await getXeroBillsSyncLast(pool);
+            res.json(last || {});
+        } catch (err) {
+            handleRouteError(res, 'xero.syncStatus', err);
         }
     });
 

@@ -573,6 +573,6 @@ describe('xero bills sync job registration', () => {
         const src = fs.readFileSync(path.join(__dirname, '../mountModules.js'), 'utf8');
         expect(src).toContain("'xero.bills.sync'");
         expect(src).toContain("scheduleJob('xero.bills.sync', {}, '0 1 * * *')");
-        expect(src).toContain('syncXeroBills');
+        expect(src).toContain('runXeroBillsSyncJob');
     });
 });

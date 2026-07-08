@@ -237,10 +237,62 @@ async function pushXeroBillPayment(getXeroAccessToken, bill, { amount, date, ref
     return { pushed: true, paymentId: data.Payments?.[0]?.PaymentID };
 }
 
+
+const XERO_BILLS_SYNC_LAST_KEY = 'xero_bills_sync_last';
+
+async function saveXeroBillsSyncLast(pool, payload) {
+    await pool.query(
+        `INSERT INTO system_config (key, value) VALUES ($1, $2::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [XERO_BILLS_SYNC_LAST_KEY, JSON.stringify(payload)]
+    );
+}
+
+async function getXeroBillsSyncLast(pool) {
+    const { rows } = await pool.query(`SELECT value FROM system_config WHERE key = $1`, [XERO_BILLS_SYNC_LAST_KEY]);
+    if (!rows.length) return null;
+    return parseConfigValue(rows[0].value);
+}
+
+async function runXeroBillsSyncJob(pool, getXeroAccessToken, data = {}) {
+    const modifiedSince = data.modifiedSince || new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const timestamp = new Date().toISOString();
+    if (!getXeroAccessToken) {
+        const skipped = { timestamp, imported: 0, updated: 0, review: 0, error: 'xero_not_configured' };
+        await saveXeroBillsSyncLast(pool, skipped);
+        return { skipped: true, reason: 'xero_not_configured' };
+    }
+    try {
+        const result = await syncXeroBills(pool, getXeroAccessToken, { modifiedSince });
+        await saveXeroBillsSyncLast(pool, {
+            timestamp,
+            imported: result.imported ?? 0,
+            updated: result.updated ?? 0,
+            review: result.review ?? 0,
+            error: null,
+            fetched: result.fetched,
+            skipped: result.skipped,
+        });
+        return result;
+    } catch (err) {
+        await saveXeroBillsSyncLast(pool, {
+            timestamp,
+            imported: 0,
+            updated: 0,
+            review: 0,
+            error: err.message || String(err),
+        });
+        throw err;
+    }
+}
+
 module.exports = {
     ensureConfigDefaults,
     getConfigMap,
     syncXeroBills,
+    saveXeroBillsSyncLast,
+    getXeroBillsSyncLast,
+    runXeroBillsSyncJob,
     getReviewQueue,
     resolveReview,
     pushXeroBillPayment,
