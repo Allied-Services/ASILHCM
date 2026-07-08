@@ -701,6 +701,49 @@ app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin')
 // attendance, rate cards, policies, employees, optionally the client).
 // Used to remove TEST/demo data. Requires ?confirm=yes to actually delete.
 const { purgeContract } = require('./src/modules/admin/purgeContract');
+const { importHistoricRun } = require('./src/modules/payrollrun/service');
+const { importHistoricInvoices } = require('./src/modules/ar/service');
+const { purgeTestReceipts } = require('./src/modules/ar/receipts');
+
+app.post('/api/admin/import-payroll-history', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const { contractId, month, year, rows } = req.body;
+        const result = await importHistoricRun(pool, {
+            contractId,
+            month: parseInt(month, 10),
+            year: parseInt(year, 10),
+            rows: rows || [],
+            importedBy: `excel_import:${req.user?.email || 'system'}`,
+        });
+        if (!result.ok) return res.status(400).json(result);
+        res.json(result);
+    } catch (err) {
+        console.error('[POST /api/admin/import-payroll-history]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/admin/import-invoices', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        res.json(await importHistoricInvoices(pool, {
+            invoices: req.body.invoices || [],
+            importedBy: req.user?.email || 'excel_import',
+        }));
+    } catch (err) {
+        console.error('[POST /api/admin/import-invoices]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/admin/purge-test-receipts', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        res.json(await purgeTestReceipts(pool));
+    } catch (err) {
+        console.error('[DELETE /api/admin/purge-test-receipts]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.delete('/api/admin/purge-contract', requireAuth, requireRole('superadmin'), async (req, res) => {
     const { contract_id, client_id } = req.body || {};
     if (!contract_id) return res.status(400).json({ error: 'contract_id is required' });
