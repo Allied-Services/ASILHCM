@@ -1,6 +1,6 @@
 # Employee master reconciliation (Build 2)
 
-Generated: 2026-07-08T12:49:32Z
+Generated: 2026-07-08T13:46:49Z
 
 ## Summary
 
@@ -8,63 +8,13 @@ Generated: 2026-07-08T12:49:32Z
 |---|---:|
 | Unique in June CSV union | 666 |
 | In both CSV files (overlap) | 142 |
-| MATCHED | 617 |
-| MISSING in HCM | 49 |
+| MATCHED | 666 |
+| MISSING in HCM | 0 |
 | EXTRA in HCM | 16 |
 
 ## MISSING in HCM
 
-| Code | Name | Client | Location | Active | Source |
-|---|---|---|---|---|---|
-| ASIL/PSO-298/25 | Mohammad Zubair | Pakistan State Oil Company Limited | LMP-A - Keamari | No | PR (1).csv |
-| ASIL/PSO-329/25 | Muhammad Zeeshan | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PSO Operational PR.csv |
-| ASIL/PSO-330/25 | Aqib Pervaiz | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-331/25 | Khawar | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-332/25 | Munawar | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-333/25 | Abidullah | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-334/25 | Imran Ali | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-335/25 | Kashif Sadiq | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-336/25 | Kashif Abbasi | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-342/25 | Muhammad Aslam Shakoor | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-343/25 | Mehtab Ali | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-344/25 | Muneer Ahmed | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-345/25 | Waseem Raza | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-346/25 | Shaikh Muhammad Aizaz Uddin | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-347/25 | Sharjeel Bhadur Khan (L) | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-348/25 | Dilshad | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-349/25 | Muhammad Azeem Khan | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-351/25 | Shafi | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-352/25 | Ahmed | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-355/25 | Shakir Ali Abbasi (L) | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-360/25 | Islam Uddin | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-364/25 | Naseem Gull | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-365/25 | Muhammad Rashid | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-366/25 | Adil Hussain | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-367/25 | Muhammad Farhan | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-368/25 | Muhammad Ali (Baloch) | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-369/25 | Owais | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-370/25 | Muhammad Noshad | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-371/25 | Khushi Muhammad (L) | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-372/25 | Muhmmad Atif | Pakistan State Oil Company Limited | Chakpirana Depot | Yes | PR (1).csv |
-| ASIL/PSO-373/25 | Tayyab Ali | Pakistan State Oil Company Limited | Chakpirana Depot | Yes | PR (1).csv |
-| ASIL/PSO-374/25 | Yasir Hussain | Pakistan State Oil Company Limited | Faqirabad Depot | Yes | PR (1).csv |
-| ASIL/PSO-375/25 | Muhammad Masood | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv |
-| ASIL/PSO-376/25 | Muhammad Rehman | Pakistan State Oil Company Limited | Kundian Depot | Yes | PR (1).csv |
-| ASIL/PSO-377/25 | Sher Shah | Pakistan State Oil Company Limited | Faqirabad Depot | Yes | PR (1).csv |
-| ASIL/PSO-378/25 | Abdul Manan (EP) | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-380/25 | Asif | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PSO Operational PR.csv |
-| ASIL/PSO-382/25 | Abdul Hai | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-383/25 | Abdul Raheem | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-385/25 | Usman Malik (EP) | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv, PSO Operational PR.csv |
-| ASIL/PSO-386/25 | Ali Muhammad | Pakistan State Oil Company Limited | LMT - Korangi | Yes | PR (1).csv |
-| ASIL/PSO-387/25 | Younus Ali Shah | Pakistan State Oil Company Limited | Serai Naurang Depot | Yes | PR (1).csv |
-| ASIL/PSO-388/25 | Muhammad Riaz | Pakistan State Oil Company Limited | LMP-A - Keamari | Yes | PR (1).csv |
-| ASIL/SPL-418/21 | Shahzad Masih | Wafi Energy Pakistan Limited | Karachi - Keamari | Yes | PR (1).csv |
-| ASIL/SPL-419/21 | Abdul Saboor Mufti | Wafi Energy Pakistan Limited | Karachi - Keamari | Yes | PR (1).csv |
-| ASIL/SPL-420/21 | Rafae Kayani | Wafi Energy Pakistan Limited | Islamabad | Yes | PR (1).csv |
-| ASILFM/SPL/22/164 | Dinesh | Wafi Energy Pakistan Limited | LOBP keamari | Yes | PR (1).csv |
-| ASILFM/SPL/22/165 | Govinda | Wafi Energy Pakistan Limited | LOBP keamari | Yes | PR (1).csv |
-| ASILFM/SPL/22/166 | Shehzad | Wafi Energy Pakistan Limited | LOBP Keamari | Yes | PR (1).csv |
+_None._
 
 ## EXTRA in HCM (sample 25)
 
@@ -115,7 +65,7 @@ Generated: 2026-07-08T12:49:32Z
 
 ## Proposed updates (not applied)
 
-Count: 190
+Count: 193
 
 - `ASIL/PSO-031/25`: email
 - `ASIL/PSO-032/25`: bankName, bankAccount, email
@@ -135,4 +85,41 @@ Count: 190
 
 ## Phase 2b
 
-No writes: MISSING=49 > 20
+Action 1 import complete (49 created). Actions 2-3 pending JWT refresh.
+
+
+## Phase 2b execution (detail)
+
+| Metric | Value |
+|---|---:|
+| HCM count before | 633 |
+| HCM count after import | 682 |
+| MATCHED (final reconcile) | 666 |
+| MISSING | 0 |
+| EXTRA (pre-cleanup) | 16 |
+| Employees created | 49 |
+
+### Imported IDs (49)
+
+46 via bulk /api/employees/bulk; 3 via bulk with **cnic omitted** (duplicate CNIC):
+
+- ASIL/PSO-298/25 (CNIC held by ASIL/PSO-297/25)
+- ASIL/SPL-418/21 (CNIC held by ASILFM/SPL/22/40)
+- ASIL/SPL-420/21 (CNIC held by ASIL/SPL-361/21)
+
+Full ID list in audit/phase2b_created_ids.txt.
+
+### Action 2 — backfill (190 blanks)
+
+**Status:** partial — run stopped on PUT 500 (DOJ format) then JWT expired. Re-run python scripts/finish_phase2b.py after fresh JWT (bankName, bankAccount, email only; DOJ skipped).
+
+### Action 3 — cleanup
+
+**Status:** pending — delete junk IDs 123, TEST, ASIL-1774260596303 and client renames (Ltd/Pvt Ltd -> Limited per June CSV) in finish_phase2b.py.
+
+### Client canonical mapping (June CSV truth)
+
+- Pakistan State Oil Company Ltd -> Pakistan State Oil Company Limited
+- Wafi Energy Pakistan Pvt Ltd -> Wafi Energy Pakistan Limited
+
+Rollback: audit/employee_phase2b_rollback.json (written on finish run).
