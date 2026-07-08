@@ -9,7 +9,7 @@ const {
     getInvoiceSchedules,
     getDunningLog,
 } = require('./service');
-const { previewReceiptSplit, postReceipt, listReceipts } = require('./receipts');
+const { previewReceiptSplit, postReceipt, listReceipts, deleteReceiptById, purgeTestReceipts } = require('./receipts');
 
 function registerArRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail, getXeroAccessToken } = deps;
@@ -86,6 +86,22 @@ function registerArRoutes(app, deps) {
             res.json({ receipts: await listReceipts(pool, req.query) });
         } catch (err) {
             handleRouteError(res, 'ar.receiptList', err);
+        }
+    });
+
+    app.delete('/api/ar/receipts/:id', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            res.json(await deleteReceiptById(pool, req.params.id));
+        } catch (err) {
+            handleRouteError(res, 'ar.receiptDelete', err);
+        }
+    });
+
+    app.delete('/api/admin/purge-test-receipts', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            res.json(await purgeTestReceipts(pool));
+        } catch (err) {
+            handleRouteError(res, 'ar.purgeTestReceipts', err);
         }
     });
 }

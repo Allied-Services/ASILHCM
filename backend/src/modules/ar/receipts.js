@@ -265,6 +265,40 @@ async function postReceipt(pool, getXeroAccessToken, body, postedBy) {
     return { ok: true, receipt, lines: normalized.length, xero };
 }
 
+
+async function deleteReceiptById(pool, receiptId) {
+    const id = parseInt(receiptId, 10);
+    if (!id) {
+        const err = new Error('Invalid receipt id');
+        err.status = 400;
+        throw err;
+    }
+    const { rowCount: lineCount } = await pool.query(
+        'DELETE FROM invoice_receipt_lines WHERE receipt_id = $1',
+        [id]
+    );
+    const { rowCount: headerCount } = await pool.query(
+        'DELETE FROM invoice_receipts WHERE id = $1',
+        [id]
+    );
+    if (!headerCount) {
+        const err = new Error('Receipt not found');
+        err.status = 404;
+        throw err;
+    }
+    return { ok: true, id, linesDeleted: lineCount };
+}
+
+async function purgeTestReceipts(pool) {
+    const { rowCount: lineCount } = await pool.query(
+        "DELETE FROM invoice_receipt_lines WHERE receipt_id IN (SELECT id FROM invoice_receipts WHERE client LIKE 'TEST-%')"
+    );
+    const { rowCount: headerCount } = await pool.query(
+        "DELETE FROM invoice_receipts WHERE client LIKE 'TEST-%'"
+    );
+    return { ok: true, receiptsDeleted: headerCount, linesDeleted: lineCount };
+}
+
 async function listReceipts(pool, { client } = {}) {
     let sql = `SELECT r.*, COUNT(l.id)::int AS line_count
                FROM invoice_receipts r
@@ -285,6 +319,8 @@ module.exports = {
     previewReceiptSplit,
     postReceipt,
     listReceipts,
+    deleteReceiptById,
+    purgeTestReceipts,
     writeComplianceLedger,
     pushReceiptToXero,
 };

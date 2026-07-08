@@ -521,3 +521,58 @@ describe('receipt preview and post', () => {
         expect(result.totals.cash_received).toBeGreaterThan(0);
     });
 });
+
+describe('receipt delete helpers', () => {
+    const { deleteReceiptById, purgeTestReceipts } = require('../src/modules/ar/receipts');
+
+    test('deleteReceiptById removes lines then header', async () => {
+        const calls = [];
+        const pool = {
+            query: async (sql, params) => {
+                calls.push({ sql, params });
+                if (sql.includes('invoice_receipt_lines')) return { rowCount: 2 };
+                if (sql.includes('invoice_receipts')) return { rowCount: 1 };
+                return { rowCount: 0 };
+            },
+        };
+        const result = await deleteReceiptById(pool, '42');
+        expect(result).toEqual({ ok: true, id: 42, linesDeleted: 2 });
+        expect(calls[0].sql).toContain('invoice_receipt_lines');
+        expect(calls[1].sql).toContain('invoice_receipts');
+        expect(calls[1].params).toEqual([42]);
+    });
+
+    test('deleteReceiptById 404 when header missing', async () => {
+        const pool = {
+            query: async (sql) => {
+                if (sql.includes('invoice_receipt_lines')) return { rowCount: 0 };
+                return { rowCount: 0 };
+            },
+        };
+        await expect(deleteReceiptById(pool, 9)).rejects.toMatchObject({ status: 404 });
+    });
+
+    test('purgeTestReceipts deletes TEST-% clients', async () => {
+        const calls = [];
+        const pool = {
+            query: async (sql) => {
+                calls.push(sql);
+                return { rowCount: 3 };
+            },
+        };
+        const result = await purgeTestReceipts(pool);
+        expect(result.receiptsDeleted).toBe(3);
+        expect(calls.some(s => s.includes("LIKE 'TEST-%'"))).toBe(true);
+    });
+});
+
+describe('xero bills sync job registration', () => {
+    test('mountModules registers nightly xero.bills.sync', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(path.join(__dirname, '../mountModules.js'), 'utf8');
+        expect(src).toContain("'xero.bills.sync'");
+        expect(src).toContain("scheduleJob('xero.bills.sync', {}, '0 1 * * *')");
+        expect(src).toContain('syncXeroBills');
+    });
+});
