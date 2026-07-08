@@ -12,6 +12,7 @@ const { registerProcurementRoutes } = require('./src/modules/procurement/routes'
 const { registerComplianceRoutes } = require('./src/modules/compliance/routes');
 const { registerArRoutes } = require('./src/modules/ar/routes');
 const { registerPayrollRunRoutes } = require('./src/modules/payrollrun/routes');
+const { registerBillApprovalRoutes } = require('./src/modules/billApproval/routes');
 const { registerXeroBillImportRoutes } = require('./src/modules/xeroBillImport/routes');
 const { runMigrations } = require('./src/core/runMigrations');
 const { initJobs, registerWorkers, scheduleJob } = require('./src/core/jobs');
@@ -36,6 +37,7 @@ function mountRestructureModules(app, deps) {
     registerArRoutes(app, deps);
     registerPayrollRunRoutes(app, deps);
     registerXeroBillImportRoutes(app, deps);
+    registerBillApprovalRoutes(app, deps);
 }
 
 let migrationStatus = 'ok';
@@ -62,7 +64,7 @@ async function bootstrapRestructure(deps) {
     if (!boss) return null;
 
     if (jobsRunner !== 'web') {
-        console.log(`[restructure] JOBS_RUNNER=${jobsRunner} — skipping job registration in web service`);
+        console.log(`[restructure] JOBS_RUNNER=${jobsRunner} â€” skipping job registration in web service`);
         return boss;
     }
 
