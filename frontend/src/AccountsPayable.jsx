@@ -3,6 +3,7 @@ import {
     CreditCard, CheckCircle, Clock, AlertCircle, ChevronDown, ChevronRight,
     Building2, RefreshCw, ExternalLink, X, DollarSign, FileText, Send,
 } from 'lucide-react';
+import { api } from './api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 const fmt = (v) => Math.round(parseFloat(v) || 0).toLocaleString('en-PK');
@@ -21,6 +22,89 @@ async function apiFetch(path, opts = {}) {
     }
     return res.json();
 }
+
+
+const APPROVAL_STATUS_ROLES = ['ap_team', 'finance_manager', 'finance_approver', 'superadmin'];
+
+function approvalBadgeMeta(bill) {
+    const a = bill?.approval_status;
+    if (a === 'pending_step1' || a === 'pending_step2') {
+        return { label: 'Pending Approval', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' };
+    }
+    if (a === 'approved') return { label: 'Approval complete', color: '#22c55e', bg: 'rgba(34,197,94,0.1)' };
+    if (a === 'rejected') return { label: 'Approval rejected', color: '#ef4444', bg: 'rgba(239,68,68,0.1)' };
+    if (bill?.status === 'Pending Approval' || bill?.status === 'Pending') {
+        return { label: 'Pending Approval', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' };
+    }
+    return null;
+}
+
+function pendingApproversForStep(steps, stepNum) {
+    return (steps || [])
+        .filter((s) => s.step_number === stepNum && s.status === 'pending')
+        .map((s) => s.approver_name || s.approver_email)
+        .filter(Boolean);
+}
+
+function stepIndicatorState(steps, stepNum, approvalStatus) {
+    const stepRows = (steps || []).filter((s) => s.step_number === stepNum);
+    if (!stepRows.length && stepNum === 2 && !['pending_step2', 'approved'].includes(approvalStatus)) {
+        return { state: 'waiting', label: 'Step 2' };
+    }
+    if (stepRows.some((s) => s.status === 'rejected')) return { state: 'rejected', label: `Step ${stepNum}` };
+    if (stepRows.length && stepRows.every((s) => s.status === 'approved')) return { state: 'done', label: `Step ${stepNum}` };
+    if (approvalStatus === `pending_step${stepNum}` || stepRows.some((s) => s.status === 'pending')) {
+        return { state: 'active', label: `Step ${stepNum}` };
+    }
+    if (stepNum === 1 && approvalStatus === 'pending_step2') return { state: 'done', label: 'Step 1' };
+    return { state: 'idle', label: `Step ${stepNum}` };
+}
+
+function BillApprovalIndicators({ bill, approvalDetail }) {
+    const merged = approvalDetail?.bill ? { ...bill, ...approvalDetail.bill } : bill;
+    const approvalStatus = merged?.approval_status || 'draft';
+    const steps = approvalDetail?.steps;
+    const badge = approvalBadgeMeta(merged);
+    const s1 = stepIndicatorState(steps, 1, approvalStatus);
+    const s2 = stepIndicatorState(steps, 2, approvalStatus);
+    const pending1 = pendingApproversForStep(steps, 1);
+    const pending2 = pendingApproversForStep(steps, 2);
+    const dotColor = (state) => ({
+        active: '#f59e0b', done: '#22c55e', rejected: '#ef4444', waiting: '#475569', idle: '#334155',
+    }[state] || '#334155');
+
+    const showSteps = ['pending_step1', 'pending_step2', 'approved', 'rejected'].includes(approvalStatus)
+        || (steps && steps.length > 0);
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {badge && (
+                <span style={{ background: badge.bg, color: badge.color, padding: '3px 8px', borderRadius: '12px', fontSize: '0.73rem', fontWeight: 700, width: 'fit-content' }}>
+                    {badge.label}
+                </span>
+            )}
+            {showSteps && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.72rem', color: '#94a3b8' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor(s1.state) }} />
+                        <span>
+                            {s1.label}
+                            {s1.state === 'active' && pending1.length ? `: ${pending1.join(', ')}` : ''}
+                        </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor(s2.state) }} />
+                        <span>
+                            {s2.label}
+                            {s2.state === 'active' && pending2.length ? `: ${pending2.join(', ')}` : ''}
+                        </span>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -325,23 +409,68 @@ function PayrollQueuePanel() {
 }
 
 // ─── Bills Queue Panel ────────────────────────────────────────────────────────
-function BillsQueuePanel() {
+function BillsQueuePanel({ user }) {
+    const isProposer = user?.role === 'procurement_proposer';
+    const canFetchApproval = APPROVAL_STATUS_ROLES.includes(user?.role);
     const [bills, setBills] = useState([]);
     const [loading, setLoading] = useState(true);
     const [confirmTarget, setConfirmTarget] = useState(null);
     const [billable, setBillable] = useState({});
     const [successMsg, setSuccessMsg] = useState(null);
+    const [approvalDetails, setApprovalDetails] = useState({});
+    const [submittingId, setSubmittingId] = useState(null);
 
     const loadBills = useCallback(async () => {
         setLoading(true);
         try {
-            const d = await apiFetch('/api/ap/bills-queue');
-            setBills(d.bills || []);
+            let list = [];
+            if (isProposer) {
+                const d = await api.getBills();
+                const all = Array.isArray(d) ? d : (d.bills || []);
+                list = all.filter((b) => b.status === 'Draft' || ['pending_step1', 'pending_step2', 'rejected'].includes(b.approval_status));
+            } else {
+                const d = await apiFetch('/api/ap/bills-queue');
+                list = d.bills || [];
+            }
+            setBills(list);
+            if (canFetchApproval && list.length) {
+                const pairs = await Promise.all(list.map(async (b) => {
+                    try {
+                        const detail = await api.getBillApprovalStatus(b.id);
+                        return [b.id, detail];
+                    } catch {
+                        return [b.id, null];
+                    }
+                }));
+                setApprovalDetails(Object.fromEntries(pairs));
+            } else {
+                setApprovalDetails({});
+            }
         } catch (e) { console.error(e); }
         setLoading(false);
-    }, []);
+    }, [isProposer, canFetchApproval]);
 
     useEffect(() => { loadBills(); }, [loadBills]);
+
+    const canSubmitForApproval = (bill) => {
+        if (user?.role !== 'procurement_proposer') return false;
+        if (bill.status !== 'Draft') return false;
+        const a = bill.approval_status || 'draft';
+        return a === 'draft' || a === 'rejected';
+    };
+
+    const handleSubmitForApproval = async (bill) => {
+        if (!window.confirm(`Submit bill ${bill.id} for approval?`)) return;
+        setSubmittingId(bill.id);
+        try {
+            await api.submitBillForApproval(bill.id);
+            setSuccessMsg(`Bill ${bill.id} submitted for approval workflow.`);
+            await loadBills();
+        } catch (e) {
+            alert(typeof e.message === 'string' ? e.message : 'Submit failed');
+        }
+        setSubmittingId(null);
+    };
 
     const handleConfirm = async (bill, formData) => {
         formData.billable = billable[bill.id] !== false;
@@ -364,7 +493,7 @@ function BillsQueuePanel() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                 <div>
                     <h3 style={{ margin: 0, color: '#f0f4f8', fontSize: '1.1rem' }}>Bills Payment Queue</h3>
-                    <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.83rem' }}>Approved bills pending AP/bank confirmation. Mark billable status before confirming.</p>
+                    <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.83rem' }}>{isProposer ? 'Draft bills ready to submit into the ApprovalMax workflow (step 1 site manager, step 2 threshold approver).' : 'Approved bills pending AP/bank confirmation. Approval step progress shown for in-flight bills.'}</p>
                 </div>
                 <button onClick={loadBills} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', padding: '7px 14px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.83rem' }}>
                     <RefreshCw size={14} /> Refresh
@@ -390,7 +519,7 @@ function BillsQueuePanel() {
                 <div style={{ overflowX: 'auto', borderRadius: '12px', border: '1px solid var(--border)' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                         <thead style={{ background: 'var(--bg-dark)' }}>
-                            <tr>{['ID', 'Vendor', 'Type', 'Amount', 'Status', 'Billable?', 'Actions'].map(h => (
+                            <tr>{['ID', 'Vendor', 'Type', 'Amount', 'Status', 'Approval', 'Billable?', 'Actions'].map(h => (
                                 <th key={h} style={{ padding: '10px 12px', textAlign: h === 'Amount' ? 'right' : 'left', color: '#64748b', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                             ))}</tr>
                         </thead>
@@ -422,18 +551,29 @@ function BillsQueuePanel() {
                                             </div>
                                         </td>
                                         <td style={{ padding: '10px 12px' }}>
-                                            {bill.status !== 'Posted' && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
+                                            {canSubmitForApproval(bill) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSubmitForApproval(bill)}
+                                                    disabled={submittingId === bill.id}
+                                                    style={{ background: submittingId === bill.id ? '#334155' : '#8b5cf6', border: 'none', color: 'white', padding: '5px 12px', borderRadius: '7px', cursor: submittingId === bill.id ? 'wait' : 'pointer', fontWeight: 700, fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                    <Send size={13} /> {submittingId === bill.id ? 'Submitting...' : 'Submit for Approval'}
+                                                </button>
+                                            )}
+                                            {!isProposer && bill.status !== 'Posted' && (
                                                 <button
                                                     onClick={() => setConfirmTarget(bill)}
                                                     style={{ background: '#22c55e', border: 'none', color: 'white', padding: '5px 12px', borderRadius: '7px', cursor: 'pointer', fontWeight: 700, fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                     <CreditCard size={13} /> Pay
                                                 </button>
                                             )}
-                                            {bill.status === 'Posted' && (
+                                            {!isProposer && bill.status === 'Posted' && (
                                                 <span style={{ color: '#38bdf8', fontSize: '0.78rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                     <CheckCircle size={13} /> Paid
                                                 </span>
                                             )}
+                                            </div>
                                         </td>
                                     </tr>
                                 );
@@ -458,9 +598,9 @@ function BillsQueuePanel() {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function AccountsPayable({ user }) {
-    const [tab, setTab] = useState('payroll');
+    const [tab, setTab] = useState(user?.role === 'procurement_proposer' ? 'bills' : 'payroll');
 
-    const allowedRoles = ['ap_team', 'finance_manager', 'finance_approver', 'superadmin'];
+    const allowedRoles = ['ap_team', 'finance_manager', 'finance_approver', 'superadmin', 'procurement_proposer'];
     if (!allowedRoles.includes(user?.role)) {
         return (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', flexDirection: 'column', gap: '1rem', color: '#64748b' }}>
@@ -491,7 +631,7 @@ export default function AccountsPayable({ user }) {
                 {[
                     { id: 'payroll', label: '💰 Payroll Queue', icon: Building2 },
                     { id: 'bills', label: '📄 Bills Queue', icon: FileText },
-                ].map(t => (
+                ].filter(t => user?.role !== 'procurement_proposer' || t.id === 'bills').map(t => (
                     <button key={t.id} onClick={() => setTab(t.id)}
                         style={{ flex: 1, padding: '8px 16px', borderRadius: '7px', border: 'none', background: tab === t.id ? 'var(--primary)' : 'transparent', color: tab === t.id ? 'white' : '#64748b', cursor: 'pointer', fontWeight: tab === t.id ? 700 : 600, fontSize: '0.88rem', transition: 'all 0.15s' }}>
                         {t.label}
@@ -500,8 +640,8 @@ export default function AccountsPayable({ user }) {
             </div>
 
             {/* Content */}
-            {tab === 'payroll' && <PayrollQueuePanel />}
-            {tab === 'bills' && <BillsQueuePanel />}
+            {tab === 'payroll' && user?.role !== 'procurement_proposer' && <PayrollQueuePanel />}
+            {tab === 'bills' && <BillsQueuePanel user={user} />}
         </div>
     );
 }

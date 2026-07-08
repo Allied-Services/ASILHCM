@@ -113,6 +113,8 @@ export const api = {
     saveBill:          (bill)      => apiFetch('/api/bills', { method: 'POST', body: JSON.stringify(bill) }),
     updateBillStatus:  (id, status, extra = {}) => apiFetch(`/api/bills/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, ...extra }) }),
     getHitlFlags:      ()          => apiFetch('/api/bills/hitl-flags'),
+    getBillApprovalStatus: (billId) => apiFetch(`/api/bill-approval/${encodeURIComponent(billId)}/approval-status`),
+    submitBillForApproval: (billId) => apiFetch(`/api/bill-approval/${encodeURIComponent(billId)}/submit`, { method: 'POST', body: '{}' }),
 
     // ── Advances / Loans ──────────────────────────────────────────────────────
     getAdvances:         (id)      => apiFetch(`/api/employees/${id}/advances`),

@@ -28,3 +28,4 @@
 
 - Google Drive workspace copy may be out of disk; work committed from `C:\temp\bpofm-phase4-work` clone — `git pull` on `G:\My Drive\Experiments\BPOFMSystem` when space available.
 - Jest: run from `C:\temp\bpofm-backend` or sync backend and `npm test -- billApproval`.
+- Frontend complete.

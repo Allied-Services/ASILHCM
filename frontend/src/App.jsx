@@ -40,7 +40,7 @@ const ROLE_NAV = {
     superadmin:           ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'],
     supervisor:           ['attendance','maintenance'],
     operations:           ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','contract_ops','bizdev'],
-    procurement_proposer: ['billing','vendor','inventory','bill_verification'],
+    procurement_proposer: ['billing','vendor','inventory','bill_verification','ap'],
     procurement_approver: ['billing','vendor','inventory','bill_verification'],
     procurement_manager:  ['billing','vendor','inventory','ap','maintenance','bill_verification'],
     finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
