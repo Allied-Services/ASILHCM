@@ -20,6 +20,7 @@ const { routeIntakeToClaims } = require('./src/intake/claimRouter');
 const { allocateFromLockedPayroll, getWeeklyCashflow } = require('./src/modules/pnl/service');
 const { runAlertCheck } = require('./src/modules/attendance/service');
 const { runDunningCheck, syncInvoiceSchedules } = require('./src/modules/ar/service');
+const { syncXeroBills } = require('./src/modules/xeroBillImport/service');
 
 function mountRestructureModules(app, deps) {
     registerConstraintRoutes(app, deps);
@@ -44,7 +45,7 @@ function getMigrationStatus() {
 }
 
 async function bootstrapRestructure(deps) {
-    const { pool, sendAppEmail, sendJazzSMS } = deps;
+    const { pool, sendAppEmail, sendJazzSMS, getXeroAccessToken } = deps;
     if (process.env.NODE_ENV === 'test') return null;
 
     try {
@@ -91,6 +92,11 @@ async function bootstrapRestructure(deps) {
             return syncBizdevRenewals(pool);
         },
         'ar.schedules': async () => syncInvoiceSchedules(pool),
+        'xero.bills.sync': async () => {
+            const modifiedSince = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+            if (!getXeroAccessToken) return { skipped: true, reason: 'xero_not_configured' };
+            return syncXeroBills(pool, getXeroAccessToken, { modifiedSince });
+        },
     });
 
     await scheduleJob('intake.poll', {}, '*/5 * * * *').catch(() => {});
@@ -100,6 +106,7 @@ async function bootstrapRestructure(deps) {
     await scheduleJob('pnl.allocate.cron', {}, '0 2 * * *').catch(() => {});
     await scheduleJob('bizdev.renewals', {}, '0 3 * * *').catch(() => {});
     await scheduleJob('ar.schedules', {}, '0 4 * * *').catch(() => {});
+    await scheduleJob('xero.bills.sync', {}, '0 1 * * *').catch(() => {});
 
     return boss;
 }
