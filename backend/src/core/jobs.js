@@ -62,6 +62,8 @@ async function stopJobs() {
 
 
 
+function getBoss() { return boss; }
+
 async function enqueueJob(name, data) {
     if (!boss) return null;
     await boss.createQueue(name).catch(() => {});
