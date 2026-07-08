@@ -8,6 +8,7 @@ const {
     logXeroSync,
     getInvoiceSchedules,
     getDunningLog,
+    importHistoricInvoices,
 } = require('./service');
 const { previewReceiptSplit, postReceipt, listReceipts, deleteReceiptById, purgeTestReceipts } = require('./receipts');
 
@@ -102,6 +103,17 @@ function registerArRoutes(app, deps) {
             res.json(await purgeTestReceipts(pool));
         } catch (err) {
             handleRouteError(res, 'ar.purgeTestReceipts', err);
+        }
+    });
+
+    app.post('/api/admin/import-invoices', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            res.json(await importHistoricInvoices(pool, {
+                invoices: req.body.invoices || [],
+                importedBy: req.user?.email || 'excel_import',
+            }));
+        } catch (err) {
+            handleRouteError(res, 'ar.importInvoices', err);
         }
     });
 }

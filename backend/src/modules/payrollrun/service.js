@@ -568,6 +568,65 @@ async function deleteHoliday(pool, id) {
     await pool.query(`DELETE FROM public_holidays WHERE id = $1`, [id]);
 }
 
+async function importHistoricRun(pool, { contractId, month, year, rows, importedBy }) {
+    if (!contractId || !month || !year || !Array.isArray(rows) || !rows.length) {
+        return { ok: false, code: 'INVALID_PAYLOAD', message: 'contractId, month, year, and rows required' };
+    }
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const { rows: runRows } = await client.query(
+            `INSERT INTO payroll_runs (contract_id, period_month, period_year, status, computed_at, locked_at, locked_by)
+             VALUES ($1, $2, $3, 'locked', NOW(), NOW(), $4)
+             ON CONFLICT (contract_id, period_month, period_year)
+             DO UPDATE SET computed_at = NOW(), locked_at = NOW(), locked_by = $4,
+                           status = CASE WHEN payroll_runs.status = 'invoiced' THEN payroll_runs.status ELSE 'locked' END
+             RETURNING *`,
+            [contractId, month, year, importedBy || 'excel_import']
+        );
+        const run = runRows[0];
+        await client.query(`DELETE FROM payroll_run_rows WHERE run_id = $1`, [run.id]);
+
+        let inserted = 0;
+        for (const row of rows) {
+            const employeeId = row.employee_id || row.employeeId;
+            if (!employeeId) continue;
+            const inputs = { ...(row.inputs || {}), source: 'excel_import' };
+            const computed = row.computed || {};
+            await client.query(
+                `INSERT INTO payroll_run_rows
+                 (run_id, employee_id, paid_days, working_days, ot2_hours, ot3_hours, inputs, computed)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (run_id, employee_id)
+                 DO UPDATE SET paid_days = EXCLUDED.paid_days, working_days = EXCLUDED.working_days,
+                               ot2_hours = EXCLUDED.ot2_hours, ot3_hours = EXCLUDED.ot3_hours,
+                               inputs = EXCLUDED.inputs, computed = EXCLUDED.computed`,
+                [
+                    run.id,
+                    employeeId,
+                    row.paid_days ?? row.paidDays ?? null,
+                    row.working_days ?? row.workingDays ?? null,
+                    row.ot2_hours ?? row.ot2Hours ?? 0,
+                    row.ot3_hours ?? row.ot3Hours ?? 0,
+                    JSON.stringify(inputs),
+                    JSON.stringify(computed),
+                ]
+            );
+            inserted += 1;
+        }
+        await client.query('COMMIT');
+        if (run.status !== 'invoiced') {
+            await allocateRunToCosts(pool, run.id);
+        }
+        return { ok: true, runId: run.id, rowsInserted: inserted, status: run.status };
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
 module.exports = {
     aggregateClaimInputs,
     classifyOtDate,
@@ -584,4 +643,5 @@ module.exports = {
     listHolidays,
     saveHoliday,
     deleteHoliday,
+    importHistoricRun,
 };

@@ -1,0 +1,563 @@
+{
+  "generated_at": "2026-07-08T14:31:12.930726+00:00",
+  "updates": [
+    {
+      "id": "ASIL/PSO-085/25",
+      "before": {
+        "bankAccount": null,
+        "email": null
+      }
+    },
+    {
+      "id": "ASIL/SPL-153/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-62/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-368/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-147/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-83/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-54/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-417/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-262/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-416/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-274/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-63/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-195/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASILFM/SPL/22/151",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-269/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-235/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-288/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-119/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-355/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-104/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-022/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-403/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-362/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-321/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-296/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-125/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-260/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-325/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-270/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-349/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-328/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASILFM/SPL/22/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-210/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-309/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-37/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-101/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-244/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-026/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-302/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-275/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASILFM/SPL/22/160",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASILFM/SPL/22/92",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-299/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-201/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-407/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-287/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    },
+    {
+      "id": "ASILFM/SPL/22/24",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-329/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-350/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/SPL-209/21",
+      "before": {
+        "client": "Wafi Energy Pakistan Pvt Ltd"
+      }
+    },
+    {
+      "id": "ASIL/PSO-010/25",
+      "before": {
+        "client": "Pakistan State Oil Company Ltd"
+      }
+    }
+  ],
+  "deletes": [
+    {
+      "id": "123",
+      "snapshot": {
+        "id": "123",
+        "bu": "Test",
+        "active": "Yes",
+        "client": "Test",
+        "clientBU": "Test",
+        "dept": "Test",
+        "designation": "Test",
+        "location": "Test",
+        "site": null,
+        "province": null,
+        "name": "Huzaifa",
+        "fatherName": null,
+        "motherName": null,
+        "cnic": "42201-6828480-9",
+        "cnicIssue": "",
+        "cnicExpiry": "",
+        "placeOfBirth": null,
+        "eobiNo": null,
+        "religion": "Islam",
+        "maritalStatus": "Single",
+        "dob": "",
+        "doj": "",
+        "lastWorkingDay": "",
+        "primaryContact": "03180267040",
+        "emergencyContact": null,
+        "email": null,
+        "presentAddress": null,
+        "permanentAddress": null,
+        "salary": 100000,
+        "lastSalary": 100000,
+        "spouseName": null,
+        "spouseAge": null,
+        "spouseCnic": null,
+        "child1Name": null,
+        "child1Age": null,
+        "child1Id": null,
+        "child2Name": null,
+        "child2Age": null,
+        "child2Id": null,
+        "medicalType": "Self & Spouse",
+        "medicalMaternity": "Yes",
+        "totalMedicalCoverage": "100000",
+        "bankName": null,
+        "bankAccount": null,
+        "accountTitle": null,
+        "nokName": null,
+        "nokRelation": null,
+        "nokContact": null,
+        "contractStartDate": "",
+        "contractDate": "",
+        "contractName": null,
+        "contractId": null,
+        "region": null,
+        "lineManagerName": null,
+        "lineManagerEmail": null,
+        "sessiNo": null,
+        "shirtSize": null,
+        "trouserSize": null,
+        "safetyShoeSizeVal": null,
+        "lastUniformIssueDate": "",
+        "lastPpeIssueDate": "",
+        "gatePassExpiry": "",
+        "payrollCycleType": "Monthly",
+        "salaryHistory": [],
+        "leaves": {
+          "cl": {
+            "total": 10,
+            "used": 0
+          },
+          "ml": {
+            "total": 8,
+            "used": 0
+          },
+          "el": {
+            "total": 14,
+            "used": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "TEST",
+      "snapshot": {
+        "id": "TEST",
+        "bu": null,
+        "active": "Yes",
+        "client": "TEST",
+        "clientBU": null,
+        "dept": "TEST",
+        "designation": null,
+        "location": "TEST",
+        "site": null,
+        "province": null,
+        "name": "TEST SHEZAD",
+        "fatherName": "TEST SHEZAD",
+        "motherName": null,
+        "cnic": "4230133536155",
+        "cnicIssue": "",
+        "cnicExpiry": "",
+        "placeOfBirth": null,
+        "eobiNo": null,
+        "religion": "Islam",
+        "maritalStatus": "Single",
+        "dob": "",
+        "doj": "",
+        "lastWorkingDay": "",
+        "primaryContact": "03008275688",
+        "emergencyContact": null,
+        "email": null,
+        "presentAddress": null,
+        "permanentAddress": null,
+        "salary": 30000,
+        "lastSalary": 30000,
+        "spouseName": null,
+        "spouseAge": null,
+        "spouseCnic": null,
+        "child1Name": null,
+        "child1Age": null,
+        "child1Id": null,
+        "child2Name": null,
+        "child2Age": null,
+        "child2Id": null,
+        "medicalType": "Self",
+        "medicalMaternity": "No",
+        "totalMedicalCoverage": "",
+        "bankName": null,
+        "bankAccount": null,
+        "accountTitle": null,
+        "nokName": null,
+        "nokRelation": null,
+        "nokContact": null,
+        "contractStartDate": "",
+        "contractDate": "",
+        "contractName": null,
+        "contractId": null,
+        "region": null,
+        "lineManagerName": null,
+        "lineManagerEmail": null,
+        "sessiNo": null,
+        "shirtSize": null,
+        "trouserSize": null,
+        "safetyShoeSizeVal": null,
+        "lastUniformIssueDate": "",
+        "lastPpeIssueDate": "",
+        "gatePassExpiry": "",
+        "payrollCycleType": "Monthly",
+        "salaryHistory": [],
+        "leaves": {
+          "cl": {
+            "total": 10,
+            "used": 0
+          },
+          "ml": {
+            "total": 8,
+            "used": 0
+          },
+          "el": {
+            "total": 14,
+            "used": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "ASIL-1774260596303",
+      "snapshot": {
+        "id": "ASIL-1774260596303",
+        "bu": null,
+        "active": "Yes",
+        "client": null,
+        "clientBU": null,
+        "dept": "Management",
+        "designation": "Director",
+        "location": null,
+        "site": null,
+        "province": null,
+        "name": "Shezad",
+        "fatherName": null,
+        "motherName": null,
+        "cnic": null,
+        "cnicIssue": "",
+        "cnicExpiry": "",
+        "placeOfBirth": null,
+        "eobiNo": null,
+        "religion": null,
+        "maritalStatus": null,
+        "dob": "",
+        "doj": "2024-01-01",
+        "lastWorkingDay": "",
+        "primaryContact": "03008275688",
+        "emergencyContact": null,
+        "email": null,
+        "presentAddress": null,
+        "permanentAddress": null,
+        "salary": 150000,
+        "lastSalary": 150000,
+        "spouseName": null,
+        "spouseAge": null,
+        "spouseCnic": null,
+        "child1Name": null,
+        "child1Age": null,
+        "child1Id": null,
+        "child2Name": null,
+        "child2Age": null,
+        "child2Id": null,
+        "medicalType": null,
+        "medicalMaternity": null,
+        "totalMedicalCoverage": "",
+        "bankName": "Meezan Bank",
+        "bankAccount": "1234567890",
+        "accountTitle": "Shezad",
+        "nokName": null,
+        "nokRelation": null,
+        "nokContact": null,
+        "contractStartDate": "",
+        "contractDate": "",
+        "contractName": null,
+        "contractId": null,
+        "region": null,
+        "lineManagerName": null,
+        "lineManagerEmail": null,
+        "sessiNo": null,
+        "shirtSize": null,
+        "trouserSize": null,
+        "safetyShoeSizeVal": null,
+        "lastUniformIssueDate": "",
+        "lastPpeIssueDate": "",
+        "gatePassExpiry": "",
+        "payrollCycleType": "Monthly",
+        "salaryHistory": [],
+        "leaves": {
+          "cl": {
+            "total": 10,
+            "used": 0
+          },
+          "ml": {
+            "total": 8,
+            "used": 0
+          },
+          "el": {
+            "total": 14,
+            "used": 0
+          }
+        }
+      }
+    }
+  ]
+}

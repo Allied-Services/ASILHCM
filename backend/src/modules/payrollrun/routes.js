@@ -15,6 +15,7 @@ const {
     listHolidays,
     saveHoliday,
     deleteHoliday,
+    importHistoricRun,
 } = require('./service');
 
 function parseJsonField(val, fallback) {
@@ -87,6 +88,23 @@ function registerPayrollRunRoutes(app, deps) {
             res.json(row);
         } catch (err) {
             handleRouteError(res, 'payrollrun.patchRow', err);
+        }
+    });
+
+    app.post('/api/admin/import-payroll-history', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            const { contractId, month, year, rows } = req.body;
+            const result = await importHistoricRun(pool, {
+                contractId,
+                month: parseInt(month, 10),
+                year: parseInt(year, 10),
+                rows: rows || [],
+                importedBy: `excel_import:${req.user?.email || 'system'}`,
+            });
+            if (!result.ok) return res.status(400).json(result);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'payrollrun.importHistory', err);
         }
     });
 

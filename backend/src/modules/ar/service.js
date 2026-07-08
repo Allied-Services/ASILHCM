@@ -151,6 +151,62 @@ async function getDunningLog(pool, limit = 50) {
     return rows;
 }
 
+async function importHistoricInvoices(pool, { invoices, importedBy }) {
+    const inserted = [];
+    const skipped = [];
+    const errors = [];
+    for (const inv of invoices || []) {
+        const invNo = inv.invoice_number || inv.invoiceNumber;
+        if (!invNo) {
+            errors.push({ invoice_number: null, error: 'missing invoice_number' });
+            continue;
+        }
+        const { rows: existing } = await pool.query(
+            `SELECT id FROM client_invoices WHERE invoice_number = $1 LIMIT 1`,
+            [invNo]
+        );
+        if (existing.length) {
+            skipped.push({ invoice_number: invNo, id: existing[0].id });
+            continue;
+        }
+        try {
+            const status = inv.status || 'Paid';
+            const { rows } = await pool.query(
+                `INSERT INTO client_invoices
+                 (invoice_number, client, contract, contract_id, period_month, period_year,
+                  line_items, subtotal, service_charges, sales_tax, wht, grand_total,
+                  notes, status, created_by, due_date, payment_received_at, xero_invoice_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+                 RETURNING id, invoice_number, status, grand_total`,
+                [
+                    invNo,
+                    inv.client || null,
+                    inv.contract || null,
+                    inv.contract_id ? String(inv.contract_id) : null,
+                    inv.period_month ? parseInt(inv.period_month, 10) : null,
+                    inv.period_year ? parseInt(inv.period_year, 10) : null,
+                    JSON.stringify(inv.line_items || [{ description: 'Historic import', amount: inv.grand_total || 0 }]),
+                    parseFloat(inv.subtotal) || 0,
+                    parseFloat(inv.service_charges) || 0,
+                    parseFloat(inv.sales_tax) || 0,
+                    parseFloat(inv.wht) || 0,
+                    parseFloat(inv.grand_total) || 0,
+                    inv.notes || `source=excel_import; imported_by=${importedBy || 'system'}`,
+                    status,
+                    importedBy || 'excel_import',
+                    inv.due_date || null,
+                    inv.payment_received_at || inv.pay_date || null,
+                    inv.xero_invoice_id || null,
+                ]
+            );
+            inserted.push(rows[0]);
+        } catch (err) {
+            errors.push({ invoice_number: invNo, error: err.message });
+        }
+    }
+    return { inserted: inserted.length, skipped: skipped.length, errors, insertedIds: inserted, skippedIds: skipped };
+}
+
 module.exports = {
     getPOBalance,
     validateInvoiceAgainstPO,
@@ -159,4 +215,5 @@ module.exports = {
     getInvoiceSchedules,
     syncInvoiceSchedules,
     getDunningLog,
+    importHistoricInvoices,
 };
