@@ -24,7 +24,7 @@ Live: https://asilhcm.onrender.com
 
 ## Build 6 — Team onboarding pack (complete)
 
-**Git main:** 2861393+ (docs commit pending push)  
+**Git main:** 692ccbb  
 **Deliverables:** docs/team_guide_*.md, docs/team_accounts_setup.md
 
 - Role one-pagers: finance_manager, ar_team, ap_team, procurement_proposer, payroll_initiator
