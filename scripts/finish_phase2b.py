@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -14,12 +15,11 @@ sys.path.insert(0, str(REPO / "scripts"))
 from import_employees import (  # noqa: E402
     REPORT_PATH,
     api_json,
-    gaps,
     read_jwt,
     union_files,
 )
 
-ROLLBACK_PATH = REPO / "audit" / "employee_phase2b_rollback.json"
+ROLLBACK_PATH = REPO / "audit" / "phase2b_rollback.json"
 JUNK_IDS = ("123", "TEST", "ASIL-1774260596303")
 CLIENT_RENAMES = {
     "Pakistan State Oil Company Ltd": "Pakistan State Oil Company Limited",
@@ -27,9 +27,45 @@ CLIENT_RENAMES = {
 }
 BATCH_SIZE = 40
 
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+DATE_FIELDS = (
+    "doj", "dob", "cnicIssue", "cnicExpiry", "lastWorkingDay",
+    "contractDate", "contractStartDate", "lastUniformIssueDate",
+    "lastPpeIssueDate", "gatePassExpiry",
+)
+
+def is_empty_hcm(val):
+    return val is None or val == "" or val == 0
+
+def blank_backfill_fields(file_rec, hcm_row):
+    patch = {}
+    if file_rec.get("Bank", "").strip() and is_empty_hcm(hcm_row.get("bankName")):
+        patch["bankName"] = file_rec["Bank"].strip()
+    if file_rec.get("Account", "").strip() and is_empty_hcm(hcm_row.get("bankAccount")):
+        patch["bankAccount"] = file_rec["Account"].strip()
+    if file_rec.get("Email Address", "").strip() and is_empty_hcm(hcm_row.get("email")):
+        patch["email"] = file_rec["Email Address"].strip()
+    if file_rec.get("Province", "").strip() and is_empty_hcm(hcm_row.get("province")):
+        patch["province"] = file_rec["Province"].strip()
+    med = file_rec.get("Total Medical Coverage (Self & Family)", "").strip()
+    if med and is_empty_hcm(hcm_row.get("totalMedicalCoverage")):
+        patch["totalMedicalCoverage"] = med
+    return patch
+
+def sanitize_employee(emp):
+    out = dict(emp)
+    for key in DATE_FIELDS:
+        val = out.get(key)
+        if val is None or val == "":
+            continue
+        if not ISO_DATE.match(str(val).strip()):
+            out[key] = None
+    return out
+
 
 def bulk_update(token: str, employees: list[dict[str, Any]]) -> dict[str, Any]:
-    return api_json("POST", "/api/employees/bulk", token, {"employees": employees, "notifyNew": False})
+    cleaned = [sanitize_employee(e) for e in employees]
+    return api_json("POST", "/api/employees/bulk", token, {"employees": cleaned, "notifyNew": False})
 
 
 def delete_employee(token: str, eid: str) -> dict[str, Any]:
@@ -61,14 +97,7 @@ def main() -> int:
     for eid in sorted(set(file_emps) & set(hcm_by_id)):
         rec = file_emps[eid]
         hcm_row = hcm_by_id[eid]
-        missing = gaps(rec, hcm_row)
-        patch: dict[str, str] = {}
-        if "bankName" in missing and rec.get("Bank", "").strip():
-            patch["bankName"] = rec["Bank"].strip()
-        if "bankAccount" in missing and rec.get("Account", "").strip():
-            patch["bankAccount"] = rec["Account"].strip()
-        if "email" in missing and rec.get("Email Address", "").strip():
-            patch["email"] = rec["Email Address"].strip()
+        patch = blank_backfill_fields(rec, hcm_row)
         if not patch:
             backfill_skip += 1
             continue

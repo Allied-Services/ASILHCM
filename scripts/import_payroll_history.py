@@ -134,14 +134,34 @@ def load_employees(token: str) -> dict[str, dict[str, Any]]:
     return {e["id"]: e for e in api_json("GET", "/api/employees", token).get("employees", [])}
 
 
-def resolve_contract(row: dict[str, Any], emp_by_id: dict[str, dict[str, Any]]) -> str | None:
+def load_contracts(token: str) -> dict[str, str]:
+    """Map normalized client / contract_name -> contract id."""
+    out: dict[str, str] = {}
+    for ct in api_json("GET", "/api/contracts", token).get("contracts", []):
+        cid = ct.get("id")
+        if not cid:
+            continue
+        for key in (ct.get("contractName"), ct.get("clientName"), ct.get("client")):
+            if key:
+                out[str(key).lower().strip()] = cid
+    return out
+
+
+def resolve_contract(
+    row: dict[str, Any],
+    emp_by_id: dict[str, dict[str, Any]],
+    client_to_contract: dict[str, str],
+) -> str | None:
     emp = emp_by_id.get(row["employeeId"])
     if emp and emp.get("contractId"):
         return emp["contractId"]
-    return CLIENT_CONTRACT_FALLBACK.get(row["client"].lower().strip())
+    client_key = row["client"].lower().strip()
+    if client_key in client_to_contract:
+        return client_to_contract[client_key]
+    return CLIENT_CONTRACT_FALLBACK.get(client_key)
 
 
-def load_sheet(wb, sheet_name: str, emp_by_id: dict[str, dict[str, Any]]) -> tuple[dict[str, list[dict]], dict[str, int]]:
+def load_sheet(wb, sheet_name: str, emp_by_id: dict[str, dict[str, Any]], client_to_contract: dict[str, str]) -> tuple[dict[str, list[dict]], dict[str, int]]:
     ws = wb[sheet_name]
     rows = list(ws.iter_rows(values_only=True))
     hdr = [str(h).strip() if h is not None else "" for h in rows[0]]
@@ -154,7 +174,7 @@ def load_sheet(wb, sheet_name: str, emp_by_id: dict[str, dict[str, Any]]) -> tup
         stats["parsed"] += 1
         if payload["inputs"].get("formula_broken"):
             stats["formula_broken"] += 1
-        cid = resolve_contract(payload, emp_by_id)
+        cid = resolve_contract(payload, emp_by_id, client_to_contract)
         if not cid:
             stats["no_contract"] += 1
             continue
@@ -211,6 +231,7 @@ def main() -> int:
 
     token = read_jwt()
     emp_by_id = load_employees(token)
+    client_to_contract = load_contracts(token)
     wb = openpyxl.load_workbook(WORKBOOK, read_only=True, data_only=True)
     results: list[dict[str, Any]] = []
 
@@ -219,7 +240,7 @@ def main() -> int:
             print(f"Skip unknown sheet: {sheet}", file=sys.stderr)
             continue
         month, year = SHEET_PERIOD[sheet]
-        by_contract, stats = load_sheet(wb, sheet, emp_by_id)
+        by_contract, stats = load_sheet(wb, sheet, emp_by_id, client_to_contract)
         results.append({"sheet": sheet, "month": month, "year": year, "stats": stats, "contracts": len(by_contract)})
         print(f"{sheet}: {stats['importable']} rows across {len(by_contract)} contracts", flush=True)
 
