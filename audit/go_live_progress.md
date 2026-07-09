@@ -20,3 +20,14 @@ Live: https://asilhcm.onrender.com
 | Phase | Status |
 |---|---|
 | Build 5 dashboards | Complete |
+| Build 6 team onboarding | Complete |
+
+## Build 6 — Team onboarding pack (complete)
+
+**Git main:** 2861393+ (docs commit pending push)  
+**Deliverables:** docs/team_guide_*.md, docs/team_accounts_setup.md
+
+- Role one-pagers: finance_manager, ar_team, ap_team, procurement_proposer, payroll_initiator
+- Account setup: User Management flow, VALID_ROLES matrix, MD roster template
+- Live user list: skipped (JWT in C:\\temp\\hcm_jwt.txt returned 401)
+
