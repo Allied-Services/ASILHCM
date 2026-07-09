@@ -697,15 +697,26 @@ app.post('/api/admin/purge-employee-cascade', requireAuth, requireRole('superadm
             ['claims_inbox', 'employee_id'],
             ['pf_ledger', 'employee_id'],
             ['payroll_advances', 'employee_id'],
+            ['employee_documents', 'employee_id'],
+            ['employee_assets', 'employee_id'],
+            ['employee_change_requests', 'employee_id'],
             ['cost_allocations', 'employee_id'],
         ];
         for (const [table, col] of tables) {
+            const sp = `sp_${table.replace(/[^a-z0-9_]/gi, '_')}`;
             try {
+                await client.query(`SAVEPOINT ${sp}`);
                 const r = await client.query(`DELETE FROM ${table} WHERE ${col} = $1`, [employeeId]);
+                await client.query(`RELEASE SAVEPOINT ${sp}`);
                 cleared[table] = r.rowCount;
             } catch (e) {
-                if (e.code !== '42P01' && e.code !== '42703') throw e;
-                cleared[table] = `skip:${e.code}`;
+                await client.query(`ROLLBACK TO SAVEPOINT ${sp}`).catch(() => {});
+                // Missing table/column is fine — skip
+                if (e.code === '42P01' || e.code === '42703') {
+                    cleared[table] = `skip:${e.code}`;
+                } else {
+                    cleared[table] = `err:${e.code || 'unknown'}:${e.message}`;
+                }
             }
         }
         const del = await client.query('DELETE FROM employees WHERE id = $1 RETURNING id, name', [employeeId]);
@@ -713,7 +724,8 @@ app.post('/api/admin/purge-employee-cascade', requireAuth, requireRole('superadm
         if (!del.rows.length) return res.status(404).json({ error: 'Employee not found' });
         res.json({ ok: true, deleted: del.rows[0], cleared });
     } catch (err) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('[purge-employee-cascade]', err);
         res.status(500).json({ error: err.message });
     } finally {
         client.release();

@@ -100,11 +100,14 @@ def main() -> int:
             print(f"DRY delete {jid} ({emp.get('name')})")
             continue
         try:
-            # Prefer admin cascade endpoint if available; else standard delete
+            # Prefer admin cascade endpoint; do not silently fall back if cascade exists but fails
             try:
                 res = api_json("POST", "/api/admin/purge-employee-cascade", token, {"employeeId": jid})
-            except RuntimeError:
-                res = api_json("DELETE", f"/api/employees/{jid}", token)
+            except RuntimeError as cascade_err:
+                if "HTTP 404" in str(cascade_err):
+                    res = api_json("DELETE", f"/api/employees/{jid}", token)
+                else:
+                    raise
             row["action"] = "deleted"
             row["response"] = res
             row["ok"] = True
