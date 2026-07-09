@@ -19,11 +19,9 @@ const Dashboard = () => {
 
     useEffect(() => {
         api.getDashboardSummary().then((s) => {
-            if (s and s.get('data_period')):
-                dp = s['data_period']
-                if dp.get('month'): setPnlMonth(int(dp['month']))
-                if dp.get('year'): setPnlYear(int(dp['year']))
-        }).catch(lambda e: None)
+            if (s?.data_period?.month) setPnlMonth(Number(s.data_period.month));
+            if (s?.data_period?.year) setPnlYear(Number(s.data_period.year));
+        }).catch(() => {});
         Promise.all([
             loadPnl(),
             api.getIntakeMessages('new').catch(() => []),
