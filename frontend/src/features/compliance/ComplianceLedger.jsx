@@ -26,7 +26,11 @@ const ComplianceLedger = () => {
         try {
             const result = await api.computeCompliance(month, year);
             setComputed(result);
-            loadLedger();
+            if (Array.isArray(result.ledger) && result.ledger.length) {
+                setLedger(result.ledger);
+            } else {
+                loadLedger();
+            }
         } catch (e) {
             setError(e.message);
         }

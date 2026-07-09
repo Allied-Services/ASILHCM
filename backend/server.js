@@ -4671,6 +4671,17 @@ pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id      INT 
     .catch(e => console.warn('po_id col init:', e.message));
 pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id TEXT`)
     .catch(e => console.warn('ci_contract_id col init:', e.message));
+pool.query(`
+    DO $$ BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'client_invoices' AND column_name = 'contract_id'
+              AND data_type IN ('integer', 'bigint', 'smallint')
+        ) THEN
+            ALTER TABLE client_invoices ALTER COLUMN contract_id TYPE TEXT USING contract_id::text;
+        END IF;
+    END $$;
+`).catch(e => console.warn('ci_contract_id type fix:', e.message));
 pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS region      TEXT`)
     .catch(e => console.warn('ci_region col init:', e.message));
 pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS bu          TEXT`)
