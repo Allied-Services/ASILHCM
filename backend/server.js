@@ -237,9 +237,9 @@ app.post('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req,
         if (!email || !isValidDomain) {
             return res.status(400).json({ error: isSupervisorRole ? 'A valid email is required for supervisor role' : `Email must be @${ALLOWED_DOMAIN}` });
         }
-        const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver',
-            'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
-            'procurement_manager','finance_manager','supervisor','hr_manager','admin','pending'];
+        const VALID_ROLES = ['superadmin','operations','operations_supervisor','operations_team','procurement_proposer','procurement_approver',
+            'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator','payroll',
+            'procurement_manager','procurement','finance_manager','supervisor','hr_manager','admin','bizdev','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
         // Non-superadmins cannot create superadmin accounts
         if (role === 'superadmin' && req.user.role !== 'superadmin') {
@@ -259,9 +259,9 @@ app.post('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req,
 app.patch('/api/users/:id/role', requireAuth, requireRole(...USER_MGMT_ROLES), async (req, res) => {
     try {
         const { role } = req.body;
-        const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver',
-            'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
-            'procurement_manager','finance_manager','supervisor','hr_manager','admin','pending'];
+        const VALID_ROLES = ['superadmin','operations','operations_supervisor','operations_team','procurement_proposer','procurement_approver',
+            'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator','payroll',
+            'procurement_manager','procurement','finance_manager','supervisor','hr_manager','admin','bizdev','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
         // Non-superadmins cannot assign or escalate to superadmin
         if (role === 'superadmin' && req.user.role !== 'superadmin') {
@@ -677,6 +677,49 @@ app.post('/api/admin/dedup-employees', requireAuth, requireRole('superadmin'), a
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// MD Mandate §2 — cascade-delete junk employee after clearing FK deps
+app.post('/api/admin/purge-employee-cascade', requireAuth, requireRole('superadmin'), async (req, res) => {
+    const employeeId = req.body?.employeeId || req.body?.id;
+    const PROTECTED = new Set(['ASIL/PSO-298/25', 'ASIL/SPL-418/21', 'ASIL/SPL-420/21']);
+    if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
+    if (PROTECTED.has(employeeId)) {
+        return res.status(403).json({ error: `Employee ${employeeId} is CNIC-protected and cannot be deleted` });
+    }
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const cleared = {};
+        const tables = [
+            ['payroll_run_rows', 'employee_id'],
+            ['payroll_transactions', 'employee_id'],
+            ['attendance_records', 'employee_id'],
+            ['employee_claims', 'employee_id'],
+            ['claims_inbox', 'employee_id'],
+            ['pf_ledger', 'employee_id'],
+            ['payroll_advances', 'employee_id'],
+            ['cost_allocations', 'employee_id'],
+        ];
+        for (const [table, col] of tables) {
+            try {
+                const r = await client.query(`DELETE FROM ${table} WHERE ${col} = $1`, [employeeId]);
+                cleared[table] = r.rowCount;
+            } catch (e) {
+                if (e.code !== '42P01' && e.code !== '42703') throw e;
+                cleared[table] = `skip:${e.code}`;
+            }
+        }
+        const del = await client.query('DELETE FROM employees WHERE id = $1 RETURNING id, name', [employeeId]);
+        await client.query('COMMIT');
+        if (!del.rows.length) return res.status(404).json({ error: 'Employee not found' });
+        res.json({ ok: true, deleted: del.rows[0], cleared });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
 // Delete all employees whose client name contains a substring (case-insensitive)
 app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin'), async (req, res) => {
     const { client_contains } = req.body;
@@ -719,6 +762,20 @@ app.post('/api/admin/import-payroll-history', requireAuth, requireRole('superadm
         res.json(result);
     } catch (err) {
         console.error('[POST /api/admin/import-payroll-history]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// MD Mandate §6 — live focal claim notification test
+app.post('/api/admin/test-claim-notify', requireAuth, requireRole('superadmin', 'finance_manager'), async (req, res) => {
+    try {
+        const to = req.body?.to || 'laiba.mughal@asil.com.pk';
+        const subject = req.body?.subject || '[HCM] Focal claim notification test';
+        const html = req.body?.html || `<p>Focal claim notification test to ${to}</p>`;
+        await sendAppEmail({ to, subject, html });
+        res.json({ ok: true, to, subject });
+    } catch (err) {
+        console.error('[POST /api/admin/test-claim-notify]', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -1026,12 +1083,21 @@ pool.query(`
     `ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE`,
 ].forEach(sql => pool.query(sql).catch(e => console.error('clients migration:', e.message)));
 
-// Named-user role assignments — enforced on every startup
+// MD Mandate §1 — named-user role assignments enforced on every startup
 [
-    ['laiba.mughal@asil.com.pk',    'finance_proposer'],
-    ['huzaifa.rafaqat@asil.com.pk', 'finance_approver'],
+    ['huzaifa.rafaqat@asil.com.pk', 'finance_manager'],
+    ['laiba.mughal@asil.com.pk',    'procurement_manager'],
+    ['asif.awan@asil.com.pk',       'finance_approver'],
+    ['obaid.rana@asil.com.pk',      'operations'],
+    ['rabia.bhutto@asil.com.pk',    'operations_supervisor'],
 ].forEach(([email, role]) => {
-    pool.query('UPDATE hcm_users SET role=$1 WHERE email=$2', [role, email])
+    pool.query(
+        `INSERT INTO hcm_users (email, name, role, google_id)
+         VALUES ($2, split_part($2,'@',1), $1, 'pending:' || $2)
+         ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role
+         WHERE hcm_users.role IS DISTINCT FROM EXCLUDED.role`,
+        [role, email]
+    )
         .then(r => { if (r.rowCount) console.log('Role enforced: ' + email + ' -> ' + role); })
         .catch(e => console.error('Named role error:', e.message));
 });
@@ -4253,12 +4319,27 @@ app.post('/api/bills/:id/create-invoice', requireAuth, requireRole('ar_team','fi
     }
 });
 
-// PATCH /api/client-invoices/:id Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ update invoice (AR can override number, change status)
+// PATCH /api/client-invoices/:id Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ update invoice (AR can override number; Paid status = MD/FM only)
 app.patch('/api/client-invoices/:id', requireAuth, requireRole('ar_team','finance_manager','finance_approver','superadmin'), async (req, res) => {
     try {
         const { invoice_number, status, po_number, due_date, notes, xero_invoice_id, xero_url } = req.body;
         const VALID_STATUSES = ['Draft','Raised','Sent','Paid','Voided'];
         if (status && !VALID_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+
+        const { canManuallySetPaymentStatus, recordPaymentStatusChange } = require('./src/modules/ar/paymentStatusGuard');
+        if (status === 'Paid') {
+            const actor = req.user?.email || '';
+            const isSuper = req.user?.role === 'superadmin';
+            if (!isSuper && !canManuallySetPaymentStatus(actor)) {
+                return res.status(403).json({
+                    error: 'Manual payment status changes are restricted to MD (shezad.mumtaz) or Finance Manager (asif.awan).',
+                });
+            }
+        }
+
+        const prev = await pool.query('SELECT id, invoice_number, status FROM client_invoices WHERE id=$1', [req.params.id]);
+        if (!prev.rows.length) return res.status(404).json({ error: 'Invoice not found' });
+
         const { rows } = await pool.query(`
             UPDATE client_invoices SET
                 invoice_number = COALESCE($1, invoice_number),
@@ -4273,6 +4354,16 @@ app.patch('/api/client-invoices/:id', requireAuth, requireRole('ar_team','financ
         `, [invoice_number||null, status||null, po_number||null, due_date||null,
             notes||null, xero_invoice_id||null, xero_url||null, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
+
+        if (status && status !== prev.rows[0].status) {
+            await recordPaymentStatusChange(pool, {
+                invoiceId: rows[0].id,
+                invoiceNumber: rows[0].invoice_number,
+                fromStatus: prev.rows[0].status,
+                toStatus: status,
+                changedBy: req.user?.email,
+            });
+        }
         res.json({ ok: true, invoice: rows[0] });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -7779,19 +7870,38 @@ if (require.main === module) app.listen(PORT, async () => {
         await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_id TEXT');
         console.log('Migration OK: contract_id column ready');
 
-        // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Seed known users with correct roles (only if still pending) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
-        // Safe to run every restart ├óΓé¼ΓÇ¥ only updates 'pending' users, never demotes
+        // MD Mandate §1 — seed known users (only if still pending; startup block above forces roles)
         const roleSeed = [
-            { email: 'laiba.mughal@asil.com.pk',    role: 'finance_proposer' },
-            { email: 'huzaifa.rafaqat@asil.com.pk', role: 'finance_approver' },
+            { email: 'huzaifa.rafaqat@asil.com.pk', role: 'finance_manager' },
+            { email: 'laiba.mughal@asil.com.pk',    role: 'procurement_manager' },
+            { email: 'asif.awan@asil.com.pk',       role: 'finance_approver' },
+            { email: 'obaid.rana@asil.com.pk',      role: 'operations' },
+            { email: 'rabia.bhutto@asil.com.pk',    role: 'operations_supervisor' },
         ];
         for (const u of roleSeed) {
             await pool.query(
-                `UPDATE hcm_users SET role=$1 WHERE email=$2 AND role='pending'`,
-                [u.role, u.email]
+                `INSERT INTO hcm_users (google_id, email, name, role)
+                 VALUES ($1, $2, split_part($2,'@',1), $3)
+                 ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role
+                 WHERE hcm_users.role = 'pending'`,
+                [`pending_${u.email}`, u.email, u.role]
             );
         }
         console.log('Migration OK: known user roles seeded');
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS payment_status_change_log (
+                id SERIAL PRIMARY KEY,
+                invoice_id INT,
+                invoice_number TEXT,
+                from_status TEXT,
+                to_status TEXT NOT NULL,
+                changed_by TEXT,
+                changed_at TIMESTAMPTZ DEFAULT NOW(),
+                summarized_at TIMESTAMPTZ
+            )
+        `);
+        console.log('Migration OK: payment_status_change_log');
 
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Inventory tables ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
         await pool.query(`
@@ -8620,6 +8730,10 @@ if (require.main === module) app.listen(PORT, async () => {
             pool,
             runReportDispatch: (p) => phase2.runReportDispatch(p, sendAppEmail),
             runEscalationCheck: (p) => phase2.runEscalationCheck(p, sendAppEmail, sendJazzSMS),
+            runPaymentStatusSummary: async (p) => {
+                const { sendEndOfDayPaymentStatusSummary } = require('./src/modules/ar/paymentStatusGuard');
+                return sendEndOfDayPaymentStatusSummary(p, sendAppEmail);
+            },
         });
 
         bootstrapRestructure({ pool, sendAppEmail, sendJazzSMS }).catch(e =>

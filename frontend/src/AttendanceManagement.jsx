@@ -195,11 +195,15 @@ function MonthlyReport({user}) {
         </div>
         <div style={{flex:1}}/>
         {data && (
-          <a href={api.exportAttendance({month,year,...(client?{client}:{})})}
-            target="_blank" rel="noreferrer"
-            style={{background:'rgba(34,197,94,0.12)',border:'1px solid #22c55e',color:'#22c55e',padding:'8px 16px',borderRadius:'8px',textDecoration:'none',fontWeight:600,fontSize:'0.84rem'}}>
+          <button
+            type="button"
+            onClick={() => {
+              api.exportAttendance({ month, year, ...(client ? { client } : {}) })
+                .catch(e => alert(e.message || 'Export failed'));
+            }}
+            style={{background:'rgba(34,197,94,0.12)',border:'1px solid #22c55e',color:'#22c55e',padding:'8px 16px',borderRadius:'8px',fontWeight:600,fontSize:'0.84rem',cursor:'pointer'}}>
             ⬇ Export CSV
-          </a>
+          </button>
         )}
       </div>
 

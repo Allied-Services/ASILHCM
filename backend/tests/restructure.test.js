@@ -390,7 +390,7 @@ describe('aggregateClaimInputs', () => {
             { id: 1, claim_type: 'overtime', claimed_items: [{ ot2: 5, ot3: 2 }] },
             { id: 2, claim_type: 'medical', claimed_items: [{ amount: 3000 }] },
         ]);
-        expect(result).toEqual({ ot2: 5, ot3: 2, opd: 3000, expense: 0, claimIds: [1, 2] });
+        expect(result).toEqual({ ot1: 0, ot2: 5, ot3: 2, opd: 3000, expense: 0, claimIds: [1, 2] });
     });
 });
 

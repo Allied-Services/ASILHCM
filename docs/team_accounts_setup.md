@@ -34,20 +34,23 @@
 
 Sidebar modules per role are defined in `frontend/src/App.jsx` (`ROLE_NAV`).
 
-## Go-live roster (MD fills names)
+## Go-live roster (MD Operational Mandates §1)
 
-| Role | Suggested assignee (name) | Email | Created? |
-|------|---------------------------|-------|----------|
-| finance_manager | | | |
-| ar_team | | | |
-| ap_team | | | |
-| procurement_proposer | | | |
-| payroll_initiator | | | |
-| finance_approver | | | |
-| finance_proposer | | | |
-| procurement_approver | | | |
-| operations | | | |
-| superadmin | | | |
+| Role (MD) | HCM primary role | Email | Notes |
+|------|------------------|-------|-------|
+| finance_manager | finance_manager | huzaifa.rafaqat@asil.com.pk | Also covers ar_team + payroll modules |
+| ar_team | *(via finance_manager)* | huzaifa.rafaqat@asil.com.pk | Same mailbox — permissions expanded |
+| ap_team | *(via procurement_manager)* | laiba.mughal@asil.com.pk | Same mailbox |
+| procurement | procurement_manager | laiba.mughal@asil.com.pk | |
+| payroll | *(via finance_manager)* | huzaifa.rafaqat@asil.com.pk | July parallel run owner |
+| finance_approver | finance_approver | asif.awan@asil.com.pk | Manual Paid status co-authorised with MD |
+| operations_team | operations | Obaid.rana@asil.com.pk | |
+| operations_supervisor | operations_supervisor | rabia.bhutto@asil.com.pk | |
+| bizdev (BD) | *(via operations_supervisor)* | rabia.bhutto@asil.com.pk | BD pipeline access |
+
+Provision script: `scripts/provision_workspace_roster.py`  
+Startup seed in `backend/server.js` enforces these roles on every deploy.
+
 
 ## One-pager guides
 

@@ -209,7 +209,30 @@ export const api = {
     markAttendance:      (date, recs) => apiFetch('/api/attendance/mark', { method: 'POST', body: JSON.stringify({ date, records: recs }) }),
     getMonthlyReport:    (q = {})     => apiFetch('/api/attendance/report/monthly?' + new URLSearchParams(q).toString()),
     getWeeklyReport:     (week_start) => apiFetch(`/api/attendance/report/weekly?week_start=${week_start}`),
-    exportAttendance:    (q = {})     => `${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/attendance/export?` + new URLSearchParams(q).toString(),
+    exportAttendance:    (q = {})     => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const url = `${API}/api/attendance/export?` + new URLSearchParams(q).toString();
+        return fetch(url, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }).then(async (r) => {
+            if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
+                throw new Error(err.error || `Export failed (HTTP ${r.status})`);
+            }
+            const blob = await r.blob();
+            const cd = r.headers.get('Content-Disposition') || '';
+            const match = cd.match(/filename="?([^"]+)"?/i);
+            const filename = match?.[1] || `attendance_export_${q.year || ''}_${q.month || ''}.csv`;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(a.href);
+            return { ok: true, filename };
+        });
+    },
     getAttendanceTeams:  ()           => apiFetch('/api/attendance/teams'),
     assignTeam:          (d)          => apiFetch('/api/attendance/teams/assign', { method: 'POST', body: JSON.stringify(d) }),
     removeTeamMember:    (id)         => apiFetch(`/api/attendance/teams/${id}`, { method: 'DELETE' }),

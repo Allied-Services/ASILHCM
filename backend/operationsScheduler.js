@@ -11,10 +11,11 @@ function getPktNow() {
     return { hour: pkt.getHours(), minute: pkt.getMinutes(), dateKey: pkt.toISOString().slice(0, 10) };
 }
 
-function startOperationsScheduler({ pool, runReportDispatch, runEscalationCheck }) {
+function startOperationsScheduler({ pool, runReportDispatch, runEscalationCheck, runPaymentStatusSummary }) {
     if (process.env.NODE_ENV === 'test') return;
 
     let lastReportDate = '';
+    let lastPaymentSummaryDate = '';
     let lastEscalationMinute = -1;
 
     setInterval(async () => {
@@ -27,6 +28,12 @@ function startOperationsScheduler({ pool, runReportDispatch, runEscalationCheck 
                 await runReportDispatch(pool);
             }
 
+            // MD Mandate §5 — end-of-day payment status summary at 17:55 PKT
+            if (hour === 17 && minute === 55 && lastPaymentSummaryDate !== dateKey && typeof runPaymentStatusSummary === 'function') {
+                lastPaymentSummaryDate = dateKey;
+                await runPaymentStatusSummary(pool);
+            }
+
             // CMMS escalation every 10 minutes
             if (minute % 10 === 0 && lastEscalationMinute !== minute) {
                 lastEscalationMinute = minute;
@@ -37,7 +44,7 @@ function startOperationsScheduler({ pool, runReportDispatch, runEscalationCheck 
         }
     }, 60 * 1000);
 
-    console.log('Operations scheduler: OK (report dispatch 18:00 PKT, escalation every 10m)');
+    console.log('Operations scheduler: OK (report 18:00 PKT, payment-status EOD 17:55 PKT, escalation every 10m)');
 }
 
 module.exports = { startOperationsScheduler, getPktNow };
