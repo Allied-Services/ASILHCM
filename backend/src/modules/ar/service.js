@@ -216,4 +216,5 @@ module.exports = {
     syncInvoiceSchedules,
     getDunningLog,
     importHistoricInvoices,
+    getArAging: require('./aging').getArAging,
 };

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
+import { getArAging } from './api';
 
 const ARDashboard = () => {
     const [schedules, setSchedules] = useState([]);
@@ -8,10 +9,12 @@ const ARDashboard = () => {
     const [poBalance, setPoBalance] = useState(null);
     const [msg, setMsg] = useState('');
     const [error, setError] = useState('');
+    const [aging, setAging] = useState(null);
 
     const load = () => {
         api.getInvoiceSchedules().then(setSchedules).catch(() => setSchedules([]));
         api.getDunningLog().then(setDunningLog).catch(() => setDunningLog([]));
+        getArAging().then(setAging).catch(() => setAging(null));
     };
 
     useEffect(load, []);
@@ -43,6 +46,25 @@ const ARDashboard = () => {
             </div>
 
             {msg && <div className="glass-card" style={{ color: 'var(--success)', marginBottom: '1rem' }}>{msg}</div>}
+            
+            <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ marginBottom: '1rem' }}>AR Aging</h3>
+                <table className="data-table">
+                    <thead><tr><th>Bucket</th><th>Invoices</th><th>Amount (PKR)</th></tr></thead>
+                    <tbody>
+                        {!aging?.buckets?.length ? (
+                            <tr><td colSpan={3} style={{ color: 'var(--text-muted)' }}>No outstanding AR</td></tr>
+                        ) : aging.buckets.map((b) => (
+                            <tr key={b.label}>
+                                <td>{b.label}</td>
+                                <td>{b.count}</td>
+                                <td>{Number(b.amount || 0).toLocaleString()}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
             {error && <div className="glass-card" style={{ color: 'var(--danger)', marginBottom: '1rem' }}>{error}</div>}
 
             <div className="glass-card" style={{ marginBottom: '1.5rem' }}>

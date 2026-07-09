@@ -1,6 +1,7 @@
 'use strict';
 
 const { handleRouteError } = require('../../core/validate');
+const { getArAging } = require('./aging');
 const {
     getPOBalance,
     validateInvoiceAgainstPO,
@@ -15,6 +16,7 @@ const { previewReceiptSplit, postReceipt, listReceipts, deleteReceiptById, purge
 function registerArRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail, getXeroAccessToken } = deps;
 
+    app.get('/api/ar/aging', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team', 'finance_proposer'), async (req, res) => { try { res.json(await getArAging(pool)); } catch (err) { handleRouteError(res, 'ar.aging', err); } });
     app.get('/api/ar/po-balance/:poId', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team', 'finance_proposer'), async (req, res) => {
         try {
             res.json(await getPOBalance(pool, parseInt(req.params.poId, 10)));

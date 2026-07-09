@@ -371,6 +371,8 @@ export const api = {
     runDunning: () => apiFetch('/api/ar/run-dunning', { method: 'POST' }),
     getInvoiceSchedules: () => apiFetch('/api/ar/invoice-schedules'),
     getDunningLog: () => apiFetch('/api/ar/dunning-log'),
+    getArAging: () => apiFetch('/api/ar/aging'),
+    getDashboardSummary: () => apiFetch('/api/dashboard/summary'),
 
     // ── Payroll Run ──────────────────────────────────────────────────────────────
     computePayrollRun: (contractId, month, year) => apiFetch('/api/payroll-runs/compute', { method: 'POST', body: JSON.stringify({ contractId, month, year }) }),

@@ -5,29 +5,40 @@ const { formatDate, addDays, startOfWeek, addWeeks } = require('../../core/dates
 async function refreshPnlViews(pool) {
     await pool.query(`
         CREATE OR REPLACE VIEW v_contract_pnl_monthly AS
+        WITH costs AS (
+            SELECT contract_id, period_year, period_month, SUM(amount) AS total_cost
+            FROM cost_allocations
+            GROUP BY contract_id, period_year, period_month
+        ),
+        revenue AS (
+            SELECT contract_id, period_year, period_month, SUM(grand_total) AS total_revenue
+            FROM client_invoices
+            WHERE status NOT IN ('Void', 'Voided')
+            GROUP BY contract_id, period_year, period_month
+        ),
+        periods AS (
+            SELECT contract_id, period_year, period_month FROM costs
+            UNION
+            SELECT contract_id, period_year, period_month FROM revenue
+        )
         SELECT
             c.id AS contract_id,
             c.contract_name,
             c.client_id,
-            ca.period_year,
-            ca.period_month,
-            COALESCE(SUM(ca.amount), 0) AS total_cost,
-            COALESCE(inv.revenue, 0) AS total_revenue,
-            COALESCE(inv.revenue, 0) - COALESCE(SUM(ca.amount), 0) AS margin_abs,
-            CASE WHEN COALESCE(inv.revenue, 0) > 0
-                THEN ROUND(((COALESCE(inv.revenue, 0) - COALESCE(SUM(ca.amount), 0)) / inv.revenue) * 100, 2)
+            p.period_year,
+            p.period_month,
+            COALESCE(costs.total_cost, 0) AS total_cost,
+            COALESCE(revenue.total_revenue, 0) AS total_revenue,
+            COALESCE(revenue.total_revenue, 0) - COALESCE(costs.total_cost, 0) AS margin_abs,
+            CASE WHEN COALESCE(revenue.total_revenue, 0) > 0
+                THEN ROUND(((COALESCE(revenue.total_revenue, 0) - COALESCE(costs.total_cost, 0)) / revenue.total_revenue) * 100, 2)
                 ELSE NULL END AS margin_pct
-        FROM contracts c
-        LEFT JOIN cost_allocations ca ON ca.contract_id = c.id
-        LEFT JOIN (
-            SELECT contract_id, period_year, period_month, SUM(grand_total) AS revenue
-            FROM client_invoices
-            WHERE status IS DISTINCT FROM 'Void'
-            GROUP BY contract_id, period_year, period_month
-        ) inv ON inv.contract_id = c.id
-            AND inv.period_year = ca.period_year
-            AND inv.period_month = ca.period_month
-        GROUP BY c.id, c.contract_name, c.client_id, ca.period_year, ca.period_month, inv.revenue
+        FROM periods p
+        JOIN contracts c ON c.id = p.contract_id
+        LEFT JOIN costs ON costs.contract_id = p.contract_id
+            AND costs.period_year = p.period_year AND costs.period_month = p.period_month
+        LEFT JOIN revenue ON revenue.contract_id = p.contract_id
+            AND revenue.period_year = p.period_year AND revenue.period_month = p.period_month
     `);
 }
 
@@ -86,12 +97,22 @@ async function getWeeklyCashflow(pool, weeks = 8) {
     for (let i = 0; i < weeks; i++) {
         const ws = addWeeks(start, i);
         const we = addDays(ws, 6);
+        const inflowSql = i === 0
+            ? `SELECT COALESCE(SUM(grand_total), 0) AS total
+               FROM client_invoices
+               WHERE payment_received_at IS NULL
+                 AND status NOT IN ('Paid', 'Void', 'Voided')
+                 AND (
+                   (due_date >= $1::date AND due_date <= $2::date)
+                   OR due_date < $1::date
+                 )`
+            : `SELECT COALESCE(SUM(grand_total), 0) AS total
+               FROM client_invoices
+               WHERE due_date >= $1::date AND due_date <= $2::date
+                 AND payment_received_at IS NULL
+                 AND status NOT IN ('Paid', 'Void', 'Voided')`;
         const inflows = await pool.query(
-            `SELECT COALESCE(SUM(grand_total), 0) AS total
-             FROM client_invoices
-             WHERE due_date >= $1::date AND due_date <= $2::date
-               AND payment_received_at IS NULL
-               AND status IS DISTINCT FROM 'Void'`,
+            inflowSql,
             [formatDate(ws), formatDate(we)]
         ).catch(() => ({ rows: [{ total: 0 }] }));
 

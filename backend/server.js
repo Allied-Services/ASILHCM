@@ -4911,11 +4911,11 @@ app.get('/api/dashboard/summary', requireAuth, async (req, res) => {
             // Contracts by status
             pool.query(`SELECT status, COUNT(*) AS cnt FROM contracts GROUP BY status`),
             // Outstanding invoices
-            pool.query(`SELECT COUNT(*) AS cnt, COALESCE(SUM(grand_total),0) AS value FROM client_invoices WHERE status NOT IN ('Paid','Void')`),
+            pool.query(`SELECT COUNT(*) AS cnt, COALESCE(SUM(grand_total),0) AS value FROM client_invoices WHERE status NOT IN ('Paid','Void','Voided')`),
             // Pending bills
             pool.query(`SELECT COUNT(*) AS pending, COALESCE(SUM(CASE WHEN status='Paid' THEN total ELSE 0 END),0) AS paid_this_month FROM bills WHERE (status NOT IN ('Paid','Rejected') OR (status='Paid' AND EXTRACT(MONTH FROM paid_at)=$1 AND EXTRACT(YEAR FROM paid_at)=$2))`, [curMonth, curYear]),
-            // Payroll cost locked this month
-            pool.query(`SELECT COALESCE(SUM(total_invoice),0) AS monthly_cost, COUNT(*) AS locked_count FROM payroll_transactions WHERE year=$1 AND month=$2 AND locked=TRUE`, [curYear, curMonth]),
+            // Payroll allocations placeholder
+            Promise.resolve({ rows: [{ monthly_cost: 0, locked_count: 0 }] }),
             // Contracts expiring in 30 days
             pool.query(`SELECT contract_name, client_id, end_date FROM contracts WHERE end_date BETWEEN NOW() AND NOW() + INTERVAL '30 days' ORDER BY end_date ASC`),
             // Contracts expiring in 31-60 days
@@ -4924,7 +4924,30 @@ app.get('/api/dashboard/summary', requireAuth, async (req, res) => {
             pool.query(`SELECT user_email, action_type, entity_type, entity_id, created_at FROM audit_log ORDER BY created_at DESC LIMIT 10`).catch(() => ({ rows: [] })),
         ]);
 
-        // Headcount breakdown by client
+        let dataMonth = curMonth;
+        let dataYear = curYear;
+        let allocRow = await pool.query(
+            `SELECT COALESCE(SUM(amount),0) AS monthly_cost, COUNT(*) AS alloc_count FROM cost_allocations WHERE period_month=$1 AND period_year=$2`,
+            [dataMonth, dataYear]
+        );
+        let monthlyCost = parseFloat(allocRow.rows[0].monthly_cost || 0);
+        let lockedCount = parseInt(allocRow.rows[0].alloc_count || 0, 10);
+        if (monthlyCost === 0) {
+            const latest = await pool.query(
+                `SELECT period_month, period_year FROM payroll_runs ORDER BY period_year DESC, period_month DESC LIMIT 1`
+            );
+            if (latest.rows.length) {
+                dataMonth = latest.rows[0].period_month;
+                dataYear = latest.rows[0].period_year;
+                allocRow = await pool.query(
+                    `SELECT COALESCE(SUM(amount),0) AS monthly_cost, COUNT(*) AS alloc_count FROM cost_allocations WHERE period_month=$1 AND period_year=$2`,
+                    [dataMonth, dataYear]
+                );
+                monthlyCost = parseFloat(allocRow.rows[0].monthly_cost || 0);
+                lockedCount = parseInt(allocRow.rows[0].alloc_count || 0, 10);
+            }
+        }
+
         const { rows: byClient } = await pool.query(
             `SELECT client, COUNT(*) AS cnt FROM employees WHERE active='Yes' OR active='Active' OR active IS NULL GROUP BY client ORDER BY cnt DESC LIMIT 8`
         );
@@ -4934,7 +4957,8 @@ app.get('/api/dashboard/summary', requireAuth, async (req, res) => {
             contracts: contractData.rows,
             invoices: { pending_count: parseInt(invoiceData.rows[0].cnt), pending_value: parseFloat(invoiceData.rows[0].value) },
             bills: { pending_count: parseInt(billData.rows[0].pending), paid_this_month: parseFloat(billData.rows[0].paid_this_month) },
-            payroll: { monthly_cost: parseFloat(payrollData.rows[0].monthly_cost), locked_count: parseInt(payrollData.rows[0].locked_count), month: curMonth, year: curYear },
+            payroll: { monthly_cost: monthlyCost, locked_count: lockedCount, month: dataMonth, year: dataYear },
+            data_period: { month: dataMonth, year: dataYear },
             alerts: {
                 expiring_30: expiring30.rows,
                 expiring_60: expiring60.rows,

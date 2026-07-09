@@ -11,14 +11,19 @@ const Dashboard = () => {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [refreshError, setRefreshError] = useState('');
-    const now = new Date();
-    const [pnlMonth, setPnlMonth] = useState(now.getMonth() + 1);
-    const [pnlYear, setPnlYear] = useState(now.getFullYear());
+    const [pnlMonth, setPnlMonth] = useState(5);
+    const [pnlYear, setPnlYear] = useState(2026);
 
     const loadPnl = (month = pnlMonth, year = pnlYear) =>
         api.getContractPnl({ month, year }).then(rows => setPnl(Array.isArray(rows) ? rows : [])).catch(() => setPnl([]));
 
     useEffect(() => {
+        api.getDashboardSummary().then((s) => {
+            if (s and s.get('data_period')):
+                dp = s['data_period']
+                if dp.get('month'): setPnlMonth(int(dp['month']))
+                if dp.get('year'): setPnlYear(int(dp['year']))
+        }).catch(lambda e: None)
         Promise.all([
             loadPnl(),
             api.getIntakeMessages('new').catch(() => []),
