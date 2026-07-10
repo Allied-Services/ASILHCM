@@ -131,21 +131,26 @@ const MODULES = [
   },
 ];
 
-// ─── Default permissions per role (derived from blueprint ROLE_NAV) ───────────
+// ─── Default permissions per role (must cover every ROLE_META key) ────────────
 const ROLE_NAV_SET = {
-  superadmin:           ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
-  operations:           ['employee','documents','client','attendance','maintenance'],
-  procurement_proposer: ['billing','vendor','inventory'],
-  procurement_approver: ['billing','vendor','inventory'],
-  procurement_manager:  ['billing','vendor','inventory','ap','maintenance'],
-  finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance'],
-  finance_approver:     ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims'],
-  finance_manager:      ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
-  ap_team:              ['ap','billing'],
-  ar_team:              ['invoices','po_tracking','billing'],
-  payroll_initiator:    ['payroll','employee'],
-  supervisor:           ['attendance','maintenance'],
-  pending:              [],
+  superadmin:            ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
+  operations:            ['employee','documents','client','attendance','maintenance'],
+  operations_supervisor: ['employee','documents','client','attendance','maintenance'],
+  operations_team:       ['employee','documents','client','attendance','maintenance'],
+  procurement_proposer:  ['billing','vendor','inventory'],
+  procurement_approver:  ['billing','vendor','inventory'],
+  procurement_manager:   ['billing','vendor','inventory','ap','maintenance'],
+  procurement:           ['billing','vendor','inventory','ap'],
+  finance_proposer:      ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance'],
+  finance_approver:      ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims'],
+  finance_manager:       ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
+  ap_team:               ['ap','billing'],
+  ar_team:               ['invoices','po_tracking','billing'],
+  payroll_initiator:     ['payroll','employee'],
+  payroll:               ['payroll','employee'],
+  bizdev:                ['client'],
+  supervisor:            ['attendance','maintenance'],
+  pending:               [],
 };
 
 // Sub-permission defaults per role per module
@@ -246,12 +251,52 @@ const ROLE_SUB_PERMS = {
     attendance: ['view','mark_attendance','approve_leave','team_setup'],
     maintenance: ['view','create'],
   },
+  operations_supervisor: {
+    employee:  ['view','create','edit'],
+    documents: ['view','generate'],
+    client:    ['view','create','edit'],
+    attendance: ['view','mark_attendance','approve_leave','team_setup'],
+    maintenance: ['view','create','escalation_config'],
+  },
+  operations_team: {
+    employee:  ['view','edit'],
+    documents: ['view','generate'],
+    client:    ['view'],
+    attendance: ['view','mark_attendance'],
+    maintenance: ['view','create'],
+  },
+  procurement: {
+    billing:   ['view','create','edit','approve','mark_paid'],
+    vendor:    ['view','create','edit'],
+    inventory: ['view','create','edit','issue'],
+    ap:        ['view','confirm'],
+  },
+  payroll: {
+    payroll:  ['view','edit','lock','export'],
+    employee: ['view'],
+  },
+  bizdev: {
+    client: ['view','create','edit'],
+  },
   supervisor: {
     attendance: ['view','mark_attendance'],
     maintenance: ['view','create'],
   },
   pending: {},
 };
+
+/** Normalize DB/custom permission entries into { access, subPerms[] }. */
+function normalizePermEntry(raw, fallback = { access: false, subPerms: [] }) {
+  if (raw == null) return { access: !!fallback.access, subPerms: Array.isArray(fallback.subPerms) ? [...fallback.subPerms] : [] };
+  if (typeof raw === 'boolean') {
+    return { access: raw, subPerms: raw ? (Array.isArray(fallback.subPerms) && fallback.subPerms.length ? [...fallback.subPerms] : ['view']) : [] };
+  }
+  if (typeof raw !== 'object') return { access: false, subPerms: [] };
+  const access = raw.access === true || raw.access === 'true' || raw.access === 1;
+  let subPerms = raw.subPerms ?? raw.sub_perms ?? raw.perms;
+  if (!Array.isArray(subPerms)) subPerms = access ? ['view'] : [];
+  return { access, subPerms: subPerms.map(String) };
+}
 
 const SUB_PERM_LABELS = {
   view:             { label: 'View',            color: '#38bdf8' },
@@ -323,17 +368,19 @@ function PermPill({ label, color, active, onClick }) {
 function PermissionsPanel({ user, onClose, onSaved }) {
   // Use saved custom permissions from DB if they exist; fall back to role defaults
   const [perms, setPerms] = useState(() => {
-    if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
-      // Merge saved perms with any newly-added modules (forward-compat)
-      const saved = user.permissions;
-      const defaults = buildDefaultPerms(user.role);
+    const defaults = buildDefaultPerms(user.role);
+    let saved = user.permissions;
+    if (typeof saved === 'string') {
+      try { saved = JSON.parse(saved); } catch (_) { saved = null; }
+    }
+    if (saved && typeof saved === 'object' && !Array.isArray(saved) && Object.keys(saved).length > 0) {
       const merged = { ...defaults };
       Object.keys(defaults).forEach(k => {
-        if (saved[k] !== undefined) merged[k] = saved[k];
+        if (saved[k] !== undefined) merged[k] = normalizePermEntry(saved[k], defaults[k]);
       });
       return merged;
     }
-    return buildDefaultPerms(user.role);
+    return defaults;
   });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -343,7 +390,7 @@ function PermissionsPanel({ user, onClose, onSaved }) {
 
   const toggleAccess = (moduleKey) => {
     setPerms(prev => {
-      const cur = prev[moduleKey];
+      const cur = normalizePermEntry(prev[moduleKey]);
       const next = !cur.access;
       return {
         ...prev,
@@ -358,11 +405,11 @@ function PermissionsPanel({ user, onClose, onSaved }) {
 
   const toggleSubPerm = (moduleKey, perm) => {
     setPerms(prev => {
-      const cur = prev[moduleKey];
+      const cur = normalizePermEntry(prev[moduleKey]);
       if (!cur.access) return prev;
       const has = cur.subPerms.includes(perm);
       const next = has ? cur.subPerms.filter(p => p !== perm) : [...cur.subPerms, perm];
-      return { ...prev, [moduleKey]: { ...cur, subPerms: next } };
+      return { ...prev, [moduleKey]: { access: true, subPerms: next } };
     });
     setDirty(true);
   };
@@ -391,7 +438,7 @@ function PermissionsPanel({ user, onClose, onSaved }) {
     setSaving(false);
   };
 
-  const accessCount = Object.values(perms).filter(p => p.access).length;
+  const accessCount = Object.values(perms).filter(p => normalizePermEntry(p).access).length;
 
   return (
     <div style={{
@@ -456,7 +503,7 @@ function PermissionsPanel({ user, onClose, onSaved }) {
           </div>
 
           {MODULES.map(mod => {
-            const mp = perms[mod.key] || { access: false, subPerms: [] };
+            const mp = normalizePermEntry(perms[mod.key]);
             const isSuperAdmin = user.role === 'superadmin';
 
             return (
@@ -564,7 +611,9 @@ function RoleMatrix() {
             <th style={{ padding: '10px 14px', textAlign: 'left', color: '#94a3b8', fontWeight: 700, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: '#0f172a', zIndex: 2 }}>Module</th>
             {roles.map(r => (
               <th key={r} style={{ padding: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                <span style={{ color: ROLE_META[r].color, fontWeight: 700, fontSize: '0.68rem' }}>{ROLE_META[r].label}</span>
+                <span style={{ color: (ROLE_META[r] || ROLE_META.pending).color, fontWeight: 700, fontSize: '0.68rem' }}>
+                  {(ROLE_META[r] || ROLE_META.pending).label}
+                </span>
               </th>
             ))}
           </tr>
@@ -585,7 +634,8 @@ function RoleMatrix() {
                 {mod.label}
               </td>
               {roles.map(r => {
-                const allowed = ROLE_NAV_SET[r].includes(mod.key) || r === 'superadmin';
+                const nav = ROLE_NAV_SET[r] || [];
+                const allowed = nav.includes(mod.key) || r === 'superadmin';
                 return (
                   <td key={r} style={{ padding: '9px 8px', textAlign: 'center' }}>
                     {allowed
@@ -870,8 +920,9 @@ export default function UserManagement({ user: currentUser }) {
       {activeTab === 'roles' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px' }}>
           {ROLE_OPTIONS.map(({ value: r }) => {
-            const { label, color, bg, desc } = ROLE_META[r];
-            const modules = ROLE_NAV_SET[r].map(k => MODULES.find(m => m.key === k)?.label).filter(Boolean);
+            const meta = ROLE_META[r] || ROLE_META.pending;
+            const { label, color, bg, desc } = meta;
+            const modules = (ROLE_NAV_SET[r] || []).map(k => MODULES.find(m => m.key === k)?.label).filter(Boolean);
             return (
               <div key={r} style={{ background: '#0a1020', border: `1px solid ${color}30`, borderRadius: '14px', padding: '18px', transition: 'transform 0.15s, box-shadow 0.15s' }}
                 onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 8px 24px ${color}18`; }}
