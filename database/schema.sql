@@ -345,3 +345,42 @@ CREATE INDEX IF NOT EXISTS idx_chgreq_empid ON employee_change_requests(employee
 -- CMMS site onboarding (2026-07-03): cmms_sites, cmms_client_users, client_otps
 -- maintenance_tickets extended: due_date, billable_to_client, raised_via, cc_email
 -- site_escalation_rules extended: basis (hours_open | hours_overdue)
+
+-- ═══ Operational Core Alignment (2026-07-10) ════════════════════════════════
+-- Live migrations: backend/migrations/20260710120000_attendance_ops_alignment.js
+-- attendance_records extended: hours, ot_hours
+-- project_client_focals: site/project/dept → focal_emails[]
+-- monthly_attendance_overrides: 15-column monthly hub import overrides
+CREATE TABLE IF NOT EXISTS project_client_focals (
+    id               SERIAL PRIMARY KEY,
+    project_id       TEXT,
+    site             TEXT,
+    department       TEXT,
+    client           TEXT,
+    contract_id      TEXT,
+    focal_emails     TEXT[] NOT NULL DEFAULT '{}',
+    supervisor_email TEXT,
+    active           BOOLEAN DEFAULT TRUE,
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS monthly_attendance_overrides (
+    id                SERIAL PRIMARY KEY,
+    employee_id       TEXT NOT NULL,
+    period_month      INT NOT NULL,
+    period_year       INT NOT NULL,
+    present_days      NUMERIC(6,2),
+    ot2_hours         NUMERIC(8,2) DEFAULT 0,
+    ot3_hours         NUMERIC(8,2) DEFAULT 0,
+    opd               NUMERIC(12,2) DEFAULT 0,
+    expense           NUMERIC(12,2) DEFAULT 0,
+    arrears           NUMERIC(12,2) DEFAULT 0,
+    special_allowance NUMERIC(12,2) DEFAULT 0,
+    fuel_mobile       NUMERIC(12,2) DEFAULT 0,
+    other_deduction   NUMERIC(12,2) DEFAULT 0,
+    contract_name     TEXT,
+    cnic              TEXT,
+    staff_code        TEXT,
+    UNIQUE (employee_id, period_month, period_year)
+);
+

@@ -12,9 +12,19 @@ const {
     importHistoricInvoices,
 } = require('./service');
 const { previewReceiptSplit, postReceipt, listReceipts, deleteReceiptById, purgeTestReceipts } = require('./receipts');
+const { syncXeroArInvoices } = require('./xeroArSync');
 
 function registerArRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail, getXeroAccessToken } = deps;
+
+    app.post('/api/ar/xero/sync-invoices', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team'), async (req, res) => {
+        try {
+            if (!getXeroAccessToken) return res.status(500).json({ error: 'Xero not configured' });
+            res.json(await syncXeroArInvoices(pool, getXeroAccessToken, req.body || {}));
+        } catch (err) {
+            handleRouteError(res, 'ar.xeroArSync', err);
+        }
+    });
 
     app.get('/api/ar/aging', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team', 'finance_proposer'), async (req, res) => { try { res.json(await getArAging(pool)); } catch (err) { handleRouteError(res, 'ar.aging', err); } });
     app.get('/api/ar/po-balance/:poId', requireAuth, requireRole('superadmin', 'finance_manager', 'ar_team', 'finance_proposer'), async (req, res) => {

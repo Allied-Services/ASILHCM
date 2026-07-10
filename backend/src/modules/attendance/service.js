@@ -2,6 +2,15 @@
 
 const { parse } = require('csv-parse/sync');
 const { formatDate } = require('../../core/dates');
+const {
+    detectAttendanceFormat,
+    normalizeStatus,
+    parseFormatARow,
+    parseFormatBRow,
+    MONTHLY_HUB_COLUMNS,
+    buildMonthlyExportRow,
+    mergeMonthlyImportRow,
+} = require('./parser');
 
 async function getParserProfiles(pool, { contractId, clientId } = {}) {
     let sql = `SELECT * FROM attendance_parser_profiles WHERE active = true`;
@@ -11,17 +20,6 @@ async function getParserProfiles(pool, { contractId, clientId } = {}) {
     sql += ` ORDER BY name`;
     const { rows } = await pool.query(sql, params);
     return rows;
-}
-
-function normalizeStatus(raw) {
-    const s = String(raw || '').toLowerCase().trim();
-    if (['p', 'present', '1', 'yes'].includes(s)) return 'present';
-    if (['a', 'absent', '0', 'no'].includes(s)) return 'absent';
-    if (['u', 'unexcused'].includes(s)) return 'unexcused';
-    if (['l', 'leave'].includes(s)) return 'leave';
-    if (['h', 'half', 'half_day', '½'].includes(s)) return 'half_day';
-    if (['ot', 'overtime'].includes(s)) return 'ot';
-    return 'present';
 }
 
 async function resolveEmployeeId(pool, identifier, strategy = 'exact_id') {
@@ -39,63 +37,127 @@ async function resolveEmployeeId(pool, identifier, strategy = 'exact_id') {
     return rows[0]?.id || null;
 }
 
-async function upsertAttendance(pool, { employeeId, date, status, projectId, markedBy = 'intake-hub' }) {
-    await pool.query(
-        `INSERT INTO attendance_records (employee_id, date, status, marked_by, site, project_id, updated_at)
-         VALUES ($1, $2::date, $3, $4, $5, $5, NOW())
-         ON CONFLICT (employee_id, date) DO UPDATE SET
-           status = EXCLUDED.status,
-           site = COALESCE(EXCLUDED.site, attendance_records.site),
-           project_id = COALESCE(EXCLUDED.project_id, attendance_records.project_id),
-           marked_by = EXCLUDED.marked_by,
-           updated_at = NOW()`,
-        [employeeId, date, status, markedBy, projectId || null]
-    );
+async function upsertAttendance(pool, {
+    employeeId, date, status, projectId, markedBy = 'intake-hub',
+    hours = null, otHours = 0, remarks = null,
+}) {
+    const remarkPayload = remarks || (otHours || hours != null
+        ? JSON.stringify({ hours, otHours, source: markedBy })
+        : null);
+    try {
+        await pool.query(
+            `INSERT INTO attendance_records (employee_id, date, status, marked_by, site, project_id, hours, ot_hours, remarks, updated_at)
+             VALUES ($1, $2::date, $3, $4, $5, $5, $6, $7, $8, NOW())
+             ON CONFLICT (employee_id, date) DO UPDATE SET
+               status = EXCLUDED.status,
+               site = COALESCE(EXCLUDED.site, attendance_records.site),
+               project_id = COALESCE(EXCLUDED.project_id, attendance_records.project_id),
+               marked_by = EXCLUDED.marked_by,
+               hours = COALESCE(EXCLUDED.hours, attendance_records.hours),
+               ot_hours = COALESCE(EXCLUDED.ot_hours, attendance_records.ot_hours),
+               remarks = COALESCE(EXCLUDED.remarks, attendance_records.remarks),
+               updated_at = NOW()`,
+            [employeeId, date, status, markedBy, projectId || null, hours, otHours || 0, remarkPayload]
+        );
+    } catch (err) {
+        if (err.code === '42703') {
+            await pool.query(
+                `INSERT INTO attendance_records (employee_id, date, status, marked_by, site, project_id, remarks, updated_at)
+                 VALUES ($1, $2::date, $3, $4, $5, $5, $6, NOW())
+                 ON CONFLICT (employee_id, date) DO UPDATE SET
+                   status = EXCLUDED.status,
+                   site = COALESCE(EXCLUDED.site, attendance_records.site),
+                   project_id = COALESCE(EXCLUDED.project_id, attendance_records.project_id),
+                   marked_by = EXCLUDED.marked_by,
+                   remarks = COALESCE(EXCLUDED.remarks, attendance_records.remarks),
+                   updated_at = NOW()`,
+                [employeeId, date, status, markedBy, projectId || null, remarkPayload]
+            );
+        } else {
+            throw err;
+        }
+    }
 }
 
-async function parseCsvAttendance(pool, { csvText, profile, projectId, periodMonth, periodYear }) {
-    const map = profile?.column_map || {};
-    const idCol = map.employee_id || map.id || 'employee_id';
-    const dateCol = map.date || 'date';
-    const statusCol = map.status || 'status';
+/**
+ * Multi-format CSV intake:
+ *  Format A — EmployeeID, Date, Status (P/A/SUN/HOL)
+ *  Format B — EmployeeID, Date, TimeIn, TimeOut → Present + OT over 8h
+ */
+async function parseCsvAttendance(pool, { csvText, profile, projectId, periodMonth, periodYear, formatHint }) {
     const strategy = profile?.employee_match_strategy || 'exact_id';
     const inputMode = profile?.input_mode || 'full_ledger';
 
-    const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true });
+    const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, relax_column_count: true });
+    if (!records.length) return { parsed: 0, errors: [{ error: 'No data rows' }], format: null };
+
+    const headers = Object.keys(records[0]);
+    const format = formatHint || profile?.format_type || detectAttendanceFormat(headers);
     const parsed = [];
     const errors = [];
+    let otAccumulated = 0;
 
     for (const row of records) {
-        const empKey = row[idCol] || row.employee_id || row['Employee ID'] || row.Name;
-        const employeeId = await resolveEmployeeId(pool, empKey, strategy);
-        if (!employeeId) {
-            errors.push({ row, error: `Employee not matched: ${empKey}` });
+        const raw = format === 'format_b' ? parseFormatBRow(row) : parseFormatARow(row);
+        if (!raw.employeeId) {
+            errors.push({ row, error: 'Missing EmployeeID' });
             continue;
         }
-        const dateVal = row[dateCol] || row.date || `${periodYear}-${String(periodMonth).padStart(2, '0')}-01`;
-        const status = normalizeStatus(row[statusCol] || row.status);
-        parsed.push({ employeeId, date: dateVal, status });
+        if (!raw.date) {
+            raw.date = `${periodYear}-${String(periodMonth).padStart(2, '0')}-01`;
+        }
+        let status = raw.status;
+        let remarkExtra = null;
+        if (status === 'sunday' || status === 'holiday') {
+            remarkExtra = status;
+            status = 'leave';
+        }
+        const employeeId = await resolveEmployeeId(pool, raw.employeeId, strategy);
+        if (!employeeId) {
+            errors.push({ row, error: `Employee not matched: ${raw.employeeId}` });
+            continue;
+        }
+        otAccumulated += Number(raw.otHours || 0);
+        parsed.push({
+            employeeId,
+            date: raw.date,
+            status,
+            hours: raw.hours,
+            otHours: raw.otHours || 0,
+            remarks: remarkExtra,
+            format: raw.format,
+        });
     }
 
-    if (inputMode === 'absent_only') {
-        for (const p of parsed) {
-            if (p.status === 'absent' || p.status === 'unexcused') {
-                await upsertAttendance(pool, { ...p, projectId, markedBy: 'csv_absent_only' });
-            }
-        }
-    } else if (inputMode === 'present_only') {
-        for (const p of parsed) {
-            if (p.status === 'present' || p.status === 'ot') {
-                await upsertAttendance(pool, { ...p, projectId, markedBy: 'csv_present_only' });
-            }
-        }
-    } else {
-        for (const p of parsed) {
-            await upsertAttendance(pool, { ...p, projectId, markedBy: 'csv_full' });
-        }
+    const shouldWrite = (p) => {
+        if (inputMode === 'absent_only') return p.status === 'absent' || p.status === 'unexcused';
+        if (inputMode === 'present_only') return p.status === 'present' || p.status === 'ot';
+        return true;
+    };
+
+    let written = 0;
+    for (const p of parsed) {
+        if (!shouldWrite(p)) continue;
+        await upsertAttendance(pool, {
+            employeeId: p.employeeId,
+            date: p.date,
+            status: p.status,
+            projectId,
+            markedBy: `csv_${format}`,
+            hours: p.hours,
+            otHours: p.otHours,
+            remarks: p.remarks,
+        });
+        written += 1;
     }
 
-    return { parsed: parsed.length, errors };
+    return {
+        format,
+        parsed: parsed.length,
+        written,
+        otHoursAccumulated: otAccumulated,
+        errors,
+    };
 }
 
 async function manualBulkEntry(pool, { contractId, projectId, records, inputMode = 'full_ledger' }) {
@@ -206,4 +268,9 @@ module.exports = {
     getAlertRules,
     saveAlertRule,
     runAlertCheck,
+    normalizeStatus,
+    detectAttendanceFormat,
+    MONTHLY_HUB_COLUMNS,
+    buildMonthlyExportRow,
+    mergeMonthlyImportRow,
 };

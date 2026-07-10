@@ -317,25 +317,37 @@ async function finalizeLeaveApproval(pool, leave, sendAppEmail, sendJazzSMS) {
 }
 
 async function sendClientLeaveEmail(pool, leave, sendAppEmail, appBaseUrl, jwtSecret) {
-    const approveToken = jwt.sign({ leaveId: leave.id, decision: 'approved' }, jwtSecret, { expiresIn: '7d' });
-    const rejectToken = jwt.sign({ leaveId: leave.id, decision: 'rejected' }, jwtSecret, { expiresIn: '7d' });
-    const hash = crypto.createHash('sha256').update(approveToken).digest('hex');
-    await pool.query(`UPDATE employee_leaves SET action_token_hash=$1, client_focal_email=$2 WHERE id=$3`, [hash, leave.client_focal_email, leave.id]);
+    const actionToken = jwt.sign({ leaveId: leave.id, purpose: 'leave_action' }, jwtSecret, { expiresIn: '7d' });
+    const hash = crypto.createHash('sha256').update(actionToken).digest('hex');
+    const recipients = Array.isArray(leave.client_focal_emails) && leave.client_focal_emails.length
+        ? leave.client_focal_emails
+        : [leave.client_focal_email].filter(Boolean);
+    await pool.query(
+        `UPDATE employee_leaves SET action_token_hash=$1, client_focal_email=$2 WHERE id=$3`,
+        [hash, recipients[0] || leave.client_focal_email, leave.id]
+    );
 
-    const approveUrl = `${appBaseUrl}/api/leave/action/${encodeURIComponent(approveToken)}`;
-    const rejectUrl = `${appBaseUrl}/api/leave/action/${encodeURIComponent(rejectToken)}`;
+    const tokenEnc = encodeURIComponent(actionToken);
+    const formUrl = `${appBaseUrl}/api/leave/action/${tokenEnc}`;
+    const approveUrl = `${appBaseUrl}/api/leave/action/${tokenEnc}?decision=approved`;
+    const rejectUrl = `${appBaseUrl}/api/leave/action/${tokenEnc}?decision=rejected`;
     const html = `
         <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;">
             <h2 style="color:#0ea5e9;">Leave Approval Request</h2>
             <p>Employee <strong>${escapeHtml(leave.employee_name || leave.employee_id)}</strong> has requested ${escapeHtml(leave.leave_type)} leave from ${leave.from_date} to ${leave.to_date} (${leave.days} day(s)).</p>
             <p>Reason: ${escapeHtml(leave.reason || '—')}</p>
-            <p style="margin:24px 0;">
-                <a href="${approveUrl}" style="background:#22c55e;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;margin-right:12px;">Approve Leave</a>
-                <a href="${rejectUrl}" style="background:#ef4444;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;">Reject Leave</a>
+            <p style="margin:24px 0;display:flex;gap:12px;flex-wrap:wrap;">
+                <a href="${approveUrl}" style="background:#22c55e;color:#fff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:700;">Approve</a>
+                <a href="${rejectUrl}" style="background:#ef4444;color:#fff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:700;">Reject</a>
+                <a href="${formUrl}" style="background:#0ea5e9;color:#fff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:700;">Remarks + Decide</a>
             </p>
-            <p style="color:#64748b;font-size:12px;">Allied Services International Limited</p>
+            <p style="color:#64748b;font-size:12px;">Passwordless — no login required. Approve / Reject / Remarks update the database directly. Allied Services International Limited</p>
         </div>`;
-    await sendAppEmail({ to: [leave.client_focal_email], subject: `[ASIL] Leave Approval — ${leave.employee_name || leave.employee_id}`, html });
+    await sendAppEmail({
+        to: recipients,
+        subject: `[ASIL] Leave Approval — ${leave.employee_name || leave.employee_id}`,
+        html,
+    });
 }
 
 async function runReportDispatch(pool, sendAppEmail) {
@@ -391,6 +403,46 @@ async function runReportDispatch(pool, sendAppEmail) {
 
 async function runEscalationCheck(pool, sendAppEmail, sendJazzSMS) {
     return cmmsSite.runEscalationCheckEnhanced(pool, sendAppEmail, sendJazzSMS);
+}
+
+async function applyLeaveDecision(pool, { leaveId, decision, token, remarks, sendAppEmail, sendJazzSMS, res }) {
+    const { rows: lvRows } = await pool.query(`
+        SELECT l.*, e.name AS employee_name FROM employee_leaves l
+        JOIN employees e ON e.id = l.employee_id
+        WHERE l.id=$1 AND l.status='internal_approved'
+    `, [leaveId]);
+    if (!lvRows.length) {
+        return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:48px;"><h2>This leave request has already been processed.</h2></body></html>');
+    }
+    const leave = lvRows[0];
+    const note = remarks ? String(remarks).slice(0, 2000) : null;
+
+    if (decision === 'rejected') {
+        if (note) {
+            await pool.query(
+                `UPDATE employee_leaves SET status='rejected_client', client_decided_at=NOW(),
+                 reason = CASE WHEN reason IS NULL OR reason = '' THEN $2 ELSE reason || E'\\n[Client remarks] ' || $2 END
+                 WHERE id=$1`,
+                [leaveId, note]
+            );
+        } else {
+            await pool.query(`UPDATE employee_leaves SET status='rejected_client', client_decided_at=NOW() WHERE id=$1`, [leaveId]);
+        }
+        return res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:48px;"><h2 style="color:#ef4444;">Leave Rejected</h2><p>Request for ${escapeHtml(leave.employee_name)} has been rejected.</p>${note ? `<p>Remarks: ${escapeHtml(note)}</p>` : ''}</body></html>`);
+    }
+
+    if (note) {
+        await pool.query(
+            `UPDATE employee_leaves SET status='approved', client_decided_at=NOW(),
+             reason = CASE WHEN reason IS NULL OR reason = '' THEN $2 ELSE reason || E'\\n[Client remarks] ' || $2 END
+             WHERE id=$1`,
+            [leaveId, note]
+        );
+    } else {
+        await pool.query(`UPDATE employee_leaves SET status='approved', client_decided_at=NOW() WHERE id=$1`, [leaveId]);
+    }
+    await finalizeLeaveApproval(pool, leave, sendAppEmail, sendJazzSMS);
+    return res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:48px;"><h2 style="color:#22c55e;">Leave Approved</h2><p>Request for ${escapeHtml(leave.employee_name)} has been approved. Attendance records updated.</p>${note ? `<p>Remarks: ${escapeHtml(note)}</p>` : ''}</body></html>`);
 }
 
 function registerPhase2Routes(app, deps) {
@@ -840,13 +892,13 @@ function registerPhase2Routes(app, deps) {
                 return res.json({ leave: rows[0] });
             }
 
-            // Internal approve — check contract focal
-            let clientFocalEmail = null;
-            if (leave.contract_id) {
-                const { rows: cRows } = await pool.query(
-                    'SELECT client_focal_email, allied_focal_email FROM contracts WHERE id=$1', [leave.contract_id]);
-                clientFocalEmail = cRows[0]?.client_focal_email || null;
-            }
+            // Internal approve — resolve focals from project_client_focals then contracts
+            const { resolveClientFocalEmails } = require('./src/modules/attendance/clientFocals');
+            const focalEmails = await resolveClientFocalEmails(pool, {
+                employeeId: leave.employee_id,
+                contractId: leave.contract_id,
+            });
+            const clientFocalEmail = focalEmails[0] || null;
 
             if (!clientFocalEmail) {
                 const { rows } = await pool.query(`
@@ -862,8 +914,13 @@ function registerPhase2Routes(app, deps) {
                 WHERE id=$3 RETURNING *
             `, [req.user.email, clientFocalEmail, req.params.id]);
 
-            await sendClientLeaveEmail(pool, { ...leave, ...rows[0] }, sendAppEmail, APP_BASE_URL, JWT_SECRET);
-            res.json({ leave: rows[0] });
+            await sendClientLeaveEmail(pool, {
+                ...leave,
+                ...rows[0],
+                client_focal_email: clientFocalEmail,
+                client_focal_emails: focalEmails,
+            }, sendAppEmail, APP_BASE_URL, JWT_SECRET);
+            res.json({ leave: rows[0], focals: focalEmails });
         } catch (err) {
             console.error('[POST internal-decision]', err);
             res.status(500).json({ error: 'Internal server error' });
@@ -873,12 +930,27 @@ function registerPhase2Routes(app, deps) {
     app.get('/api/leave/action/:token', async (req, res) => {
         try {
             const payload = jwt.verify(req.params.token, JWT_SECRET);
-            const { leaveId, decision } = payload;
-            if (!leaveId || !['approved', 'rejected'].includes(decision)) {
-                return res.status(400).send('<html><body><h2>Invalid action link</h2></body></html>');
+            const leaveId = payload.leaveId;
+            const qDecision = req.query?.decision;
+            // One-click Approve/Reject from email, or legacy JWT decision
+            if (
+                !req.query.form
+                && (
+                    (qDecision && ['approved', 'rejected'].includes(qDecision))
+                    || (payload.decision && ['approved', 'rejected'].includes(payload.decision))
+                )
+            ) {
+                return applyLeaveDecision(pool, {
+                    leaveId,
+                    decision: qDecision || payload.decision,
+                    token: req.params.token,
+                    remarks: req.query?.remarks || null,
+                    sendAppEmail,
+                    sendJazzSMS,
+                    res,
+                });
             }
 
-            const hash = crypto.createHash('sha256').update(req.params.token).digest('hex');
             const { rows: lvRows } = await pool.query(`
                 SELECT l.*, e.name AS employee_name FROM employee_leaves l
                 JOIN employees e ON e.id = l.employee_id
@@ -888,20 +960,46 @@ function registerPhase2Routes(app, deps) {
                 return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:48px;"><h2>This leave request has already been processed.</h2></body></html>');
             }
             const leave = lvRows[0];
-            if (leave.action_token_hash && leave.action_token_hash !== hash) {
-                return res.status(403).send('<html><body><h2>Invalid or expired link</h2></body></html>');
-            }
-
-            if (decision === 'rejected') {
-                await pool.query(`UPDATE employee_leaves SET status='rejected_client', client_decided_at=NOW() WHERE id=$1`, [leaveId]);
-                return res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:48px;"><h2 style="color:#ef4444;">Leave Rejected</h2><p>Request for ${escapeHtml(leave.employee_name)} has been rejected.</p></body></html>`);
-            }
-
-            await pool.query(`UPDATE employee_leaves SET status='approved', client_decided_at=NOW() WHERE id=$1`, [leaveId]);
-            await finalizeLeaveApproval(pool, leave, sendAppEmail, sendJazzSMS);
-            res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:48px;"><h2 style="color:#22c55e;">Leave Approved</h2><p>Request for ${escapeHtml(leave.employee_name)} has been approved. Attendance records updated.</p></body></html>`);
+            const token = encodeURIComponent(req.params.token);
+            res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leave Decision</title></head>
+<body style="font-family:Inter,Arial,sans-serif;background:#f8fafc;margin:0;padding:32px;">
+<div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+  <h2 style="color:#0ea5e9;margin-top:0;">Leave Decision</h2>
+  <p><strong>${escapeHtml(leave.employee_name)}</strong> — ${escapeHtml(leave.leave_type)} leave</p>
+  <p>${leave.from_date} → ${leave.to_date} (${leave.days} day(s))</p>
+  <p style="color:#64748b;">Reason: ${escapeHtml(leave.reason || '—')}</p>
+  <form method="POST" action="/api/leave/action/${token}" style="margin-top:24px;">
+    <label style="display:block;font-weight:600;margin-bottom:6px;">Remarks</label>
+    <textarea name="remarks" rows="3" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;" placeholder="Optional remarks"></textarea>
+    <div style="display:flex;gap:12px;margin-top:16px;">
+      <button type="submit" name="decision" value="approved" style="flex:1;background:#22c55e;color:#fff;border:none;padding:12px;border-radius:8px;font-weight:700;cursor:pointer;">Approve</button>
+      <button type="submit" name="decision" value="rejected" style="flex:1;background:#ef4444;color:#fff;border:none;padding:12px;border-radius:8px;font-weight:700;cursor:pointer;">Reject</button>
+    </div>
+  </form>
+  <p style="color:#94a3b8;font-size:12px;margin-top:20px;">Passwordless — no login required. Allied Services International Limited</p>
+</div></body></html>`);
         } catch (err) {
             console.error('[GET leave action]', err);
+            res.status(400).send('<html><body><h2>Invalid or expired link</h2></body></html>');
+        }
+    });
+
+    app.post('/api/leave/action/:token', async (req, res) => {
+        try {
+            const payload = jwt.verify(req.params.token, JWT_SECRET);
+            const decision = (req.body?.decision || req.query?.decision) === 'rejected' ? 'rejected' : 'approved';
+            await applyLeaveDecision(pool, {
+                leaveId: payload.leaveId,
+                decision,
+                token: req.params.token,
+                remarks: req.body?.remarks || null,
+                sendAppEmail,
+                sendJazzSMS,
+                res,
+            });
+        } catch (err) {
+            console.error('[POST leave action]', err);
             res.status(400).send('<html><body><h2>Invalid or expired link</h2></body></html>');
         }
     });

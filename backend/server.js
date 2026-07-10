@@ -756,9 +756,20 @@ app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin')
 // attendance, rate cards, policies, employees, optionally the client).
 // Used to remove TEST/demo data. Requires ?confirm=yes to actually delete.
 const { purgeContract } = require('./src/modules/admin/purgeContract');
+const { purgeExcelPayrollImports } = require('./src/modules/admin/purgeExcelPayroll');
 const { importHistoricRun } = require('./src/modules/payrollrun/service');
 const { importHistoricInvoices } = require('./src/modules/ar/service');
 const { purgeTestReceipts } = require('./src/modules/ar/receipts');
+
+app.post('/api/admin/purge-excel-payroll-imports', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const confirm = req.body?.confirm === true || req.query?.confirm === 'yes';
+        res.json(await purgeExcelPayrollImports(pool, { confirm }));
+    } catch (err) {
+        console.error('[POST /api/admin/purge-excel-payroll-imports]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 app.post('/api/admin/import-payroll-history', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
@@ -5824,7 +5835,7 @@ app.get('/api/attendance/teams', requireAuth, requireTeamSetup, async (req, res)
 
 // ── POST /api/attendance/teams/assign — assign employees to a supervisor ───────
 app.post('/api/attendance/teams/assign', requireAuth, requireTeamSetup, async (req, res) => {
-    const { supervisor_email, employee_ids, site, client, contract_id } = req.body;
+    const { supervisor_email, employee_ids, site, client, contract_id, focal_emails } = req.body;
     if (!supervisor_email || !employee_ids?.length) return res.status(400).json({ error: 'supervisor_email and employee_ids required' });
 
     try {
@@ -5841,7 +5852,22 @@ app.post('/api/attendance/teams/assign', requireAuth, requireTeamSetup, async (r
             DO UPDATE SET site=$3[1], client=$4[1], contract_id=$5[1], active=true
         `, [emails, ids, sites, clients, ctIds]);
 
-        res.json({ ok: true, assigned: employee_ids.length });
+        let focal = null;
+        if (Array.isArray(focal_emails) || typeof focal_emails === 'string') {
+            const { upsertProjectClientFocals } = require('./src/modules/attendance/clientFocals');
+            const list = Array.isArray(focal_emails)
+                ? focal_emails
+                : String(focal_emails).split(',').map(s => s.trim()).filter(Boolean);
+            focal = await upsertProjectClientFocals(pool, {
+                supervisor_email,
+                site,
+                client,
+                contract_id,
+                focal_emails: list,
+            });
+        }
+
+        res.json({ ok: true, assigned: employee_ids.length, focal });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

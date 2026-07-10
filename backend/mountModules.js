@@ -22,6 +22,7 @@ const { allocateFromLockedPayroll, getWeeklyCashflow } = require('./src/modules/
 const { runAlertCheck } = require('./src/modules/attendance/service');
 const { runDunningCheck, syncInvoiceSchedules } = require('./src/modules/ar/service');
 const { runXeroBillsSyncJob } = require('./src/modules/xeroBillImport/service');
+const { runXeroArSyncJob } = require('./src/modules/ar/xeroArSync');
 
 function mountRestructureModules(app, deps) {
     registerConstraintRoutes(app, deps);
@@ -95,6 +96,7 @@ async function bootstrapRestructure(deps) {
         },
         'ar.schedules': async () => syncInvoiceSchedules(pool),
         'xero.bills.sync': async data => runXeroBillsSyncJob(pool, getXeroAccessToken, data || {}),
+        'xero.ar.sync': async data => runXeroArSyncJob(pool, getXeroAccessToken, data || {}),
     });
 
     await scheduleJob('intake.poll', {}, '*/5 * * * *').catch(() => {});
@@ -105,6 +107,7 @@ async function bootstrapRestructure(deps) {
     await scheduleJob('bizdev.renewals', {}, '0 3 * * *').catch(() => {});
     await scheduleJob('ar.schedules', {}, '0 4 * * *').catch(() => {});
     await scheduleJob('xero.bills.sync', {}, '0 1 * * *').catch(() => {});
+    await scheduleJob('xero.ar.sync', {}, '0 2 * * *').catch(() => {});
 
     return boss;
 }

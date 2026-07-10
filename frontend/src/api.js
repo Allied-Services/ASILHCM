@@ -371,6 +371,31 @@ export const api = {
     getAttendanceAlertRules: () => apiFetch('/api/attendance/alert-rules'),
     saveAttendanceAlertRule: (data) => apiFetch('/api/attendance/alert-rules', { method: 'POST', body: JSON.stringify(data) }),
     runAttendanceAlerts: () => apiFetch('/api/attendance/run-alerts', { method: 'POST' }),
+    exportMonthlyHub: async (q = {}) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const url = `${API}/api/attendance/monthly-hub/export?` + new URLSearchParams(q).toString();
+        const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || `Export failed (HTTP ${r.status})`);
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get('Content-Disposition') || '';
+        const match = cd.match(/filename="?([^"]+)"?/i);
+        const filename = match?.[1] || `monthly_hub_${q.year}_${q.month}.csv`;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+        return { ok: true, filename };
+    },
+    importMonthlyHub: (data) => apiFetch('/api/attendance/monthly-hub/import', { method: 'POST', body: JSON.stringify(data) }),
+    getMonthlyHubRollups: (q = {}) => apiFetch('/api/attendance/monthly-hub/rollups?' + new URLSearchParams(q).toString()),
+    saveClientFocals: (data) => apiFetch('/api/attendance/client-focals', { method: 'POST', body: JSON.stringify(data) }),
+    getClientFocals: (q = {}) => apiFetch('/api/attendance/client-focals?' + new URLSearchParams(q).toString()),
 
     // ── Restructure: Procurement Verification ────────────────────────────────────
     getProcurementQueue: () => apiFetch('/api/procurement/verification-queue'),
