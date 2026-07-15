@@ -3,6 +3,7 @@ import { Users, Search, Plus, Filter, Upload, Download, CheckCircle, X,
          ChevronDown, Mail, MessageCircle } from 'lucide-react';
 import { api } from './api';
 import EmployeeProfile from './EmployeeProfile';
+import EmployeeDirectoryToolbar from './features/employees/EmployeeDirectory';
 
 // ── Exact columns from Master Data.csv ───────────────────────────────────────
 export const MASTER_COLUMNS = [
@@ -109,10 +110,14 @@ export default function EmployeeInformation({ user }) {
 
     // ── Load employees + contracts from DB on mount ────────────────────────────
     const [contractsList, setContractsList] = useState([]);
-    useEffect(() => {
+    const loadEmployees = () => {
+        setLoading(true);
         api.getEmployees()
-            .then(data => { setEmps(data.employees); setLoading(false); })
+            .then(data => { setEmps(data.employees || []); setLoading(false); })
             .catch(() => setLoading(false));
+    };
+    useEffect(() => {
+        loadEmployees();
         api.getContracts()
             .then(data => setContractsList(data.contracts || []))
             .catch(() => {});
@@ -517,6 +522,8 @@ export default function EmployeeInformation({ user }) {
                 <h1>Employee Information</h1>
                 <p>Full master roster — Employment, Personal, Compliance, Salary, Family, Medical &amp; Banking.</p>
             </header>
+
+            <EmployeeDirectoryToolbar onImported={() => loadEmployees()} />
 
             {/* ── Import Results Modal ─────────────────────────────────────── */}
             {importResult && (

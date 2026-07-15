@@ -41,7 +41,29 @@ export const api = {
     createEmployee: (data) => apiFetch('/api/employees', { method: 'POST', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
     updateEmployee: (id, data) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
     deleteEmployee: (id) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(d => { _cacheClear('employees'); return d; }),
-    bulkImportEmployees: (employees) => apiFetch('/api/employees/bulk', { method: 'POST', body: JSON.stringify({ employees }) }),
+    bulkImportEmployees: (employees, notifyNew = false) => apiFetch('/api/employees/bulk', { method: 'POST', body: JSON.stringify({ employees, notifyNew }) }),
+    exportMasterRoster: async () => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const url = `${API}/api/employees/export`;
+        const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || `Export failed (HTTP ${r.status})`);
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get('Content-Disposition') || '';
+        const match = cd.match(/filename="?([^"]+)"?/i);
+        const filename = match?.[1] || `ASIL_Master_Roster.csv`;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+        return { ok: true, filename };
+    },
+    importMasterRoster: (data) => apiFetch('/api/employees/import', { method: 'POST', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
 
     // ── Clients ───────────────────────────────────────────────────────────────
     getClients: () => apiFetch('/api/clients'),

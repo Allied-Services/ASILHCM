@@ -372,7 +372,9 @@ const empToDb = (e) => ({
     contract_id:   e.contractId   || null,
     region: e.region || null,
     line_manager_name:  e.lineManagerName  || null,
-    line_manager_email: e.lineManagerEmail || null,
+    line_manager_email: e.lineManagerEmail || e.supervisorEmail || null,
+    supervisor_email:   e.supervisorEmail || e.lineManagerEmail || null,
+    client_focal_emails: e.clientFocalEmails || e.client_focal_emails || null,
     // ── Operational fields (2026-07-02) ─────────────────────────────────────
     sessi_no:                e.sessiNo               || null,
     shirt_size:              e.shirtSize             || null,
@@ -414,7 +416,9 @@ const empFromDb = (r) => ({
     contractId:   r.contract_id   || null,
     region: r.region || null,
     lineManagerName:  r.line_manager_name  || null,
-    lineManagerEmail: r.line_manager_email || null,
+    lineManagerEmail: r.line_manager_email || r.supervisor_email || null,
+    supervisorEmail:  r.supervisor_email || r.line_manager_email || null,
+    clientFocalEmails: r.client_focal_emails || null,
     // ── Operational fields (2026-07-02) ─────────────────────────────────────
     sessiNo:             r.sessi_no               || null,
     shirtSize:           r.shirt_size             || null,
@@ -429,6 +433,45 @@ const empFromDb = (r) => ({
 });
 
 // ── Employee Routes ──────────────────────────────────────────────────────────
+const {
+    exportMasterRosterCsv,
+    importMasterRosterCsv,
+    MASTER_ROSTER_COLUMNS,
+} = require('./src/modules/employees/masterRoster');
+
+app.get('/api/employees/export', requireAuth, requireRole('superadmin', 'hr_manager', 'operations', 'operations_supervisor', 'operations_team', 'finance_manager', 'finance_approver'), async (req, res) => {
+    try {
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_email VARCHAR(255)`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_focal_emails TEXT`).catch(() => {});
+        const { csv, filename, rowCount } = await exportMasterRosterCsv(pool);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('X-Row-Count', String(rowCount));
+        res.send(csv);
+    } catch (err) {
+        console.error('[GET /api/employees/export]', err);
+        res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+});
+
+app.post('/api/employees/import', requireAuth, requireRole('superadmin', 'hr_manager', 'operations', 'operations_supervisor', 'finance_manager'), async (req, res) => {
+    try {
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_email VARCHAR(255)`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_focal_emails TEXT`).catch(() => {});
+        const csvText = req.body?.csvText || req.body?.csv || '';
+        if (!csvText.trim()) return res.status(400).json({ error: 'csvText required' });
+        // MD Step 1: no automated SMS/email on roster ingest
+        const result = await importMasterRosterCsv(pool, {
+            csvText,
+            updatedBy: req.user?.email || null,
+        });
+        res.json({ ...result, columns: MASTER_ROSTER_COLUMNS });
+    } catch (err) {
+        console.error('[POST /api/employees/import]', err);
+        res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+});
+
 app.get('/api/employees', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(`
@@ -483,6 +526,7 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
         'medical_type', 'medical_maternity', 'total_medical_coverage',
         'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact',
         'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email',
+        'supervisor_email', 'client_focal_emails',
         'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size',
         'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
     const placeholders = COLS.map((_, i) => `$${i + 1}`).join(',');

@@ -306,8 +306,27 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
 
         if (!att.length) warnings.push({ employeeId: emp.id, code: 'NO_ATTENDANCE', message: `${emp.name}: no attendance — defaulting present days to ${workingDays}` });
 
-        const paidDays = derivePaidDays(att, workingDays, policy.attendance_input_mode);
+        let paidDays = derivePaidDays(att, workingDays, policy.attendance_input_mode);
         let { ot1, ot2, ot3 } = deriveOtHours(att, holidayDateSet);
+
+        // 15-column monthly hub overrides (Model A present days + OT) take precedence
+        const { rows: overrideRows } = await pool.query(
+            `SELECT present_days, ot2_hours, ot3_hours, opd, expense, arrears,
+                    special_allowance, fuel_mobile, other_deduction
+             FROM monthly_attendance_overrides
+             WHERE employee_id = $1 AND period_month = $2 AND period_year = $3`,
+            [emp.id, month, year]
+        ).catch(() => ({ rows: [] }));
+        const ov = overrideRows[0];
+        let presentDaysForModelA = null;
+        if (ov) {
+            if (ov.present_days != null) {
+                presentDaysForModelA = Number(ov.present_days);
+                paidDays = presentDaysForModelA;
+            }
+            if (ov.ot2_hours != null) ot2 = Number(ov.ot2_hours) || 0;
+            if (ov.ot3_hours != null) ot3 = Number(ov.ot3_hours) || 0;
+        }
 
         const { rows: claimRows } = await pool.query(
             `SELECT * FROM employee_claims
@@ -323,6 +342,14 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         const inputs = {};
         if (claimAgg.opd) inputs.opd = claimAgg.opd;
         if (claimAgg.expense) inputs.expense = claimAgg.expense;
+        if (ov) {
+            if (ov.opd != null) inputs.opd = Number(ov.opd) || 0;
+            if (ov.expense != null) inputs.expense = Number(ov.expense) || 0;
+            if (ov.arrears != null) inputs.arrears = Number(ov.arrears) || 0;
+            if (ov.special_allowance != null) inputs.specialAllowance = Number(ov.special_allowance) || 0;
+            if (ov.fuel_mobile != null) inputs.fuelMobile = Number(ov.fuel_mobile) || 0;
+            if (ov.other_deduction != null) inputs.otherDeduction = Number(ov.other_deduction) || 0;
+        }
 
         if (!policy.ot_allowed) {
             if (ot1 + ot2 + ot3 > 0) warnings.push({ employeeId: emp.id, code: 'OT_NOT_ALLOWED', message: `${emp.name}: OT not allowed on contract` });
@@ -348,6 +375,10 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             newSalary: Number(emp.salary || 0),
             paidDays,
             workingDays,
+            // Model A: Expected = calendar working days (Sundays/holidays already excluded from expected)
+            presentDays: presentDaysForModelA != null ? presentDaysForModelA : paidDays,
+            expectedDays: workingDays,
+            modelA: true,
             ot1,
             ot2,
             ot3,
@@ -487,6 +518,9 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
         newSalary: Number(row.salary || 0),
         paidDays,
         workingDays,
+        presentDays: patch.presentDays != null ? Number(patch.presentDays) : paidDays,
+        expectedDays: workingDays,
+        modelA: true,
         ot1,
         ot2,
         ot3,

@@ -384,3 +384,8 @@ CREATE TABLE IF NOT EXISTS monthly_attendance_overrides (
     UNIQUE (employee_id, period_month, period_year)
 );
 
+-- ═══ Master Roster Step 1 (2026-07-15) ══════════════════════════════════════
+-- Live migration: backend/migrations/20260715120000_employee_roster_focals.js
+-- employees.supervisor_email VARCHAR(255)
+-- employees.client_focal_emails TEXT (comma-separated)
+
