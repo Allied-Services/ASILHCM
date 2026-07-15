@@ -443,10 +443,12 @@ app.get('/api/employees/export', requireAuth, requireRole('superadmin', 'hr_mana
     try {
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_email VARCHAR(255)`).catch(() => {});
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_focal_emails TEXT`).catch(() => {});
-        const { csv, filename, rowCount } = await exportMasterRosterCsv(pool);
+        const scope = req.query.scope === 'all' ? 'all' : 'active';
+        const { csv, filename, rowCount, columnCount } = await exportMasterRosterCsv(pool, { scope });
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.setHeader('X-Row-Count', String(rowCount));
+        res.setHeader('X-Column-Count', String(columnCount));
         res.send(csv);
     } catch (err) {
         console.error('[GET /api/employees/export]', err);

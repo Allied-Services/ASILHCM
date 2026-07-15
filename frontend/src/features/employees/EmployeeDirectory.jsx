@@ -2,21 +2,74 @@ import React, { useState } from 'react';
 import { Download, Upload } from 'lucide-react';
 import { api } from '../../api';
 
+/** Full employee master columns (mirrors backend export schema). */
 export const MASTER_ROSTER_HEADERS = [
     'ASIL Employee Code',
-    'Name',
-    'CNIC',
-    'Base Salary',
-    'Client Name',
+    'ASIL BU',
     'Contract Name',
-    'Location Name',
-    'Business Unit',
+    'Contract ID',
+    'Active',
+    'CLIENT NAME',
+    'Client Business Unit',
+    'Department',
+    'Designation',
+    'Client Location',
+    'Site',
+    'Province',
+    'Employee Name',
+    "Father's Name",
+    "Mother's Name",
+    'CNIC Number',
+    'CNIC Issue',
+    'CNIC Expiry',
+    'Place of Birth',
+    'EOBI No',
+    'Religion',
+    'Salary',
+    'Marital Status',
+    'Primary Contact',
+    'Emergency Contact',
+    'Email Address',
+    'Present Address',
+    'Permanent Address',
+    'Date of Birth',
+    'Date of Joining',
+    'Last Working Day',
+    'Spouse Name',
+    'Spouse Age',
+    'Spouse CNIC',
+    'Child 1 Name',
+    'Child 1 Age',
+    'Child 1 CNIC/Bay Form',
+    'Child 2 Name',
+    'Child 2 Age',
+    'Child 2 CNIC/Bay Form',
+    'Medical Coverage (Type)',
+    'Medical Coverage Maternity',
+    'Total Medical Coverage (Self & Family)',
+    'Bank Name',
+    'Bank Account',
+    'Account Title',
+    'NEXT OF KIN NAME',
+    'NEXT OF KIN RELATION',
+    'NEXT OF KIN CONTACT',
+    'SESSI Number',
+    'Shirt Size',
+    'Trouser Size',
+    'Safety Shoe Size',
+    'Last Uniform Issue Date',
+    'Last PPE Issue Date',
+    'Gate Pass Expiry',
+    'Payroll Cycle Type',
+    'Region',
+    'Line Manager Name',
+    'Line Manager Email',
     'Supervisor Email',
     'Client Focal Email(s)',
 ];
 
 /**
- * Master roster export / 10-column import controls for the Employee Directory.
+ * Full employee master export / partial-column import (blank-safe).
  */
 export default function EmployeeDirectoryToolbar({ onImported }) {
     const [busy, setBusy] = useState(false);
@@ -35,7 +88,7 @@ export default function EmployeeDirectoryToolbar({ onImported }) {
     };
 
     const importRoster = async () => {
-        if (!importText.trim()) return alert('Paste the 10-column Master Roster CSV first.');
+        if (!importText.trim()) return alert('Paste the employee master CSV first.');
         setBusy(true);
         try {
             const r = await api.importMasterRoster({ csvText: importText });
@@ -64,7 +117,7 @@ export default function EmployeeDirectoryToolbar({ onImported }) {
                     }}
                 >
                     <Download size={16} />
-                    Export Master Roster
+                    Export Master Roster ({MASTER_ROSTER_HEADERS.length} cols)
                 </button>
                 <button
                     type="button"
@@ -87,15 +140,17 @@ export default function EmployeeDirectoryToolbar({ onImported }) {
                     background: 'var(--bg-card, #0f172a)', border: '1px solid var(--border, #1e293b)',
                     borderRadius: '12px', padding: '1rem 1.25rem',
                 }}>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                        Exact 10 columns — match on ASIL Employee Code. Blank cells keep existing values where applicable.
-                        No SMS/email triggers on this import.
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.5rem', lineHeight: 1.5 }}>
+                        Match on <strong>ASIL Employee Code</strong>. You may import only the columns you have filled —
+                        <strong> blank cells never overwrite</strong> existing database values.
+                        Supports the full {MASTER_ROSTER_HEADERS.length}-column master sheet or a partial update (e.g. Supervisor / Client Focal only).
+                        No SMS or email triggers on this import.
                     </div>
                     <textarea
                         value={importText}
                         onChange={e => setImportText(e.target.value)}
                         rows={6}
-                        placeholder={MASTER_ROSTER_HEADERS.join(',')}
+                        placeholder={`ASIL Employee Code,Supervisor Email,Client Focal Email(s)\nASIL/PSO-001/25,manager@asil.com.pk,focal@client.com`}
                         style={{
                             width: '100%', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '0.8rem',
                             background: 'var(--bg-dark, #020617)', border: '1px solid var(--border, #1e293b)',
@@ -109,7 +164,7 @@ export default function EmployeeDirectoryToolbar({ onImported }) {
                         className="btn-primary"
                         style={{ marginTop: '0.75rem' }}
                     >
-                        {busy ? 'Importing…' : 'Upload & Update Roster'}
+                        {busy ? 'Importing…' : 'Upload & Merge Updates'}
                     </button>
                     {result && (
                         <pre style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.75rem', whiteSpace: 'pre-wrap' }}>

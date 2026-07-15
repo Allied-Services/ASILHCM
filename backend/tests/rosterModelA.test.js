@@ -16,19 +16,49 @@ const POLICY = {
 };
 
 describe('Master Roster columns', () => {
-    test('exactly 10 headers in order', () => {
-        expect(MASTER_ROSTER_COLUMNS).toEqual([
-            'ASIL Employee Code',
-            'Name',
-            'CNIC',
-            'Base Salary',
-            'Client Name',
-            'Contract Name',
-            'Location Name',
-            'Business Unit',
-            'Supervisor Email',
-            'Client Focal Email(s)',
-        ]);
+    test('full master export has 60+ employee fields including supervisor/focals', () => {
+        expect(MASTER_ROSTER_COLUMNS.length).toBeGreaterThanOrEqual(55);
+        expect(MASTER_ROSTER_COLUMNS[0]).toBe('ASIL Employee Code');
+        expect(MASTER_ROSTER_COLUMNS).toContain('Employee Name');
+        expect(MASTER_ROSTER_COLUMNS).toContain('CNIC Number');
+        expect(MASTER_ROSTER_COLUMNS).toContain('Supervisor Email');
+        expect(MASTER_ROSTER_COLUMNS).toContain('Client Focal Email(s)');
+        expect(MASTER_ROSTER_COLUMNS).toContain('Bank Account');
+        expect(MASTER_ROSTER_COLUMNS).toContain('Payroll Cycle Type');
+    });
+
+    test('blank CSV cells do not appear in import patch', () => {
+        const { csvRowToPatch, mergeEmployeePatch } = require('../src/modules/employees/masterRoster');
+        const patch = csvRowToPatch(
+            { 'ASIL Employee Code': 'ASIL/X', 'Supervisor Email': '  ', 'Salary': '50000' },
+            { ctByName: new Map(), ctById: new Map(), clientByName: new Map() },
+            { id: 'ASIL/X', name: 'Test', salary: 40000, supervisor_email: 'old@asil.com.pk' }
+        );
+        expect(patch.supervisor_email).toBeUndefined();
+        expect(patch.salary).toBe(50000);
+        const merged = mergeEmployeePatch(
+            { name: 'Test', salary: 40000, supervisor_email: 'old@asil.com.pk' },
+            patch
+        );
+        expect(merged.supervisor_email).toBe('old@asil.com.pk');
+        expect(merged.salary).toBe(50000);
+    });
+
+    test('partial import only updates provided columns', () => {
+        const { csvRowToPatch } = require('../src/modules/employees/masterRoster');
+        const patch = csvRowToPatch(
+            {
+                'ASIL Employee Code': 'ASIL/PSO-001/25',
+                'Supervisor Email': 'new.sup@asil.com.pk',
+                'Client Focal Email(s)': 'focal@client.com',
+            },
+            { ctByName: new Map(), ctById: new Map(), clientByName: new Map() },
+            { id: 'ASIL/PSO-001/25', name: 'Abbas Ali', cnic: '35202-1234567-1', salary: 47000 }
+        );
+        expect(patch.supervisor_email).toBe('new.sup@asil.com.pk');
+        expect(patch.client_focal_emails).toBe('focal@client.com');
+        expect(patch.cnic).toBeUndefined();
+        expect(patch.salary).toBeUndefined();
     });
 });
 
