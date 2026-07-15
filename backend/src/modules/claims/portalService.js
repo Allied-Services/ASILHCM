@@ -202,6 +202,24 @@ async function getOrCreatePeriod(pool, campaignMonth, campaignYear) {
     return rows[0];
 }
 
+/** Resolve period from hub Month/Year (campaign first, then claim month). */
+async function findPeriodForUi(pool, month, year) {
+    const m = parseInt(month, 10);
+    const y = parseInt(year, 10);
+    if (!m || !y) return null;
+    const { rows: byCampaign } = await pool.query(
+        `SELECT * FROM portal_claim_periods WHERE campaign_month = $1 AND campaign_year = $2`,
+        [m, y]
+    );
+    if (byCampaign[0]) return byCampaign[0];
+    const { rows: byClaim } = await pool.query(
+        `SELECT * FROM portal_claim_periods WHERE claim_month = $1 AND claim_year = $2 ORDER BY id DESC LIMIT 1`,
+        [m, y]
+    );
+    if (byClaim[0]) return byClaim[0];
+    return getOrCreatePeriod(pool, m, y);
+}
+
 /**
  * Eligible employees: claim_authority set, resolvable filler email, active.
  */
@@ -1267,6 +1285,7 @@ module.exports = {
     resendFillerInvite,
     getAttachmentContent,
     getOrCreatePeriod,
+    findPeriodForUi,
     periodWindow,
     validateOtRow,
     APPROVER_NOTIFY_MODE,

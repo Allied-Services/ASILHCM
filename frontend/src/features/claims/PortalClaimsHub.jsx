@@ -64,14 +64,11 @@ export default function PortalClaimsHub({ user }) {
   };
 
   const notifyApprovers = async () => {
-    if (!periodId) {
-      setErr('Run campaign first so periodId is known (or set from last campaign).');
-      return;
-    }
     setBusy(true); setErr(''); setMsg('');
     try {
-      const d = await api.portalClaimsNotifyApprovers(periodId);
-      setMsg(`Approver packs: ${(d.packs || []).map(p => `${p.approverEmail} (${p.count})`).join(', ') || 'none pending'}`);
+      const d = await api.portalClaimsNotifyApprovers(periodId, month, year);
+      if (d.periodId) setPeriodId(d.periodId);
+      setMsg(`Approver packs: ${(d.packs || []).map(p => `${p.approverEmail} (${p.count} pending)`).join(', ') || 'none pending'}${d.periodId ? ` · periodId=${d.periodId}` : ''}`);
     } catch (e) {
       setErr(e.message);
     } finally {

@@ -481,7 +481,10 @@ export const api = {
     // ── Portal Claims ────────────────────────────────────────────────────────────
     portalClaimsList: (q = {}) => apiFetch('/api/portal-claims/admin/list?' + new URLSearchParams(q).toString()),
     portalClaimsCampaign: (data) => apiFetch('/api/portal-claims/campaign', { method: 'POST', body: JSON.stringify(data) }),
-    portalClaimsNotifyApprovers: (periodId) => apiFetch('/api/portal-claims/notify-approvers', { method: 'POST', body: JSON.stringify({ periodId }) }),
+    portalClaimsNotifyApprovers: (periodId, month, year) => apiFetch('/api/portal-claims/notify-approvers', {
+        method: 'POST',
+        body: JSON.stringify({ periodId: periodId || undefined, month, year }),
+    }),
     portalClaimsTieout: (month, year) => apiFetch(`/api/portal-claims/admin/tieout?month=${month}&year=${year}`),
     portalClaimsResend: (batchId) => apiFetch(`/api/portal-claims/admin/resend/${batchId}`, { method: 'POST' }),
     portalClaimsManualOverride: (data) => apiFetch('/api/portal-claims/manual-override', { method: 'POST', body: JSON.stringify(data) }),

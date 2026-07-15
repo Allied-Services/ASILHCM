@@ -144,10 +144,16 @@ function registerPortalClaimsRoutes(app, deps) {
 
     app.post('/api/portal-claims/notify-approvers', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
         try {
-            const periodId = parseInt(req.body?.periodId, 10);
-            if (!periodId) return res.status(400).json({ error: 'periodId required' });
+            let periodId = parseInt(req.body?.periodId, 10);
+            const month = parseInt(req.body?.month, 10);
+            const year = parseInt(req.body?.year, 10);
+            if (!periodId && month && year) {
+                const period = await portal.findPeriodForUi(pool, month, year);
+                periodId = period?.id;
+            }
+            if (!periodId) return res.status(400).json({ error: 'periodId or month+year required' });
             const packs = await portal.ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail: true });
-            res.json({ packs, notifyMode: portal.APPROVER_NOTIFY_MODE });
+            res.json({ packs, periodId, notifyMode: portal.APPROVER_NOTIFY_MODE });
         } catch (err) {
             handleRouteError(res, 'portalClaims.notifyApprovers', err);
         }
