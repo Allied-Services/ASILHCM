@@ -81,18 +81,26 @@ const ROLE_BADGE = {
     pending:              { label: 'Access Pending',         color: '#94a3b8' },
 };
 
+function isPublicMagicPath(pathname, search = '') {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  const asilClaims = params.get('asil_claims');
+  if (asilClaims === 'fill' || asilClaims === 'approve') return true;
+  return (
+    pathname === '/portal' || pathname === '/portal/' ||
+    pathname === '/cmms' || pathname === '/cmms/' ||
+    pathname === '/claims-fill' || pathname.startsWith('/claims-fill/') ||
+    pathname === '/claims-approve' || pathname.startsWith('/claims-approve/')
+  );
+}
+
 function App() {
-  const portalPath = window.location.pathname === '/portal' || window.location.pathname === '/portal/';
-  if (portalPath) return <EmployeePortal />;
-
-  const claimsFillPath = window.location.pathname === '/claims-fill' || window.location.pathname.startsWith('/claims-fill/');
-  if (claimsFillPath) return <ClaimsFillPage />;
-
-  const claimsApprovePath = window.location.pathname === '/claims-approve' || window.location.pathname.startsWith('/claims-approve/');
-  if (claimsApprovePath) return <ClaimsApprovePage />;
-
-  const cmmsPath = window.location.pathname === '/cmms' || window.location.pathname === '/cmms/';
-  if (cmmsPath) return <ClientCMMSPortal />;
+  const pathname = window.location.pathname;
+  const search = window.location.search;
+  const asilClaims = new URLSearchParams(search).get('asil_claims');
+  const portalPath = pathname === '/portal' || pathname === '/portal/';
+  const claimsFillPath = asilClaims === 'fill' || pathname === '/claims-fill' || pathname.startsWith('/claims-fill/');
+  const claimsApprovePath = asilClaims === 'approve' || pathname === '/claims-approve' || pathname.startsWith('/claims-approve/');
+  const cmmsPath = pathname === '/cmms' || pathname === '/cmms/';
 
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showESS, setShowESS] = useState(false);
@@ -101,6 +109,12 @@ function App() {
   const [authError, setAuthError] = useState(null);
 
   useEffect(() => {
+    // Magic-link / public portals must not treat ?token= as staff Google JWT
+    if (isPublicMagicPath(window.location.pathname, window.location.search)) {
+      setAuthReady(true);
+      return;
+    }
+
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
     const urlError = params.get('error');
@@ -117,6 +131,11 @@ function App() {
       .then(data => { setUser(data.user); setAuthReady(true); })
       .catch(() => { localStorage.removeItem('asil_hcm_token'); setAuthReady(true); });
   }, []);
+
+  if (portalPath) return <EmployeePortal />;
+  if (claimsFillPath) return <ClaimsFillPage />;
+  if (claimsApprovePath) return <ClaimsApprovePage />;
+  if (cmmsPath) return <ClientCMMSPortal />;
 
   const handleLogout = () => { localStorage.removeItem('asil_hcm_token'); setUser(null); setAuthError(null); };
 

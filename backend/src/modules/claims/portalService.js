@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '17', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '22', 10);
 const APPROVE_CLOSE_DAY = parseInt(process.env.CLAIMS_APPROVE_CLOSE_DAY || '25', 10);
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://asil-hcm.vercel.app';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://asil-hcm-frontend.onrender.com';
 
 const OT_MAP = { single: 1, double: 2, triple: 3 };
 
@@ -208,12 +208,12 @@ async function createCampaign(pool, { campaignMonth, campaignYear, sendAppEmail,
                 );
             }
 
-            const link = `${FRONTEND_URL}/claims-fill?token=${token}`;
+            const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
             if (sendAppEmail) {
                 try {
                     await sendAppEmail({
                         to: fillerEmail,
-                        subject: `ASIL Claims — submit by day ${FILL_CLOSE_DAY} (claim period ${period.claim_month}/${period.claim_year})`,
+                        subject: `ASIL Claims for ${period.claim_month}/${period.claim_year} — submit by day ${FILL_CLOSE_DAY}`,
                         html: buildFillerInviteHtml({ period, employeeCount: emps.length, link, fillerEmail }),
                     });
                 } catch (err) {
@@ -241,15 +241,30 @@ async function createCampaign(pool, { campaignMonth, campaignYear, sendAppEmail,
 }
 
 function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail }) {
+    const settleLabel = `${period.settlement_month || ''}/${period.settlement_year || ''}`.replace(/^\/|\/$/g, '') || 'the following month';
     return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;background:#f8fafc">
-<div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e2e8f0">
+<div style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e2e8f0">
   <h2 style="margin:0 0 8px;color:#0f172a">ASIL HCM — Monthly Claims</h2>
-  <p style="color:#475569">Claim month: <strong>${period.claim_month}/${period.claim_year}</strong></p>
-  <p style="color:#475569">You are the Claim Authority for <strong>${employeeCount}</strong> employee(s).</p>
-  <p style="color:#475569">Submit OT / Expense / Medical (or confirm <strong>No Claims</strong>) by <strong>day ${FILL_CLOSE_DAY}</strong>.</p>
+  <p style="color:#475569;margin:0 0 16px">Claim month <strong>${period.claim_month}/${period.claim_year}</strong> · You are Claim Authority for <strong>${employeeCount}</strong> employee(s).</p>
+
+  <p style="color:#334155;margin:0 0 8px"><strong>What to do</strong></p>
+  <ol style="color:#475569;margin:0 0 16px;padding-left:20px;line-height:1.55">
+    <li>Open the form with the button below (no password needed).</li>
+    <li>For each employee: enter <strong>Overtime</strong>, <strong>Expense</strong>, and/or <strong>Medical</strong> — or tap <strong>Confirm No Claims</strong>.</li>
+    <li>Attach receipts/supports for Expense and Medical (PDF/JPG/PNG).</li>
+    <li>Submit by <strong>day ${FILL_CLOSE_DAY}</strong> of this cycle.</li>
+  </ol>
+
+  <p style="color:#334155;margin:0 0 8px"><strong>What happens next</strong></p>
+  <ul style="color:#475569;margin:0 0 16px;padding-left:20px;line-height:1.55">
+    <li>Your Line Manager / supervisor reviews and approves (deadline day ${APPROVE_CLOSE_DAY}).</li>
+    <li>Approved amounts go into payroll for settlement in <strong>${settleLabel}</strong> (paid with the following month’s salary).</li>
+    <li>If rejected after the fill deadline, raise again next month or ask ASIL finance for help.</li>
+  </ul>
+
   <p style="margin:24px 0"><a href="${link}" style="background:#2563eb;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Open claims form</a></p>
   <p style="font-size:12px;color:#94a3b8;word-break:break-all">${link}</p>
-  <p style="font-size:12px;color:#94a3b8">Sent to ${fillerEmail}</p>
+  <p style="font-size:12px;color:#94a3b8;margin:16px 0 0">Sent to ${fillerEmail} · Allied Services International (ASIL)</p>
 </div></body></html>`;
 }
 
@@ -491,7 +506,7 @@ async function ensureApproverPacks(pool, periodId, sendAppEmail) {
              RETURNING *`,
             [periodId, approverEmail, tokenHash]
         );
-        const link = `${FRONTEND_URL}/claims-approve?token=${token}`;
+        const link = `${FRONTEND_URL}/?asil_claims=approve&token=${token}`;
         const { rows: subs } = await pool.query(
             `SELECT COUNT(*)::int AS cnt FROM portal_claim_submissions
              WHERE period_id = $1 AND approver_email = $2 AND status = 'submitted'`,
@@ -510,15 +525,21 @@ async function ensureApproverPacks(pool, periodId, sendAppEmail) {
 }
 
 function buildApproverInviteHtml({ period, count, link, approverEmail }) {
+    const settleLabel = `${period.settlement_month || ''}/${period.settlement_year || ''}`.replace(/^\/|\/$/g, '') || 'the following month';
     return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;background:#f8fafc">
-<div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e2e8f0">
+<div style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e2e8f0">
   <h2 style="margin:0 0 8px;color:#0f172a">ASIL HCM — Approve Claims</h2>
-  <p style="color:#475569">Claim month: <strong>${period.claim_month}/${period.claim_year}</strong></p>
-  <p style="color:#475569"><strong>${count}</strong> employee submission(s) waiting for your review (one screen, all in one place).</p>
-  <p style="color:#475569">Please approve or reject by <strong>day ${APPROVE_CLOSE_DAY}</strong>.</p>
+  <p style="color:#475569;margin:0 0 16px">Claim month <strong>${period.claim_month}/${period.claim_year}</strong> · <strong>${count}</strong> submission(s) waiting on one screen.</p>
+  <p style="color:#334155;margin:0 0 8px"><strong>Your role</strong></p>
+  <ul style="color:#475569;margin:0 0 16px;padding-left:20px;line-height:1.55">
+    <li>Review OT / Expense / Medical entered by Claim Authorities.</li>
+    <li>Approve or reject each employee (add a remark if rejecting).</li>
+    <li>Complete by <strong>day ${APPROVE_CLOSE_DAY}</strong>.</li>
+    <li>Approved items settle in payroll for <strong>${settleLabel}</strong> (following month’s pay).</li>
+  </ul>
   <p style="margin:24px 0"><a href="${link}" style="background:#15803d;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Open approval pack</a></p>
   <p style="font-size:12px;color:#94a3b8;word-break:break-all">${link}</p>
-  <p style="font-size:12px;color:#94a3b8">Sent to ${approverEmail}</p>
+  <p style="font-size:12px;color:#94a3b8;margin:16px 0 0">Sent to ${approverEmail} · Allied Services International (ASIL)</p>
 </div></body></html>`;
 }
 
@@ -943,7 +964,7 @@ async function sendReminders(pool, sendAppEmail) {
                  WHERE id = $1`,
                 [b.id, hashToken(token)]
             );
-            const link = `${FRONTEND_URL}/claims-fill?token=${token}`;
+            const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
             if (sendAppEmail) {
                 await sendAppEmail({
                     to: b.filler_email,
@@ -976,7 +997,7 @@ async function sendReminders(pool, sendAppEmail) {
                  WHERE period_id = $1 AND approver_email = $2 AND status = 'submitted'`,
                 [a.period_id, a.approver_email]
             );
-            const link = `${FRONTEND_URL}/claims-approve?token=${token}`;
+            const link = `${FRONTEND_URL}/?asil_claims=approve&token=${token}`;
             if (sendAppEmail && cnt[0].c > 0) {
                 await sendAppEmail({
                     to: a.approver_email,
@@ -1009,7 +1030,7 @@ async function resendFillerInvite(pool, batchId, sendAppEmail) {
         `SELECT COUNT(*)::int AS c FROM portal_claim_submissions WHERE batch_id = $1`,
         [batchId]
     );
-    const link = `${FRONTEND_URL}/claims-fill?token=${token}`;
+    const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
     if (sendAppEmail) {
         await sendAppEmail({
             to: b.filler_email,
