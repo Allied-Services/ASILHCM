@@ -477,6 +477,16 @@ export const api = {
         }),
     }),
     logXeroSync: (data) => apiFetch('/api/ar/xero-sync-log', { method: 'POST', body: JSON.stringify(data) }),
+
+    // ── Portal Claims ────────────────────────────────────────────────────────────
+    portalClaimsList: (q = {}) => apiFetch('/api/portal-claims/admin/list?' + new URLSearchParams(q).toString()),
+    portalClaimsCampaign: (data) => apiFetch('/api/portal-claims/campaign', { method: 'POST', body: JSON.stringify(data) }),
+    portalClaimsNotifyApprovers: (periodId) => apiFetch('/api/portal-claims/notify-approvers', { method: 'POST', body: JSON.stringify({ periodId }) }),
+    portalClaimsTieout: (month, year) => apiFetch(`/api/portal-claims/admin/tieout?month=${month}&year=${year}`),
+    portalClaimsResend: (batchId) => apiFetch(`/api/portal-claims/admin/resend/${batchId}`, { method: 'POST' }),
+    portalClaimsManualOverride: (data) => apiFetch('/api/portal-claims/manual-override', { method: 'POST', body: JSON.stringify(data) }),
+    portalClaimsManualImport: (data) => apiFetch('/api/portal-claims/manual-override/import', { method: 'POST', body: JSON.stringify(data) }),
+    portalClaimsEligible: () => apiFetch('/api/portal-claims/eligible'),
     previewReceiptSplit: (data) => apiFetch('/api/ar/receipts/preview-split', { method: 'POST', body: JSON.stringify(data) }),
     postReceipt: (data) => apiFetch('/api/ar/receipts', { method: 'POST', body: JSON.stringify(data) }),
     getReceipts: (q = {}) => apiFetch('/api/ar/receipts?' + new URLSearchParams(q).toString()),

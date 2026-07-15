@@ -66,6 +66,7 @@ export const MASTER_ROSTER_HEADERS = [
     'Line Manager Email',
     'Supervisor Email',
     'Client Focal Email(s)',
+    'Claim Authority',
 ];
 
 /**

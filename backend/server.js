@@ -443,6 +443,7 @@ app.get('/api/employees/export', requireAuth, requireRole('superadmin', 'hr_mana
     try {
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_email VARCHAR(255)`).catch(() => {});
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_focal_emails TEXT`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS claim_authority TEXT`).catch(() => {});
         const scope = req.query.scope === 'all' ? 'all' : 'active';
         const { csv, filename, rowCount, columnCount } = await exportMasterRosterCsv(pool, { scope });
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -460,6 +461,7 @@ app.post('/api/employees/import', requireAuth, requireRole('superadmin', 'hr_man
     try {
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_email VARCHAR(255)`).catch(() => {});
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_focal_emails TEXT`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS claim_authority TEXT`).catch(() => {});
         const csvText = req.body?.csvText || req.body?.csv || '';
         if (!csvText.trim()) return res.status(400).json({ error: 'csvText required' });
         // MD Step 1: no automated SMS/email on roster ingest

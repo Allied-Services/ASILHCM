@@ -6,7 +6,7 @@ import {
   Lock, Unlock, Save, X, LayoutDashboard, FileText,
   Calculator, FilePlus, Receipt, CreditCard, Building,
   Truck, Package, ScanLine, Settings, UserPlus, Info,
-  Mail, Inbox, Wrench,
+  Mail, Inbox, Wrench, ClipboardList,
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
@@ -129,25 +129,30 @@ const MODULES = [
     icon: <Inbox size={16} />,
     subPerms: ['view', 'approve', 'export'],
   },
+  {
+    key: 'claims_portal', label: 'Claims', navKey: 'claims_portal',
+    icon: <ClipboardList size={16} />,
+    subPerms: ['view', 'campaign', 'export', 'claims_manual_override'],
+  },
 ];
 
 // ─── Default permissions per role (must cover every ROLE_META key) ────────────
 const ROLE_NAV_SET = {
-  superadmin:            ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
-  operations:            ['employee','documents','client','attendance','maintenance'],
-  operations_supervisor: ['employee','documents','client','attendance','maintenance'],
-  operations_team:       ['employee','documents','client','attendance','maintenance'],
+  superadmin:            ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','claims_portal'],
+  operations:            ['employee','documents','client','attendance','maintenance','claims_portal'],
+  operations_supervisor: ['employee','documents','client','attendance','maintenance','claims_portal'],
+  operations_team:       ['employee','documents','client','attendance','maintenance','claims_portal'],
   procurement_proposer:  ['billing','vendor','inventory'],
   procurement_approver:  ['billing','vendor','inventory'],
   procurement_manager:   ['billing','vendor','inventory','ap','maintenance'],
   procurement:           ['billing','vendor','inventory','ap'],
   finance_proposer:      ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance'],
-  finance_approver:      ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims'],
-  finance_manager:       ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims'],
+  finance_approver:      ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal'],
+  finance_manager:       ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','claims_portal'],
   ap_team:               ['ap','billing'],
   ar_team:               ['invoices','po_tracking','billing'],
-  payroll_initiator:     ['payroll','employee'],
-  payroll:               ['payroll','employee'],
+  payroll_initiator:     ['payroll','employee','claims_portal'],
+  payroll:               ['payroll','employee','claims_portal'],
   bizdev:                ['client'],
   supervisor:            ['attendance','maintenance'],
   pending:               [],
@@ -174,6 +179,7 @@ const ROLE_SUB_PERMS = {
     maintenance: ['view','create','escalation_config'],
     email_claims: ['view','trigger_poll'],
     wafi_claims: ['view','approve','export'],
+    claims_portal: ['view','campaign','export','claims_manual_override'],
   },
   finance_proposer: {
     billing:     ['view','create','edit'],
@@ -198,6 +204,7 @@ const ROLE_SUB_PERMS = {
     attendance:  ['view','approve_leave'],
     email_claims: ['view','trigger_poll'],
     wafi_claims: ['view','approve','export'],
+    claims_portal: ['view','campaign','export','claims_manual_override'],
   },
   finance_manager: {
     payroll:     ['view','edit','lock','export'],
@@ -214,6 +221,7 @@ const ROLE_SUB_PERMS = {
     maintenance: ['view','create','escalation_config'],
     email_claims: ['view','trigger_poll'],
     wafi_claims: ['view','approve','export'],
+    claims_portal: ['view','campaign','export','claims_manual_override'],
   },
   procurement_proposer: {
     billing:   ['view','create','edit'],

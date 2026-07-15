@@ -24,6 +24,9 @@ import AttendanceManagement from './AttendanceManagement';
 import MaintenanceCMMS from './MaintenanceCMMS';
 import IntakeHub from './features/intake/IntakeHub';
 import ClaimsQueue from './features/claims/ClaimsQueue';
+import PortalClaimsHub from './features/claims/PortalClaimsHub';
+import ClaimsFillPage from './features/claims/ClaimsFillPage';
+import ClaimsApprovePage from './features/claims/ClaimsApprovePage';
 import ContractOps from './features/contracts/ContractOps';
 import BizDevPipeline from './features/bizdev/BizDevPipeline';
 import BillVerification from './features/procurement/BillVerification';
@@ -37,22 +40,22 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'],
+    superadmin:           ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','bill_verification','compliance','ar'],
     supervisor:           ['attendance','maintenance'],
-    operations:           ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','contract_ops','bizdev'],
-    operations_supervisor:['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','contract_ops','bizdev'],
-    operations_team:      ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','contract_ops'],
+    operations:           ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
+    operations_supervisor:['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
+    operations_team:      ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops'],
     procurement_proposer: ['billing','vendor','inventory','bill_verification','ap'],
     procurement_approver: ['billing','vendor','inventory','bill_verification'],
     procurement_manager:  ['billing','vendor','inventory','ap','maintenance','bill_verification'],
     procurement:          ['billing','vendor','inventory','ap','bill_verification'],
     finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
-    finance_approver:     ['payroll','payroll_run','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','contract_ops','compliance','bizdev','ar'],
-    finance_manager:      ['payroll','payroll_run','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','compliance','ar'],
+    finance_approver:     ['payroll','payroll_run','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal','contract_ops','compliance','bizdev','ar'],
+    finance_manager:      ['payroll','payroll_run','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','compliance','ar'],
     ap_team:              ['ap','billing'],
     ar_team:              ['invoices','po_tracking','billing','compliance'],
-    payroll_initiator:    ['payroll','payroll_run','employee','claims_queue'],
-    payroll:              ['payroll','payroll_run','employee','claims_queue'],
+    payroll_initiator:    ['payroll','payroll_run','employee','claims_queue','claims_portal'],
+    payroll:              ['payroll','payroll_run','employee','claims_queue','claims_portal'],
     bizdev:               ['bizdev','client','contract_ops'],
     pending:              [],
 };
@@ -81,6 +84,12 @@ const ROLE_BADGE = {
 function App() {
   const portalPath = window.location.pathname === '/portal' || window.location.pathname === '/portal/';
   if (portalPath) return <EmployeePortal />;
+
+  const claimsFillPath = window.location.pathname === '/claims-fill' || window.location.pathname.startsWith('/claims-fill/');
+  if (claimsFillPath) return <ClaimsFillPage />;
+
+  const claimsApprovePath = window.location.pathname === '/claims-approve' || window.location.pathname.startsWith('/claims-approve/');
+  if (claimsApprovePath) return <ClaimsApprovePage />;
 
   const cmmsPath = window.location.pathname === '/cmms' || window.location.pathname === '/cmms/';
   if (cmmsPath) return <ClientCMMSPortal />;
@@ -194,6 +203,7 @@ function App() {
     { key: 'wafi_claims',   label: 'Wafi Claims',             icon: <Inbox size={20} /> },
     { key: 'intake_hub',    label: 'Intake Hub',              icon: <Inbox size={20} /> },
     { key: 'claims_queue',  label: 'Claims Queue',            icon: <CheckSquare size={20} /> },
+    { key: 'claims_portal', label: 'Claims',                  icon: <ClipboardList size={20} /> },
     { key: 'contract_ops',  label: 'Contract Policies',       icon: <ClipboardList size={20} /> },
     { key: 'bizdev',        label: 'BD Pipeline',             icon: <Briefcase size={20} /> },
     { key: 'bill_verification', label: 'Bill Verification',   icon: <ScanLine size={20} /> },
@@ -280,6 +290,7 @@ function App() {
           {effectiveTab === 'wafi_claims'  && <WafiClaimsDashboard user={user} />}
           {effectiveTab === 'intake_hub'  && <IntakeHub />}
           {effectiveTab === 'claims_queue' && <ClaimsQueue />}
+          {effectiveTab === 'claims_portal' && <PortalClaimsHub user={user} />}
           {effectiveTab === 'contract_ops' && <ContractOps />}
           {effectiveTab === 'bizdev'       && <BizDevPipeline />}
           {effectiveTab === 'bill_verification' && <BillVerification />}

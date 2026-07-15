@@ -68,6 +68,7 @@ const MASTER_ROSTER_COLUMNS = [
     'Line Manager Email',
     'Supervisor Email',
     'Client Focal Email(s)',
+    'Claim Authority',
 ];
 
 /** csvHeader → db column + header aliases for import */
@@ -132,8 +133,9 @@ const FIELD_MAP = [
     { csv: 'Region', db: 'region', aliases: [] },
     { csv: 'Line Manager Name', db: 'line_manager_name', aliases: [] },
     { csv: 'Line Manager Email', db: 'line_manager_email', aliases: [] },
-    { csv: 'Supervisor Email', db: 'supervisor_email', aliases: ['supervisor_email'] },
+    { csv: 'Supervisor Email', db: 'supervisor_email', aliases: ['supervisor_email', 'Approver', 'Approver Email'] },
     { csv: 'Client Focal Email(s)', db: 'client_focal_emails', aliases: ['Client Focal Emails', 'Client Focal Email'] },
+    { csv: 'Claim Authority', db: 'claim_authority', aliases: ['claim_authority', 'Claims Authority', 'Claim Filler'] },
 ];
 
 const DB_COLUMNS = [...new Set(FIELD_MAP.map(f => f.db))];
@@ -287,6 +289,9 @@ function csvRowToPatch(row, maps, existing) {
             patch[field.db] = toNumberOrNull(raw);
         } else if (field.db === 'supervisor_email' || field.db === 'line_manager_email') {
             patch[field.db] = raw.toLowerCase();
+        } else if (field.db === 'claim_authority') {
+            const v = raw.trim();
+            patch[field.db] = /^self$/i.test(v) ? 'SELF' : v.toLowerCase();
         } else {
             patch[field.db] = raw;
         }
