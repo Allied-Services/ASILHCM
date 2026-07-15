@@ -190,11 +190,11 @@ export default function ClaimsApprovePage() {
                   {atts.length > 0 && (
                     <div style={{ marginTop: 12 }}>
                       <div style={{ fontWeight: 700, fontSize: 12, color: '#64748b', marginBottom: 6, letterSpacing: '0.04em' }}>SUPPORTS</div>
-                      {atts.map(a => (
-                        <button key={a.id} type="button" style={linkBtn} onClick={() => openAttachment(a.id, a.filename)}>
-                          📎 {a.filename}
-                        </button>
-                      ))}
+                        {atts.map(a => (
+                          <button key={a.id} type="button" style={linkBtn} onClick={() => openAttachment(a.id, a.filename)}>
+                            📎 {a.filename}{a.category ? ` (${a.category})` : ''}
+                          </button>
+                        ))}
                     </div>
                   )}
                 </div>

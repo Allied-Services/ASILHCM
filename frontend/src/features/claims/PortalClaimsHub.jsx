@@ -26,6 +26,7 @@ export default function PortalClaimsHub({ user }) {
     mode: 'add', reason: '', dryRun: true,
   });
   const [ovPreview, setOvPreview] = useState(null);
+  const [expanded, setExpanded] = useState({});
 
   const load = useCallback(async () => {
     setErr('');
@@ -183,32 +184,65 @@ export default function PortalClaimsHub({ user }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+              <th style={th}></th>
               <th style={th}>Employee</th>
               <th style={th}>Client</th>
-              <th style={th}>Filler</th>
-              <th style={th}>Approver</th>
-              <th style={th}>Channel</th>
               <th style={th}>Status</th>
-              <th style={th}>Items</th>
-              <th style={th}>Supports</th>
+              <th style={th}>OT 1× / 2× / 3×</th>
+              <th style={th}>Expense</th>
+              <th style={th}>Medical</th>
+              <th style={th}>Filler → Approver</th>
             </tr>
           </thead>
           <tbody>
             {claims.length === 0 && (
               <tr><td colSpan={8} style={{ padding: 12, color: 'var(--text-muted)' }}>No claims for this filter.</td></tr>
             )}
-            {claims.map(c => (
-              <tr key={c.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={td}>{c.employee_name}<div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.employee_id}</div></td>
-                <td style={td}>{c.client || '—'}</td>
-                <td style={td}>{c.filler_email}</td>
-                <td style={td}>{c.approver_email || '—'}</td>
-                <td style={td}>{c.channel}</td>
-                <td style={td}>{c.status}</td>
-                <td style={td}>{c.item_count}</td>
-                <td style={td}>{c.attachment_count}</td>
-              </tr>
-            ))}
+            {claims.map(c => {
+              const open = !!expanded[c.id];
+              return (
+                <React.Fragment key={c.id}>
+                  <tr style={{ borderBottom: open ? 'none' : '1px solid var(--border)' }}>
+                    <td style={td}>
+                      <button type="button" className="btn-secondary" style={{ padding: '4px 8px', fontSize: 12 }}
+                        onClick={() => setExpanded(e => ({ ...e, [c.id]: !e[c.id] }))}>
+                        {open ? 'Hide' : 'Details'}
+                      </button>
+                    </td>
+                    <td style={td}>{c.employee_name}<div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.employee_id}</div></td>
+                    <td style={td}>{c.client || '—'}</td>
+                    <td style={td}>{c.status}<div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.channel}</div></td>
+                    <td style={td}>{Number(c.ot1_hours || 0)} / {Number(c.ot2_hours || 0)} / {Number(c.ot3_hours || 0)} h</td>
+                    <td style={td}>{Number(c.expense_amount || 0).toLocaleString()}</td>
+                    <td style={td}>{Number(c.medical_amount || 0).toLocaleString()}</td>
+                    <td style={td}>
+                      <div style={{ fontSize: 12 }}>{c.filler_email}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>→ {c.approver_email || '—'}</div>
+                    </td>
+                  </tr>
+                  {open && (
+                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                      <td colSpan={8} style={{ padding: '10px 12px' }}>
+                        {(c.items || []).length === 0 && <span style={{ color: 'var(--text-muted)' }}>No line items</span>}
+                        <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.55 }}>
+                          {(c.items || []).map(i => (
+                            <li key={i.id}>
+                              <strong>{i.claim_type}</strong> · {String(i.claim_date || '').slice(0, 10)}
+                              {i.claim_type === 'OT'
+                                ? <> · {i.ot_hours}h {i.ot_multiplier} · {i.nature || i.description || '—'}</>
+                                : <> · PKR {Number(i.amount || 0).toLocaleString()} · {i.patient_name ? `${i.patient_name} · ` : ''}{i.description || '—'}</>}
+                            </li>
+                          ))}
+                        </ul>
+                        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+                          Supports: {c.attachment_count || 0} · Claim month {c.claim_month}/{c.claim_year} · Settlement {c.settlement_month}/{c.settlement_year}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

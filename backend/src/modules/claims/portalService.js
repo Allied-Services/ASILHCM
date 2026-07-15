@@ -1,6 +1,9 @@
 'use strict';
 
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
+const { parseMasterClaimsWorkbook } = require('./portalExcel');
 
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '17', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '22', 10);
@@ -336,30 +339,86 @@ async function createCampaign(pool, { campaignMonth, campaignYear, sendAppEmail,
 
 function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail }) {
     const settleLabel = `${period.settlement_month || ''}/${period.settlement_year || ''}`.replace(/^\/|\/$/g, '') || 'the following month';
-    return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;background:#f8fafc">
-<div style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e2e8f0">
-  <h2 style="margin:0 0 8px;color:#0f172a">ASIL HCM — Monthly Claims</h2>
-  <p style="color:#475569;margin:0 0 16px">Claim month <strong>${period.claim_month}/${period.claim_year}</strong> · You are Claim Authority for <strong>${employeeCount}</strong> employee(s).</p>
+    const claimLabel = `${period.claim_month}/${period.claim_year}`;
+    return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:24px 12px">
+<tr><td align="center">
+<table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden">
+  <tr><td style="background:#1e3a8a;color:#fff;padding:22px 28px">
+    <div style="font-size:13px;opacity:.9;letter-spacing:.04em;text-transform:uppercase">Allied Services International (ASIL)</div>
+    <div style="font-size:22px;font-weight:700;margin-top:4px">Monthly Claims — your turn to submit</div>
+  </td></tr>
+  <tr><td style="padding:28px">
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#334155">
+      Hello — you are the <strong>Claim Authority</strong> for <strong>${employeeCount}</strong> employee(s) for claim month <strong>${claimLabel}</strong>.
+    </p>
+    <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What this is</p>
+    <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#475569">
+      Each month ASIL collects <strong>Overtime (OT)</strong>, <strong>Expense</strong>, and <strong>Medical</strong> claims so they can be checked by the Line Manager and paid with salary.
+      You may fill online <em>or</em> upload the same Excel workbook used last month.
+    </p>
+    <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What you should do (by day ${FILL_CLOSE_DAY})</p>
+    <ol style="margin:0 0 16px;padding-left:20px;color:#334155;font-size:14px;line-height:1.6">
+      <li>Open the secure form (no password — this link is personal to you).</li>
+      <li><strong>Option A:</strong> Enter OT / Expense / Medical on screen for each employee, <em>or</em><br/>
+          <strong>Option B:</strong> Download the blank Excel template, fill the 3 sheets (OT, Expense, Medical), and upload it.</li>
+      <li>Upload <strong>two separate support files</strong> if you have Expense or Medical claims:<br/>
+          (1) Expense receipts / bills &nbsp; (2) Medical receipts / prescriptions.</li>
+      <li>If there is nothing to claim for an employee, tap <strong>Confirm No Claims</strong>.</li>
+      <li>Submit — your Line Manager will review.</li>
+    </ol>
+    <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What happens next</p>
+    <ul style="margin:0 0 18px;padding-left:20px;color:#475569;font-size:14px;line-height:1.6">
+      <li>Line Manager approves or rejects (deadline day ${APPROVE_CLOSE_DAY}).</li>
+      <li>You get an email when a decision is made.</li>
+      <li>Approved amounts go into payroll for <strong>${settleLabel}</strong> (paid with the <strong>following month’s</strong> salary).</li>
+      <li><strong>OT tip:</strong> use Double (2×) for weekday / Sunday / most holidays. Triple (3×) only on gazetted <strong>Eid</strong> days.</li>
+    </ul>
+    <p style="margin:0 0 18px">
+      <a href="${link}" style="display:inline-block;background:#2563eb;color:#fff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">Open claims form</a>
+    </p>
+    <p style="margin:0;font-size:12px;color:#64748b;word-break:break-all">If the button does not work, copy this link:<br/>${link}</p>
+    <p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Sent to ${fillerEmail} · Questions? Contact ASIL payroll / your operations focal.</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+}
 
-  <p style="color:#334155;margin:0 0 8px"><strong>What to do</strong></p>
-  <ol style="color:#475569;margin:0 0 16px;padding-left:20px;line-height:1.55">
-    <li>Open the form with the button below (no password needed).</li>
-    <li>For each employee: enter <strong>Overtime</strong>, <strong>Expense</strong>, and/or <strong>Medical</strong> — or tap <strong>Confirm No Claims</strong>.</li>
-    <li>Attach receipts/supports for Expense and Medical (PDF/JPG/PNG).</li>
-    <li>Submit by <strong>day ${FILL_CLOSE_DAY}</strong> of this cycle.</li>
-  </ol>
-
-  <p style="color:#334155;margin:0 0 8px"><strong>What happens next</strong></p>
-  <ul style="color:#475569;margin:0 0 16px;padding-left:20px;line-height:1.55">
-    <li>Your Line Manager / supervisor reviews and approves (deadline day ${APPROVE_CLOSE_DAY}).</li>
-    <li>Approved amounts go into payroll for settlement in <strong>${settleLabel}</strong> (paid with the following month’s salary).</li>
-    <li>If rejected after the fill deadline, raise again next month or ask ASIL finance for help.</li>
-  </ul>
-
-  <p style="margin:24px 0"><a href="${link}" style="background:#2563eb;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Open claims form</a></p>
-  <p style="font-size:12px;color:#94a3b8;word-break:break-all">${link}</p>
-  <p style="font-size:12px;color:#94a3b8;margin:16px 0 0">Sent to ${fillerEmail} · Allied Services International (ASIL)</p>
-</div></body></html>`;
+function buildApproverInviteHtml({ period, count, link, approverEmail, summaryHtml = '' }) {
+    const settleLabel = `${period.settlement_month || ''}/${period.settlement_year || ''}`.replace(/^\/|\/$/g, '') || 'the following month';
+    return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:24px 12px">
+<tr><td align="center">
+<table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden">
+  <tr><td style="background:#14532d;color:#fff;padding:22px 28px">
+    <div style="font-size:13px;opacity:.9;letter-spacing:.04em;text-transform:uppercase">ASIL HCM · Line Manager</div>
+    <div style="font-size:22px;font-weight:700;margin-top:4px">Claims waiting for your approval</div>
+  </td></tr>
+  <tr><td style="padding:28px">
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#334155">
+      Claim month <strong>${period.claim_month}/${period.claim_year}</strong> — <strong>${count}</strong> employee submission(s) need your review.
+    </p>
+    <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">How to use this</p>
+    <ol style="margin:0 0 14px;padding-left:20px;color:#334155;font-size:14px;line-height:1.6">
+      <li>Open the pack (same link all month — outstanding + already decided stay visible).</li>
+      <li>For each employee, review OT hours, Expense PKR, Medical PKR, line items, and support files.</li>
+      <li>Approve or Reject. Rejected claims can be corrected next month.</li>
+      <li>Finish by day <strong>${APPROVE_CLOSE_DAY}</strong>. After that the window closes; anything still pending rolls to next month.</li>
+    </ol>
+    <p style="margin:0 0 14px;font-size:14px;color:#475569;line-height:1.55">
+      Approved amounts settle in payroll for <strong>${settleLabel}</strong> (following month’s pay). The Claim Authority is emailed when you decide.
+    </p>
+    ${summaryHtml}
+    <p style="margin:22px 0 18px">
+      <a href="${link}" style="display:inline-block;background:#15803d;color:#fff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">Open approval pack</a>
+    </p>
+    <p style="margin:0;font-size:12px;color:#64748b;word-break:break-all">${link}</p>
+    <p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Sent to ${approverEmail} · ASIL HCM</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
 }
 
 async function getBatchByToken(pool, token) {
@@ -394,12 +453,20 @@ async function openFillerSession(pool, token) {
 
     const ids = submissions.map(s => s.id);
     let items = [];
+    let attachments = [];
     if (ids.length) {
         const { rows } = await pool.query(
             `SELECT * FROM portal_claim_items WHERE submission_id = ANY($1::int[]) AND active = TRUE ORDER BY claim_date, id`,
             [ids]
         );
         items = rows;
+        await pool.query(`ALTER TABLE portal_claim_attachments ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'other'`).catch(() => {});
+        const { rows: attRows } = await pool.query(
+            `SELECT id, submission_id, filename, mime_type, byte_size, uploaded_at, retain_until, category
+             FROM portal_claim_attachments WHERE submission_id = ANY($1::int[])`,
+            [ids]
+        );
+        attachments = attRows;
     }
 
     const fillClosed = isAfterFillClose(batch);
@@ -416,6 +483,8 @@ async function openFillerSession(pool, token) {
         },
         submissions,
         items,
+        attachments,
+        templateUrl: `${process.env.API_PUBLIC_URL || 'https://asilhcm.onrender.com'}/api/portal-claims/template.xlsx`,
         completion: {
             total: submissions.length,
             submitted: submissions.filter(s => ['submitted', 'approved', 'rejected', 'no_claims', 'in_payroll'].includes(s.status)).length,
@@ -423,7 +492,7 @@ async function openFillerSession(pool, token) {
     };
 }
 
-async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoClaims }) {
+async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoClaims, skipSupportCheck = false }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
     if (isAfterFillClose(batch)) {
@@ -503,16 +572,31 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
     }
     if (errors.length) return { ok: false, status: 400, error: errors.join('; ') };
 
-    // Require supports for expense/medical
-    const needsSupport = normalized.some(i => i.claim_type === 'EXPENSE' || i.claim_type === 'MEDICAL');
-    if (needsSupport) {
+    // Require separate supports for expense and medical (unless Excel import draft)
+    const needsExpense = normalized.some(i => i.claim_type === 'EXPENSE');
+    const needsMedical = normalized.some(i => i.claim_type === 'MEDICAL');
+    let supportOk = true;
+    if (!skipSupportCheck && (needsExpense || needsMedical)) {
+        await pool.query(`ALTER TABLE portal_claim_attachments ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'other'`).catch(() => {});
         const { rows: atts } = await pool.query(
-            `SELECT id FROM portal_claim_attachments WHERE submission_id = $1 LIMIT 1`,
+            `SELECT category FROM portal_claim_attachments WHERE submission_id = $1`,
             [sub.id]
         );
-        if (!atts.length) {
-            return { ok: false, status: 400, error: 'Supporting document required for Expense / Medical claims' };
+        const cats = atts.map(a => String(a.category || 'other').toLowerCase());
+        const strictExpense = cats.some(c => c === 'expense_support' || c === 'expense');
+        const strictMedical = cats.some(c => c === 'medical_support' || c === 'medical');
+        if (needsExpense && !strictExpense) {
+            return { ok: false, status: 400, error: 'Please upload Expense supports (receipts/bills) as a separate file before submitting.' };
         }
+        if (needsMedical && !strictMedical) {
+            return { ok: false, status: 400, error: 'Please upload Medical supports (prescriptions/bills) as a separate file before submitting.' };
+        }
+        if (needsExpense && needsMedical && !(strictExpense && strictMedical)) {
+            supportOk = false;
+        }
+        void supportOk;
+    } else if (skipSupportCheck && (needsExpense || needsMedical)) {
+        // draft path — supports can be added after Excel import
     }
 
     await pool.query(`DELETE FROM portal_claim_items WHERE submission_id = $1`, [sub.id]);
@@ -531,7 +615,9 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
         );
     }
 
-    const newStatus = normalized.length ? 'submitted' : 'draft';
+    const newStatus = normalized.length
+        ? (skipSupportCheck ? 'draft' : 'submitted')
+        : 'draft';
     await pool.query(
         `UPDATE portal_claim_submissions
          SET status = $2, submitted_at = CASE WHEN $2 = 'submitted' THEN NOW() ELSE submitted_at END, updated_at = NOW()
@@ -540,15 +626,13 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
     );
     await refreshBatchStatus(pool, batch.id);
 
-    if (newStatus === 'submitted' && APPROVER_NOTIFY_MODE === 'immediate') {
-        // fire-and-forget style caller passes sendAppEmail via optional global — handled in routes
-    }
-
     const message = newStatus === 'submitted'
         ? 'Thank you. Your claim has been submitted to your Line Manager for approval. '
           + 'You will receive an email when they approve or reject it. '
           + 'Approved amounts are added to payroll and paid with the following month’s salary.'
-        : 'Draft saved. Submit when ready so your Line Manager can review.';
+        : skipSupportCheck
+            ? 'Excel imported as a draft. Review the rows, upload Expense and Medical supports if needed, then Submit to Line Manager.'
+            : 'Draft saved. Submit when ready so your Line Manager can review.';
 
     return {
         ok: true,
@@ -573,7 +657,7 @@ async function refreshBatchStatus(pool, batchId) {
     await pool.query(`UPDATE portal_claim_batches SET status = $2 WHERE id = $1`, [batchId, status]);
 }
 
-async function addAttachment(pool, { token, employeeId, filename, mimeType, contentBase64 }) {
+async function addAttachment(pool, { token, employeeId, filename, mimeType, contentBase64, category = 'other' }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
     if (isAfterFillClose(batch)) return { ok: false, status: 403, error: 'Payroll entry is now closed.' };
@@ -589,17 +673,88 @@ async function addAttachment(pool, { token, employeeId, filename, mimeType, cont
     }
 
     const buf = Buffer.from(contentBase64, 'base64');
-    if (buf.length > 8 * 1024 * 1024) return { ok: false, status: 400, error: 'File too large (max 8MB)' };
+    if (buf.length > 12 * 1024 * 1024) return { ok: false, status: 400, error: 'File too large (max 12MB)' };
     const retainUntil = new Date();
     retainUntil.setFullYear(retainUntil.getFullYear() + 2);
 
+    await pool.query(`ALTER TABLE portal_claim_attachments ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'other'`).catch(() => {});
+    const cat = ['expense_support', 'medical_support', 'excel_workbook', 'other'].includes(category)
+        ? category
+        : 'other';
+
     const { rows } = await pool.query(
         `INSERT INTO portal_claim_attachments
-         (submission_id, filename, mime_type, content_base64, byte_size, retain_until)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, filename, mime_type, byte_size, retain_until, uploaded_at`,
-        [sub.id, filename, mimeType || 'application/octet-stream', contentBase64, buf.length, retainUntil.toISOString().slice(0, 10)]
+         (submission_id, filename, mime_type, content_base64, byte_size, retain_until, category)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING id, filename, mime_type, byte_size, retain_until, uploaded_at, category`,
+        [sub.id, filename, mimeType || 'application/octet-stream', contentBase64, buf.length, retainUntil.toISOString().slice(0, 10), cat]
     );
     return { ok: true, attachment: rows[0] };
+}
+
+async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
+    const batch = await getBatchByToken(pool, token);
+    if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
+    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: 'Payroll entry is now closed.' };
+
+    const { rows: subs } = await pool.query(
+        `SELECT employee_id FROM portal_claim_submissions WHERE batch_id = $1`,
+        [batch.id]
+    );
+    const allowed = subs.map(s => s.employee_id);
+    const buf = Buffer.from(contentBase64, 'base64');
+    if (buf.length > 12 * 1024 * 1024) return { ok: false, status: 400, error: 'File too large (max 12MB)' };
+
+    const parsed = parseMasterClaimsWorkbook(buf, { allowedEmployeeIds: allowed });
+    if (parsed.errors.length && parsed.itemsByEmployee.size === 0) {
+        return { ok: false, status: 400, error: parsed.errors.join('; ') };
+    }
+
+    const results = [];
+    for (const [employeeId, items] of parsed.itemsByEmployee.entries()) {
+        const save = await saveSubmissionItems(pool, {
+            token,
+            employeeId,
+            items,
+            confirmNoClaims: false,
+            skipSupportCheck: true,
+        });
+        results.push({ employeeId, ...save });
+    }
+
+    // Keep a copy of the workbook on the first employee touched (audit)
+    const firstEmp = [...parsed.itemsByEmployee.keys()][0];
+    if (firstEmp) {
+        await addAttachment(pool, {
+            token,
+            employeeId: firstEmp,
+            filename: filename || 'claims_workbook.xlsx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            contentBase64,
+            category: 'excel_workbook',
+        }).catch(() => {});
+    }
+
+    return {
+        ok: true,
+        warnings: parsed.warnings,
+        parseErrors: parsed.errors,
+        sheetNames: parsed.sheetNames,
+        results,
+        employeesTouched: parsed.itemsByEmployee.size,
+    };
+}
+
+function getMasterClaimsTemplatePath() {
+    const candidates = [
+        path.join(__dirname, '../../../assets/ASIL_Consolidated_Master_Claims_Template.xlsx'),
+        path.join(process.cwd(), 'assets/ASIL_Consolidated_Master_Claims_Template.xlsx'),
+        path.join(process.cwd(), 'backend/assets/ASIL_Consolidated_Master_Claims_Template.xlsx'),
+    ];
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return null;
 }
 
 async function ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail = false } = {}) {
@@ -694,25 +849,6 @@ async function buildApproverPendingSummary(pool, periodId, approverEmail) {
     };
 }
 
-function buildApproverInviteHtml({ period, count, link, approverEmail, summaryHtml = '' }) {
-    const settleLabel = `${period.settlement_month || ''}/${period.settlement_year || ''}`.replace(/^\/|\/$/g, '') || 'the following month';
-    return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;background:#f8fafc;color:#0f172a">
-<div style="max-width:640px;margin:auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e2e8f0">
-  <h2 style="margin:0 0 8px;color:#0f172a">ASIL HCM — Approve Claims</h2>
-  <p style="color:#334155;margin:0 0 12px">Claim month <strong>${period.claim_month}/${period.claim_year}</strong> · <strong>${count}</strong> pending.</p>
-  <p style="color:#334155;margin:0 0 12px">Use the <strong>same link</strong> all month — it shows what is still outstanding and what you already approved. After day <strong>${APPROVE_CLOSE_DAY}</strong> the window closes; anything still pending rolls to next month’s cycle.</p>
-  ${summaryHtml}
-  <p style="color:#334155;margin:16px 0 8px"><strong>After you approve</strong></p>
-  <ul style="color:#475569;margin:0 0 16px;padding-left:20px;line-height:1.55">
-    <li>The Claim Authority is notified by email.</li>
-    <li>Approved amounts go into payroll for <strong>${settleLabel}</strong> (following month’s pay).</li>
-  </ul>
-  <p style="margin:24px 0"><a href="${link}" style="background:#15803d;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Open approval pack</a></p>
-  <p style="font-size:12px;color:#64748b;word-break:break-all">${link}</p>
-  <p style="font-size:12px;color:#94a3b8;margin:16px 0 0">Sent to ${approverEmail} · Allied Services International (ASIL)</p>
-</div></body></html>`;
-}
-
 async function getApproverPackByToken(pool, token) {
     const h = hashToken(token);
     const { rows } = await pool.query(
@@ -749,7 +885,7 @@ async function openApproverSession(pool, token) {
         );
         items = itemRows;
         const { rows: attRows } = await pool.query(
-            `SELECT id, submission_id, item_id, filename, mime_type, byte_size, uploaded_at, retain_until
+             `SELECT id, submission_id, item_id, filename, mime_type, byte_size, uploaded_at, retain_until, category
              FROM portal_claim_attachments WHERE submission_id = ANY($1::int[])`,
             [ids]
         );
@@ -947,7 +1083,11 @@ async function listClaimsForAdmin(pool, { month, year, channel, approver, filler
     let where = `WHERE 1=1`;
     if (month && year) {
         vals.push(parseInt(month, 10), parseInt(year, 10));
-        where += ` AND p.claim_month = $${vals.length - 1} AND p.claim_year = $${vals.length}`;
+        // Hub month is usually the campaign month users pick; also match claim_month
+        where += ` AND (
+          (p.claim_month = $${vals.length - 1} AND p.claim_year = $${vals.length})
+          OR (p.campaign_month = $${vals.length - 1} AND p.campaign_year = $${vals.length})
+        )`;
     }
     if (channel) { vals.push(channel); where += ` AND s.channel = $${vals.length}`; }
     if (approver) { vals.push(`%${approver}%`); where += ` AND s.approver_email ILIKE $${vals.length}`; }
@@ -958,8 +1098,14 @@ async function listClaimsForAdmin(pool, { month, year, channel, approver, filler
     const { rows } = await pool.query(
         `SELECT s.*, e.name AS employee_name, e.client, e.location,
                 p.claim_month, p.claim_year, p.settlement_month, p.settlement_year,
+                p.campaign_month, p.campaign_year,
                 (SELECT COUNT(*)::int FROM portal_claim_items i WHERE i.submission_id = s.id AND i.active) AS item_count,
-                (SELECT COUNT(*)::int FROM portal_claim_attachments a WHERE a.submission_id = s.id) AS attachment_count
+                (SELECT COUNT(*)::int FROM portal_claim_attachments a WHERE a.submission_id = s.id) AS attachment_count,
+                COALESCE((SELECT SUM(i.ot_hours) FROM portal_claim_items i WHERE i.submission_id = s.id AND i.active AND i.claim_type='OT' AND i.ot_multiplier_factor=1),0) AS ot1_hours,
+                COALESCE((SELECT SUM(i.ot_hours) FROM portal_claim_items i WHERE i.submission_id = s.id AND i.active AND i.claim_type='OT' AND i.ot_multiplier_factor=2),0) AS ot2_hours,
+                COALESCE((SELECT SUM(i.ot_hours) FROM portal_claim_items i WHERE i.submission_id = s.id AND i.active AND i.claim_type='OT' AND i.ot_multiplier_factor=3),0) AS ot3_hours,
+                COALESCE((SELECT SUM(i.amount) FROM portal_claim_items i WHERE i.submission_id = s.id AND i.active AND i.claim_type='EXPENSE'),0) AS expense_amount,
+                COALESCE((SELECT SUM(i.amount) FROM portal_claim_items i WHERE i.submission_id = s.id AND i.active AND i.claim_type='MEDICAL'),0) AS medical_amount
          FROM portal_claim_submissions s
          JOIN portal_claim_periods p ON p.id = s.period_id
          JOIN employees e ON e.id = s.employee_id
@@ -968,7 +1114,24 @@ async function listClaimsForAdmin(pool, { month, year, channel, approver, filler
          LIMIT 500`,
         vals
     );
-    return rows;
+
+    // Attach line-item details for expandable HCM view
+    const ids = rows.map(r => r.id);
+    let items = [];
+    if (ids.length) {
+        const { rows: itemRows } = await pool.query(
+            `SELECT id, submission_id, claim_type, claim_date, ot_hours, ot_multiplier, ot_multiplier_factor,
+                    amount, description, expense_type, patient_name, nature, time_from, time_to
+             FROM portal_claim_items WHERE submission_id = ANY($1::int[]) AND active = TRUE
+             ORDER BY claim_date NULLS LAST, id`,
+            [ids]
+        );
+        items = itemRows;
+    }
+    return rows.map(r => ({
+        ...r,
+        items: items.filter(i => i.submission_id === r.id),
+    }));
 }
 
 async function exportClaimsPayrollTieout(pool, month, year) {
@@ -1273,6 +1436,8 @@ module.exports = {
     openFillerSession,
     saveSubmissionItems,
     addAttachment,
+    importExcelWorkbook,
+    getMasterClaimsTemplatePath,
     ensureApproverPacks,
     openApproverSession,
     approverDecide,

@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('path');
 const { handleRouteError } = require('../../core/validate');
 const portal = require('./portalService');
 
@@ -55,18 +56,43 @@ function registerPortalClaimsRoutes(app, deps) {
 
     app.post('/api/portal-claims/fill/:token/attachment', async (req, res) => {
         try {
-            const { employeeId, filename, mimeType, contentBase64 } = req.body || {};
+            const { employeeId, filename, mimeType, contentBase64, category } = req.body || {};
             if (!employeeId || !filename || !contentBase64) {
                 return res.status(400).json({ error: 'employeeId, filename, contentBase64 required' });
             }
             const result = await portal.addAttachment(pool, {
                 token: req.params.token, employeeId, filename, mimeType, contentBase64,
+                category: category || 'other',
             });
             if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
             res.json(result);
         } catch (err) {
             handleRouteError(res, 'portalClaims.attachment', err);
         }
+    });
+
+    app.post('/api/portal-claims/fill/:token/import-excel', async (req, res) => {
+        try {
+            const { contentBase64, filename } = req.body || {};
+            if (!contentBase64) return res.status(400).json({ error: 'contentBase64 required' });
+            const result = await portal.importExcelWorkbook(pool, {
+                token: req.params.token,
+                contentBase64,
+                filename,
+            });
+            if (!result.ok) return res.status(result.status || 400).json({ error: result.error, parseErrors: result.parseErrors });
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.importExcel', err);
+        }
+    });
+
+    app.get('/api/portal-claims/template.xlsx', (req, res) => {
+        const p = portal.getMasterClaimsTemplatePath();
+        if (!p) return res.status(404).json({ error: 'Template file not found on server' });
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename=ASIL_Consolidated_Master_Claims_Template.xlsx');
+        res.sendFile(path.resolve(p));
     });
 
     // ── Public approver ───────────────────────────────────────────────────────
