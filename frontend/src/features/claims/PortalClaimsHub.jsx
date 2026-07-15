@@ -76,6 +76,23 @@ export default function PortalClaimsHub({ user }) {
     }
   };
 
+  const resetSample = async () => {
+    if (!window.confirm('Clear ONLY the 3 sample test employees’ portal claims (Shezad/Rabia/Laiba) so you can re-test? Payroll OT/expense columns for those test IDs will be zeroed.')) {
+      return;
+    }
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const d = await api.portalClaimsResetSample();
+      setPeriodId(null);
+      setMsg(`Sample cleared: ${(d.clearedSubmissions || []).map(s => `${s.employee_id} was ${s.status}`).join('; ') || 'nothing to clear'}. Now Send sample invites again.`);
+      await load();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const exportTieout = async () => {
     try {
       const d = await api.portalClaimsTieout(month, year);
@@ -154,6 +171,11 @@ export default function PortalClaimsHub({ user }) {
         <button type="button" className="btn-secondary" disabled={busy} onClick={() => runSampleCampaign(true)}>Dry-run sample campaign</button>
         <button type="button" className="btn-primary" disabled={busy} onClick={() => runSampleCampaign(false)}>Send sample invites (3 fillers)</button>
         <button type="button" className="btn-secondary" disabled={busy} onClick={notifyApprovers}>Email Huzaifa approval pack</button>
+        {user?.role === 'superadmin' && (
+          <button type="button" className="btn-secondary" disabled={busy} onClick={resetSample} style={{ borderColor: '#b91c1c', color: '#fca5a5' }}>
+            Reset sample test data
+          </button>
+        )}
         {periodId && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>periodId={periodId}</span>}
       </div>
 

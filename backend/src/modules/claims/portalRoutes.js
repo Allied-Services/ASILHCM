@@ -205,6 +205,15 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
+    app.post('/api/portal-claims/admin/reset-sample', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            const result = await portal.resetPortalClaimsSample(pool);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.resetSample', err);
+        }
+    });
+
     // ── Manual ADD OT / CLAIMS ────────────────────────────────────────────────
     app.post('/api/portal-claims/manual-override', requireAuth, async (req, res) => {
         try {

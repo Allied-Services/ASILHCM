@@ -1290,4 +1290,80 @@ module.exports = {
     validateOtRow,
     APPROVER_NOTIFY_MODE,
     MANUAL_OVERRIDE_NOTIFY,
+    resetPortalClaimsSample,
 };
+
+const SAMPLE_TEST_EMPLOYEE_IDS = [
+    'ASIL/TEST-CLAIM-SHEZAD/26',
+    'ASIL/TEST-CLAIM-RABIA/26',
+    'ASIL/TEST-CLAIM-LAIBA/26',
+];
+const SAMPLE_FILLER_EMAILS = [
+    'shezad.mumtaz@asil.com.pk',
+    'rabia.bhutto@asil.com.pk',
+    'laiba.mughal@asil.com.pk',
+];
+
+/** Wipe only synthetic sample portal claims so ASIL can re-test the cycle. */
+async function resetPortalClaimsSample(pool) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const { rows: subs } = await client.query(
+            `SELECT id, period_id, employee_id, status FROM portal_claim_submissions
+             WHERE employee_id = ANY($1::text[])`,
+            [SAMPLE_TEST_EMPLOYEE_IDS]
+        );
+        const subIds = subs.map(s => s.id);
+        const periodIds = [...new Set(subs.map(s => s.period_id).filter(Boolean))];
+
+        if (subIds.length) {
+            await client.query(`DELETE FROM portal_claim_attachments WHERE submission_id = ANY($1::int[])`, [subIds]);
+            await client.query(`DELETE FROM portal_claim_items WHERE submission_id = ANY($1::int[])`, [subIds]);
+            await client.query(`DELETE FROM portal_claim_submissions WHERE id = ANY($1::int[])`, [subIds]);
+        }
+
+        await client.query(
+            `DELETE FROM portal_claim_batches WHERE LOWER(filler_email) = ANY($1::text[])`,
+            [SAMPLE_FILLER_EMAILS]
+        );
+
+        if (periodIds.length) {
+            await client.query(
+                `DELETE FROM portal_claim_approver_packs
+                 WHERE period_id = ANY($1::int[])
+                   AND LOWER(approver_email) = 'huzaifa.rafaqat@asil.com.pk'`,
+                [periodIds]
+            );
+        }
+
+        await client.query(
+            `DELETE FROM employee_claims WHERE employee_id = ANY($1::text[])`,
+            [SAMPLE_TEST_EMPLOYEE_IDS]
+        ).catch(() => {});
+
+        await client.query(
+            `DELETE FROM claim_manual_overrides WHERE employee_id = ANY($1::text[])`,
+            [SAMPLE_TEST_EMPLOYEE_IDS]
+        ).catch(() => {});
+
+        const payroll = await client.query(
+            `UPDATE payroll_transactions
+             SET ot2_hrs = 0, ot3_hrs = 0, opd_claim = 0, reimbursement = 0, updated_at = NOW()
+             WHERE employee_id = ANY($1::text[])`,
+            [SAMPLE_TEST_EMPLOYEE_IDS]
+        );
+
+        await client.query('COMMIT');
+        return {
+            ok: true,
+            clearedSubmissions: subs.map(s => ({ employee_id: s.employee_id, status: s.status })),
+            payrollRowsZeroed: payroll.rowCount || 0,
+        };
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
+}

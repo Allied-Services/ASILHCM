@@ -490,6 +490,7 @@ export const api = {
     portalClaimsManualOverride: (data) => apiFetch('/api/portal-claims/manual-override', { method: 'POST', body: JSON.stringify(data) }),
     portalClaimsManualImport: (data) => apiFetch('/api/portal-claims/manual-override/import', { method: 'POST', body: JSON.stringify(data) }),
     portalClaimsEligible: () => apiFetch('/api/portal-claims/eligible'),
+    portalClaimsResetSample: () => apiFetch('/api/portal-claims/admin/reset-sample', { method: 'POST' }),
     previewReceiptSplit: (data) => apiFetch('/api/ar/receipts/preview-split', { method: 'POST', body: JSON.stringify(data) }),
     postReceipt: (data) => apiFetch('/api/ar/receipts', { method: 'POST', body: JSON.stringify(data) }),
     getReceipts: (q = {}) => apiFetch('/api/ar/receipts?' + new URLSearchParams(q).toString()),
