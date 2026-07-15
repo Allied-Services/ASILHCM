@@ -130,7 +130,7 @@ const MODULES = [
     subPerms: ['view', 'approve', 'export'],
   },
   {
-    key: 'claims_portal', label: 'Claims', navKey: 'claims_portal',
+    key: 'claims_portal', label: 'Portal Claims', navKey: 'claims_portal',
     icon: <ClipboardList size={16} />,
     subPerms: ['view', 'campaign', 'export', 'claims_manual_override'],
   },

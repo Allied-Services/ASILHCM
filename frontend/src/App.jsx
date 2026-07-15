@@ -144,7 +144,7 @@ function App() {
   // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
-    allowedTabs = ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'];
+    allowedTabs = ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','bill_verification','compliance','ar'];
   } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
     // Saved custom permissions: show all modules where access === true
     allowedTabs = Object.entries(user.permissions)
@@ -203,7 +203,7 @@ function App() {
     { key: 'wafi_claims',   label: 'Wafi Claims',             icon: <Inbox size={20} /> },
     { key: 'intake_hub',    label: 'Intake Hub',              icon: <Inbox size={20} /> },
     { key: 'claims_queue',  label: 'Claims Queue',            icon: <CheckSquare size={20} /> },
-    { key: 'claims_portal', label: 'Claims',                  icon: <ClipboardList size={20} /> },
+    { key: 'claims_portal', label: 'Portal Claims',           icon: <ClipboardList size={20} /> },
     { key: 'contract_ops',  label: 'Contract Policies',       icon: <ClipboardList size={20} /> },
     { key: 'bizdev',        label: 'BD Pipeline',             icon: <Briefcase size={20} /> },
     { key: 'bill_verification', label: 'Bill Verification',   icon: <ScanLine size={20} /> },
