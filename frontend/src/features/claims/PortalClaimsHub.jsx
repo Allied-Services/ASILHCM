@@ -131,6 +131,11 @@ export default function PortalClaimsHub({ user }) {
       <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
         Portal claims + manual ADD OT / CLAIMS. Test fillers: {TEST_FILLERS.join(', ')} · Approver: {TEST_APPROVER}
       </p>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: -4, maxWidth: 820, lineHeight: 1.5 }}>
+        Approver emails (default <strong>immediate</strong> on each submit): same stable link all month shows outstanding + already decided.
+        Production modes via env <code>CLAIMS_APPROVER_NOTIFY_MODE</code>: <code>immediate</code> | <code>daily</code> | <code>day22</code>.
+        After day 25 the approval window closes; pending items wait for next month.
+      </p>
 
       {err && <div style={{ color: '#b91c1c', marginBottom: 10 }}>{err}</div>}
       {msg && <div style={{ color: '#15803d', marginBottom: 10 }}>{msg}</div>}
@@ -190,29 +195,56 @@ export default function PortalClaimsHub({ user }) {
       </div>
 
       <h3 style={{ marginBottom: 8 }}>ADD OT / CLAIMS (Payroll override)</h3>
-      <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-        Finance can <strong>Add</strong>. Superadmin can <strong>Replace</strong> or <strong>Remove</strong>. Always dry-run first.
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 820, lineHeight: 1.5 }}>
+        Use when claims missed the portal or need a correction. Finance can <strong>Add</strong>.
+        Superadmin can <strong>Replace</strong> or <strong>Remove</strong>. Always dry-run first.
+        Every committed override emails <strong>huzaifa.rafaqat@asil.com.pk</strong> and <strong>shezad.mumtaz@asil.com.pk</strong> with the change list.
       </p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 8, maxWidth: 900 }}>
-        <input placeholder="ASIL Employee Code" value={ov.employeeId} onChange={e => setOv(o => ({ ...o, employeeId: e.target.value }))} />
-        <input type="number" placeholder="Month" value={ov.month} onChange={e => setOv(o => ({ ...o, month: +e.target.value }))} />
-        <input type="number" placeholder="Year" value={ov.year} onChange={e => setOv(o => ({ ...o, year: +e.target.value }))} />
-        <input type="number" placeholder="OT 1x hrs" value={ov.ot1Hours} onChange={e => setOv(o => ({ ...o, ot1Hours: e.target.value }))} />
-        <input type="number" placeholder="OT 2x hrs" value={ov.ot2Hours} onChange={e => setOv(o => ({ ...o, ot2Hours: e.target.value }))} />
-        <input type="number" placeholder="OT 3x hrs" value={ov.ot3Hours} onChange={e => setOv(o => ({ ...o, ot3Hours: e.target.value }))} />
-        <input type="number" placeholder="Expense" value={ov.expenseAmount} onChange={e => setOv(o => ({ ...o, expenseAmount: e.target.value }))} />
-        <input type="number" placeholder="Medical" value={ov.medicalAmount} onChange={e => setOv(o => ({ ...o, medicalAmount: e.target.value }))} />
-        <select value={ov.mode} onChange={e => setOv(o => ({ ...o, mode: e.target.value }))}>
-          <option value="add">Add</option>
-          {isSuper && <option value="replace">Replace (superadmin)</option>}
-          {isSuper && <option value="remove">Remove (superadmin)</option>}
-        </select>
-        <input placeholder="Reason (required)" value={ov.reason} onChange={e => setOv(o => ({ ...o, reason: e.target.value }))} style={{ gridColumn: 'span 2' }} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 10, maxWidth: 960 }}>
+        <Field label="ASIL Employee Code">
+          <input value={ov.employeeId} onChange={e => setOv(o => ({ ...o, employeeId: e.target.value }))} placeholder="e.g. ASIL/SPL-001" style={fieldInp} />
+        </Field>
+        <Field label="Period Month (1–12)">
+          <input type="number" min={1} max={12} value={ov.month} onChange={e => setOv(o => ({ ...o, month: +e.target.value }))} style={fieldInp} />
+        </Field>
+        <Field label="Period Year">
+          <input type="number" value={ov.year} onChange={e => setOv(o => ({ ...o, year: +e.target.value }))} style={fieldInp} />
+        </Field>
+        <Field label="OT 1× Hours">
+          <input type="number" value={ov.ot1Hours} onChange={e => setOv(o => ({ ...o, ot1Hours: e.target.value }))} style={fieldInp} />
+        </Field>
+        <Field label="OT 2× Hours">
+          <input type="number" value={ov.ot2Hours} onChange={e => setOv(o => ({ ...o, ot2Hours: e.target.value }))} style={fieldInp} />
+        </Field>
+        <Field label="OT 3× Hours (Eid only)">
+          <input type="number" value={ov.ot3Hours} onChange={e => setOv(o => ({ ...o, ot3Hours: e.target.value }))} style={fieldInp} />
+        </Field>
+        <Field label="Expense Amount (PKR)">
+          <input type="number" value={ov.expenseAmount} onChange={e => setOv(o => ({ ...o, expenseAmount: e.target.value }))} style={fieldInp} />
+        </Field>
+        <Field label="Medical Amount (PKR)">
+          <input type="number" value={ov.medicalAmount} onChange={e => setOv(o => ({ ...o, medicalAmount: e.target.value }))} style={fieldInp} />
+        </Field>
+        <Field label="Mode">
+          <select value={ov.mode} onChange={e => setOv(o => ({ ...o, mode: e.target.value }))} style={fieldInp}>
+            <option value="add">Add</option>
+            {isSuper && <option value="replace">Replace (superadmin)</option>}
+            {isSuper && <option value="remove">Remove (superadmin)</option>}
+          </select>
+        </Field>
+        <Field label="Reason (required)" span>
+          <input value={ov.reason} onChange={e => setOv(o => ({ ...o, reason: e.target.value }))} placeholder="Why this override is needed" style={fieldInp} />
+        </Field>
       </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
         <button type="button" className="btn-secondary" disabled={busy} onClick={() => runOverride(false)}>Dry-run</button>
         <button type="button" className="btn-primary" disabled={busy} onClick={() => runOverride(true)}>Commit</button>
-        <a href={`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/portal-claims/manual-override/template`} style={{ alignSelf: 'center', fontSize: 13 }}>Download import template</a>
+        <a
+          href={`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/portal-claims/manual-override/template`}
+          style={{ alignSelf: 'center', fontSize: 13 }}
+        >
+          Download import template
+        </a>
       </div>
       {ovPreview && (
         <pre style={{ marginTop: 12, background: 'var(--bg-dark)', padding: 12, borderRadius: 8, fontSize: 12, overflow: 'auto' }}>
@@ -225,3 +257,13 @@ export default function PortalClaimsHub({ user }) {
 
 const th = { padding: '8px 6px', fontSize: 12, color: 'var(--text-muted)' };
 const td = { padding: '8px 6px', verticalAlign: 'top' };
+const fieldInp = { width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)', boxSizing: 'border-box' };
+
+function Field({ label, children, span }) {
+  return (
+    <label style={{ display: 'block', gridColumn: span ? '1 / -1' : undefined }}>
+      <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</span>
+      {children}
+    </label>
+  );
+}

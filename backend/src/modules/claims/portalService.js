@@ -6,8 +6,46 @@ const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '17', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '22', 10);
 const APPROVE_CLOSE_DAY = parseInt(process.env.CLAIMS_APPROVE_CLOSE_DAY || '25', 10);
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://asil-hcm-frontend.onrender.com';
+/** immediate | daily | day22 — when approvers get email digests */
+const APPROVER_NOTIFY_MODE = String(process.env.CLAIMS_APPROVER_NOTIFY_MODE || 'immediate').toLowerCase();
+const MANUAL_OVERRIDE_NOTIFY = (process.env.CLAIMS_OVERRIDE_NOTIFY_EMAILS
+    || 'huzaifa.rafaqat@asil.com.pk,shezad.mumtaz@asil.com.pk')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
 const OT_MAP = { single: 1, double: 2, triple: 3 };
+
+/** Pakistan gazetted / Eid dates (same policy as Wafi claims). 3× OT only on Eid. */
+const PK_PUBLIC_HOLIDAYS = {
+    '2025-02-05': { name: 'Kashmir Solidarity Day', isEid: false },
+    '2025-03-23': { name: 'Pakistan Day', isEid: false },
+    '2025-03-31': { name: 'Eid-ul-Fitr Day 1 (est.)', isEid: true },
+    '2025-04-01': { name: 'Eid-ul-Fitr Day 2 (est.)', isEid: true },
+    '2025-04-02': { name: 'Eid-ul-Fitr Day 3 (est.)', isEid: true },
+    '2025-05-01': { name: 'International Labour Day', isEid: false },
+    '2025-06-06': { name: 'Eid-ul-Adha Day 1 (est.)', isEid: true },
+    '2025-06-07': { name: 'Eid-ul-Adha Day 2 (est.)', isEid: true },
+    '2025-06-08': { name: 'Eid-ul-Adha Day 3 (est.)', isEid: true },
+    '2025-06-26': { name: 'Ashura (Muharram 10) (est.)', isEid: false },
+    '2025-08-14': { name: 'Independence Day', isEid: false },
+    '2025-09-05': { name: 'Eid Milad-un-Nabi (est.)', isEid: false },
+    '2025-11-09': { name: 'Allama Iqbal Day', isEid: false },
+    '2025-12-25': { name: 'Quaid-e-Azam Day / Christmas', isEid: false },
+    '2026-02-05': { name: 'Kashmir Solidarity Day', isEid: false },
+    '2026-03-20': { name: 'Eid-ul-Fitr Day 1 (est.)', isEid: true },
+    '2026-03-21': { name: 'Eid-ul-Fitr Day 2 (est.)', isEid: true },
+    '2026-03-22': { name: 'Eid-ul-Fitr Day 3 (est.)', isEid: true },
+    '2026-03-23': { name: 'Pakistan Day', isEid: false },
+    '2026-05-01': { name: 'International Labour Day', isEid: false },
+    '2026-05-27': { name: 'Eid-ul-Adha Day 1 (est.)', isEid: true },
+    '2026-05-28': { name: 'Eid-ul-Adha Day 2 (est.)', isEid: true },
+    '2026-05-29': { name: 'Eid-ul-Adha Day 3 (est.)', isEid: true },
+    '2026-06-16': { name: 'Ashura (Muharram 10) (est.)', isEid: false },
+    '2026-08-14': { name: 'Independence Day', isEid: false },
+    '2026-08-25': { name: 'Eid Milad-un-Nabi (est.)', isEid: false },
+    '2026-11-09': { name: 'Allama Iqbal Day', isEid: false },
+    '2026-12-25': { name: 'Quaid-e-Azam Day / Christmas', isEid: false },
+};
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function hashToken(token) {
     return crypto.createHash('sha256').update(String(token)).digest('hex');
@@ -15,6 +53,38 @@ function hashToken(token) {
 
 function newToken() {
     return crypto.randomBytes(24).toString('hex');
+}
+
+/** Stable magic link so the same approver URL works all month (pending + already decided). */
+function stableApproverToken(periodId, email) {
+    const secret = process.env.CLAIMS_LINK_SECRET || process.env.SESSION_SECRET || process.env.JWT_SECRET || 'asil-portal-claims';
+    return crypto.createHmac('sha256', secret)
+        .update(`approver:${periodId}:${String(email || '').toLowerCase()}`)
+        .digest('hex');
+}
+
+function parseLocalDate(raw) {
+    if (!raw) return null;
+    const s = String(raw).slice(0, 10);
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) {
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+function getPkDateType(date) {
+    if (!date || Number.isNaN(date.getTime())) return null;
+    const y = date.getFullYear();
+    const mo = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${mo}-${d}`;
+    const holiday = PK_PUBLIC_HOLIDAYS[dateStr];
+    if (holiday) return { type: holiday.isEid ? 'EID' : 'HOLIDAY', name: holiday.name, dateStr };
+    const dow = date.getDay();
+    if (dow === 0) return { type: 'SUNDAY', name: 'Sunday', dateStr };
+    return { type: 'WEEKDAY', name: WEEKDAY_NAMES[dow], dateStr };
 }
 
 function pktNow() {
@@ -76,26 +146,32 @@ function validateOtRow(row) {
     const mult = String(row.ot_multiplier || '').toLowerCase().trim();
     if (!row.claim_date) errors.push('OT date required');
     if (!Number.isFinite(hours) || hours <= 0) errors.push('OT hours must be positive');
-    if (!OT_MAP[mult]) errors.push('OT multiplier must be Single, Double, or Triple');
+    if (!OT_MAP[mult]) errors.push('OT rate must be Single (1×), Double (2×), or Triple (3×)');
 
     if (row.claim_date && Number.isFinite(hours) && OT_MAP[mult]) {
-        const d = new Date(row.claim_date);
-        const dow = d.getDay();
-        if (mult === 'triple' && dow !== 0) {
-            // Soft: Eid check omitted here — weekday/Sunday triple is hard error except we only hard-error weekday
-            // Sunday max 2x per labour law
-        }
-        if (mult === 'triple' && dow !== 0) {
-            // Allow triple only flagged — keep hard for non-Sunday non-holiday simple rule:
-            // For portal MVP: triple on weekday = error; Sunday triple = error (max double); holidays left as warning
-            if (dow >= 1 && dow <= 6) {
-                errors.push('Triple OT not allowed on weekdays — use Double (max) unless Eid (ASIL will handle Eid)');
+        const d = parseLocalDate(row.claim_date);
+        const dateType = getPkDateType(d);
+        if (dateType) {
+            const label = `${dateType.dateStr} (${dateType.name})`;
+            if (mult === 'triple') {
+                if (dateType.type !== 'EID') {
+                    errors.push(
+                        `3× (Triple) Overtime is only allowed on gazetted Eid holidays (Eid-ul-Fitr / Eid-ul-Adha). `
+                        + `${label} is not an Eid day. Use Double (2×) for Sundays, other public holidays, and weekday OT. `
+                        + `If this was worked on Eid and the calendar date is wrong, correct the date or contact ASIL payroll.`
+                    );
+                }
+            }
+            if (mult === 'single' && (dateType.type === 'SUNDAY' || dateType.type === 'HOLIDAY' || dateType.type === 'EID')) {
+                errors.push(
+                    `1× (Single) is not allowed on ${label}. Sunday / public holiday / Eid work must be at least Double (2×); Eid may use Triple (3×).`
+                );
+            }
+            if (dateType.type === 'HOLIDAY' && mult === 'triple') {
+                // already covered by EID-only triple rule
             }
         }
-        if (mult === 'single' && dow === 0) {
-            errors.push('Sunday work requires at least Double OT');
-        }
-        if (hours > 6) warnings.push(`High OT: ${hours}h claimed`);
+        if (hours > 6) warnings.push(`High OT: ${hours}h claimed on one day — please confirm`);
     }
     return { errors, warnings, factor: OT_MAP[mult] || null };
 }
@@ -355,7 +431,11 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
             [sub.id]
         );
         await refreshBatchStatus(pool, batch.id);
-        return { ok: true, status: 'no_claims' };
+        return {
+            ok: true,
+            status: 'no_claims',
+            message: 'Thank you. “No Claims” is recorded. Your Line Manager can see this for the period. Nothing will be added to payroll for this employee.',
+        };
     }
 
     const errors = [];
@@ -441,7 +521,26 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
         [sub.id, newStatus]
     );
     await refreshBatchStatus(pool, batch.id);
-    return { ok: true, status: newStatus, itemCount: normalized.length };
+
+    if (newStatus === 'submitted' && APPROVER_NOTIFY_MODE === 'immediate') {
+        // fire-and-forget style caller passes sendAppEmail via optional global — handled in routes
+    }
+
+    const message = newStatus === 'submitted'
+        ? 'Thank you. Your claim has been submitted to your Line Manager for approval. '
+          + 'You will receive an email when they approve or reject it. '
+          + 'Approved amounts are added to payroll and paid with the following month’s salary.'
+        : 'Draft saved. Submit when ready so your Line Manager can review.';
+
+    return {
+        ok: true,
+        status: newStatus,
+        itemCount: normalized.length,
+        message,
+        notifyApprover: newStatus === 'submitted' && APPROVER_NOTIFY_MODE === 'immediate',
+        periodId: batch.period_id,
+        approverEmail: sub.approver_email,
+    };
 }
 
 async function refreshBatchStatus(pool, batchId) {
@@ -485,7 +584,7 @@ async function addAttachment(pool, { token, employeeId, filename, mimeType, cont
     return { ok: true, attachment: rows[0] };
 }
 
-async function ensureApproverPacks(pool, periodId, sendAppEmail) {
+async function ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail = false } = {}) {
     const { rows: pending } = await pool.query(
         `SELECT DISTINCT approver_email FROM portal_claim_submissions
          WHERE period_id = $1 AND status = 'submitted' AND approver_email IS NOT NULL AND TRIM(approver_email) <> ''`,
@@ -496,49 +595,102 @@ async function ensureApproverPacks(pool, periodId, sendAppEmail) {
     const results = [];
 
     for (const { approver_email: approverEmail } of pending) {
-        const token = newToken();
+        const token = stableApproverToken(periodId, approverEmail);
         const tokenHash = hashToken(token);
         const { rows: packRows } = await pool.query(
             `INSERT INTO portal_claim_approver_packs (period_id, approver_email, invite_token_hash, invite_sent_at, status)
              VALUES ($1,$2,$3,NOW(),'pending')
              ON CONFLICT (period_id, approver_email) DO UPDATE
-               SET invite_token_hash = EXCLUDED.invite_token_hash, invite_sent_at = NOW()
+               SET invite_token_hash = EXCLUDED.invite_token_hash,
+                   invite_sent_at = NOW(),
+                   status = 'pending'
              RETURNING *`,
             [periodId, approverEmail, tokenHash]
         );
         const link = `${FRONTEND_URL}/?asil_claims=approve&token=${token}`;
-        const { rows: subs } = await pool.query(
-            `SELECT COUNT(*)::int AS cnt FROM portal_claim_submissions
-             WHERE period_id = $1 AND approver_email = $2 AND status = 'submitted'`,
-            [periodId, approverEmail]
-        );
-        if (sendAppEmail) {
+        const summary = await buildApproverPendingSummary(pool, periodId, approverEmail);
+        const shouldEmail = !!sendAppEmail && (forceEmail || APPROVER_NOTIFY_MODE === 'immediate');
+        if (shouldEmail && summary.pendingCount > 0) {
             await sendAppEmail({
                 to: approverEmail,
-                subject: `ASIL Claims approval — ${subs[0].cnt} submission(s) (approve by day ${APPROVE_CLOSE_DAY})`,
-                html: buildApproverInviteHtml({ period, count: subs[0].cnt, link, approverEmail }),
+                subject: `ASIL Claims — ${summary.pendingCount} pending for ${period.claim_month}/${period.claim_year} (approve by day ${APPROVE_CLOSE_DAY})`,
+                html: buildApproverInviteHtml({
+                    period,
+                    count: summary.pendingCount,
+                    link,
+                    approverEmail,
+                    summaryHtml: summary.html,
+                }),
             }).catch(() => {});
         }
-        results.push({ approverEmail, link, count: subs[0].cnt, packId: packRows[0].id });
+        results.push({
+            approverEmail,
+            link,
+            count: summary.pendingCount,
+            approvedCount: summary.approvedCount,
+            packId: packRows[0].id,
+            notifyMode: APPROVER_NOTIFY_MODE,
+        });
     }
     return results;
 }
 
-function buildApproverInviteHtml({ period, count, link, approverEmail }) {
+async function buildApproverPendingSummary(pool, periodId, approverEmail) {
+    const { rows: submissions } = await pool.query(
+        `SELECT s.id, s.status, s.filler_email, e.name AS employee_name, e.id AS employee_id
+         FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE s.period_id = $1 AND LOWER(s.approver_email) = LOWER($2)
+           AND s.status IN ('submitted','approved','rejected','in_payroll')
+         ORDER BY e.name`,
+        [periodId, approverEmail]
+    );
+    const pending = submissions.filter(s => s.status === 'submitted');
+    const approved = submissions.filter(s => ['approved', 'in_payroll'].includes(s.status));
+    const ids = pending.map(s => s.id);
+    let items = [];
+    if (ids.length) {
+        const { rows } = await pool.query(
+            `SELECT * FROM portal_claim_items WHERE submission_id = ANY($1::int[]) AND active = TRUE`,
+            [ids]
+        );
+        items = rows;
+    }
+    const lines = pending.map(s => {
+        const its = items.filter(i => i.submission_id === s.id);
+        const bits = its.map(i => {
+            if (i.claim_type === 'OT') return `OT ${i.ot_hours}h ${i.ot_multiplier || ''} on ${String(i.claim_date).slice(0, 10)}`;
+            return `${i.claim_type} PKR ${i.amount} on ${String(i.claim_date).slice(0, 10)}`;
+        }).join('; ') || 'No line items';
+        return `<li style="margin:0 0 8px"><strong style="color:#0f172a">${s.employee_name}</strong> `
+            + `<span style="color:#64748b">(${s.employee_id})</span><br/>`
+            + `<span style="color:#334155">${bits}</span><br/>`
+            + `<span style="color:#64748b;font-size:12px">Filled by ${s.filler_email || '—'}</span></li>`;
+    });
+    return {
+        pendingCount: pending.length,
+        approvedCount: approved.length,
+        html: lines.length
+            ? `<p style="color:#334155;margin:16px 0 8px"><strong>Pending for your review</strong></p><ul style="padding-left:18px;margin:0;color:#334155">${lines.join('')}</ul>`
+            : '<p style="color:#64748b">No pending claims right now. Open the link anytime to see what you already approved.</p>',
+    };
+}
+
+function buildApproverInviteHtml({ period, count, link, approverEmail, summaryHtml = '' }) {
     const settleLabel = `${period.settlement_month || ''}/${period.settlement_year || ''}`.replace(/^\/|\/$/g, '') || 'the following month';
-    return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;background:#f8fafc">
-<div style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e2e8f0">
+    return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;background:#f8fafc;color:#0f172a">
+<div style="max-width:640px;margin:auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e2e8f0">
   <h2 style="margin:0 0 8px;color:#0f172a">ASIL HCM — Approve Claims</h2>
-  <p style="color:#475569;margin:0 0 16px">Claim month <strong>${period.claim_month}/${period.claim_year}</strong> · <strong>${count}</strong> submission(s) waiting on one screen.</p>
-  <p style="color:#334155;margin:0 0 8px"><strong>Your role</strong></p>
+  <p style="color:#334155;margin:0 0 12px">Claim month <strong>${period.claim_month}/${period.claim_year}</strong> · <strong>${count}</strong> pending.</p>
+  <p style="color:#334155;margin:0 0 12px">Use the <strong>same link</strong> all month — it shows what is still outstanding and what you already approved. After day <strong>${APPROVE_CLOSE_DAY}</strong> the window closes; anything still pending rolls to next month’s cycle.</p>
+  ${summaryHtml}
+  <p style="color:#334155;margin:16px 0 8px"><strong>After you approve</strong></p>
   <ul style="color:#475569;margin:0 0 16px;padding-left:20px;line-height:1.55">
-    <li>Review OT / Expense / Medical entered by Claim Authorities.</li>
-    <li>Approve or reject each employee (add a remark if rejecting).</li>
-    <li>Complete by <strong>day ${APPROVE_CLOSE_DAY}</strong>.</li>
-    <li>Approved items settle in payroll for <strong>${settleLabel}</strong> (following month’s pay).</li>
+    <li>The Claim Authority is notified by email.</li>
+    <li>Approved amounts go into payroll for <strong>${settleLabel}</strong> (following month’s pay).</li>
   </ul>
   <p style="margin:24px 0"><a href="${link}" style="background:#15803d;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Open approval pack</a></p>
-  <p style="font-size:12px;color:#94a3b8;word-break:break-all">${link}</p>
+  <p style="font-size:12px;color:#64748b;word-break:break-all">${link}</p>
   <p style="font-size:12px;color:#94a3b8;margin:16px 0 0">Sent to ${approverEmail} · Allied Services International (ASIL)</p>
 </div></body></html>`;
 }
@@ -600,6 +752,8 @@ async function openApproverSession(pool, token) {
         period: {
             claim_month: pack.claim_month,
             claim_year: pack.claim_year,
+            settlement_month: pack.settlement_month,
+            settlement_year: pack.settlement_year,
             approve_close_at: pack.approve_close_at,
             approve_closed: isAfterApproveClose(pack),
         },
@@ -611,11 +765,13 @@ async function openApproverSession(pool, token) {
             total: submissions.length,
             pending: submissions.filter(s => s.status === 'submitted').length,
             approved: submissions.filter(s => ['approved', 'in_payroll'].includes(s.status)).length,
+            rejected: submissions.filter(s => s.status === 'rejected').length,
         },
+        notifyMode: APPROVER_NOTIFY_MODE,
     };
 }
 
-async function approverDecide(pool, { token, submissionId, decision, comment }) {
+async function approverDecide(pool, { token, submissionId, decision, comment, sendAppEmail }) {
     const pack = await getApproverPackByToken(pool, token);
     if (!pack) return { ok: false, status: 404, error: 'Invalid link' };
     if (isAfterApproveClose(pack) && decision === 'approved') {
@@ -638,6 +794,7 @@ async function approverDecide(pool, { token, submissionId, decision, comment }) 
              WHERE id = $1`,
             [submissionId, comment || null]
         );
+        await notifyFillerDecision(pool, sendAppEmail, sub, 'rejected', comment);
         return { ok: true, decision: 'rejected' };
     }
 
@@ -663,7 +820,31 @@ async function approverDecide(pool, { token, submissionId, decision, comment }) 
         [submissionId]
     );
 
+    await notifyFillerDecision(pool, sendAppEmail, sub, 'approved', comment);
     return { ok: true, decision: 'approved' };
+}
+
+async function notifyFillerDecision(pool, sendAppEmail, sub, decision, comment) {
+    if (!sendAppEmail || !sub.filler_email) return;
+    const { rows: emp } = await pool.query(`SELECT name FROM employees WHERE id = $1`, [sub.employee_id]);
+    const name = emp[0]?.name || sub.employee_id;
+    const approved = decision === 'approved';
+    await sendAppEmail({
+        to: sub.filler_email,
+        subject: approved
+            ? `ASIL Claims approved — ${name}`
+            : `ASIL Claims rejected — ${name}`,
+        html: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;background:#f8fafc;color:#0f172a">
+<div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:24px;border:1px solid #e2e8f0">
+  <h2 style="margin:0 0 8px;color:#0f172a">${approved ? 'Claim approved' : 'Claim rejected'}</h2>
+  <p style="color:#334155">Employee <strong>${name}</strong> (${sub.employee_id}) was <strong>${decision}</strong> by the Line Manager.</p>
+  ${comment ? `<p style="color:#475569">Remark: ${String(comment).replace(/</g, '&lt;')}</p>` : ''}
+  <p style="color:#475569">${approved
+    ? 'Approved amounts will be included in the following month’s payroll settlement.'
+    : 'You may correct and re-raise next month (or contact ASIL finance if still within the fill window).'}</p>
+  <p style="font-size:12px;color:#94a3b8;margin-top:16px">ASIL HCM</p>
+</div></body></html>`,
+    }).catch(() => {});
 }
 
 async function injectApprovedToEmployeeClaims(pool, sub, items, pack) {
@@ -915,7 +1096,40 @@ async function applyManualOverride(pool, {
         [period.id, employeeId, createdBy || 'manual', createdBy || 'manual']
     ).catch(() => {});
 
-    return { ok: true, override: logRows[0], before, after, warning };
+    return { ok: true, override: logRows[0], before, after, warning, notifyEmails: MANUAL_OVERRIDE_NOTIFY };
+}
+
+async function notifyManualOverride(sendAppEmail, payload) {
+    if (!sendAppEmail || !MANUAL_OVERRIDE_NOTIFY.length) return;
+    const {
+        employeeId, month, year, mode, reason, createdBy,
+        ot1Hours, ot2Hours, ot3Hours, expenseAmount, medicalAmount, before, after, warning,
+    } = payload;
+    const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;background:#f8fafc;color:#0f172a">
+<div style="max-width:640px;margin:auto;background:#fff;border-radius:12px;padding:24px;border:1px solid #e2e8f0">
+  <h2 style="margin:0 0 8px;color:#0f172a">Manual ADD OT / CLAIMS override</h2>
+  <p style="color:#334155">A payroll claims override was <strong>committed</strong> in ASIL HCM.</p>
+  <table style="width:100%;border-collapse:collapse;font-size:14px;color:#0f172a;margin:12px 0">
+    <tr><td style="padding:6px 0;color:#64748b">Employee</td><td style="padding:6px 0"><strong>${employeeId}</strong></td></tr>
+    <tr><td style="padding:6px 0;color:#64748b">Period</td><td style="padding:6px 0">${month}/${year}</td></tr>
+    <tr><td style="padding:6px 0;color:#64748b">Mode</td><td style="padding:6px 0">${mode}</td></tr>
+    <tr><td style="padding:6px 0;color:#64748b">By</td><td style="padding:6px 0">${createdBy || '—'}</td></tr>
+    <tr><td style="padding:6px 0;color:#64748b">Reason</td><td style="padding:6px 0">${String(reason || '').replace(/</g, '&lt;')}</td></tr>
+    <tr><td style="padding:6px 0;color:#64748b">OT 1× / 2× / 3×</td><td style="padding:6px 0">${ot1Hours} / ${ot2Hours} / ${ot3Hours} hrs</td></tr>
+    <tr><td style="padding:6px 0;color:#64748b">Expense / Medical</td><td style="padding:6px 0">${expenseAmount} / ${medicalAmount}</td></tr>
+    <tr><td style="padding:6px 0;color:#64748b">Payroll before</td><td style="padding:6px 0;font-family:monospace;font-size:12px">${JSON.stringify(before)}</td></tr>
+    <tr><td style="padding:6px 0;color:#64748b">Payroll after</td><td style="padding:6px 0;font-family:monospace;font-size:12px">${JSON.stringify(after)}</td></tr>
+  </table>
+  ${warning ? `<p style="color:#b45309">${String(warning).replace(/</g, '&lt;')}</p>` : ''}
+  <p style="font-size:12px;color:#94a3b8;margin-top:16px">ASIL HCM · automatic notice</p>
+</div></body></html>`;
+    for (const to of MANUAL_OVERRIDE_NOTIFY) {
+        await sendAppEmail({
+            to,
+            subject: `Manual OT/Claims override — ${employeeId} (${month}/${year})`,
+            html,
+        }).catch(() => {});
+    }
 }
 
 async function autoCloseNoClaims(pool) {
@@ -976,36 +1190,19 @@ async function sendReminders(pool, sendAppEmail) {
         }
     }
 
-    // Approver reminders ~23-24
-    if ([23, 24].includes(day)) {
-        const { rows: packs } = await pool.query(
-            `SELECT a.*, p.claim_month, p.claim_year, p.approve_close_at
-             FROM portal_claim_approver_packs a
-             JOIN portal_claim_periods p ON p.id = a.period_id
-             WHERE p.approve_close_at > NOW() AND a.reminder_count < 2 AND a.status = 'pending'`
+    // Approver digests: daily mode any day with pending; day22 on the 22nd; always remind 23–24
+    const runApproverDigest = (APPROVER_NOTIFY_MODE === 'daily')
+        || (APPROVER_NOTIFY_MODE === 'day22' && day === FILL_CLOSE_DAY)
+        || [23, 24].includes(day);
+    if (runApproverDigest) {
+        const { rows: periods } = await pool.query(
+            `SELECT DISTINCT p.id FROM portal_claim_periods p
+             JOIN portal_claim_submissions s ON s.period_id = p.id
+             WHERE s.status = 'submitted' AND p.approve_close_at > NOW()`
         );
-        for (const a of packs) {
-            const token = newToken();
-            await pool.query(
-                `UPDATE portal_claim_approver_packs
-                 SET invite_token_hash = $2, reminder_count = reminder_count + 1, last_reminder_at = NOW()
-                 WHERE id = $1`,
-                [a.id, hashToken(token)]
-            );
-            const { rows: cnt } = await pool.query(
-                `SELECT COUNT(*)::int AS c FROM portal_claim_submissions
-                 WHERE period_id = $1 AND approver_email = $2 AND status = 'submitted'`,
-                [a.period_id, a.approver_email]
-            );
-            const link = `${FRONTEND_URL}/?asil_claims=approve&token=${token}`;
-            if (sendAppEmail && cnt[0].c > 0) {
-                await sendAppEmail({
-                    to: a.approver_email,
-                    subject: `Reminder: approve ${cnt[0].c} ASIL claim(s) by day ${APPROVE_CLOSE_DAY}`,
-                    html: buildApproverInviteHtml({ period: a, count: cnt[0].c, link, approverEmail: a.approver_email }),
-                }).catch(() => {});
-                results.approver++;
-            }
+        for (const p of periods) {
+            const packs = await ensureApproverPacks(pool, p.id, sendAppEmail, { forceEmail: true });
+            results.approver += packs.filter(x => x.count > 0).length;
         }
     }
 
@@ -1064,6 +1261,7 @@ module.exports = {
     listClaimsForAdmin,
     exportClaimsPayrollTieout,
     applyManualOverride,
+    notifyManualOverride,
     autoCloseNoClaims,
     sendReminders,
     resendFillerInvite,
@@ -1071,4 +1269,6 @@ module.exports = {
     getOrCreatePeriod,
     periodWindow,
     validateOtRow,
+    APPROVER_NOTIFY_MODE,
+    MANUAL_OVERRIDE_NOTIFY,
 };

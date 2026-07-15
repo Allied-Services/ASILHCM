@@ -44,6 +44,9 @@ function registerPortalClaimsRoutes(app, deps) {
                 confirmNoClaims: !!confirmNoClaims,
             });
             if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+            if (result.notifyApprover && result.periodId) {
+                await portal.ensureApproverPacks(pool, result.periodId, sendAppEmail, { forceEmail: true }).catch(() => {});
+            }
             res.json(result);
         } catch (err) {
             handleRouteError(res, 'portalClaims.fillSave', err);
@@ -88,6 +91,7 @@ function registerPortalClaimsRoutes(app, deps) {
                 submissionId: parseInt(submissionId, 10),
                 decision,
                 comment,
+                sendAppEmail,
             });
             if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
             res.json(result);
@@ -142,8 +146,8 @@ function registerPortalClaimsRoutes(app, deps) {
         try {
             const periodId = parseInt(req.body?.periodId, 10);
             if (!periodId) return res.status(400).json({ error: 'periodId required' });
-            const packs = await portal.ensureApproverPacks(pool, periodId, sendAppEmail);
-            res.json({ packs });
+            const packs = await portal.ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail: true });
+            res.json({ packs, notifyMode: portal.APPROVER_NOTIFY_MODE });
         } catch (err) {
             handleRouteError(res, 'portalClaims.notifyApprovers', err);
         }
@@ -218,6 +222,24 @@ function registerPortalClaimsRoutes(app, deps) {
                 isSuperadmin: req.user?.role === 'superadmin',
             });
             if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+            if (!body.dryRun) {
+                await portal.notifyManualOverride(sendAppEmail, {
+                    employeeId: body.employeeId,
+                    month: parseInt(body.month, 10),
+                    year: parseInt(body.year, 10),
+                    ot1Hours: body.ot1Hours,
+                    ot2Hours: body.ot2Hours,
+                    ot3Hours: body.ot3Hours,
+                    expenseAmount: body.expenseAmount,
+                    medicalAmount: body.medicalAmount,
+                    mode: body.mode || 'add',
+                    reason: body.reason,
+                    createdBy: req.user?.email || req.user?.username || 'user',
+                    before: result.before,
+                    after: result.after,
+                    warning: result.warning,
+                });
+            }
             res.json(result);
         } catch (err) {
             handleRouteError(res, 'portalClaims.manualOverride', err);
@@ -259,12 +281,13 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.get('/api/portal-claims/manual-override/template', requireAuth, (req, res) => {
+    // Public CSV template (no secrets) — avoids Unauthorized when opened in a new tab without JWT
+    app.get('/api/portal-claims/manual-override/template', (req, res) => {
         const csv = [
             'ASIL Employee Code,Period Month,Period Year,OT 1X Hours,OT 2X Hours,OT 3X Hours,Expense Amount,Medical Amount,Reason,Replace Existing?',
             'ASIL/SPL-001,7,2026,0,4,0,0,0,Client WhatsApp late OT,N',
         ].join('\n');
-        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename=ADD_OT_CLAIMS_template.csv');
         res.send(csv);
     });
