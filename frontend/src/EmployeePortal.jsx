@@ -66,11 +66,16 @@ function LoginScreen({ onLogin }) {
                 : { ...parseIdentifier(identifier), preferSms };
             if (!body.phone && !body.employeeId) throw new Error('Enter your employee code or mobile number');
 
-            const res = await fetch(`${API}/api/portal/request-otp`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-            const data = await res.json();
+            let res;
+            try {
+                res = await fetch(`${API}/api/portal/request-otp`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+            } catch {
+                throw new Error('Cannot reach the server (network/CORS). Please try again in a minute, or use https://hcm.asil.com.pk/portal/');
+            }
+            const data = await res.json().catch(() => ({}));
             if (res.status === 409 && data.employees?.length) {
                 setDupes(data.employees);
                 throw new Error(data.error || 'Multiple matches — pick your employee code');
