@@ -48,13 +48,36 @@ function normalizeHeaderKey(k) {
 }
 
 function pick(row, ...names) {
-    const map = {};
-    for (const [k, v] of Object.entries(row)) map[normalizeHeaderKey(k)] = v;
+    const entries = Object.entries(row).map(([k, v]) => [normalizeHeaderKey(k), v]);
+    const map = Object.fromEntries(entries);
     for (const n of names) {
-        const v = map[normalizeHeaderKey(n)];
+        const key = normalizeHeaderKey(n);
+        const v = map[key];
         if (v !== undefined && v !== null && String(v).trim() !== '') return v;
     }
+    // Fuzzy: header contains the search name (e.g. "Total Expense Amount (PKR)")
+    for (const n of names) {
+        const key = normalizeHeaderKey(n);
+        if (key.length < 4) continue;
+        for (const [hk, v] of entries) {
+            if (hk.includes(key) || key.includes(hk)) {
+                if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+            }
+        }
+    }
     return '';
+}
+
+/** Parse PKR amounts: 8000, 8,000, Rs.8,000, 8000.50 */
+function parseAmount(raw) {
+    if (raw == null || raw === '') return null;
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+    let s = String(raw).trim();
+    if (!s) return null;
+    s = s.replace(/^(rs\.?|pkr|usd|\$)\s*/i, '');
+    s = s.replace(/,/g, '').replace(/\s+/g, '');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : null;
 }
 
 function pad2(n) {
@@ -92,16 +115,27 @@ function toIsoDate(raw) {
     // Strip weekday names
     s = s.replace(/^(mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+/i, '');
 
-    // Excel Date object stringified
+    // DD-MM-YYYY / DD/MM/YYYY
     const dmy = s.match(/^(\d{1,2})[\/\-.\s](\d{1,2})[\/\-.\s](\d{4})$/);
     if (dmy) {
-        // Prefer DD-MM-YYYY (Pakistan)
         const a = Number(dmy[1]);
         const b = Number(dmy[2]);
         const y = Number(dmy[3]);
         if (a > 12 && b <= 12) return isoFromParts(y, b, a); // DD-MM
         if (b > 12 && a <= 12) return isoFromParts(y, a, b); // MM-DD
-        return isoFromParts(y, b, a); // default DD-MM
+        return isoFromParts(y, b, a); // default DD-MM (Pakistan)
+    }
+
+    // DD-MM-YY / 21-06-26 → 2026-06-21
+    const dmy2 = s.match(/^(\d{1,2})[\/\-.\s](\d{1,2})[\/\-.\s](\d{2})$/);
+    if (dmy2) {
+        const a = Number(dmy2[1]);
+        const b = Number(dmy2[2]);
+        let y = Number(dmy2[3]);
+        y += y >= 70 ? 1900 : 2000;
+        if (a > 12 && b <= 12) return isoFromParts(y, b, a);
+        if (b > 12 && a <= 12) return isoFromParts(y, a, b);
+        return isoFromParts(y, b, a);
     }
 
     const ymd = s.match(/^(\d{4})[\/\-.\s](\d{1,2})[\/\-.\s](\d{1,2})$/);
@@ -296,7 +330,7 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
             claim_type: 'OT',
             claim_date: toIsoDate(dateRaw),
             claim_date_raw: dateRaw || '',
-            ot_hours: hoursRaw === '' ? null : parseFloat(String(hoursRaw).replace(/,/g, '')),
+            ot_hours: hoursRaw === '' ? null : parseAmount(hoursRaw),
             ot_multiplier: normalizeMultiplier(pick(row, 'Overtime Multiplier', 'Multiplier', 'Rate')),
             nature,
             time_from: timeFrom,
@@ -317,12 +351,16 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
         for (const row of sheetToObjects(wb.Sheets[expName])) {
             r += 1;
             const empId = pick(row, 'ASIL Employee Code', 'Employee Code');
-            const amountRaw = pick(row, 'Total Expense Amount', 'Amount', 'Expense Amount');
+            const amountRaw = pick(
+                row,
+                'Total Expense Amount (PKR)', 'Total Expense Amount', 'Expense Amount (PKR)',
+                'Expense Amount', 'Amount (PKR)', 'Amount'
+            );
             const dateRaw = pick(row, 'Date (DD-MM-YYYY)', 'Date', 'Claim Date');
             const desc = pick(row, 'Description of Expense', 'Description');
             if (!empId && !amountRaw && !dateRaw) continue;
             if (empId && !amountRaw && !dateRaw && !desc) continue;
-            const amount = amountRaw === '' ? null : parseFloat(String(amountRaw).replace(/,/g, ''));
+            const amount = parseAmount(amountRaw);
             const draft = {
                 claim_type: 'EXPENSE',
                 claim_date: toIsoDate(dateRaw),
@@ -348,12 +386,16 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
         for (const row of sheetToObjects(wb.Sheets[medName])) {
             r += 1;
             const empId = pick(row, 'ASIL Employee Code', 'Employee Code');
-            const amountRaw = pick(row, 'Total Claim Amount', 'Amount', 'Claim Amount');
+            const amountRaw = pick(
+                row,
+                'Total Claim Amount (PKR)', 'Total Claim Amount', 'Claim Amount (PKR)',
+                'Claim Amount', 'Medical Amount', 'Amount (PKR)', 'Amount'
+            );
             const dateRaw = pick(row, 'Date (DD-MM-YYYY)', 'Date', 'Claim Date');
             const desc = pick(row, 'Description / Treatment Detail', 'Description', 'Treatment');
             if (!empId && !amountRaw && !dateRaw) continue;
             if (empId && !amountRaw && !dateRaw && !desc) continue;
-            const amount = amountRaw === '' ? null : parseFloat(String(amountRaw).replace(/,/g, ''));
+            const amount = parseAmount(amountRaw);
             const draft = {
                 claim_type: 'MEDICAL',
                 claim_date: toIsoDate(dateRaw),
@@ -644,6 +686,7 @@ module.exports = {
     buildPersonalizedClaimsWorkbookAsync,
     resolveAllowedEmployeeId,
     toIsoDate,
+    parseAmount,
     normalizeMultiplier,
     parseTimeToMinutes,
     hoursBetween,

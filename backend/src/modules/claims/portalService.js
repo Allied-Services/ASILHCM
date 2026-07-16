@@ -10,6 +10,7 @@ const {
     parseTimeToMinutes,
     hoursBetween,
     toIsoDate,
+    parseAmount,
     formatDateDdMonYyyy,
     isMeaningfulOtRow,
     isMeaningfulMoneyRow,
@@ -299,12 +300,12 @@ function validateExpenseOrMedicalRow(row, period, kind) {
     const dateCheck = validateClaimDateInPeriod(row.claim_date || row.claim_date_raw, period, kind);
     errors.push(...dateCheck.errors);
     const amtRaw = row.amount;
-    const amt = parseFloat(String(amtRaw ?? '').toString().replace(/,/g, ''));
+    const amt = parseAmount(amtRaw);
     if (!Number.isFinite(amt) || amt <= 0) {
         errors.push(
             amtRaw == null || amtRaw === ''
-                ? `${kind} amount is missing. Enter the amount in PKR (e.g. 1500).`
-                : `${kind} amount "${amtRaw}" is not valid. Enter a positive number in PKR.`
+                ? `${kind} amount is missing. Enter the amount in PKR (e.g. 1500 or 1,500).`
+                : `${kind} amount "${amtRaw}" is not valid. Enter a positive number in PKR (commas OK, e.g. 8,000).`
         );
     }
     return { errors, claim_date: dateCheck.iso, amount: Number.isFinite(amt) && amt > 0 ? amt : null };
