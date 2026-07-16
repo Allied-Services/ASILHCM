@@ -31,6 +31,52 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 const monthName = m => MONTHS[(parseInt(m)||1) - 1];
 const fmtDate = s => s ? new Date(s).toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' }) : '—';
 
+// Native <select> dropdowns use OS popup colors; force readable dark options on Windows.
+const selectStyle = {
+    padding: '10px',
+    background: '#0f172a',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '8px',
+    color: '#e2e8f0',
+    colorScheme: 'dark',
+};
+const optionStyle = { background: '#0f172a', color: '#e2e8f0' };
+const inputStyle = {
+    padding: '10px',
+    background: '#0f172a',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '8px',
+    color: '#e2e8f0',
+};
+
+const OFFICE_LOCATIONS = [
+    {
+        city: 'Karachi (Head Office)',
+        address: '6 Hilltop Arcade, 4D/2 Gizri Blvd Rd, D.H.A. Phase 4, Karachi, 75500',
+        maps: 'https://maps.app.goo.gl/qH3zwWfDYKFPhwGA6',
+    },
+    {
+        city: 'Rawalpindi',
+        address: 'C73, opposite Bilal Hospital, Satellite Town Block C, Rawalpindi',
+        maps: 'https://maps.app.goo.gl/DYb6K8tMZRy2ThZr9',
+    },
+    {
+        city: 'Lahore',
+        address: '30, Sabzazar Block D, Sabzazar Housing Scheme Phase 1 & 2, Lahore, 54000',
+        maps: 'https://maps.app.goo.gl/xFu2DA45xsNVEDbk9',
+    },
+    {
+        city: 'Dubai',
+        address: 'Allied Services FZ LLC — Boulevard Plaza, Downtown Dubai, UAE',
+        maps: null,
+    },
+    {
+        city: 'Riyadh',
+        address: 'Olaya Street, Riyadh, KSA',
+        maps: null,
+    },
+];
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // LOGIN SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -407,6 +453,54 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                         <div>
                             <h2 style={{ margin: '0 0 1.5rem', fontSize: '1.2rem', fontWeight: 800 }}>My Profile</h2>
 
+                            <div style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
+                                <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', fontWeight: 700 }}>Request a data change</h3>
+                                <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>
+                                    Changes are reviewed by Allied HCM before they apply to your record.
+                                </p>
+                                <form onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    setChangeMsg('');
+                                    try {
+                                        const res = await api.portalSubmitChangeRequest(token, changeField, changeValue);
+                                        if (res.error) throw new Error(res.error);
+                                        setChangeMsg('Request submitted. Allied HCM will review it shortly.');
+                                        setChangeValue('');
+                                        const d = await api.portalGetMyRequests(token);
+                                        setMyRequests(d.requests || []);
+                                    } catch (err) { setChangeMsg(err.message); }
+                                }} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.75rem' }}>
+                                    <select value={changeField} onChange={e => setChangeField(e.target.value)} style={selectStyle}>
+                                        <option value="present_address" style={optionStyle}>Present Address</option>
+                                        <option value="permanent_address" style={optionStyle}>Permanent Address</option>
+                                        <option value="primary_contact" style={optionStyle}>Primary Contact</option>
+                                        <option value="emergency_contact" style={optionStyle}>Emergency Contact</option>
+                                        <option value="email" style={optionStyle}>Email Address</option>
+                                        <option value="bank_name" style={optionStyle}>Bank Name</option>
+                                        <option value="bank_account" style={optionStyle}>Bank Account Number</option>
+                                        <option value="account_title" style={optionStyle}>Account Title</option>
+                                        <option value="nok_name" style={optionStyle}>Next of Kin Name</option>
+                                        <option value="nok_relation" style={optionStyle}>Next of Kin Relation</option>
+                                        <option value="nok_contact" style={optionStyle}>Next of Kin Contact</option>
+                                    </select>
+                                    <input required value={changeValue} onChange={e => setChangeValue(e.target.value)} placeholder="New value" style={inputStyle} />
+                                    <button type="submit" style={{ padding: '10px 16px', background: 'linear-gradient(135deg,#38bdf8,#6366f1)', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Submit</button>
+                                </form>
+                                {changeMsg && <p style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: changeMsg.includes('submitted') ? '#22c55e' : '#f87171' }}>{changeMsg}</p>}
+
+                                {myRequests.length > 0 && (
+                                    <div style={{ marginTop: '1.25rem' }}>
+                                        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>My requests</h4>
+                                        {myRequests.slice(0, 10).map(r => (
+                                            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.82rem' }}>
+                                                <span>{r.field_label}: <span style={{ color: '#94a3b8' }}>{r.old_value || '—'} → </span>{r.new_value}</span>
+                                                <span style={{ color: r.status === 'Approved' ? '#22c55e' : r.status === 'Rejected' ? '#f87171' : '#f59e0b', fontWeight: 600 }}>{r.status}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
                             <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
                                 <div style={{ width: 88, height: 88, borderRadius: '50%', overflow: 'hidden', background: 'rgba(56,189,248,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '2px solid rgba(56,189,248,0.3)' }}>
                                     {photoObjectUrl
@@ -493,56 +587,6 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                     </div>
                                 ))}
                             </div>
-
-                            <div style={{ marginTop: '1.5rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
-                                <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', fontWeight: 700 }}>Request a data change</h3>
-                                <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>
-                                    Changes are reviewed by Allied HCM before they apply to your record.
-                                </p>
-                                <form onSubmit={async (e) => {
-                                    e.preventDefault();
-                                    setChangeMsg('');
-                                    try {
-                                        const res = await api.portalSubmitChangeRequest(token, changeField, changeValue);
-                                        if (res.error) throw new Error(res.error);
-                                        setChangeMsg('Request submitted. Allied HCM will review it shortly.');
-                                        setChangeValue('');
-                                        const d = await api.portalGetMyRequests(token);
-                                        setMyRequests(d.requests || []);
-                                    } catch (err) { setChangeMsg(err.message); }
-                                }} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.75rem' }}>
-                                    <select value={changeField} onChange={e => setChangeField(e.target.value)}
-                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }}>
-                                        <option value="present_address">Present Address</option>
-                                        <option value="permanent_address">Permanent Address</option>
-                                        <option value="primary_contact">Primary Contact</option>
-                                        <option value="emergency_contact">Emergency Contact</option>
-                                        <option value="email">Email Address</option>
-                                        <option value="bank_name">Bank Name</option>
-                                        <option value="bank_account">Bank Account Number</option>
-                                        <option value="account_title">Account Title</option>
-                                        <option value="nok_name">Next of Kin Name</option>
-                                        <option value="nok_relation">Next of Kin Relation</option>
-                                        <option value="nok_contact">Next of Kin Contact</option>
-                                    </select>
-                                    <input required value={changeValue} onChange={e => setChangeValue(e.target.value)} placeholder="New value"
-                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }} />
-                                    <button type="submit" style={{ padding: '10px 16px', background: 'linear-gradient(135deg,#38bdf8,#6366f1)', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Submit</button>
-                                </form>
-                                {changeMsg && <p style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: changeMsg.includes('submitted') ? '#22c55e' : '#f87171' }}>{changeMsg}</p>}
-
-                                {myRequests.length > 0 && (
-                                    <div style={{ marginTop: '1.25rem' }}>
-                                        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>My requests</h4>
-                                        {myRequests.slice(0, 10).map(r => (
-                                            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.82rem' }}>
-                                                <span>{r.field_label}: <span style={{ color: '#94a3b8' }}>{r.old_value || '—'} → </span>{r.new_value}</span>
-                                                <span style={{ color: r.status === 'Approved' ? '#22c55e' : r.status === 'Rejected' ? '#f87171' : '#f59e0b', fontWeight: 600 }}>{r.status}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
                         </div>
                     )}
 
@@ -579,16 +623,14 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                         api.portalLeaveBalance(token).then(setLeaveData);
                                     } catch (err) { setLeaveMsg(err.message); }
                                 }} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                                    <select value={leaveForm.leave_type} onChange={e => setLeaveForm(p => ({ ...p, leave_type: e.target.value }))}
-                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }}>
-                                        <option value="CL">Casual Leave</option><option value="ML">Medical Leave</option><option value="EL">Earned Leave</option>
+                                    <select value={leaveForm.leave_type} onChange={e => setLeaveForm(p => ({ ...p, leave_type: e.target.value }))} style={selectStyle}>
+                                        <option value="CL" style={optionStyle}>Casual Leave</option>
+                                        <option value="ML" style={optionStyle}>Medical Leave</option>
+                                        <option value="EL" style={optionStyle}>Earned Leave</option>
                                     </select>
-                                    <input type="date" required value={leaveForm.from_date} onChange={e => setLeaveForm(p => ({ ...p, from_date: e.target.value }))}
-                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }} />
-                                    <input type="date" required value={leaveForm.to_date} onChange={e => setLeaveForm(p => ({ ...p, to_date: e.target.value }))}
-                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }} />
-                                    <input placeholder="Reason" value={leaveForm.reason} onChange={e => setLeaveForm(p => ({ ...p, reason: e.target.value }))}
-                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }} />
+                                    <input type="date" required value={leaveForm.from_date} onChange={e => setLeaveForm(p => ({ ...p, from_date: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
+                                    <input type="date" required value={leaveForm.to_date} onChange={e => setLeaveForm(p => ({ ...p, to_date: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
+                                    <input placeholder="Reason" value={leaveForm.reason} onChange={e => setLeaveForm(p => ({ ...p, reason: e.target.value }))} style={inputStyle} />
                                     <button type="submit" style={{ gridColumn: '1/-1', padding: '12px', background: 'linear-gradient(135deg,#38bdf8,#6366f1)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Submit Leave Request</button>
                                 </form>
                                 {leaveMsg && <p style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: leaveMsg.includes('submitted') ? '#22c55e' : '#f87171' }}>{leaveMsg}</p>}
@@ -648,9 +690,7 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                             <h2 style={{ margin: '0 0 1.5rem', fontSize: '1.2rem', fontWeight: 800 }}>Contact HR</h2>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
                                 {[
-                                    { icon: PhoneIcon, label: 'HR Hotline', value: '+92-21-35640001', color: '#22c55e' },
-                                    { icon: Mail, label: 'HR Email', value: 'hr@asil.com.pk', color: '#38bdf8' },
-                                    { icon: Building, label: 'Office', value: 'Business Avenue, Karachi', color: '#a78bfa' },
+                                    { icon: Mail, label: 'Email', value: 'ops-support@asil.com.pk', href: 'mailto:ops-support@asil.com.pk', color: '#38bdf8' },
                                     { icon: Clock, label: 'Office Hours', value: 'Mon–Fri: 9am – 6pm', color: '#f59e0b' },
                                 ].map(c => {
                                     const Icon = c.icon;
@@ -659,11 +699,38 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                             <div style={{ width: 44, height: 44, background: `${c.color}18`, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                                 <Icon size={20} color={c.color} />
                                             </div>
-                                            <div><div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '2px' }}>{c.label}</div><div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{c.value}</div></div>
+                                            <div>
+                                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '2px' }}>{c.label}</div>
+                                                {c.href
+                                                    ? <a href={c.href} style={{ fontWeight: 700, fontSize: '0.9rem', color: '#e2e8f0', textDecoration: 'none' }}>{c.value}</a>
+                                                    : <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{c.value}</div>}
+                                            </div>
                                         </div>
                                     );
                                 })}
                             </div>
+
+                            <h3 style={{ margin: '0 0 1rem', fontWeight: 700, fontSize: '0.95rem' }}>Office Address</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                                {OFFICE_LOCATIONS.map(loc => (
+                                    <div key={loc.city} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                            <MapPin size={16} color="#eab308" />
+                                            {loc.maps
+                                                ? <a href={loc.maps} target="_blank" rel="noreferrer" style={{ fontWeight: 700, fontSize: '0.95rem', color: '#eab308', textDecoration: 'none' }}>{loc.city}</a>
+                                                : <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#eab308' }}>{loc.city}</span>}
+                                        </div>
+                                        <div style={{ fontSize: '0.82rem', color: '#94a3b8', lineHeight: 1.45 }}>{loc.address}</div>
+                                        {loc.maps && (
+                                            <a href={loc.maps} target="_blank" rel="noreferrer"
+                                                style={{ display: 'inline-block', marginTop: '10px', fontSize: '0.78rem', fontWeight: 600, color: '#38bdf8', textDecoration: 'none' }}>
+                                                Open in Google Maps →
+                                            </a>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+
                             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.5rem' }}>
                                 <h3 style={{ margin: '0 0 1rem', fontWeight: 700 }}>Quick Requests</h3>
                                 {[
@@ -677,9 +744,9 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                             <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{r.label}</div>
                                             <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '2px' }}>{r.desc}</div>
                                         </div>
-                                        <button onClick={() => window.location.href='mailto:hr@asil.com.pk?subject=' + encodeURIComponent(r.label.replace(/^[^ ]+ /,''))}
+                                        <button onClick={() => { window.location.href = 'mailto:ops-support@asil.com.pk?subject=' + encodeURIComponent(r.label); }}
                                             style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.2)', color: '#38bdf8', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, flexShrink: 0 }}>
-                                            Email HR →
+                                            Email Ops →
                                         </button>
                                     </div>
                                 ))}
