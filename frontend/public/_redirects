@@ -1,2 +1,4 @@
-# SPA fallback — serve index.html for client routes (claims-fill, claims-approve, portal, cmms, etc.)
+# SPA client-route fallback for Netlify / Cloudflare Pages style hosts.
+# Render Static Sites: also add Dashboard → Redirects/Rewrites:
+#   Source: /*   Destination: /index.html   Action: Rewrite
 /*    /index.html   200
