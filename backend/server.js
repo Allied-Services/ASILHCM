@@ -16,7 +16,7 @@ const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmai
 const phase2 = require('./phase2Service');
 const { startOperationsScheduler } = require('./operationsScheduler');
 const { sendJazzSMS, sendJazzOtpSMS, normalisePhone } = require('./lib/sms');
-const { isJazzProxyConfigured } = require('./lib/jazz_http_transport');
+const { isJazzProxyConfigured, jazzProxyLogLabel } = require('./lib/jazz_http_transport');
 const { canApproveBill } = require('./src/modules/procurement/service');
 const {
     isValidEmail,
@@ -901,6 +901,33 @@ app.delete('/api/admin/purge-contract', requireAuth, requireRole('superadmin'), 
 
 
 // ── SMS Routes (Jazz CMT via Fixie) ─────────────────────────────────────────
+app.get('/api/sms/status', requireAuth, requireRole('superadmin'), (req, res) => {
+    res.json({
+        proxyConfigured: isJazzProxyConfigured(),
+        proxyHost: jazzProxyLogLabel(),
+        mask: process.env.JAZZ_SMS_MASK || 'ALLIED SERV',
+        userConfigured: Boolean(process.env.JAZZ_SMS_USER && String(process.env.JAZZ_SMS_USER).trim()),
+        passConfigured: Boolean(process.env.JAZZ_SMS_PASS && String(process.env.JAZZ_SMS_PASS).trim()),
+        otpUserConfigured: Boolean(process.env.JAZZ_OTP_USER && String(process.env.JAZZ_OTP_USER).trim()),
+    });
+});
+
+app.post('/api/sms/diagnostic', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const to = req.body?.to || '03008275688';
+        const message = req.body?.message || 'HCM SMS is live — Fixie diagnostic test';
+        const result = await sendJazzSMS(to, message);
+        res.status(result.ok ? 200 : 502).json({
+            ...result,
+            proxyConfigured: isJazzProxyConfigured(),
+            proxyHost: jazzProxyLogLabel(),
+            mask: process.env.JAZZ_SMS_MASK || 'ALLIED SERV',
+        });
+    } catch (err) {
+        res.status(500).json({ ok: false, error: err.message, proxyConfigured: isJazzProxyConfigured(), proxyHost: jazzProxyLogLabel() });
+    }
+});
+
 app.post('/api/sms/send', requireAuth, async (req, res) => {
     const { to, message } = req.body;
     if (!to || !message) return res.status(400).json({ error: 'to and message are required' });
@@ -8237,7 +8264,7 @@ if (require.main === module) app.listen(PORT, async () => {
     console.log(`ASIL HCM Backend running on port ${PORT}`);
     console.log(`[DB] Pool configured: max=10, idle=30s`);
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
-    console.log(`[SMS] Jazz proxy ${isJazzProxyConfigured() ? 'active (Fixie)' : 'NOT configured — SMS will fail with IP not authorized'}`);
+    console.log(`[SMS] Jazz proxy ${isJazzProxyConfigured() ? `active (${jazzProxyLogLabel()})` : 'NOT configured — SMS will fail with IP not authorized'}`);
     // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ One-time migrations (safe to run every restart, IF NOT EXISTS guards) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼
     try {
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ hcm_users table (RBAC) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
