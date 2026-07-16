@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, FileText, CreditCard, Umbrella, Phone, Home, LogOut, Clock, CheckCircle, AlertCircle, Download, ChevronRight, Building, MapPin, Calendar, Briefcase, Mail, Phone as PhoneIcon, Shield } from 'lucide-react';
+import { User, FileText, CreditCard, Umbrella, Phone, Home, LogOut, Clock, CheckCircle, AlertCircle, Download, ChevronRight, MapPin, Briefcase, Mail, Shield } from 'lucide-react';
 import { api } from './api';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
