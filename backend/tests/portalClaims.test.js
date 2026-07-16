@@ -33,15 +33,21 @@ describe('portalClaims helpers', () => {
         assert.equal(APPROVE_CLOSE_DAY, 25);
     });
 
-    it('validateOtRow rejects Sunday single and weekday triple', () => {
+    it('validateOtRow rejects Sunday single and weekday triple; weekday needs Time From/To', () => {
         const sun = validateOtRow({ claim_date: '2026-07-12', ot_hours: 2, ot_multiplier: 'Single' });
         assert.ok(sun.errors.some(e => /Sunday/i.test(e)));
 
-        const mon = validateOtRow({ claim_date: '2026-07-13', ot_hours: 2, ot_multiplier: 'Triple' });
-        assert.ok(mon.errors.some(e => /Triple|weekday/i.test(e)));
+        const mon = validateOtRow({ claim_date: '2026-07-13', ot_hours: 2, ot_multiplier: 'Triple', time_from: '05:00 PM', time_to: '07:00 PM' });
+        assert.ok(mon.errors.some(e => /Triple|weekday|Eid/i.test(e)));
 
-        const ok = validateOtRow({ claim_date: '2026-07-13', ot_hours: 2, ot_multiplier: 'Double' });
-        assert.equal(ok.errors.length, 0);
+        const weekdayNoTimes = validateOtRow({ claim_date: '2026-07-13', ot_hours: 2, ot_multiplier: 'Double' });
+        assert.ok(weekdayNoTimes.errors.some(e => /Time From|8-hour|weekday/i.test(e)));
+
+        const ok = validateOtRow({
+            claim_date: '2026-07-13', ot_hours: 2, ot_multiplier: 'Double',
+            time_from: '05:00 PM', time_to: '07:00 PM',
+        });
+        assert.equal(ok.errors.length, 0, ok.errors.join('; '));
         assert.equal(ok.factor, 2);
     });
 });

@@ -75,21 +75,21 @@ export default function ClaimsFillPage() {
   const fillClosed = data?.period?.fill_closed;
   const atts = (data?.attachments || []).filter(a => sub && a.submission_id === sub.id);
 
-  const save = async (confirmNoClaims = false) => {
+  const save = async (confirmNoClaims = false, asDraft = false) => {
     setBusy(true); setMsg(''); setError('');
     try {
       const items = confirmNoClaims ? [] : [...otRows, ...expRows, ...medRows].filter(r => {
-        if (r.claim_type === 'OT') return r.claim_date && r.ot_hours;
-        return r.claim_date && r.amount;
+        if (r.claim_type === 'OT') return r.claim_date || r.ot_hours || r.time_from || r.nature;
+        return r.claim_date || r.amount || r.description;
       });
       const r = await fetch(`${API}/api/portal-claims/fill/${token}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeId: selected, items, confirmNoClaims }),
+        body: JSON.stringify({ employeeId: selected, items, confirmNoClaims, asDraft }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Save failed');
-      setMsg(d.message || (confirmNoClaims ? 'No Claims confirmed.' : 'Submitted.'));
+      setMsg(d.message || (confirmNoClaims ? 'No Claims confirmed.' : asDraft ? 'Draft saved.' : 'Submitted.'));
       await load();
     } catch (e) {
       setError(e.message);
@@ -136,10 +136,27 @@ export default function ClaimsFillPage() {
         body: JSON.stringify({ filename: file.name, contentBase64 }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Excel import failed');
-      const okCount = (d.results || []).filter(x => x.ok).length;
-      setMsg(`Excel imported for ${okCount} employee(s) as draft. ${d.parseErrors?.length ? `Notes: ${d.parseErrors.slice(0, 3).join('; ')}` : ''} Upload Expense/Medical supports if needed, then Submit.`);
-      await load();
+      if (!r.ok) {
+        const details = (d.parseErrors || []).slice(0, 12).join('\n');
+        throw new Error((d.error || 'Excel import failed') + (details ? `\n\n${details}` : ''));
+      }
+      const okCount = d.employeesTouched || (d.results || []).filter(x => x.ok).length;
+      const notes = (d.parseErrors || []).length
+        ? `\n\nNotes:\n${d.parseErrors.slice(0, 12).join('\n')}`
+        : '';
+      setMsg((d.message || `Excel imported for ${okCount} employee(s) as draft.`) + notes
+        + '\n\nUpload Expense/Medical supports if needed, then Submit to Line Manager.');
+      const d2 = await (async () => {
+        const rr = await fetch(`${API}/api/portal-claims/fill/${token}`);
+        return rr.json();
+      })();
+      if (d2?.submissions) {
+        setData(d2);
+        const firstOk = (d.results || []).find(x => x.ok)?.employeeId
+          || d2.submissions.find(s => s.status === 'draft')?.employee_id
+          || d2.submissions[0]?.employee_id;
+        if (firstOk) setSelected(firstOk);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -155,7 +172,15 @@ export default function ClaimsFillPage() {
   const pct = data.completion?.total
     ? Math.round((data.completion.submitted / data.completion.total) * 100)
     : 0;
-  const templateHref = data.templateUrl || `${API}/api/portal-claims/template.xlsx`;
+  const templateHref = data.templateUrl || `${API}/api/portal-claims/fill/${encodeURIComponent(token)}/template.xlsx`;
+  const hasExpense = expRows.some(r => r.claim_date || r.amount);
+  const hasMedical = medRows.some(r => r.claim_date || r.amount);
+  const hasExpenseSupport = atts.some(a => ['expense_support', 'expense'].includes(String(a.category || '').toLowerCase()));
+  const hasMedicalSupport = atts.some(a => ['medical_support', 'medical'].includes(String(a.category || '').toLowerCase()));
+  const supportBlockers = [];
+  if (hasExpense && !hasExpenseSupport) supportBlockers.push('Expense supports file missing');
+  if (hasMedical && !hasMedicalSupport) supportBlockers.push('Medical supports file missing');
+  const canSubmit = !busy && !locked && !fillClosed && supportBlockers.length === 0;
 
   return (
     <Shell>
@@ -171,21 +196,21 @@ export default function ClaimsFillPage() {
       <HowItWorks templateHref={templateHref} />
 
       {fillClosed && <Alert tone="bad">Entry closed for this cycle. Raise claims next month.</Alert>}
-      {error && <Alert tone="bad">{error}</Alert>}
-      {msg && <Alert tone="good">{msg}</Alert>}
+      {error && <Alert tone="bad"><pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{error}</pre></Alert>}
+      {msg && <Alert tone="good"><pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{msg}</pre></Alert>}
 
       <div style={{ ...card, marginBottom: 16 }}>
-        <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Option B — Excel (same sheet as last month)</div>
+        <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Option B — Excel (your team prefilled)</div>
         <p style={{ margin: '0 0 10px', color: '#475569', fontSize: 13, lineHeight: 1.5 }}>
-          Download the blank 3-sheet workbook (OT / Expense / Medical), fill it, then upload here.
-          Rows load as a <strong>draft</strong> — still upload Expense & Medical supports separately, then Submit.
+          Download <strong>your</strong> workbook — Employee Code and Name are already filled. Only complete claim columns.
+          Upload loads a <strong>draft</strong>. Attach Expense & Medical supports separately, then Submit.
         </p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <a href={templateHref} style={btnLink} download>Download blank Excel template</a>
+          <a href={templateHref} style={btnLink} download>Download my Excel (prefilled)</a>
           {!locked && !fillClosed && (
             <label style={{ ...btnGhost, display: 'inline-block', cursor: 'pointer' }}>
               Upload filled Excel
-              <input type="file" accept=".xlsx,.xls" hidden disabled={busy} onChange={e => uploadExcel(e.target.files?.[0])} />
+              <input type="file" accept=".xlsx,.xls" hidden disabled={busy} onChange={e => { uploadExcel(e.target.files?.[0]); e.target.value = ''; }} />
             </label>
           )}
         </div>
@@ -222,12 +247,17 @@ export default function ClaimsFillPage() {
               </p>
               {locked && <Alert tone="warn">Locked after approval. Raise further claims next month.</Alert>}
 
-              <Section title="1. Overtime (enter on screen)">
-                <Hint>Usually <strong>Double (2×)</strong>. <strong>Triple (3×)</strong> only on gazetted Eid days.</Hint>
+              <Section title="1. Overtime">
+                <Hint>
+                  Weekday OT: enter <strong>Time From / Time To</strong> for overtime <strong>after</strong> the standard 8-hour shift.
+                  Hours Worked = OT hours only (not the full day). Usually <strong>Double (2×)</strong>. <strong>Triple (3×)</strong> only on gazetted Eid days.
+                </Hint>
                 {otRows.map((row, i) => (
                   <Row key={i}>
                     <Field label="Date"><input type="date" disabled={locked || fillClosed} value={row.claim_date} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, claim_date: e.target.value } : r))} style={inp} /></Field>
-                    <Field label="Hours"><input disabled={locked || fillClosed} value={row.ot_hours} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, ot_hours: e.target.value } : r))} style={inp} /></Field>
+                    <Field label="Time From"><input disabled={locked || fillClosed} placeholder="e.g. 05:00 PM" value={row.time_from || ''} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, time_from: e.target.value } : r))} style={inp} /></Field>
+                    <Field label="Time To"><input disabled={locked || fillClosed} placeholder="e.g. 08:00 PM" value={row.time_to || ''} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, time_to: e.target.value } : r))} style={inp} /></Field>
+                    <Field label="OT Hours"><input disabled={locked || fillClosed} value={row.ot_hours} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, ot_hours: e.target.value } : r))} style={inp} /></Field>
                     <Field label="Rate">
                       <select disabled={locked || fillClosed} value={row.ot_multiplier} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, ot_multiplier: e.target.value } : r))} style={inp}>
                         <option>Single</option><option>Double</option><option>Triple</option>
@@ -263,18 +293,21 @@ export default function ClaimsFillPage() {
               </Section>
 
               <Section title="4. Supports — two separate uploads">
-                <Hint>If you entered Expense and/or Medical, upload <strong>two files</strong>: one for Expense receipts, one for Medical bills/prescriptions (PDF/JPG/PNG).</Hint>
+                <Hint>
+                  If you entered Expense and/or Medical, upload <strong>two files</strong> before Submit.
+                  Without supports, those refunds will <strong>not</strong> be processed.
+                </Hint>
                 {!locked && !fillClosed && (
                   <div style={{ display: 'grid', gap: 10, maxWidth: 520 }}>
                     <label style={{ color: '#0f172a', fontSize: 13, fontWeight: 600 }}>
-                      Expense supports file
+                      Expense supports file {hasExpense && !hasExpenseSupport ? <span style={{ color: '#b91c1c' }}>(required)</span> : null}
                       <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" style={{ display: 'block', marginTop: 6 }}
-                        onChange={e => uploadSupport(e.target.files?.[0], 'expense_support')} />
+                        onChange={e => { uploadSupport(e.target.files?.[0], 'expense_support'); e.target.value = ''; }} />
                     </label>
                     <label style={{ color: '#0f172a', fontSize: 13, fontWeight: 600 }}>
-                      Medical supports file
+                      Medical supports file {hasMedical && !hasMedicalSupport ? <span style={{ color: '#b91c1c' }}>(required)</span> : null}
                       <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" style={{ display: 'block', marginTop: 6 }}
-                        onChange={e => uploadSupport(e.target.files?.[0], 'medical_support')} />
+                        onChange={e => { uploadSupport(e.target.files?.[0], 'medical_support'); e.target.value = ''; }} />
                     </label>
                   </div>
                 )}
@@ -288,9 +321,20 @@ export default function ClaimsFillPage() {
               </Section>
 
               {!locked && !fillClosed && (
-                <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
-                  <button type="button" disabled={busy} onClick={() => save(false)} style={btnPrimary}>Submit to Line Manager</button>
-                  <button type="button" disabled={busy} onClick={() => save(true)} style={btnGhost}>Confirm No Claims</button>
+                <div style={{ marginTop: 20 }}>
+                  {supportBlockers.length > 0 && (
+                    <Alert tone="warn">
+                      Submit is blocked until you upload: {supportBlockers.join(' · ')}.
+                      You can still Save Draft.
+                    </Alert>
+                  )}
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <button type="button" disabled={!canSubmit} onClick={() => save(false, false)} style={{ ...btnPrimary, opacity: canSubmit ? 1 : 0.5 }}>
+                      Submit to Line Manager
+                    </button>
+                    <button type="button" disabled={busy} onClick={() => save(false, true)} style={btnGhost}>Save Draft</button>
+                    <button type="button" disabled={busy} onClick={() => save(true, false)} style={btnGhost}>Confirm No Claims</button>
+                  </div>
                 </div>
               )}
             </>
@@ -307,9 +351,10 @@ function HowItWorks({ templateHref }) {
     <div style={{ ...card, marginBottom: 16, background: '#f8fafc' }}>
       <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>How this works (simple)</div>
       <ol style={{ margin: 0, paddingLeft: 18, color: '#334155', fontSize: 14, lineHeight: 1.65 }}>
-        <li>Fill claims on screen <strong>or</strong> download/upload the <a href={templateHref} style={{ color: '#1d4ed8' }}>Excel template</a>.</li>
-        <li>Attach <strong>Expense supports</strong> and <strong>Medical supports</strong> as two separate files when needed.</li>
+        <li>Fill claims on screen <strong>or</strong> download <a href={templateHref} style={{ color: '#1d4ed8' }}>your Excel</a> (Code/Name prefilled).</li>
+        <li>Attach <strong>Expense supports</strong> and <strong>Medical supports</strong> as two separate files when needed — without them, those refunds are not processed.</li>
         <li>Submit → your Line Manager reviews → you get an email when decided → approved amounts pay with <strong>next month’s</strong> salary.</li>
+        <li>Errors or questions: <a href="mailto:ops-support@asil.com.pk" style={{ color: '#1d4ed8' }}>ops-support@asil.com.pk</a></li>
       </ol>
     </div>
   );

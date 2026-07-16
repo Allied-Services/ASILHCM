@@ -36,13 +36,14 @@ function registerPortalClaimsRoutes(app, deps) {
 
     app.post('/api/portal-claims/fill/:token/save', async (req, res) => {
         try {
-            const { employeeId, items, confirmNoClaims } = req.body || {};
+            const { employeeId, items, confirmNoClaims, asDraft } = req.body || {};
             if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
             const result = await portal.saveSubmissionItems(pool, {
                 token: req.params.token,
                 employeeId,
                 items,
                 confirmNoClaims: !!confirmNoClaims,
+                asDraft: !!asDraft,
             });
             if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
             if (result.notifyApprover && result.periodId) {
@@ -93,6 +94,18 @@ function registerPortalClaimsRoutes(app, deps) {
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', 'attachment; filename=ASIL_Consolidated_Master_Claims_Template.xlsx');
         res.sendFile(path.resolve(p));
+    });
+
+    app.get('/api/portal-claims/fill/:token/template.xlsx', async (req, res) => {
+        try {
+            const result = await portal.buildPersonalizedTemplateForToken(pool, req.params.token);
+            if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=${result.filename || 'ASIL_Claims_Your_Team.xlsx'}`);
+            res.send(result.buffer);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.personalTemplate', err);
+        }
     });
 
     // ── Public approver ───────────────────────────────────────────────────────

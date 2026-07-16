@@ -3,7 +3,12 @@
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
-const { parseMasterClaimsWorkbook } = require('./portalExcel');
+const {
+    parseMasterClaimsWorkbook,
+    buildPersonalizedClaimsWorkbook,
+    parseTimeToMinutes,
+    hoursBetween,
+} = require('./portalExcel');
 
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '17', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '22', 10);
@@ -154,6 +159,8 @@ function validateOtRow(row) {
     if (row.claim_date && Number.isFinite(hours) && OT_MAP[mult]) {
         const d = parseLocalDate(row.claim_date);
         const dateType = getPkDateType(d);
+        const isWeekday = dateType && dateType.type === 'WEEKDAY';
+
         if (dateType) {
             const label = `${dateType.dateStr} (${dateType.name})`;
             if (mult === 'triple') {
@@ -170,10 +177,40 @@ function validateOtRow(row) {
                     `1× (Single) is not allowed on ${label}. Sunday / public holiday / Eid work must be at least Double (2×); Eid may use Triple (3×).`
                 );
             }
-            if (dateType.type === 'HOLIDAY' && mult === 'triple') {
-                // already covered by EID-only triple rule
+        }
+
+        // Weekday: OT must be after the standard 8-hour shift — require Time From/To; Hours = OT only
+        if (isWeekday) {
+            const tf = String(row.time_from || '').trim();
+            const tt = String(row.time_to || '').trim();
+            if (!tf || !tt) {
+                errors.push(
+                    'Weekday OT: enter Time From and Time To for overtime AFTER the standard 8-hour shift. '
+                    + 'Hours Worked must be OT hours only (not the full day).'
+                );
+            } else {
+                const fromMin = parseTimeToMinutes(tf);
+                const toMin = parseTimeToMinutes(tt);
+                if (fromMin == null || toMin == null) {
+                    errors.push('Weekday OT: Time From / Time To must look like 05:00 PM or 17:00');
+                } else {
+                    const span = hoursBetween(fromMin, toMin);
+                    if (span != null && Math.abs(span - hours) > 0.51) {
+                        errors.push(
+                            `Weekday OT: Hours Worked (${hours}) does not match Time From→To (${span}h). `
+                            + 'Enter only the overtime period after the 8-hour shift.'
+                        );
+                    }
+                }
+            }
+            if (hours > 8) {
+                errors.push(
+                    'Weekday OT: cannot claim more than 8 overtime hours in one day. '
+                    + 'Hours Worked must be OT after the standard shift, not total hours worked.'
+                );
             }
         }
+
         if (hours > 6) warnings.push(`High OT: ${hours}h claimed on one day — please confirm`);
     }
     return { errors, warnings, factor: OT_MAP[mult] || null };
@@ -311,7 +348,13 @@ async function createCampaign(pool, { campaignMonth, campaignYear, sendAppEmail,
                     await sendAppEmail({
                         to: fillerEmail,
                         subject: `ASIL Claims for ${period.claim_month}/${period.claim_year} — submit by day ${FILL_CLOSE_DAY}`,
-                        html: buildFillerInviteHtml({ period, employeeCount: emps.length, link, fillerEmail }),
+                        html: buildFillerInviteHtml({
+                            period,
+                            employeeCount: emps.length,
+                            link,
+                            fillerEmail,
+                            employees: emps.map(e => ({ id: e.id, name: e.name })),
+                        }),
                     });
                 } catch (err) {
                     await pool.query(
@@ -337,48 +380,59 @@ async function createCampaign(pool, { campaignMonth, campaignYear, sendAppEmail,
     return { period, invites, skipped, fillerCount: byFiller.size, employeeCount: eligible.length };
 }
 
-function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail }) {
+function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail, employees = [] }) {
     const settleLabel = `${period.settlement_month || ''}/${period.settlement_year || ''}`.replace(/^\/|\/$/g, '') || 'the following month';
     const claimLabel = `${period.claim_month}/${period.claim_year}`;
+    const empList = (employees || [])
+        .map(e => `<li style="margin:4px 0"><strong>${e.id || ''}</strong> — ${e.name || 'Employee'}</li>`)
+        .join('');
     return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:24px 12px">
 <tr><td align="center">
 <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden">
   <tr><td style="background:#1e3a8a;color:#fff;padding:22px 28px">
-    <div style="font-size:13px;opacity:.9;letter-spacing:.04em;text-transform:uppercase">Allied Services International (ASIL)</div>
+    <div style="font-size:13px;opacity:.9;letter-spacing:.04em;text-transform:uppercase">Allied Services International Private Limited (ASIL)</div>
     <div style="font-size:22px;font-weight:700;margin-top:4px">Monthly Claims — your turn to submit</div>
   </td></tr>
   <tr><td style="padding:28px">
     <p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#334155">
       Hello — you are the <strong>Claim Authority</strong> for <strong>${employeeCount}</strong> employee(s) for claim month <strong>${claimLabel}</strong>.
     </p>
-    <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What this is</p>
+    ${empList ? `<p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">Your employees</p>
+    <ul style="margin:0 0 16px;padding-left:20px;color:#334155;font-size:14px;line-height:1.55">${empList}</ul>` : ''}
+    <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">Why this process</p>
     <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#475569">
-      Each month ASIL collects <strong>Overtime (OT)</strong>, <strong>Expense</strong>, and <strong>Medical</strong> claims so they can be checked by the Line Manager and paid with salary.
-      You may fill online <em>or</em> upload the same Excel workbook used last month.
+      Due to compilation errors in earlier claim cycles, we are now <strong>fully automating</strong> OT, Expense, and Medical claims
+      to avoid delays and errors when disbursing overtime and expense/medical refunds.
     </p>
     <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What you should do (by day ${FILL_CLOSE_DAY})</p>
     <ol style="margin:0 0 16px;padding-left:20px;color:#334155;font-size:14px;line-height:1.6">
       <li>Open the secure form (no password — this link is personal to you).</li>
       <li><strong>Option A:</strong> Enter OT / Expense / Medical on screen for each employee, <em>or</em><br/>
-          <strong>Option B:</strong> Download the blank Excel template, fill the 3 sheets (OT, Expense, Medical), and upload it.</li>
+          <strong>Option B:</strong> Download <em>your</em> Excel (Code/Name already filled), complete claim columns only, and upload it.</li>
       <li>Upload <strong>two separate support files</strong> if you have Expense or Medical claims:<br/>
           (1) Expense receipts / bills &nbsp; (2) Medical receipts / prescriptions.</li>
       <li>If there is nothing to claim for an employee, tap <strong>Confirm No Claims</strong>.</li>
       <li>Submit — your Line Manager will review.</li>
     </ol>
+    <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px">
+      <strong>Important:</strong> If there are no supports for Medical and Expense claims, those refunds <strong>will not be processed</strong>.
+    </p>
     <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What happens next</p>
     <ul style="margin:0 0 18px;padding-left:20px;color:#475569;font-size:14px;line-height:1.6">
       <li>Line Manager approves or rejects (deadline day ${APPROVE_CLOSE_DAY}).</li>
       <li>You get an email when a decision is made.</li>
       <li>Approved amounts go into payroll for <strong>${settleLabel}</strong> (paid with the <strong>following month’s</strong> salary).</li>
-      <li><strong>OT tip:</strong> use Double (2×) for weekday / Sunday / most holidays. Triple (3×) only on gazetted <strong>Eid</strong> days.</li>
+      <li><strong>OT tip:</strong> on weekdays claim only hours after the standard 8-hour shift (with Time From / Time To). Double (2×) for most days; Triple (3×) only on gazetted <strong>Eid</strong> days.</li>
     </ul>
     <p style="margin:0 0 18px">
       <a href="${link}" style="display:inline-block;background:#2563eb;color:#fff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">Open claims form</a>
     </p>
     <p style="margin:0;font-size:12px;color:#64748b;word-break:break-all">If the button does not work, copy this link:<br/>${link}</p>
-    <p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Sent to ${fillerEmail} · Questions? Contact ASIL payroll / your operations focal.</p>
+    <p style="margin:18px 0 0;font-size:13px;color:#475569">
+      Please let us know if there are any errors by emailing <a href="mailto:ops-support@asil.com.pk" style="color:#1d4ed8">ops-support@asil.com.pk</a>.
+    </p>
+    <p style="margin:12px 0 0;font-size:12px;color:#94a3b8">Sent to ${fillerEmail} · Allied Services International Private Limited (ASIL)</p>
   </td></tr>
 </table>
 </td></tr></table>
@@ -470,6 +524,7 @@ async function openFillerSession(pool, token) {
     }
 
     const fillClosed = isAfterFillClose(batch);
+    const apiBase = process.env.API_PUBLIC_URL || 'https://asilhcm.onrender.com';
     return {
         ok: true,
         batch,
@@ -484,7 +539,8 @@ async function openFillerSession(pool, token) {
         submissions,
         items,
         attachments,
-        templateUrl: `${process.env.API_PUBLIC_URL || 'https://asilhcm.onrender.com'}/api/portal-claims/template.xlsx`,
+        templateUrl: `${apiBase}/api/portal-claims/fill/${encodeURIComponent(token)}/template.xlsx`,
+        blankTemplateUrl: `${apiBase}/api/portal-claims/template.xlsx`,
         completion: {
             total: submissions.length,
             submitted: submissions.filter(s => ['submitted', 'approved', 'rejected', 'no_claims', 'in_payroll'].includes(s.status)).length,
@@ -492,7 +548,7 @@ async function openFillerSession(pool, token) {
     };
 }
 
-async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoClaims, skipSupportCheck = false }) {
+async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoClaims, skipSupportCheck = false, asDraft = false }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
     if (isAfterFillClose(batch)) {
@@ -532,51 +588,62 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
         if (type === 'OT') {
             const v = validateOtRow(raw);
             if (v.errors.length) errors.push(...v.errors.map(e => `${employeeId}: ${e}`));
-            normalized.push({
-                claim_type: 'OT',
-                claim_date: raw.claim_date,
-                ot_hours: parseFloat(raw.ot_hours),
-                ot_multiplier: raw.ot_multiplier,
-                ot_multiplier_factor: v.factor,
-                description: raw.nature || raw.description || null,
-                time_from: raw.time_from || null,
-                time_to: raw.time_to || null,
-                nature: raw.nature || null,
-            });
+            else {
+                normalized.push({
+                    claim_type: 'OT',
+                    claim_date: raw.claim_date,
+                    ot_hours: parseFloat(raw.ot_hours),
+                    ot_multiplier: raw.ot_multiplier,
+                    ot_multiplier_factor: v.factor,
+                    description: raw.nature || raw.description || null,
+                    time_from: raw.time_from || null,
+                    time_to: raw.time_to || null,
+                    nature: raw.nature || null,
+                });
+            }
         } else if (type === 'EXPENSE') {
             const amt = parseFloat(raw.amount);
             if (!raw.claim_date) errors.push(`${employeeId}: Expense date required`);
             if (!Number.isFinite(amt) || amt <= 0) errors.push(`${employeeId}: Expense amount required`);
-            if (!raw.attachment && !raw.has_attachment) {
-                // attachment checked separately on upload — warn only if flag missing
+            if (raw.claim_date && Number.isFinite(amt) && amt > 0) {
+                normalized.push({
+                    claim_type: 'EXPENSE',
+                    claim_date: raw.claim_date,
+                    amount: amt,
+                    description: raw.description || null,
+                    expense_type: raw.expense_type || null,
+                });
             }
-            normalized.push({
-                claim_type: 'EXPENSE',
-                claim_date: raw.claim_date,
-                amount: amt,
-                description: raw.description || null,
-                expense_type: raw.expense_type || null,
-            });
         } else if (type === 'MEDICAL') {
             const amt = parseFloat(raw.amount);
             if (!raw.claim_date) errors.push(`${employeeId}: Medical date required`);
             if (!Number.isFinite(amt) || amt <= 0) errors.push(`${employeeId}: Medical amount required`);
-            normalized.push({
-                claim_type: 'MEDICAL',
-                claim_date: raw.claim_date,
-                amount: amt,
-                description: raw.description || null,
-                patient_name: raw.patient_name || null,
-            });
+            if (raw.claim_date && Number.isFinite(amt) && amt > 0) {
+                normalized.push({
+                    claim_type: 'MEDICAL',
+                    claim_date: raw.claim_date,
+                    amount: amt,
+                    description: raw.description || null,
+                    patient_name: raw.patient_name || null,
+                });
+            }
         }
     }
     if (errors.length) return { ok: false, status: 400, error: errors.join('; ') };
 
-    // Require separate supports for expense and medical (unless Excel import draft)
+    // Intentional submit with nothing to claim → force user to use Confirm No Claims
+    if (!normalized.length && !asDraft && !skipSupportCheck) {
+        return {
+            ok: false,
+            status: 400,
+            error: 'No valid claim lines to submit. Add OT / Expense / Medical rows, or tap Confirm No Claims.',
+        };
+    }
+
+    // Require separate supports for expense and medical on Submit (not on Excel draft import)
     const needsExpense = normalized.some(i => i.claim_type === 'EXPENSE');
     const needsMedical = normalized.some(i => i.claim_type === 'MEDICAL');
-    let supportOk = true;
-    if (!skipSupportCheck && (needsExpense || needsMedical)) {
+    if (!skipSupportCheck && !asDraft && (needsExpense || needsMedical)) {
         await pool.query(`ALTER TABLE portal_claim_attachments ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'other'`).catch(() => {});
         const { rows: atts } = await pool.query(
             `SELECT category FROM portal_claim_attachments WHERE submission_id = $1`,
@@ -586,17 +653,19 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
         const strictExpense = cats.some(c => c === 'expense_support' || c === 'expense');
         const strictMedical = cats.some(c => c === 'medical_support' || c === 'medical');
         if (needsExpense && !strictExpense) {
-            return { ok: false, status: 400, error: 'Please upload Expense supports (receipts/bills) as a separate file before submitting.' };
+            return {
+                ok: false,
+                status: 400,
+                error: 'Expense claims require an Expense supports file (receipts/bills) before Submit. Upload it under Supports, then Submit again. Without supports, expense refunds will not be processed.',
+            };
         }
         if (needsMedical && !strictMedical) {
-            return { ok: false, status: 400, error: 'Please upload Medical supports (prescriptions/bills) as a separate file before submitting.' };
+            return {
+                ok: false,
+                status: 400,
+                error: 'Medical claims require a Medical supports file (prescriptions/bills) before Submit. Upload it under Supports, then Submit again. Without supports, medical refunds will not be processed.',
+            };
         }
-        if (needsExpense && needsMedical && !(strictExpense && strictMedical)) {
-            supportOk = false;
-        }
-        void supportOk;
-    } else if (skipSupportCheck && (needsExpense || needsMedical)) {
-        // draft path — supports can be added after Excel import
     }
 
     await pool.query(`DELETE FROM portal_claim_items WHERE submission_id = $1`, [sub.id]);
@@ -615,8 +684,9 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
         );
     }
 
+    const wantDraft = asDraft || skipSupportCheck;
     const newStatus = normalized.length
-        ? (skipSupportCheck ? 'draft' : 'submitted')
+        ? (wantDraft ? 'draft' : 'submitted')
         : 'draft';
     await pool.query(
         `UPDATE portal_claim_submissions
@@ -632,7 +702,7 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
           + 'Approved amounts are added to payroll and paid with the following month’s salary.'
         : skipSupportCheck
             ? 'Excel imported as a draft. Review the rows, upload Expense and Medical supports if needed, then Submit to Line Manager.'
-            : 'Draft saved. Submit when ready so your Line Manager can review.';
+            : 'Draft saved. When ready, click Submit to Line Manager (Expense/Medical need support files first).';
 
     return {
         ok: true,
@@ -706,11 +776,24 @@ async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
     if (buf.length > 12 * 1024 * 1024) return { ok: false, status: 400, error: 'File too large (max 12MB)' };
 
     const parsed = parseMasterClaimsWorkbook(buf, { allowedEmployeeIds: allowed });
-    if (parsed.errors.length && parsed.itemsByEmployee.size === 0) {
-        return { ok: false, status: 400, error: parsed.errors.join('; ') };
+    const parseErrors = parsed.errors || [];
+
+    if (parsed.itemsByEmployee.size === 0) {
+        const detail = parseErrors.length
+            ? parseErrors.join('; ')
+            : 'No claim rows found. Fill Date + Hours/Amount on the prefilled employee rows (do not change Employee Code).';
+        return {
+            ok: false,
+            status: 400,
+            error: detail,
+            parseErrors,
+            warnings: parsed.warnings,
+            sheetNames: parsed.sheetNames,
+        };
     }
 
     const results = [];
+    const saveErrors = [];
     for (const [employeeId, items] of parsed.itemsByEmployee.entries()) {
         const save = await saveSubmissionItems(pool, {
             token,
@@ -718,12 +801,25 @@ async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
             items,
             confirmNoClaims: false,
             skipSupportCheck: true,
+            asDraft: true,
         });
         results.push({ employeeId, ...save });
+        if (!save.ok) saveErrors.push(`${employeeId}: ${save.error}`);
     }
 
-    // Keep a copy of the workbook on the first employee touched (audit)
-    const firstEmp = [...parsed.itemsByEmployee.keys()][0];
+    const okResults = results.filter(r => r.ok);
+    if (!okResults.length) {
+        return {
+            ok: false,
+            status: 400,
+            error: (saveErrors.length ? saveErrors : parseErrors).join('; ') || 'Import failed for all rows',
+            parseErrors: [...parseErrors, ...saveErrors],
+            results,
+            warnings: parsed.warnings,
+        };
+    }
+
+    const firstEmp = okResults[0].employeeId;
     if (firstEmp) {
         await addAttachment(pool, {
             token,
@@ -738,10 +834,13 @@ async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
     return {
         ok: true,
         warnings: parsed.warnings,
-        parseErrors: parsed.errors,
+        parseErrors: [...parseErrors, ...saveErrors],
         sheetNames: parsed.sheetNames,
         results,
-        employeesTouched: parsed.itemsByEmployee.size,
+        employeesTouched: okResults.length,
+        message: saveErrors.length
+            ? `Imported draft for ${okResults.length} employee(s). Some rows had errors — see details.`
+            : `Imported draft for ${okResults.length} employee(s). Upload Expense/Medical supports if needed, then Submit to Line Manager.`,
     };
 }
 
@@ -755,6 +854,22 @@ function getMasterClaimsTemplatePath() {
         if (fs.existsSync(p)) return p;
     }
     return null;
+}
+
+async function buildPersonalizedTemplateForToken(pool, token) {
+    const batch = await getBatchByToken(pool, token);
+    if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
+    const { rows } = await pool.query(
+        `SELECT s.employee_id AS id, e.name, e.dept, e.location,
+                COALESCE(e.line_manager_name, '') AS line_manager_name
+         FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE s.batch_id = $1
+         ORDER BY e.name`,
+        [batch.id]
+    );
+    const buf = buildPersonalizedClaimsWorkbook(rows, getMasterClaimsTemplatePath());
+    return { ok: true, buffer: buf, filename: 'ASIL_Claims_Your_Team.xlsx' };
 }
 
 async function ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail = false } = {}) {
@@ -1359,12 +1474,23 @@ async function sendReminders(pool, sendAppEmail) {
                  WHERE id = $1`,
                 [b.id, hashToken(token)]
             );
+            const { rows: emps } = await pool.query(
+                `SELECT s.employee_id AS id, e.name FROM portal_claim_submissions s
+                 JOIN employees e ON e.id = s.employee_id WHERE s.batch_id = $1 ORDER BY e.name`,
+                [b.id]
+            );
             const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
             if (sendAppEmail) {
                 await sendAppEmail({
                     to: b.filler_email,
                     subject: `Reminder: ASIL claims due by day ${FILL_CLOSE_DAY}`,
-                    html: buildFillerInviteHtml({ period: b, employeeCount: 'your', link, fillerEmail: b.filler_email }),
+                    html: buildFillerInviteHtml({
+                        period: b,
+                        employeeCount: emps.length,
+                        link,
+                        fillerEmail: b.filler_email,
+                        employees: emps,
+                    }),
                 }).catch(() => {});
             }
             results.filler++;
@@ -1404,8 +1530,9 @@ async function resendFillerInvite(pool, batchId, sendAppEmail) {
          SET invite_token_hash = $2, invite_sent_at = NOW(), invite_delivered = TRUE WHERE id = $1`,
         [batchId, hashToken(token)]
     );
-    const { rows: cnt } = await pool.query(
-        `SELECT COUNT(*)::int AS c FROM portal_claim_submissions WHERE batch_id = $1`,
+    const { rows: emps } = await pool.query(
+        `SELECT s.employee_id AS id, e.name FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id WHERE s.batch_id = $1 ORDER BY e.name`,
         [batchId]
     );
     const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
@@ -1413,7 +1540,13 @@ async function resendFillerInvite(pool, batchId, sendAppEmail) {
         await sendAppEmail({
             to: b.filler_email,
             subject: `ASIL Claims link (resent) — due day ${FILL_CLOSE_DAY}`,
-            html: buildFillerInviteHtml({ period: b, employeeCount: cnt[0].c, link, fillerEmail: b.filler_email }),
+            html: buildFillerInviteHtml({
+                period: b,
+                employeeCount: emps.length,
+                link,
+                fillerEmail: b.filler_email,
+                employees: emps,
+            }),
         });
     }
     return { ok: true, link, fillerEmail: b.filler_email };
@@ -1438,6 +1571,7 @@ module.exports = {
     addAttachment,
     importExcelWorkbook,
     getMasterClaimsTemplatePath,
+    buildPersonalizedTemplateForToken,
     ensureApproverPacks,
     openApproverSession,
     approverDecide,
