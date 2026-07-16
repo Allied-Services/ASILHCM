@@ -319,22 +319,30 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
         otRow += 1;
         // Skip title / instruction rows (no employee code column value that looks like code)
         const empId = pick(row, 'ASIL Employee Code', 'Employee Code', 'Employee ID');
-        const hoursRaw = pick(row, 'Hours Worked', 'Hours', 'OT Hours');
+        const hoursRaw = pick(row, 'Hours Worked (auto)', 'Hours Worked (OT only)', 'Hours Worked', 'Hours', 'OT Hours');
         const dateRaw = pick(row, 'Date (DD-MM-YYYY)', 'Date', 'Claim Date');
         const timeFrom = pick(row, 'Time From (e.g. 08:00 PM)', 'Time From', 'From');
+        const timeTo = pick(row, 'Time To (e.g. 11:00 PM)', 'Time To', 'To');
         const nature = pick(row, 'Nature of Work / Reason', 'Nature of Work', 'Reason');
-        if (!empId && !hoursRaw && !dateRaw) continue;
-        if (empId && !hoursRaw && !dateRaw && !timeFrom && !nature) continue; // prefill only
+        if (!empId && !hoursRaw && !dateRaw && !timeFrom) continue;
+        if (empId && !hoursRaw && !dateRaw && !timeFrom && !timeTo && !nature) continue; // prefill only
+
+        let otHours = parseAmount(hoursRaw);
+        // Prefer calculated duration from times when Excel formula cache is empty or hours blank
+        const fromMin = parseTimeToMinutes(timeFrom);
+        const toMin = parseTimeToMinutes(timeTo);
+        const span = hoursBetween(fromMin, toMin);
+        if ((!Number.isFinite(otHours) || otHours <= 0) && span != null) otHours = span;
 
         const draft = {
             claim_type: 'OT',
             claim_date: toIsoDate(dateRaw),
             claim_date_raw: dateRaw || '',
-            ot_hours: hoursRaw === '' ? null : parseAmount(hoursRaw),
+            ot_hours: otHours,
             ot_multiplier: normalizeMultiplier(pick(row, 'Overtime Multiplier', 'Multiplier', 'Rate')),
             nature,
             time_from: timeFrom,
-            time_to: pick(row, 'Time To (e.g. 11:00 PM)', 'Time To', 'To'),
+            time_to: timeTo,
             description: nature,
         };
         if (!isMeaningfulOtRow(draft)) continue;
@@ -422,7 +430,7 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
 const OT_HEADERS = [
     'Date', 'ASIL Employee Code', 'Employee Name', 'Department', 'Location',
     'Line Manager Name', 'Nature of Work / Reason', 'Time From', 'Time To',
-    'Hours Worked (OT only)', 'Overtime Multiplier',
+    'Hours Worked (auto)', 'OT Check', 'Overtime Multiplier',
 ];
 const EXP_HEADERS = [
     'Date', 'ASIL Employee Code', 'Employee Name', 'Department', 'Location',
@@ -467,15 +475,16 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
         '',
         `Claim month: ${monthLabel}`,
         '',
-        '1. Yellow / grey columns (Employee Code, Name, Dept, Location, Manager) are prefilled for YOUR team — do not change them.',
-        '2. Fill only the white claim columns: Date, times/hours/amounts, and descriptions.',
-        '3. Dates: use any common format (15-06-2026, 15/06/2026, 15 Jun 2026, 2026-06-15).',
-        '4. Times: 5:00 PM, 17:00, 5pm, or 1700 are all fine.',
-        '5. Weekday OT: Time From / Time To must be the overtime period AFTER the standard 8-hour shift. Hours = OT only (not the full day).',
-        '6. Triple (3×) OT is only for gazetted Eid days. Use Double (2×) for most OT.',
-        '7. Only dates in the claim month above are accepted here. Older months cannot be submitted in this form — email claims@asil.com.pk.',
-        '8. After upload: attach Expense supports and Medical supports as separate files before Submit. Without supports, those refunds are not processed.',
-        '9. Questions / errors: ops-support@asil.com.pk or claims@asil.com.pk',
+        '1. Grey columns (Employee Code, Name, Dept, Location, Manager) are prefilled for YOUR team — do not change them.',
+        '2. On Overtime: enter Date, Nature, Time From, Time To, and OT rate. Hours Worked calculates automatically — do not type hours by hand.',
+        '3. If Hours Worked is under 8, the cell turns red and OT Check says it does not qualify (mandatory 8-hour duty must be completed first).',
+        '4. Weekday OT: Time From must be at/after 5:00 PM (after the standard shift). Enter only the OT period in Time From / Time To.',
+        '5. Times: type 5:00 PM or 17:00 in the Time columns (formatted for time).',
+        '6. Dates: 15-06-2026, 15/06/2026, 15 Jun 2026, or 21-06-26 are fine.',
+        '7. Triple (3×) OT is only for gazetted Eid days. Use Double (2×) for most OT.',
+        '8. Only this claim month’s dates are accepted. Older months → email claims@asil.com.pk.',
+        '9. After upload: attach Expense and Medical supports as separate files before Submit.',
+        '10. Questions: ops-support@asil.com.pk or claims@asil.com.pk',
     ];
     lines.forEach((t, i) => {
         const cell = instr.getCell(i + 2, 1);
@@ -583,27 +592,129 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
             }
         }
 
-        // Data validation for multiplier on OT
-        if (/overtime/i.test(name)) {
-            const multCol = headers.findIndex(h => /Multiplier/i.test(h)) + 1;
-            if (multCol > 0 && r > 4) {
-                for (let rr = 4; rr < r; rr++) {
-                    ws.getCell(rr, multCol).dataValidation = {
-                        type: 'list',
-                        allowBlank: true,
-                        formulae: ['"Single,Double,Triple"'],
-                        showErrorMessage: true,
-                        errorTitle: 'OT Rate',
-                        error: 'Choose Single, Double, or Triple',
+        return ws;
+    }
+
+    function addOvertimeSheet(slotsPerEmp) {
+        const headers = OT_HEADERS;
+        const ws = wb.addWorksheet('Overtime', {
+            views: [{ state: 'frozen', ySplit: 3, activeCell: 'A4' }],
+        });
+        addTitleBlock(
+            ws,
+            'ASIL — Overtime',
+            `Claim month: ${monthLabel}  ·  Enter Time From / Time To — Hours auto-calculate  ·  Red = under 8h (does not qualify)`,
+            headers.length
+        );
+        headers.forEach((h, i) => { ws.getCell(3, i + 1).value = h; });
+        styleHeaderRow(ws, 3, headers.length);
+
+        const widths = [12, 26, 22, 14, 14, 16, 26, 12, 12, 14, 42, 14];
+        widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+
+        // H=Time From(8), I=Time To(9), J=Hours(10), K=OT Check(11), L=Multiplier(12)
+        const fromCol = 8;
+        const toCol = 9;
+        const hoursCol = 10;
+        const checkCol = 11;
+        const multCol = 12;
+        const lockedIdx = [1, 2, 3, 4, 5, 9, 10]; // identity + Hours + OT Check (0-based)
+
+        let r = 4;
+        for (const e of list) {
+            const id = e.id || e.employee_id || '';
+            const nm = e.name || e.employee_name || '';
+            const dept = e.dept || '';
+            const loc = e.location || '';
+            const mgr = e.line_manager_name || e.lineManagerName || '';
+            for (let i = 0; i < slotsPerEmp; i++) {
+                const row = ws.getRow(r);
+                const prefill = ['', id, nm, dept, loc, mgr, '', '', '', null, null, i === 0 ? 'Double' : ''];
+                prefill.forEach((v, ci) => {
+                    const cell = row.getCell(ci + 1);
+                    cell.border = {
+                        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                        right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
                     };
-                }
+                    cell.alignment = { vertical: 'middle', wrapText: ci === 10 };
+                    if (lockedIdx.includes(ci) && ci < 6) {
+                        cell.value = v;
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LOCK_FILL } };
+                        cell.font = { color: { argb: 'FF334155' }, size: 10 };
+                    } else if (ci === 11) {
+                        cell.value = v;
+                    } else if ((r % 2) === 0) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ALT_ROW } };
+                    }
+                });
+
+                // Time columns — expect Excel time entry
+                ws.getCell(r, fromCol).numFmt = 'h:mm AM/PM';
+                ws.getCell(r, toCol).numFmt = 'h:mm AM/PM';
+
+                // Hours = duration from Time From → Time To (supports overnight)
+                const hf = ws.getCell(r, hoursCol);
+                hf.value = {
+                    formula: `IF(OR(H${r}="",I${r}=""),"",ROUND(IF(I${r}>=H${r},(I${r}-H${r})*24,(1+I${r}-H${r})*24),2))`,
+                };
+                hf.numFmt = '0.00';
+                hf.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+                hf.font = { bold: true, color: { argb: 'FF92400E' }, size: 10 };
+                hf.protection = { locked: true };
+
+                // OT Check — under 8h does not qualify for overtime
+                const ck = ws.getCell(r, checkCol);
+                ck.value = {
+                    formula: `IF(J${r}="","",IF(J${r}<8,"Does not qualify for OT — under 8 hours (complete mandatory 8h duty first)","OK — confirm weekday OT starts at/after 5:00 PM"))`,
+                };
+                ck.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LOCK_FILL } };
+                ck.font = { size: 9, color: { argb: 'FF334155' } };
+
+                ws.getCell(r, multCol).dataValidation = {
+                    type: 'list',
+                    allowBlank: true,
+                    formulae: ['"Single,Double,Triple"'],
+                    showErrorMessage: true,
+                    errorTitle: 'OT Rate',
+                    error: 'Choose Single, Double, or Triple',
+                };
+
+                row.height = 20;
+                r += 1;
             }
+        }
+
+        if (r > 4) {
+            const last = r - 1;
+            ws.addConditionalFormatting({
+                ref: `J4:J${last}`,
+                rules: [{
+                    type: 'expression',
+                    formulae: [`AND(ISNUMBER(J4),J4>0,J4<8)`],
+                    style: {
+                        fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFECACA' } },
+                        font: { bold: true, color: { argb: 'FF991B1B' } },
+                    },
+                }],
+            });
+            ws.addConditionalFormatting({
+                ref: `K4:K${last}`,
+                rules: [{
+                    type: 'expression',
+                    formulae: [`ISNUMBER(SEARCH("Does not qualify",K4))`],
+                    style: {
+                        fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFECACA' } },
+                        font: { bold: true, color: { argb: 'FF991B1B' } },
+                    },
+                }],
+            });
         }
         return ws;
     }
 
-    // Locked columns: Code, Name, Dept, Location, Manager = indexes 1-5
-    addDataSheet('Overtime', OT_HEADERS, 2, [1, 2, 3, 4, 5]);
+    addOvertimeSheet(2);
     addDataSheet('Expense Claims', EXP_HEADERS, 2, [1, 2, 3, 4, 5]);
     addDataSheet('Medical & IPD Claims', MED_HEADERS, 2, [1, 2, 3, 4, 5]);
 
