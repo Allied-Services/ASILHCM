@@ -825,8 +825,8 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
           + 'You will receive an email when they approve or reject it. '
           + 'Approved amounts are added to payroll and paid with the following month’s salary.'
         : skipSupportCheck
-            ? 'Excel imported as a draft. Review the rows, upload Expense and Medical supports if needed, then Submit to Line Manager.'
-            : 'Draft saved. When ready, click Submit to Line Manager (Expense/Medical need support files first).';
+            ? 'Excel imported as a draft. Review the rows, then upload required Expense/Medical supports (if any) before Submit to Line Manager.'
+            : 'Draft saved. When ready, click Submit to Line Manager. If you entered Expense or Medical amounts, upload those support files first.';
 
     return {
         ok: true,
@@ -943,6 +943,26 @@ async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
         };
     }
 
+    let hasExpense = false;
+    let hasMedical = false;
+    for (const items of parsed.itemsByEmployee.values()) {
+        for (const it of items) {
+            const t = String(it.claim_type || '').toUpperCase();
+            if (t === 'EXPENSE') hasExpense = true;
+            if (t === 'MEDICAL') hasMedical = true;
+        }
+    }
+    let supportMsg;
+    if (hasExpense && hasMedical) {
+        supportMsg = 'You entered Expense and Medical claims — you must upload Expense supports and Medical supports as two separate files before Submit to Line Manager.';
+    } else if (hasExpense) {
+        supportMsg = 'You entered Expense claims — you must upload an Expense supports file before Submit to Line Manager.';
+    } else if (hasMedical) {
+        supportMsg = 'You entered Medical claims — you must upload a Medical supports file before Submit to Line Manager.';
+    } else {
+        supportMsg = 'No Expense/Medical rows found — support files are not required. Review the draft, then Submit to Line Manager.';
+    }
+
     const firstEmp = okResults[0].employeeId;
     if (firstEmp) {
         await addAttachment(pool, {
@@ -962,9 +982,14 @@ async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
         sheetNames: parsed.sheetNames,
         results,
         employeesTouched: okResults.length,
-        message: saveErrors.length
-            ? `Imported draft for ${okResults.length} employee(s). Some rows had errors — see details.`
-            : `Imported draft for ${okResults.length} employee(s). Upload Expense/Medical supports if needed, then Submit to Line Manager.`,
+        needsExpenseSupport: hasExpense,
+        needsMedicalSupport: hasMedical,
+        message: (
+            (saveErrors.length
+                ? `Imported draft for ${okResults.length} employee(s). Some rows had errors — see details. `
+                : `Imported draft for ${okResults.length} employee(s). `)
+            + supportMsg
+        ),
     };
 }
 

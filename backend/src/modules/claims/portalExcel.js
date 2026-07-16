@@ -84,6 +84,15 @@ function pad2(n) {
     return String(n).padStart(2, '0');
 }
 
+const MONTH_FULL = [
+    '', 'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function daysInMonth(year, month) {
+    return new Date(Number(year), Number(month), 0).getDate();
+}
+
 function isoFromParts(y, m, d) {
     const yi = Number(y);
     const mi = Number(m);
@@ -92,6 +101,46 @@ function isoFromParts(y, m, d) {
     const dt = new Date(yi, mi - 1, di);
     if (dt.getFullYear() !== yi || dt.getMonth() !== mi - 1 || dt.getDate() !== di) return null;
     return `${yi}-${pad2(mi)}-${pad2(di)}`;
+}
+
+/**
+ * Human-readable reason a date string failed (e.g. 31.06.2026 → June has 30 days).
+ */
+function dateParseErrorMessage(raw, rowLabel = 'Row') {
+    const s = String(raw == null ? '' : raw).trim();
+    const fix = 'Please correct the file and upload again.';
+    if (!s) return `${rowLabel}: date is missing. ${fix}`;
+
+    const dmy = s.match(/^(\d{1,2})[\/\-.\s](\d{1,2})[\/\-.\s](\d{2,4})$/);
+    if (dmy) {
+        let a = Number(dmy[1]);
+        let b = Number(dmy[2]);
+        let y = Number(dmy[3]);
+        if (y < 100) y += y >= 70 ? 1900 : 2000;
+        let day;
+        let month;
+        if (a > 12 && b <= 12) { day = a; month = b; }
+        else if (b > 12 && a <= 12) { day = b; month = a; }
+        else { day = a; month = b; } // Pakistan default DD-MM
+        if (month >= 1 && month <= 12) {
+            const max = daysInMonth(y, month);
+            const monthName = MONTH_FULL[month];
+            if (day < 1 || day > max) {
+                return (
+                    `${rowLabel}: ${day} ${monthName} ${y} is not a valid date — `
+                    + `${monthName} ${y} has only ${max} days (there is no ${day} ${monthName}). `
+                    + `${fix}`
+                );
+            }
+        } else if (month < 1 || month > 12) {
+            return `${rowLabel}: "${s}" is not applicable — month must be 1–12. ${fix}`;
+        }
+    }
+
+    return (
+        `${rowLabel}: could not read date "${s}". `
+        + `Try 15-06-2026, 15 Jun 2026, or 2026-06-15. ${fix}`
+    );
 }
 
 /**
@@ -362,7 +411,7 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
         };
         if (!isMeaningfulOtRow(draft)) continue;
         if (dateRaw && !draft.claim_date) {
-            errors.push(`Overtime row ${otRow}: could not read date "${dateRaw}". Try 06-01-2026, 6 Jan 2026, or 2026-01-06.`);
+            errors.push(dateParseErrorMessage(dateRaw, `Overtime row ${otRow}`));
             continue;
         }
         addItem(empId, draft, `Overtime row ${otRow}`);
@@ -394,7 +443,7 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
             };
             if (!isMeaningfulMoneyRow(draft)) continue;
             if (dateRaw && !draft.claim_date) {
-                errors.push(`Expense row ${r}: could not read date "${dateRaw}". Try 15-06-2026 or 15 Jun 2026.`);
+                errors.push(dateParseErrorMessage(dateRaw, `Expense row ${r}`));
                 continue;
             }
             addItem(empId, draft, `Expense row ${r}`);
@@ -430,7 +479,7 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
             };
             if (!isMeaningfulMoneyRow(draft)) continue;
             if (dateRaw && !draft.claim_date) {
-                errors.push(`Medical row ${r}: could not read date "${dateRaw}". Try 15-06-2026 or 15 Jun 2026.`);
+                errors.push(dateParseErrorMessage(dateRaw, `Medical row ${r}`));
                 continue;
             }
             addItem(empId, draft, `Medical row ${r}`);
@@ -903,6 +952,7 @@ module.exports = {
     buildPersonalizedClaimsWorkbookAsync,
     resolveAllowedEmployeeId,
     toIsoDate,
+    dateParseErrorMessage,
     parseAmount,
     normalizeMultiplier,
     parseTimeToMinutes,

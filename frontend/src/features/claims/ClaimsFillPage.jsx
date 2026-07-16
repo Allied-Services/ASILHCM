@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -20,6 +20,15 @@ async function fileToBase64(file) {
   return btoa(binary);
 }
 
+function scrollToFeedback(ref) {
+  requestAnimationFrame(() => {
+    try {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      ref?.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    } catch { /* ignore */ }
+  });
+}
+
 export default function ClaimsFillPage() {
   const token = useMemo(() => new URLSearchParams(window.location.search).get('token') || '', []);
   const [data, setData] = useState(null);
@@ -30,6 +39,8 @@ export default function ClaimsFillPage() {
   const [medRows, setMedRows] = useState([]);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [justSubmitted, setJustSubmitted] = useState(false);
+  const feedbackRef = useRef(null);
 
   const load = async () => {
     setError('');
@@ -76,7 +87,7 @@ export default function ClaimsFillPage() {
   const atts = (data?.attachments || []).filter(a => sub && a.submission_id === sub.id);
 
   const save = async (confirmNoClaims = false, asDraft = false) => {
-    setBusy(true); setMsg(''); setError('');
+    setBusy(true); setMsg(''); setError(''); setJustSubmitted(false);
     try {
       const items = confirmNoClaims ? [] : [...otRows, ...expRows, ...medRows].filter(r => {
         if (r.claim_type === 'OT') {
@@ -100,10 +111,14 @@ export default function ClaimsFillPage() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || (Array.isArray(d.errors) ? d.errors.join('\n') : 'Save failed'));
+      const submitted = !asDraft && !confirmNoClaims && (d.status === 'submitted' || /submitted to your Line Manager/i.test(d.message || ''));
+      setJustSubmitted(submitted);
       setMsg(d.message || (confirmNoClaims ? 'No Claims confirmed.' : asDraft ? 'Draft saved.' : 'Submitted.'));
       await load();
+      scrollToFeedback(feedbackRef);
     } catch (e) {
       setError(e.message);
+      scrollToFeedback(feedbackRef);
     } finally {
       setBusy(false);
     }
@@ -138,7 +153,7 @@ export default function ClaimsFillPage() {
 
   const uploadExcel = async (file) => {
     if (!file) return;
-    setBusy(true); setError(''); setMsg('');
+    setBusy(true); setError(''); setMsg(''); setJustSubmitted(false);
     try {
       const contentBase64 = await fileToBase64(file);
       const r = await fetch(`${API}/api/portal-claims/fill/${token}/import-excel`, {
@@ -151,12 +166,10 @@ export default function ClaimsFillPage() {
         const details = (d.parseErrors || []).slice(0, 12).join('\n');
         throw new Error((d.error || 'Excel import failed') + (details ? `\n\n${details}` : ''));
       }
-      const okCount = d.employeesTouched || (d.results || []).filter(x => x.ok).length;
       const notes = (d.parseErrors || []).length
-        ? `\n\nNotes:\n${d.parseErrors.slice(0, 12).join('\n')}`
+        ? `\n\nPlease fix these rows and re-upload:\n${d.parseErrors.slice(0, 12).join('\n')}`
         : '';
-      setMsg((d.message || `Excel imported for ${okCount} employee(s) as draft.`) + notes
-        + '\n\nUpload Expense/Medical supports if needed, then Submit to Line Manager.');
+      setMsg((d.message || 'Excel imported as draft.') + notes);
       const d2 = await (async () => {
         const rr = await fetch(`${API}/api/portal-claims/fill/${token}`);
         return rr.json();
@@ -168,8 +181,10 @@ export default function ClaimsFillPage() {
           || d2.submissions[0]?.employee_id;
         if (firstOk) setSelected(firstOk);
       }
+      scrollToFeedback(feedbackRef);
     } catch (e) {
       setError(e.message);
+      scrollToFeedback(feedbackRef);
     } finally {
       setBusy(false);
     }
@@ -206,15 +221,23 @@ export default function ClaimsFillPage() {
 
       <HowItWorks templateHref={templateHref} />
 
+      <div ref={feedbackRef} />
       {fillClosed && <Alert tone="bad">Entry closed for this cycle. Raise claims next month.</Alert>}
       {error && <Alert tone="bad"><pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{error}</pre></Alert>}
-      {msg && <Alert tone="good"><pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{msg}</pre></Alert>}
+      {(justSubmitted || msg) && (
+        <Alert tone="good" prominent={justSubmitted}>
+          {justSubmitted && (
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6 }}>Submitted successfully</div>
+          )}
+          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{msg}</pre>
+        </Alert>
+      )}
 
       <div style={{ ...card, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Option B — Excel (your team prefilled)</div>
         <p style={{ margin: '0 0 10px', color: '#475569', fontSize: 13, lineHeight: 1.5 }}>
           Download <strong>your</strong> workbook — Employee Code and Name are already filled. Only complete claim columns.
-          Upload loads a <strong>draft</strong>. Attach Expense & Medical supports separately, then Submit.
+          Upload loads a <strong>draft</strong>. If the file has Expense or Medical amounts, you <strong>must</strong> upload those support files before Submit.
         </p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <a href={templateHref} style={btnLink} download>Download my Excel (prefilled)</a>
@@ -337,10 +360,31 @@ export default function ClaimsFillPage() {
 
               {!locked && !fillClosed && (
                 <div style={{ marginTop: 20 }}>
+                  {(hasExpense || hasMedical) && (
+                    <Alert tone="warn">
+                      {hasExpense && hasMedical
+                        ? 'You have Expense and Medical entries — you must upload both Expense supports and Medical supports before Submit.'
+                        : hasExpense
+                          ? 'You have Expense entries — you must upload an Expense supports file before Submit.'
+                          : 'You have Medical entries — you must upload a Medical supports file before Submit.'}
+                    </Alert>
+                  )}
                   {supportBlockers.length > 0 && (
                     <Alert tone="warn">
                       Submit is blocked until you upload: {supportBlockers.join(' · ')}.
                       You can still Save Draft.
+                    </Alert>
+                  )}
+                  {justSubmitted && (
+                    <Alert tone="good" prominent>
+                      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6 }}>Submitted successfully</div>
+                      <div>{msg || 'Your claim has been sent to your Line Manager.'}</div>
+                    </Alert>
+                  )}
+                  {sub?.status === 'submitted' && !justSubmitted && (
+                    <Alert tone="good">
+                      This employee’s claim is already <strong>submitted</strong> to the Line Manager.
+                      You can still update and re-submit if needed before the deadline.
                     </Alert>
                   )}
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -367,7 +411,7 @@ function HowItWorks({ templateHref }) {
       <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>How this works (simple)</div>
       <ol style={{ margin: 0, paddingLeft: 18, color: '#334155', fontSize: 14, lineHeight: 1.65 }}>
         <li>Fill claims on screen <strong>or</strong> download <a href={templateHref} style={{ color: '#1d4ed8' }}>your Excel</a> (Code/Name prefilled).</li>
-        <li>Attach <strong>Expense supports</strong> and <strong>Medical supports</strong> as two separate files when needed — without them, those refunds are not processed.</li>
+        <li>If you enter <strong>Expense</strong> and/or <strong>Medical</strong>, you <strong>must</strong> upload those support files (separate files) before Submit — without them Submit stays blocked.</li>
         <li>Submit → your Line Manager reviews → you get an email when decided → approved amounts pay with <strong>next month’s</strong> salary.</li>
         <li>Errors or questions: <a href="mailto:ops-support@asil.com.pk" style={{ color: '#1d4ed8' }}>ops-support@asil.com.pk</a></li>
       </ol>
@@ -393,10 +437,26 @@ function Shell({ children }) {
     </div>
   );
 }
-function Alert({ children, tone }) {
+function Alert({ children, tone, prominent }) {
   const c = tone === 'good' ? '#15803d' : tone === 'warn' ? '#b45309' : '#b91c1c';
   const bg = tone === 'good' ? '#f0fdf4' : tone === 'warn' ? '#fffbeb' : '#fef2f2';
-  return <div style={{ marginTop: 10, marginBottom: 8, padding: '12px 14px', borderRadius: 10, background: bg, border: `1px solid ${c}33`, color: c, lineHeight: 1.55, fontSize: 14 }}>{children}</div>;
+  return (
+    <div style={{
+      marginTop: 10,
+      marginBottom: 8,
+      padding: prominent ? '16px 18px' : '12px 14px',
+      borderRadius: 10,
+      background: bg,
+      border: `2px solid ${c}${prominent ? '99' : '33'}`,
+      color: c,
+      lineHeight: 1.55,
+      fontSize: prominent ? 15 : 14,
+      boxShadow: prominent ? '0 4px 16px rgba(22,101,52,0.12)' : undefined,
+    }}
+    >
+      {children}
+    </div>
+  );
 }
 function Hint({ children }) {
   return <div style={{ padding: '10px 12px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', color: '#334155', fontSize: 13, lineHeight: 1.5, marginBottom: 10 }}>{children}</div>;

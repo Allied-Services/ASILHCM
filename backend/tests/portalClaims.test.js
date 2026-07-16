@@ -13,6 +13,7 @@ const {
     FILL_CLOSE_DAY,
     APPROVE_CLOSE_DAY,
 } = require('../src/modules/claims/portalService');
+const { dateParseErrorMessage, toIsoDate } = require('../src/modules/claims/portalExcel');
 
 describe('portalClaims helpers', () => {
     it('normalizeAuthority SELF and email', () => {
@@ -90,5 +91,13 @@ describe('portalClaims helpers', () => {
             time_from: '5:00 PM', time_to: '7:00 PM',
         }, period);
         assert.ok(may.errors.some(e => /15-MAY-2026/i.test(e) && /May 2026/i.test(e) && /claims@asil\.com\.pk/i.test(e)));
+    });
+
+    it('dateParseErrorMessage explains impossible calendar days like 31 June', () => {
+        assert.equal(toIsoDate('31.06.2026'), null);
+        const msg = dateParseErrorMessage('31.06.2026', 'Overtime row 16');
+        assert.match(msg, /31 June 2026/i);
+        assert.match(msg, /only 30 days/i);
+        assert.match(msg, /correct the file and upload again/i);
     });
 });
