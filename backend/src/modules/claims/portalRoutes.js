@@ -45,7 +45,12 @@ function registerPortalClaimsRoutes(app, deps) {
                 confirmNoClaims: !!confirmNoClaims,
                 asDraft: !!asDraft,
             });
-            if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+            if (!result.ok) {
+                return res.status(result.status || 400).json({
+                    error: result.error,
+                    errors: result.errors || undefined,
+                });
+            }
             if (result.notifyApprover && result.periodId) {
                 await portal.ensureApproverPacks(pool, result.periodId, sendAppEmail, { forceEmail: true }).catch(() => {});
             }

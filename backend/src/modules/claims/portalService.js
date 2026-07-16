@@ -6,8 +6,13 @@ const fs = require('fs');
 const {
     parseMasterClaimsWorkbook,
     buildPersonalizedClaimsWorkbook,
+    buildPersonalizedClaimsWorkbookAsync,
     parseTimeToMinutes,
     hoursBetween,
+    toIsoDate,
+    isMeaningfulOtRow,
+    isMeaningfulMoneyRow,
+    MONTH_NAMES,
 } = require('./portalExcel');
 
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '17', 10);
@@ -147,73 +152,136 @@ function isAfterApproveClose(period) {
     return Date.now() > new Date(period.approve_close_at).getTime();
 }
 
-function validateOtRow(row) {
+function claimMonthLabel(period) {
+    const m = period?.claim_month;
+    const y = period?.claim_year;
+    if (!m || !y) return 'the current claim month';
+    return `${MONTH_NAMES[m] || m} ${y}`;
+}
+
+/** Dates outside the open claim month cannot be processed in this portal. */
+function validateClaimDateInPeriod(rawDate, period, kind = 'Claim') {
+    const errors = [];
+    let iso = null;
+    if (rawDate == null || String(rawDate).trim() === '') {
+        errors.push(`${kind} date is missing. Please enter the date the work / expense happened.`);
+        return { errors, iso: null };
+    }
+    iso = toIsoDate(rawDate) || (String(rawDate).match(/^\d{4}-\d{2}-\d{2}/) ? String(rawDate).slice(0, 10) : null);
+    if (!iso) {
+        errors.push(
+            `${kind} date "${rawDate}" could not be read. `
+            + 'Try formats like 15-06-2026, 15/06/2026, 15 Jun 2026, or 2026-06-15.'
+        );
+        return { errors, iso: null };
+    }
+    if (period?.claim_month && period?.claim_year) {
+        const [yy, mm] = iso.split('-').map(Number);
+        if (yy !== Number(period.claim_year) || mm !== Number(period.claim_month)) {
+            const got = `${MONTH_NAMES[mm] || mm} ${yy}`;
+            const want = claimMonthLabel(period);
+            errors.push(
+                `The date ${iso} falls in ${got}, but this form is only for ${want}. `
+                + 'Older (or future) claim months cannot be submitted here. '
+                + 'Please email claims@asil.com.pk if you have questions about prior-period claims.'
+            );
+        }
+    }
+    return { errors, iso };
+}
+
+function validateOtRow(row, period = null) {
     const errors = [];
     const warnings = [];
+    const dateCheck = validateClaimDateInPeriod(row.claim_date || row.claim_date_raw, period, 'OT');
+    errors.push(...dateCheck.errors);
+    const iso = dateCheck.iso;
     const hours = parseFloat(row.ot_hours);
-    const mult = String(row.ot_multiplier || '').toLowerCase().trim();
-    if (!row.claim_date) errors.push('OT date required');
-    if (!Number.isFinite(hours) || hours <= 0) errors.push('OT hours must be positive');
-    if (!OT_MAP[mult]) errors.push('OT rate must be Single (1×), Double (2×), or Triple (3×)');
+    const multRaw = String(row.ot_multiplier || 'Double').trim();
+    const mult = multRaw.toLowerCase();
+    if (!Number.isFinite(hours) || hours <= 0) {
+        errors.push(
+            row.ot_hours == null || row.ot_hours === ''
+                ? 'OT hours are missing. Enter overtime hours only (after the 8-hour shift on weekdays).'
+                : `OT hours "${row.ot_hours}" is not valid. Enter a number such as 2 or 2.5.`
+        );
+    }
+    if (!OT_MAP[mult]) {
+        errors.push(`OT rate "${multRaw}" is not valid. Choose Single (1×), Double (2×), or Triple (3×).`);
+    }
 
-    if (row.claim_date && Number.isFinite(hours) && OT_MAP[mult]) {
-        const d = parseLocalDate(row.claim_date);
+    if (iso && Number.isFinite(hours) && hours > 0 && OT_MAP[mult]) {
+        const d = parseLocalDate(iso);
         const dateType = getPkDateType(d);
         const isWeekday = dateType && dateType.type === 'WEEKDAY';
 
         if (dateType) {
             const label = `${dateType.dateStr} (${dateType.name})`;
-            if (mult === 'triple') {
-                if (dateType.type !== 'EID') {
-                    errors.push(
-                        `3× (Triple) Overtime is only allowed on gazetted Eid holidays (Eid-ul-Fitr / Eid-ul-Adha). `
-                        + `${label} is not an Eid day. Use Double (2×) for Sundays, other public holidays, and weekday OT. `
-                        + `If this was worked on Eid and the calendar date is wrong, correct the date or contact ASIL payroll.`
-                    );
-                }
+            if (mult === 'triple' && dateType.type !== 'EID') {
+                errors.push(
+                    `Triple (3×) OT is only allowed on gazetted Eid days. ${label} is not Eid — please use Double (2×).`
+                );
             }
             if (mult === 'single' && (dateType.type === 'SUNDAY' || dateType.type === 'HOLIDAY' || dateType.type === 'EID')) {
                 errors.push(
-                    `1× (Single) is not allowed on ${label}. Sunday / public holiday / Eid work must be at least Double (2×); Eid may use Triple (3×).`
+                    `Single (1×) is not allowed on ${label}. Use Double (2×), or Triple (3×) on Eid only.`
                 );
             }
         }
 
-        // Weekday: OT must be after the standard 8-hour shift — require Time From/To; Hours = OT only
         if (isWeekday) {
             const tf = String(row.time_from || '').trim();
             const tt = String(row.time_to || '').trim();
             if (!tf || !tt) {
                 errors.push(
-                    'Weekday OT: enter Time From and Time To for overtime AFTER the standard 8-hour shift. '
-                    + 'Hours Worked must be OT hours only (not the full day).'
+                    'On a weekday, enter Time From and Time To for OT after the standard 8-hour shift '
+                    + '(examples: 5:00 PM to 8:00 PM). Hours Worked must be OT hours only.'
                 );
             } else {
                 const fromMin = parseTimeToMinutes(tf);
                 const toMin = parseTimeToMinutes(tt);
                 if (fromMin == null || toMin == null) {
-                    errors.push('Weekday OT: Time From / Time To must look like 05:00 PM or 17:00');
+                    const bad = fromMin == null ? tf : tt;
+                    errors.push(
+                        `Could not read time "${bad}". Try 5:00 PM, 17:00, 5pm, or 1700.`
+                    );
                 } else {
                     const span = hoursBetween(fromMin, toMin);
                     if (span != null && Math.abs(span - hours) > 0.51) {
                         errors.push(
-                            `Weekday OT: Hours Worked (${hours}) does not match Time From→To (${span}h). `
-                            + 'Enter only the overtime period after the 8-hour shift.'
+                            `OT hours (${hours}) do not match Time From→To (${span}h). `
+                            + 'Please correct the hours or the times so they agree.'
                         );
                     }
                 }
             }
             if (hours > 8) {
                 errors.push(
-                    'Weekday OT: cannot claim more than 8 overtime hours in one day. '
-                    + 'Hours Worked must be OT after the standard shift, not total hours worked.'
+                    'On a weekday you cannot claim more than 8 OT hours in one day. '
+                    + 'Enter only overtime after the standard shift — not total hours worked.'
                 );
             }
         }
 
-        if (hours > 6) warnings.push(`High OT: ${hours}h claimed on one day — please confirm`);
+        if (hours > 6) warnings.push(`High OT: ${hours}h on one day — please confirm this is correct`);
     }
-    return { errors, warnings, factor: OT_MAP[mult] || null };
+    return { errors, warnings, factor: OT_MAP[mult] || null, claim_date: iso };
+}
+
+function validateExpenseOrMedicalRow(row, period, kind) {
+    const errors = [];
+    const dateCheck = validateClaimDateInPeriod(row.claim_date || row.claim_date_raw, period, kind);
+    errors.push(...dateCheck.errors);
+    const amtRaw = row.amount;
+    const amt = parseFloat(String(amtRaw ?? '').toString().replace(/,/g, ''));
+    if (!Number.isFinite(amt) || amt <= 0) {
+        errors.push(
+            amtRaw == null || amtRaw === ''
+                ? `${kind} amount is missing. Enter the amount in PKR (e.g. 1500).`
+                : `${kind} amount "${amtRaw}" is not valid. Enter a positive number in PKR.`
+        );
+    }
+    return { errors, claim_date: dateCheck.iso, amount: Number.isFinite(amt) && amt > 0 ? amt : null };
 }
 
 async function ensureClaimAuthorityColumn(pool) {
@@ -581,19 +649,33 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
         };
     }
 
+    const period = {
+        claim_month: batch.claim_month,
+        claim_year: batch.claim_year,
+    };
     const errors = [];
     const normalized = [];
+    let otIdx = 0;
+    let expIdx = 0;
+    let medIdx = 0;
+
     for (const raw of items || []) {
         const type = String(raw.claim_type || '').toUpperCase();
+        const rowTag = raw._rowLabel || null;
+
         if (type === 'OT') {
-            const v = validateOtRow(raw);
-            if (v.errors.length) errors.push(...v.errors.map(e => `${employeeId}: ${e}`));
-            else {
+            if (!isMeaningfulOtRow(raw)) continue;
+            otIdx += 1;
+            const label = rowTag || `OT line ${otIdx}`;
+            const v = validateOtRow(raw, period);
+            if (v.errors.length) {
+                errors.push(...v.errors.map(e => `${label}: ${e}`));
+            } else {
                 normalized.push({
                     claim_type: 'OT',
-                    claim_date: raw.claim_date,
+                    claim_date: v.claim_date,
                     ot_hours: parseFloat(raw.ot_hours),
-                    ot_multiplier: raw.ot_multiplier,
+                    ot_multiplier: raw.ot_multiplier || 'Double',
                     ot_multiplier_factor: v.factor,
                     description: raw.nature || raw.description || null,
                     time_from: raw.time_from || null,
@@ -602,41 +684,59 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
                 });
             }
         } else if (type === 'EXPENSE') {
-            const amt = parseFloat(raw.amount);
-            if (!raw.claim_date) errors.push(`${employeeId}: Expense date required`);
-            if (!Number.isFinite(amt) || amt <= 0) errors.push(`${employeeId}: Expense amount required`);
-            if (raw.claim_date && Number.isFinite(amt) && amt > 0) {
+            if (!isMeaningfulMoneyRow(raw)) continue;
+            expIdx += 1;
+            const label = rowTag || `Expense line ${expIdx}`;
+            const v = validateExpenseOrMedicalRow(raw, period, 'Expense');
+            if (v.errors.length) {
+                errors.push(...v.errors.map(e => `${label}: ${e}`));
+            } else {
                 normalized.push({
                     claim_type: 'EXPENSE',
-                    claim_date: raw.claim_date,
-                    amount: amt,
+                    claim_date: v.claim_date,
+                    amount: v.amount,
                     description: raw.description || null,
                     expense_type: raw.expense_type || null,
                 });
             }
         } else if (type === 'MEDICAL') {
-            const amt = parseFloat(raw.amount);
-            if (!raw.claim_date) errors.push(`${employeeId}: Medical date required`);
-            if (!Number.isFinite(amt) || amt <= 0) errors.push(`${employeeId}: Medical amount required`);
-            if (raw.claim_date && Number.isFinite(amt) && amt > 0) {
+            if (!isMeaningfulMoneyRow(raw)) continue;
+            medIdx += 1;
+            const label = rowTag || `Medical line ${medIdx}`;
+            const v = validateExpenseOrMedicalRow(raw, period, 'Medical');
+            if (v.errors.length) {
+                errors.push(...v.errors.map(e => `${label}: ${e}`));
+            } else {
                 normalized.push({
                     claim_type: 'MEDICAL',
-                    claim_date: raw.claim_date,
-                    amount: amt,
+                    claim_date: v.claim_date,
+                    amount: v.amount,
                     description: raw.description || null,
                     patient_name: raw.patient_name || null,
                 });
             }
         }
     }
-    if (errors.length) return { ok: false, status: 400, error: errors.join('; ') };
+
+    if (errors.length) {
+        const unique = [...new Set(errors)];
+        const body = unique.slice(0, 20).map((e, i) => `${i + 1}. ${e}`).join('\n');
+        const more = unique.length > 20 ? `\n…and ${unique.length - 20} more.` : '';
+        return {
+            ok: false,
+            status: 400,
+            error: `Please fix the following before continuing:\n${body}${more}`,
+            errors: unique,
+        };
+    }
 
     // Intentional submit with nothing to claim → force user to use Confirm No Claims
     if (!normalized.length && !asDraft && !skipSupportCheck) {
         return {
             ok: false,
             status: 400,
-            error: 'No valid claim lines to submit. Add OT / Expense / Medical rows, or tap Confirm No Claims.',
+            error: 'No valid claim lines to submit. Add OT / Expense / Medical with a date and hours/amount for '
+                + `${claimMonthLabel(period)}, or tap Confirm No Claims.`,
         };
     }
 
@@ -868,8 +968,20 @@ async function buildPersonalizedTemplateForToken(pool, token) {
          ORDER BY e.name`,
         [batch.id]
     );
-    const buf = buildPersonalizedClaimsWorkbook(rows, getMasterClaimsTemplatePath());
-    return { ok: true, buffer: buf, filename: 'ASIL_Claims_Your_Team.xlsx' };
+    const opts = {
+        claimMonth: batch.claim_month,
+        claimYear: batch.claim_year,
+        templatePath: getMasterClaimsTemplatePath(),
+    };
+    let buf;
+    try {
+        buf = await buildPersonalizedClaimsWorkbookAsync(rows, opts);
+    } catch (err) {
+        console.warn('[portalClaims] ExcelJS template failed, using fallback:', err.message);
+        buf = buildPersonalizedClaimsWorkbook(rows, opts);
+    }
+    const monthLabel = `${batch.claim_year || ''}-${String(batch.claim_month || '').padStart(2, '0')}`;
+    return { ok: true, buffer: buf, filename: `ASIL_Claims_${monthLabel}_Your_Team.xlsx` };
 }
 
 async function ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail = false } = {}) {

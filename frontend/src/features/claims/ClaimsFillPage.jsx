@@ -79,8 +79,19 @@ export default function ClaimsFillPage() {
     setBusy(true); setMsg(''); setError('');
     try {
       const items = confirmNoClaims ? [] : [...otRows, ...expRows, ...medRows].filter(r => {
-        if (r.claim_type === 'OT') return r.claim_date || r.ot_hours || r.time_from || r.nature;
-        return r.claim_date || r.amount || r.description;
+        if (r.claim_type === 'OT') {
+          const hours = parseFloat(r.ot_hours);
+          return !!(String(r.claim_date || '').trim()
+            || (Number.isFinite(hours) && hours > 0)
+            || String(r.time_from || '').trim()
+            || String(r.time_to || '').trim()
+            || String(r.nature || '').trim());
+        }
+        const amt = parseFloat(r.amount);
+        return !!(String(r.claim_date || '').trim()
+          || (Number.isFinite(amt) && amt > 0)
+          || String(r.description || '').trim()
+          || String(r.patient_name || '').trim());
       });
       const r = await fetch(`${API}/api/portal-claims/fill/${token}/save`, {
         method: 'POST',
@@ -88,7 +99,7 @@ export default function ClaimsFillPage() {
         body: JSON.stringify({ employeeId: selected, items, confirmNoClaims, asDraft }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Save failed');
+      if (!r.ok) throw new Error(d.error || (Array.isArray(d.errors) ? d.errors.join('\n') : 'Save failed'));
       setMsg(d.message || (confirmNoClaims ? 'No Claims confirmed.' : asDraft ? 'Draft saved.' : 'Submitted.'));
       await load();
     } catch (e) {
@@ -249,8 +260,10 @@ export default function ClaimsFillPage() {
 
               <Section title="1. Overtime">
                 <Hint>
-                  Weekday OT: enter <strong>Time From / Time To</strong> for overtime <strong>after</strong> the standard 8-hour shift.
-                  Hours Worked = OT hours only (not the full day). Usually <strong>Double (2×)</strong>. <strong>Triple (3×)</strong> only on gazetted Eid days.
+                  Only dates in claim month <strong>{data.period.claim_month}/{data.period.claim_year}</strong> are accepted.
+                  Weekday OT needs <strong>Time From / Time To</strong> after the 8-hour shift; Hours = OT only.
+                  Usually <strong>Double (2×)</strong>. <strong>Triple (3×)</strong> only on gazetted Eid days.
+                  Prior months: email <strong>claims@asil.com.pk</strong>.
                 </Hint>
                 {otRows.map((row, i) => (
                   <Row key={i}>
