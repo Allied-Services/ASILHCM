@@ -269,7 +269,7 @@ export default function PortalClaimsHub({ user }) {
         <Field label="OT 2× Hours">
           <input type="number" value={ov.ot2Hours} onChange={e => setOv(o => ({ ...o, ot2Hours: e.target.value }))} style={fieldInp} />
         </Field>
-        <Field label="OT 3× Hours (Eid only)">
+        <Field label="OT 3× Hours (gazetted holidays)">
           <input type="number" value={ov.ot3Hours} onChange={e => setOv(o => ({ ...o, ot3Hours: e.target.value }))} style={fieldInp} />
         </Field>
         <Field label="Expense Amount (PKR)">

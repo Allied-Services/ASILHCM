@@ -319,16 +319,28 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
         otRow += 1;
         // Skip title / instruction rows (no employee code column value that looks like code)
         const empId = pick(row, 'ASIL Employee Code', 'Employee Code', 'Employee ID');
-        const hoursRaw = pick(row, 'Hours Worked (auto)', 'Hours Worked (OT only)', 'Hours Worked', 'Hours', 'OT Hours');
+        const hoursRaw = pick(
+            row,
+            'OT Hours (auto)', 'Hours Worked (auto)', 'Hours Worked (OT only)',
+            'Hours Worked', 'Hours', 'OT Hours'
+        );
         const dateRaw = pick(row, 'Date (DD-MM-YYYY)', 'Date', 'Claim Date');
-        const timeFrom = pick(row, 'Time From (e.g. 08:00 PM)', 'Time From', 'From');
-        const timeTo = pick(row, 'Time To (e.g. 11:00 PM)', 'Time To', 'To');
+        const timeFrom = pick(
+            row,
+            'OT Start Time', 'OT Start', 'Overtime Start',
+            'Time From (e.g. 08:00 PM)', 'Time From', 'From'
+        );
+        const timeTo = pick(
+            row,
+            'OT End Time', 'OT End', 'Overtime End',
+            'Time To (e.g. 11:00 PM)', 'Time To', 'To'
+        );
         const nature = pick(row, 'Nature of Work / Reason', 'Nature of Work', 'Reason');
         if (!empId && !hoursRaw && !dateRaw && !timeFrom) continue;
         if (empId && !hoursRaw && !dateRaw && !timeFrom && !timeTo && !nature) continue; // prefill only
 
         let otHours = parseAmount(hoursRaw);
-        // Prefer calculated duration from times when Excel formula cache is empty or hours blank
+        // Prefer calculated duration from OT Start/End when Excel formula cache is empty or hours blank
         const fromMin = parseTimeToMinutes(timeFrom);
         const toMin = parseTimeToMinutes(timeTo);
         const span = hoursBetween(fromMin, toMin);
@@ -339,7 +351,10 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
             claim_date: toIsoDate(dateRaw),
             claim_date_raw: dateRaw || '',
             ot_hours: otHours,
-            ot_multiplier: normalizeMultiplier(pick(row, 'Overtime Multiplier', 'Multiplier', 'Rate')),
+            ot_multiplier: normalizeMultiplier(pick(
+                row,
+                'OT Rate (1X/2X/3X)', 'Overtime Multiplier', 'Multiplier', 'Rate', 'OT Rate'
+            )),
             nature,
             time_from: timeFrom,
             time_to: timeTo,
@@ -429,8 +444,8 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
 
 const OT_HEADERS = [
     'Date', 'ASIL Employee Code', 'Employee Name', 'Department', 'Location',
-    'Line Manager Name', 'Nature of Work / Reason', 'Time From', 'Time To',
-    'Hours Worked (auto)', 'OT Check', 'Overtime Multiplier',
+    'Line Manager Name', 'Nature of Work / Reason', 'OT Start Time', 'OT End Time',
+    'OT Hours (auto)', 'Rate Check (auto)', 'OT Rate (1X/2X/3X)',
 ];
 const EXP_HEADERS = [
     'Date', 'ASIL Employee Code', 'Employee Name', 'Department', 'Location',
@@ -441,11 +456,16 @@ const MED_HEADERS = [
     'Line Manager Name', 'Claim Type', 'Patient Name / Relation', 'Description / Treatment Detail', 'Total Claim Amount (PKR)',
 ];
 
+/** Data rows with formulas per employee (fillers need ~25–30 blank claim lines). */
+const SLOTS_PER_EMP = 30;
+
 const HEADER_FILL = '1E3A8A';
 const HEADER_FONT = 'FFFFFF';
 const LOCK_FILL = 'E2E8F0';
 const ALT_ROW = 'F8FAFC';
 const TITLE_FILL = '1E40AF';
+const WARN_FILL = 'FECACA';
+const SUM_FILL = 'FEF3C7';
 
 async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
     const list = employees || [];
@@ -454,6 +474,8 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
     const monthLabel = claimMonth && claimYear
         ? `${MONTH_NAMES[claimMonth] || claimMonth} ${claimYear}`
         : 'this claim month';
+    const holidayDates = Array.isArray(opts.holidayDates) ? opts.holidayDates : [];
+    const slots = opts.slotsPerEmp || SLOTS_PER_EMP;
 
     if (!ExcelJS) {
         return buildPersonalizedClaimsWorkbookFallback(list, opts);
@@ -463,10 +485,22 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
     wb.creator = 'ASIL HCM';
     wb.created = new Date();
 
+    // Holidays helper (hidden) — used by Rate Check for 3×
+    const holWs = wb.addWorksheet('Holidays');
+    holWs.getCell(1, 1).value = 'Gazetted Holiday Date';
+    holWs.getCell(1, 2).value = 'Name / note';
+    holidayDates.forEach((iso, i) => {
+        const [y, m, d] = String(iso).split('-').map(Number);
+        const cell = holWs.getCell(i + 2, 1);
+        cell.value = new Date(y, m - 1, d);
+        cell.numFmt = 'DD-MMM-YYYY';
+        holWs.getCell(i + 2, 2).value = iso;
+    });
+    holWs.state = 'veryHidden';
+
     // Instructions
     const instr = wb.addWorksheet('Instructions', { views: [{ showGridLines: false }] });
-    instr.getColumn(1).width = 100;
-    instr.mergeCells('A1:A1');
+    instr.getColumn(1).width = 110;
     instr.getCell('A1').value = 'ASIL Claims Workbook — Instructions';
     instr.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
     instr.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TITLE_FILL } };
@@ -476,12 +510,12 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
         `Claim month: ${monthLabel}`,
         '',
         '1. Grey columns (Employee Code, Name, Dept, Location, Manager) are prefilled for YOUR team — do not change them.',
-        '2. On Overtime: enter Date, Nature, Time From, Time To, and OT rate. Hours Worked calculates automatically — do not type hours by hand.',
-        '3. If Hours Worked is under 8, the cell turns red and OT Check says it does not qualify (mandatory 8-hour duty must be completed first).',
-        '4. Weekday OT: Time From must be at/after 5:00 PM (after the standard shift). Enter only the OT period in Time From / Time To.',
-        '5. Times: type 5:00 PM or 17:00 in the Time columns (formatted for time).',
-        '6. Dates: 15-06-2026, 15/06/2026, 15 Jun 2026, or 21-06-26 are fine.',
-        '7. Triple (3×) OT is only for gazetted Eid days. Use Double (2×) for most OT.',
+        '2. Overtime — fill only: Date, Nature, OT Start Time, OT End Time, and OT Rate (1X / 2X / 3X).',
+        '3. OT Start / OT End = overtime hours claimed AFTER normal duty. Do NOT enter the full shift start/end (e.g. not 9:00 AM–6:00 PM).',
+        '4. OT Hours calculates automatically as OT End − OT Start. Do not type hours by hand.',
+        '5. Use 2X (Double) for normal OT — accepted without question. 3X (Triple) only on gazetted public/festival holidays.',
+        '6. If you pick 3X on a non-holiday, Rate Check turns red — change to 2X.',
+        '7. Times: 5:00 PM or 17:00. Dates: 15-06-2026, 15/06/2026, 15 Jun 2026, or 21-06-26.',
         '8. Only this claim month’s dates are accepted. Older months → email claims@asil.com.pk.',
         '9. After upload: attach Expense and Medical supports as separate files before Submit.',
         '10. Questions: ops-support@asil.com.pk or claims@asil.com.pk',
@@ -524,35 +558,63 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
         s.value = subtitle;
         s.font = { size: 10, italic: true, color: { argb: 'FF475569' } };
         s.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
-        ws.getRow(2).height = 20;
+        ws.getRow(2).height = 36;
+        s.alignment = { wrapText: true, vertical: 'middle' };
     }
 
-    function addDataSheet(name, headers, slotsPerEmp, lockedCols) {
+    function addMoneySummaryRow(ws, amountColLetter, headerRow, firstData, lastData, colCount) {
+        const sumRow = 3;
+        ws.mergeCells(sumRow, 1, sumRow, Math.max(1, amountColLetter.charCodeAt(0) - 65));
+        ws.getCell(sumRow, 1).value = 'TOTAL AMOUNT (auto)';
+        ws.getCell(sumRow, 1).font = { bold: true, size: 11, color: { argb: 'FF92400E' } };
+        ws.getCell(sumRow, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUM_FILL } };
+        const amtCell = ws.getCell(sumRow, amountColLetter.charCodeAt(0) - 64);
+        amtCell.value = { formula: `SUM(${amountColLetter}${firstData}:${amountColLetter}${lastData})` };
+        amtCell.numFmt = '#,##0.00';
+        amtCell.font = { bold: true, size: 12, color: { argb: 'FF92400E' } };
+        amtCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUM_FILL } };
+        for (let c = 1; c <= colCount; c++) {
+            if (!ws.getCell(sumRow, c).fill || !ws.getCell(sumRow, c).fill.fgColor) {
+                ws.getCell(sumRow, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUM_FILL } };
+            }
+        }
+        ws.getRow(sumRow).height = 22;
+        return sumRow;
+    }
+
+    function addDataSheet(name, headers, slotsPerEmp, lockedCols, amountColLetter) {
+        const headerRow = 4;
+        const firstData = 5;
         const ws = wb.addWorksheet(name, {
-            views: [{ state: 'frozen', ySplit: 3, activeCell: 'A4' }],
+            views: [{ state: 'frozen', ySplit: headerRow, activeCell: `A${firstData}` }],
         });
         addTitleBlock(
             ws,
             `ASIL — ${name}`,
-            `Claim month: ${monthLabel}  ·  Prefill = your employees only  ·  Fill white cells only`,
+            `Claim month: ${monthLabel}  ·  Prefill = your employees only  ·  Fill white cells only  ·  Total at top updates automatically`,
             headers.length
         );
-        headers.forEach((h, i) => { ws.getCell(3, i + 1).value = h; });
-        styleHeaderRow(ws, 3, headers.length);
+
+        // Placeholder summary row (formulas set after we know last data row)
+        for (let c = 1; c <= headers.length; c++) {
+            ws.getCell(3, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUM_FILL } };
+        }
+
+        headers.forEach((h, i) => { ws.getCell(headerRow, i + 1).value = h; });
+        styleHeaderRow(ws, headerRow, headers.length);
 
         const widths = headers.map((h) => {
             if (/Employee Code/i.test(h)) return 26;
             if (/Employee Name/i.test(h)) return 22;
             if (/Nature|Description|Treatment/i.test(h)) return 28;
             if (/Department|Location|Manager/i.test(h)) return 16;
-            if (/Multiplier|Hours|Amount/i.test(h)) return 14;
-            if (/Time/i.test(h)) return 12;
+            if (/Amount/i.test(h)) return 16;
             if (/Date/i.test(h)) return 14;
             return 14;
         });
         widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 
-        let r = 4;
+        let r = firstData;
         for (const e of list) {
             const id = e.id || e.employee_id || '';
             const nm = e.name || e.employee_name || '';
@@ -567,7 +629,6 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
                     if (/Department/i.test(h)) return dept;
                     if (/Location/i.test(h)) return loc;
                     if (/Line Manager/i.test(h)) return mgr;
-                    if (/Multiplier/i.test(h)) return i === 0 ? 'Double' : '';
                     return '';
                 });
                 values.forEach((v, ci) => {
@@ -586,41 +647,54 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
                     } else if ((r % 2) === 0) {
                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ALT_ROW } };
                     }
+                    if (/Amount/i.test(headers[ci])) cell.numFmt = '#,##0.00';
                 });
                 row.height = 18;
                 r += 1;
             }
         }
 
+        const lastData = Math.max(firstData, r - 1);
+        if (amountColLetter) {
+            addMoneySummaryRow(ws, amountColLetter, headerRow, firstData, lastData, headers.length);
+        }
         return ws;
     }
 
     function addOvertimeSheet(slotsPerEmp) {
         const headers = OT_HEADERS;
+        const headerRow = 4;
+        const firstData = 5;
         const ws = wb.addWorksheet('Overtime', {
-            views: [{ state: 'frozen', ySplit: 3, activeCell: 'A4' }],
+            views: [{ state: 'frozen', ySplit: headerRow, activeCell: `A${firstData}` }],
         });
         addTitleBlock(
             ws,
             'ASIL — Overtime',
-            `Claim month: ${monthLabel}  ·  Enter Time From / Time To — Hours auto-calculate  ·  Red = under 8h (does not qualify)`,
+            'Enter Date · OT Start · OT End · Rate. OT must be AFTER normal duty (not shift clock-in/out). OT Hours = End − Start (auto). 3× only on gazetted holidays — otherwise use 2×.',
             headers.length
         );
-        headers.forEach((h, i) => { ws.getCell(3, i + 1).value = h; });
-        styleHeaderRow(ws, 3, headers.length);
 
-        const widths = [12, 26, 22, 14, 14, 16, 26, 12, 12, 14, 42, 14];
+        // Summary row 3 — filled after data rows known
+        for (let c = 1; c <= headers.length; c++) {
+            ws.getCell(3, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUM_FILL } };
+        }
+
+        headers.forEach((h, i) => { ws.getCell(headerRow, i + 1).value = h; });
+        styleHeaderRow(ws, headerRow, headers.length);
+
+        const widths = [12, 26, 22, 14, 14, 16, 26, 13, 13, 12, 44, 14];
         widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 
-        // H=Time From(8), I=Time To(9), J=Hours(10), K=OT Check(11), L=Multiplier(12)
+        // H=OT Start(8), I=OT End(9), J=Hours(10), K=Rate Check(11), L=Rate(12)
         const fromCol = 8;
         const toCol = 9;
         const hoursCol = 10;
         const checkCol = 11;
         const multCol = 12;
-        const lockedIdx = [1, 2, 3, 4, 5, 9, 10]; // identity + Hours + OT Check (0-based)
+        const lockedIdx = [1, 2, 3, 4, 5, 9, 10]; // identity + Hours + Rate Check (0-based)
 
-        let r = 4;
+        let r = firstData;
         for (const e of list) {
             const id = e.id || e.employee_id || '';
             const nm = e.name || e.employee_name || '';
@@ -629,7 +703,7 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
             const mgr = e.line_manager_name || e.lineManagerName || '';
             for (let i = 0; i < slotsPerEmp; i++) {
                 const row = ws.getRow(r);
-                const prefill = ['', id, nm, dept, loc, mgr, '', '', '', null, null, i === 0 ? 'Double' : ''];
+                const prefill = ['', id, nm, dept, loc, mgr, '', '', '', null, null, i === 0 ? '2X' : ''];
                 prefill.forEach((v, ci) => {
                     const cell = row.getCell(ci + 1);
                     cell.border = {
@@ -650,24 +724,22 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
                     }
                 });
 
-                // Time columns — expect Excel time entry
                 ws.getCell(r, fromCol).numFmt = 'h:mm AM/PM';
                 ws.getCell(r, toCol).numFmt = 'h:mm AM/PM';
+                ws.getCell(r, 1).numFmt = 'DD-MMM-YYYY';
 
-                // Hours = duration from Time From → Time To (supports overnight)
                 const hf = ws.getCell(r, hoursCol);
                 hf.value = {
                     formula: `IF(OR(H${r}="",I${r}=""),"",ROUND(IF(I${r}>=H${r},(I${r}-H${r})*24,(1+I${r}-H${r})*24),2))`,
                 };
                 hf.numFmt = '0.00';
-                hf.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+                hf.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUM_FILL } };
                 hf.font = { bold: true, color: { argb: 'FF92400E' }, size: 10 };
-                hf.protection = { locked: true };
 
-                // OT Check — under 8h does not qualify for overtime
+                // Rate Check: 3X only if date is on Holidays sheet
                 const ck = ws.getCell(r, checkCol);
                 ck.value = {
-                    formula: `IF(J${r}="","",IF(J${r}<8,"Does not qualify for OT — under 8 hours (complete mandatory 8h duty first)","OK — confirm weekday OT starts at/after 5:00 PM"))`,
+                    formula: `IF(OR(A${r}="",L${r}=""),"",IF(AND(OR(UPPER(TRIM(L${r}))="3X",UPPER(TRIM(L${r}))="TRIPLE",LEFT(UPPER(TRIM(L${r})),1)="3"),COUNTIF(Holidays!$A:$A,A${r})=0),"3× not allowed — not a gazetted holiday. Use 2×.","OK"))`,
                 };
                 ck.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LOCK_FILL } };
                 ck.font = { size: 9, color: { argb: 'FF334155' } };
@@ -675,10 +747,10 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
                 ws.getCell(r, multCol).dataValidation = {
                     type: 'list',
                     allowBlank: true,
-                    formulae: ['"Single,Double,Triple"'],
+                    formulae: ['"1X,2X,3X"'],
                     showErrorMessage: true,
                     errorTitle: 'OT Rate',
-                    error: 'Choose Single, Double, or Triple',
+                    error: 'Choose 1X, 2X, or 3X',
                 };
 
                 row.height = 20;
@@ -686,26 +758,45 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
             }
         }
 
-        if (r > 4) {
-            const last = r - 1;
+        const last = Math.max(firstData, r - 1);
+
+        // Top summary: 1X / 2X / 3X hours
+        ws.getCell(3, 1).value = 'TOTAL OT HOURS (auto)';
+        ws.getCell(3, 1).font = { bold: true, size: 10, color: { argb: 'FF92400E' } };
+        const summaries = [
+            [3, '1X hrs', `SUMIF(L${firstData}:L${last},"1X",J${firstData}:J${last})+SUMIF(L${firstData}:L${last},"Single",J${firstData}:J${last})`],
+            [5, '2X hrs', `SUMIF(L${firstData}:L${last},"2X",J${firstData}:J${last})+SUMIF(L${firstData}:L${last},"Double",J${firstData}:J${last})`],
+            [7, '3X hrs', `SUMIF(L${firstData}:L${last},"3X",J${firstData}:J${last})+SUMIF(L${firstData}:L${last},"Triple",J${firstData}:J${last})`],
+        ];
+        summaries.forEach(([col, label, formula]) => {
+            ws.getCell(3, col).value = label;
+            ws.getCell(3, col).font = { bold: true, size: 10 };
+            const c = ws.getCell(3, col + 1);
+            c.value = { formula };
+            c.numFmt = '0.00';
+            c.font = { bold: true, size: 12, color: { argb: 'FF92400E' } };
+        });
+        ws.getRow(3).height = 22;
+
+        if (last >= firstData) {
             ws.addConditionalFormatting({
-                ref: `J4:J${last}`,
+                ref: `K${firstData}:K${last}`,
                 rules: [{
                     type: 'expression',
-                    formulae: [`AND(ISNUMBER(J4),J4>0,J4<8)`],
+                    formulae: [`ISNUMBER(SEARCH("not allowed",K${firstData}))`],
                     style: {
-                        fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFECACA' } },
+                        fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: WARN_FILL } },
                         font: { bold: true, color: { argb: 'FF991B1B' } },
                     },
                 }],
             });
             ws.addConditionalFormatting({
-                ref: `K4:K${last}`,
+                ref: `L${firstData}:L${last}`,
                 rules: [{
                     type: 'expression',
-                    formulae: [`ISNUMBER(SEARCH("Does not qualify",K4))`],
+                    formulae: [`ISNUMBER(SEARCH("not allowed",K${firstData}))`],
                     style: {
-                        fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFECACA' } },
+                        fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: WARN_FILL } },
                         font: { bold: true, color: { argb: 'FF991B1B' } },
                     },
                 }],
@@ -714,9 +805,9 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
         return ws;
     }
 
-    addOvertimeSheet(2);
-    addDataSheet('Expense Claims', EXP_HEADERS, 2, [1, 2, 3, 4, 5]);
-    addDataSheet('Medical & IPD Claims', MED_HEADERS, 2, [1, 2, 3, 4, 5]);
+    addOvertimeSheet(slots);
+    addDataSheet('Expense Claims', EXP_HEADERS, slots, [1, 2, 3, 4, 5], 'I');
+    addDataSheet('Medical & IPD Claims', MED_HEADERS, slots, [1, 2, 3, 4, 5], 'J');
 
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf);
@@ -738,6 +829,7 @@ function buildPersonalizedClaimsWorkbookFallback(employees, opts = {}) {
     const monthLabel = claimMonth && claimYear
         ? `${MONTH_NAMES[claimMonth] || claimMonth} ${claimYear}`
         : 'this claim month';
+    const slots = opts.slotsPerEmp || SLOTS_PER_EMP;
 
     const wb = XLSX.utils.book_new();
     const note = [
@@ -745,19 +837,21 @@ function buildPersonalizedClaimsWorkbookFallback(employees, opts = {}) {
         [`Claim month: ${monthLabel}`],
         [''],
         ['1. Employee Code and Name are prefilled for YOUR team only. Do not change them.'],
-        ['2. Fill only claim columns (Date, hours/amounts, times, descriptions).'],
-        ['3. Dates: 15-06-2026, 15/06/2026, 15 Jun 2026, or 2026-06-15.'],
-        ['4. Times: 5:00 PM, 17:00, 5pm, or 1700.'],
-        ['5. Weekday OT: Time From/To after the 8-hour shift; Hours = OT only.'],
-        ['6. Older months cannot be submitted here — email claims@asil.com.pk.'],
-        ['7. Attach Expense/Medical supports before Submit. Questions: ops-support@asil.com.pk'],
+        ['2. Overtime: enter Date, Nature, OT Start Time, OT End Time, and OT Rate (1X/2X/3X).'],
+        ['3. OT Start/End = overtime AFTER normal duty — not the full shift clock-in/out.'],
+        ['4. OT Hours = End − Start (calculate yourself if formulas are unavailable). Do not claim shift hours as OT.'],
+        ['5. Use 2X for normal OT (accepted without question). 3X only on gazetted public/festival holidays.'],
+        ['6. Dates: 15-06-2026, 15/06/2026, 15 Jun 2026. Times: 5:00 PM, 17:00, 5pm, or 1700.'],
+        ['7. Older months cannot be submitted here — email claims@asil.com.pk.'],
+        ['8. Attach Expense/Medical supports before Submit. Questions: ops-support@asil.com.pk'],
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(note), 'Instructions');
 
-    function makeSheet(headers, slots) {
+    function makeSheet(headers, slotCount, summaryLabel) {
         const rows = [
             [`ASIL Claims · ${monthLabel}`],
-            ['Prefill = your employees (grey conceptually) · Fill claim columns only'],
+            ['OT Start/End = overtime after duty only · 3× only on gazetted holidays · Prefer 2×'],
+            [summaryLabel || 'Totals appear here when opened in Excel with formulas (download prefers formatted file)'],
             headers,
         ];
         for (const e of list) {
@@ -766,14 +860,14 @@ function buildPersonalizedClaimsWorkbookFallback(employees, opts = {}) {
             const dept = e.dept || '';
             const loc = e.location || '';
             const mgr = e.line_manager_name || e.lineManagerName || '';
-            for (let i = 0; i < slots; i++) {
+            for (let i = 0; i < slotCount; i++) {
                 const row = headers.map((h) => {
                     if (/Employee Code/i.test(h)) return id;
                     if (/Employee Name/i.test(h)) return name;
                     if (/Department/i.test(h)) return dept;
                     if (/Location/i.test(h)) return loc;
                     if (/Line Manager/i.test(h)) return mgr;
-                    if (/Multiplier/i.test(h)) return i === 0 ? 'Double' : '';
+                    if (/OT Rate|Multiplier/i.test(h)) return i === 0 ? '2X' : '';
                     return '';
                 });
                 rows.push(row);
@@ -785,9 +879,21 @@ function buildPersonalizedClaimsWorkbookFallback(employees, opts = {}) {
         return ws;
     }
 
-    XLSX.utils.book_append_sheet(wb, makeSheet(OT_HEADERS, 2), 'Overtime');
-    XLSX.utils.book_append_sheet(wb, makeSheet(EXP_HEADERS, 2), 'Expense Claims');
-    XLSX.utils.book_append_sheet(wb, makeSheet(MED_HEADERS, 2), 'Medical & IPD Claims');
+    XLSX.utils.book_append_sheet(
+        wb,
+        makeSheet(OT_HEADERS, slots, 'TOTAL OT HOURS — fill OT Start/End; hours = End − Start'),
+        'Overtime'
+    );
+    XLSX.utils.book_append_sheet(
+        wb,
+        makeSheet(EXP_HEADERS, slots, 'TOTAL EXPENSE AMOUNT (sum Amount column)'),
+        'Expense Claims'
+    );
+    XLSX.utils.book_append_sheet(
+        wb,
+        makeSheet(MED_HEADERS, slots, 'TOTAL MEDICAL AMOUNT (sum Amount column)'),
+        'Medical & IPD Claims'
+    );
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 

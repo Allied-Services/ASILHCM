@@ -17,9 +17,6 @@ const {
     MONTH_NAMES,
 } = require('./portalExcel');
 
-/** Standard weekday shift end (minutes from midnight) — OT may start at/after this. */
-const WEEKDAY_SHIFT_END_MIN = 17 * 60; // 5:00 PM
-
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '17', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '22', 10);
 const APPROVE_CLOSE_DAY = parseInt(process.env.CLAIMS_APPROVE_CLOSE_DAY || '25', 10);
@@ -30,9 +27,26 @@ const MANUAL_OVERRIDE_NOTIFY = (process.env.CLAIMS_OVERRIDE_NOTIFY_EMAILS
     || 'huzaifa.rafaqat@asil.com.pk,shezad.mumtaz@asil.com.pk')
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
-const OT_MAP = { single: 1, double: 2, triple: 3 };
+const OT_MAP = {
+    single: 1, '1x': 1, '1×': 1, '1': 1,
+    double: 2, '2x': 2, '2×': 2, '2': 2,
+    triple: 3, '3x': 3, '3×': 3, '3': 3,
+};
 
-/** Pakistan gazetted / Eid dates (same policy as Wafi claims). 3× OT only on Eid. */
+function normalizeOtMultiplierLabel(raw) {
+    const s = String(raw || '').toLowerCase().trim();
+    if (!s) return 'Double';
+    if (s.includes('triple') || s === '3' || s === '3x' || s === '3×' || s === '3.0') return 'Triple';
+    if (s.includes('single') || s === '1' || s === '1x' || s === '1×' || s === '1.0') return 'Single';
+    if (s.includes('double') || s === '2' || s === '2x' || s === '2×' || s === '2.0') return 'Double';
+    return String(raw || 'Double').trim();
+}
+
+/**
+ * Pakistan gazetted / festival holidays.
+ * Factories Act practice: OT beyond normal hours = Double (2×);
+ * work on gazetted public/festival holidays = Triple (3×) / 300% treatment.
+ */
 const PK_PUBLIC_HOLIDAYS = {
     '2025-02-05': { name: 'Kashmir Solidarity Day', isEid: false },
     '2025-03-23': { name: 'Pakistan Day', isEid: false },
@@ -99,10 +113,14 @@ function getPkDateType(date) {
     const d = String(date.getDate()).padStart(2, '0');
     const dateStr = `${y}-${mo}-${d}`;
     const holiday = PK_PUBLIC_HOLIDAYS[dateStr];
-    if (holiday) return { type: holiday.isEid ? 'EID' : 'HOLIDAY', name: holiday.name, dateStr };
+    if (holiday) return { type: holiday.isEid ? 'EID' : 'HOLIDAY', name: holiday.name, dateStr, isGazetted: true };
     const dow = date.getDay();
-    if (dow === 0) return { type: 'SUNDAY', name: 'Sunday', dateStr };
-    return { type: 'WEEKDAY', name: WEEKDAY_NAMES[dow], dateStr };
+    if (dow === 0) return { type: 'SUNDAY', name: 'Sunday', dateStr, isGazetted: false };
+    return { type: 'WEEKDAY', name: WEEKDAY_NAMES[dow], dateStr, isGazetted: false };
+}
+
+function listGazettedHolidayDates() {
+    return Object.keys(PK_PUBLIC_HOLIDAYS).sort();
 }
 
 function pktNow() {
@@ -203,96 +221,75 @@ function validateOtRow(row, period = null) {
     errors.push(...dateCheck.errors);
     const iso = dateCheck.iso;
     const niceDate = dateCheck.nice || (iso ? formatDateDdMonYyyy(iso) : '');
-    const hours = parseFloat(row.ot_hours);
-    const multRaw = String(row.ot_multiplier || 'Double').trim();
-    const mult = multRaw.toLowerCase();
+
+    const tf = String(row.time_from || '').trim();
+    const tt = String(row.time_to || '').trim();
+    let hours = parseAmount(row.ot_hours);
+    const fromMin = parseTimeToMinutes(tf);
+    const toMin = parseTimeToMinutes(tt);
+    const span = hoursBetween(fromMin, toMin);
+
+    if (!tf || !tt) {
+        errors.push(
+            `OT Start and OT End are required${niceDate ? ` for ${niceDate}` : ''}. `
+            + 'Enter only the overtime period after normal duty hours (not the full shift start/end).'
+        );
+    } else if (fromMin == null || toMin == null) {
+        const bad = fromMin == null ? tf : tt;
+        errors.push(`Could not read time "${bad}"${niceDate ? ` on ${niceDate}` : ''}. Try 5:00 PM, 17:00, 5pm, or 1700.`);
+    } else if (span != null) {
+        if (!Number.isFinite(hours) || hours <= 0) hours = span;
+        else if (Math.abs(span - hours) > 0.51) {
+            errors.push(
+                `OT hours (${hours}) do not match OT Start→End (${span}h)${niceDate ? ` on ${niceDate}` : ''}. `
+                + 'Leave OT Hours blank — it is calculated automatically from OT Start and OT End.'
+            );
+        }
+    }
+
     if (!Number.isFinite(hours) || hours <= 0) {
         errors.push(
-            row.ot_hours == null || row.ot_hours === ''
-                ? `OT hours are missing${niceDate ? ` for ${niceDate}` : ''}. Enter overtime hours only (after the 8-hour shift on weekdays).`
-                : `OT hours "${row.ot_hours}"${niceDate ? ` on ${niceDate}` : ''} is not valid. Enter a number such as 2 or 2.5.`
+            `OT hours could not be calculated${niceDate ? ` for ${niceDate}` : ''}. `
+            + 'Check OT Start and OT End (overtime period only, after normal duty).'
         );
     }
-    if (!OT_MAP[mult]) {
-        errors.push(`OT rate "${multRaw}" is not valid. Choose Single (1×), Double (2×), or Triple (3×).`);
+
+    const multLabel = normalizeOtMultiplierLabel(row.ot_multiplier || 'Double');
+    const multKey = multLabel.toLowerCase();
+    const factor = OT_MAP[multKey] || OT_MAP[String(row.ot_multiplier || '').toLowerCase().trim()] || null;
+    if (!factor) {
+        errors.push(`OT rate "${row.ot_multiplier}" is not valid. Choose 1X (Single), 2X (Double), or 3X (Triple).`);
     }
 
-    if (iso && Number.isFinite(hours) && hours > 0 && OT_MAP[mult]) {
+    if (iso && Number.isFinite(hours) && hours > 0 && factor) {
         const d = parseLocalDate(iso);
         const dateType = getPkDateType(d);
-        const isWeekday = dateType && dateType.type === 'WEEKDAY';
         const dayLabel = `${niceDate}${dateType ? ` (${dateType.name})` : ''}`;
 
-        if (dateType) {
-            if (mult === 'triple' && dateType.type !== 'EID') {
-                if (isWeekday) {
-                    errors.push(
-                        `On weekday ${dayLabel}, Triple (3×) overtime is not allowed under applicable rules. `
-                        + 'Only Double (2×) can be applied. Triple (3×) is reserved for gazetted Eid holidays only. '
-                        + 'Please change the rate to Double (2×).'
-                    );
-                } else {
-                    errors.push(
-                        `Triple (3×) OT is only allowed on gazetted Eid days. ${dayLabel} is not Eid — only Double (2×) can be applied.`
-                    );
-                }
-            }
-            if (mult === 'single' && (dateType.type === 'SUNDAY' || dateType.type === 'HOLIDAY' || dateType.type === 'EID')) {
-                errors.push(
-                    `Single (1×) is not allowed on ${dayLabel}. Use Double (2×), or Triple (3×) on Eid only.`
-                );
-            }
+        // Triple (3×) only on gazetted public/festival holidays
+        if (factor === 3 && dateType && !dateType.isGazetted) {
+            errors.push(
+                `Triple (3×) cannot be paid on ${dayLabel}. `
+                + 'Under applicable Pakistan labour practice, 3× applies on gazetted public/festival holidays only. '
+                + 'Please change the rate to Double (2×). Double (2×) is accepted without issue for OT after normal duty.'
+            );
         }
-
-        if (isWeekday) {
-            const tf = String(row.time_from || '').trim();
-            const tt = String(row.time_to || '').trim();
-            if (!tf || !tt) {
-                errors.push(
-                    `On weekday ${dayLabel}, enter Time From and Time To for OT after completing the mandatory 8-hour duty `
-                    + '(example: 5:00 PM to 8:00 PM). Hours Worked must be OT hours only.'
-                );
-            } else {
-                const fromMin = parseTimeToMinutes(tf);
-                const toMin = parseTimeToMinutes(tt);
-                if (fromMin == null || toMin == null) {
-                    const bad = fromMin == null ? tf : tt;
-                    errors.push(
-                        `Could not read time "${bad}" on ${dayLabel}. Try 5:00 PM, 17:00, 5pm, or 1700.`
-                    );
-                } else {
-                    const span = hoursBetween(fromMin, toMin);
-                    // OT must start after standard 8-hour shift end (5:00 PM). Earlier = still within regular duty.
-                    if (fromMin < WEEKDAY_SHIFT_END_MIN) {
-                        errors.push(
-                            `On weekday ${dayLabel}, overtime is allowed only after completing the mandatory 8 hours duty. `
-                            + `Time From (${tf}) is still within the regular shift (OT may start from 5:00 PM onward). `
-                            + 'The hours entered do not qualify for overtime.'
-                        );
-                    }
-                    // Claiming a block shorter than 8h that begins before shift end = incomplete duty as OT
-                    if (fromMin < WEEKDAY_SHIFT_END_MIN && span != null && span < 8) {
-                        // already covered above; keep single clear message
-                    }
-                    if (span != null && Math.abs(span - hours) > 0.51) {
-                        errors.push(
-                            `On ${dayLabel}, OT hours (${hours}) do not match Time From→To (${span}h). `
-                            + 'Please correct the hours or the times so they agree.'
-                        );
-                    }
-                }
-            }
-            if (hours > 8) {
-                errors.push(
-                    `On weekday ${dayLabel}, you cannot claim more than 8 OT hours in one day. `
-                    + 'Enter only overtime after the standard shift — not total hours worked.'
-                );
-            }
+        if (factor === 1 && dateType && (dateType.type === 'SUNDAY' || dateType.isGazetted)) {
+            errors.push(
+                `Single (1×) is not allowed on ${dayLabel}. Use Double (2×), or Triple (3×) on a gazetted holiday.`
+            );
         }
-
-        if (hours > 6) warnings.push(`High OT: ${hours}h on ${niceDate} — please confirm this is correct`);
+        if (hours > 12) warnings.push(`High OT: ${hours}h on ${niceDate} — Line Manager should confirm`);
     }
-    return { errors, warnings, factor: OT_MAP[mult] || null, claim_date: iso };
+
+    return {
+        errors,
+        warnings,
+        factor,
+        claim_date: iso,
+        ot_hours: Number.isFinite(hours) && hours > 0 ? hours : null,
+        ot_multiplier: factor ? multLabel : null,
+    };
 }
 
 function validateExpenseOrMedicalRow(row, period, kind) {
@@ -518,7 +515,7 @@ function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail, emplo
       <li>Line Manager approves or rejects (deadline day ${APPROVE_CLOSE_DAY}).</li>
       <li>You get an email when a decision is made.</li>
       <li>Approved amounts go into payroll for <strong>${settleLabel}</strong> (paid with the <strong>following month’s</strong> salary).</li>
-      <li><strong>OT tip:</strong> on weekdays claim only hours after the standard 8-hour shift (with Time From / Time To). Double (2×) for most days; Triple (3×) only on gazetted <strong>Eid</strong> days.</li>
+      <li><strong>OT tip:</strong> enter <strong>OT Start / OT End</strong> for overtime after normal duty (not the full shift). Prefer <strong>2×</strong>; <strong>3×</strong> only on gazetted public/festival holidays.</li>
     </ul>
     <p style="margin:0 0 18px">
       <a href="${link}" style="display:inline-block;background:#2563eb;color:#fff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">Open claims form</a>
@@ -701,8 +698,8 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
                 normalized.push({
                     claim_type: 'OT',
                     claim_date: v.claim_date,
-                    ot_hours: parseFloat(raw.ot_hours),
-                    ot_multiplier: raw.ot_multiplier || 'Double',
+                    ot_hours: v.ot_hours,
+                    ot_multiplier: v.ot_multiplier || 'Double',
                     ot_multiplier_factor: v.factor,
                     description: raw.nature || raw.description || null,
                     time_from: raw.time_from || null,
@@ -999,6 +996,7 @@ async function buildPersonalizedTemplateForToken(pool, token) {
         claimMonth: batch.claim_month,
         claimYear: batch.claim_year,
         templatePath: getMasterClaimsTemplatePath(),
+        holidayDates: listGazettedHolidayDates(),
     };
     let buf;
     try {
@@ -1726,6 +1724,7 @@ module.exports = {
     findPeriodForUi,
     periodWindow,
     validateOtRow,
+    listGazettedHolidayDates,
     APPROVER_NOTIFY_MODE,
     MANUAL_OVERRIDE_NOTIFY,
     resetPortalClaimsSample,

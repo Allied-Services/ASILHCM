@@ -261,19 +261,21 @@ export default function ClaimsFillPage() {
               <Section title="1. Overtime">
                 <Hint>
                   Only dates in claim month <strong>{data.period.claim_month}/{data.period.claim_year}</strong> are accepted.
-                  Weekday OT needs <strong>Time From / Time To</strong> after the 8-hour shift; Hours = OT only.
-                  Usually <strong>Double (2×)</strong>. <strong>Triple (3×)</strong> only on gazetted Eid days.
+                  Enter <strong>OT Start / OT End</strong> for overtime <em>after</em> normal duty — not the full shift clock-in/out.
+                  Hours = End − Start. Prefer <strong>2×</strong> (accepted without question). <strong>3×</strong> only on gazetted public/festival holidays.
                   Prior months: email <strong>claims@asil.com.pk</strong>.
                 </Hint>
                 {otRows.map((row, i) => (
                   <Row key={i}>
                     <Field label="Date"><input type="date" disabled={locked || fillClosed} value={row.claim_date} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, claim_date: e.target.value } : r))} style={inp} /></Field>
-                    <Field label="Time From"><input disabled={locked || fillClosed} placeholder="e.g. 05:00 PM" value={row.time_from || ''} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, time_from: e.target.value } : r))} style={inp} /></Field>
-                    <Field label="Time To"><input disabled={locked || fillClosed} placeholder="e.g. 08:00 PM" value={row.time_to || ''} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, time_to: e.target.value } : r))} style={inp} /></Field>
-                    <Field label="OT Hours"><input disabled={locked || fillClosed} value={row.ot_hours} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, ot_hours: e.target.value } : r))} style={inp} /></Field>
+                    <Field label="OT Start Time"><input disabled={locked || fillClosed} placeholder="e.g. 05:00 PM" value={row.time_from || ''} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, time_from: e.target.value } : r))} style={inp} /></Field>
+                    <Field label="OT End Time"><input disabled={locked || fillClosed} placeholder="e.g. 08:00 PM" value={row.time_to || ''} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, time_to: e.target.value } : r))} style={inp} /></Field>
+                    <Field label="OT Hours (auto)"><input disabled={locked || fillClosed} placeholder="from Start→End" value={row.ot_hours} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, ot_hours: e.target.value } : r))} style={inp} /></Field>
                     <Field label="Rate">
                       <select disabled={locked || fillClosed} value={row.ot_multiplier} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, ot_multiplier: e.target.value } : r))} style={inp}>
-                        <option>Single</option><option>Double</option><option>Triple</option>
+                        <option value="Single">1X (Single)</option>
+                        <option value="Double">2X (Double)</option>
+                        <option value="Triple">3X (Triple)</option>
                       </select>
                     </Field>
                     <Field label="Nature of work"><input disabled={locked || fillClosed} value={row.nature} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, nature: e.target.value } : r))} style={inp} /></Field>
