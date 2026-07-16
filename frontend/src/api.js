@@ -66,10 +66,29 @@ export const api = {
     importMasterRoster: (data) => apiFetch('/api/employees/import', { method: 'POST', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
 
     // ── Clients ───────────────────────────────────────────────────────────────
-    getClients: () => apiFetch('/api/clients'),
+    getClients: (opts = {}) => {
+        const q = opts.all ? '?all=true' : '';
+        return apiFetch(`/api/clients${q}`);
+    },
     createClient: (data) => apiFetch('/api/clients', { method: 'POST', body: JSON.stringify(data) }),
     updateClient: (id, data) => apiFetch(`/api/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteClient: (id) => apiFetch(`/api/clients/${id}`, { method: 'DELETE' }),
+    getClientBus: (clientId) => apiFetch(`/api/clients/${clientId}/bus`),
+    getClientLocations: (clientId, q = {}) => {
+        const qs = new URLSearchParams(Object.fromEntries(Object.entries(q).filter(([, v]) => v != null && v !== ''))).toString();
+        return apiFetch(`/api/clients/${clientId}/locations${qs ? `?${qs}` : ''}`);
+    },
+    createClientLocation: (clientId, data) => apiFetch(`/api/clients/${clientId}/locations`, { method: 'POST', body: JSON.stringify(data) }),
+    updateClientLocation: (clientId, locId, data) => apiFetch(`/api/clients/${clientId}/locations/${locId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteClientLocation: (clientId, locId) => apiFetch(`/api/clients/${clientId}/locations/${locId}`, { method: 'DELETE' }),
+    getClientDepartments: (clientId, q = {}) => {
+        const qs = new URLSearchParams(Object.fromEntries(Object.entries(q).filter(([, v]) => v != null && v !== ''))).toString();
+        return apiFetch(`/api/clients/${clientId}/departments${qs ? `?${qs}` : ''}`);
+    },
+    createClientDepartment: (clientId, data) => apiFetch(`/api/clients/${clientId}/departments`, { method: 'POST', body: JSON.stringify(data) }),
+    updateClientDepartment: (clientId, deptId, data) => apiFetch(`/api/clients/${clientId}/departments/${deptId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteClientDepartment: (clientId, deptId) => apiFetch(`/api/clients/${clientId}/departments/${deptId}`, { method: 'DELETE' }),
+    seedClientOrg: (clientId) => apiFetch(`/api/clients/${clientId}/org-seed`, { method: 'POST', body: '{}' }),
 
     // ── Contracts ─────────────────────────────────────────────────────────────
     getContracts: () => {
@@ -260,7 +279,6 @@ export const api = {
     removeTeamMember:    (id)         => apiFetch(`/api/attendance/teams/${id}`, { method: 'DELETE' }),
 
     // ── Employee Change Requests (portal → office approval) ───────────────────
-    // Called from EmployeePortal.jsx using a portal token (not the main HCM token)
     portalSubmitChangeRequest: (portalToken, fieldName, newValue) => {
         const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
         return fetch(`${API_URL}/api/portal/change-request`, {
@@ -274,6 +292,30 @@ export const api = {
         return fetch(`${API_URL}/api/portal/my-requests`, {
             headers: { Authorization: `Bearer ${portalToken}` },
         }).then(r => r.json());
+    },
+    portalUploadPhoto: async (portalToken, file) => {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        const fd = new FormData();
+        fd.append('photo', file);
+        const res = await fetch(`${API_URL}/api/portal/me/photo`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${portalToken}` },
+            body: fd,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Photo upload failed');
+        return data;
+    },
+    portalDeletePhoto: (portalToken) => {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        return fetch(`${API_URL}/api/portal/me/photo`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${portalToken}` },
+        }).then(r => r.json());
+    },
+    portalPhotoUrl: (portalToken) => {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        return `${API_URL}/api/portal/me/photo?t=${Date.now()}&auth=bearer`;
     },
     // Called from EmployeeInformation.jsx with the normal HCM staff token
     getChangeRequests:   (status = 'Pending') => apiFetch(`/api/change-requests?status=${status}`),

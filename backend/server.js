@@ -18,6 +18,15 @@ const { startOperationsScheduler } = require('./operationsScheduler');
 const { sendJazzSMS, sendJazzOtpSMS, normalisePhone } = require('./lib/sms');
 const { isJazzProxyConfigured } = require('./lib/jazz_http_transport');
 const { canApproveBill } = require('./src/modules/procurement/service');
+const {
+    isValidEmail,
+    maskEmail,
+    maskPhone,
+    getPortalChangeSettings,
+    ensurePortalChangeSettings,
+    canApproveChangeRequest,
+    CHANGE_QUEUE_ROLES,
+} = require('./src/modules/portal/essHelpers');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -43,10 +52,13 @@ const resend = new Resend(process.env.RESEND_API_KEY || '');
 const EMAIL_FROM = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
 
 async function sendAppEmail({ to, subject, html }) {
-    const recipients = Array.isArray(to) ? to : [to];
-    if (!process.env.RESEND_API_KEY || !recipients.length) return;
+    const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
+    if (!process.env.RESEND_API_KEY || !recipients.length) {
+        return { skipped: true, reason: 'missing_key_or_recipients' };
+    }
     try {
-        await resend.emails.send({ from: EMAIL_FROM, to: recipients, subject, html });
+        const result = await resend.emails.send({ from: EMAIL_FROM, to: recipients, subject, html });
+        return { ok: true, result };
     } catch (err) {
         console.error('[sendAppEmail]', err);
         throw err;
@@ -144,8 +156,12 @@ passport.use(new GoogleStrategy({
 const requireAuth = (req, res, next) => {
     const auth = req.headers.authorization;
     if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
-    try { req.user = jwt.verify(auth.slice(7), JWT_SECRET); next(); }
-    catch { res.status(401).json({ error: 'Token expired' }); }
+    try {
+        const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+        if (payload.portal) return res.status(403).json({ error: 'Portal tokens cannot access staff APIs' });
+        req.user = payload;
+        next();
+    } catch { res.status(401).json({ error: 'Token expired' }); }
 };
 
 // Require one of the listed roles (superadmin always passes)
@@ -1373,6 +1389,7 @@ app.delete('/api/bills/:id', requireAuth, async (req, res) => {
 
 const clientFromDb = (r) => ({
     id: r.id, name: r.name, hq: r.hq, ntn: r.ntn, strn: r.strn, industry: r.industry,
+    asilBu: r.asil_bu || '',
     isActive: r.is_active !== false,  // default true for old rows without the column
     contacts: r.contacts || [],
     contracts: [],  // loaded separately
@@ -1409,12 +1426,13 @@ app.get('/api/clients', requireAuth, async (req, res) => {
 
 app.post('/api/clients', requireAuth, async (req, res) => {
     try {
-        const { name, hq, ntn, strn, industry, contacts = [] } = req.body;
+        await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS asil_bu TEXT`).catch(() => {});
+        const { name, hq, ntn, strn, industry, contacts = [], asilBu } = req.body;
         const id = req.body.id || `CLT-${Date.now()}`;
         const { rows } = await pool.query(
-            `INSERT INTO clients (id,name,hq,ntn,strn,industry,contacts) VALUES ($1,$2,$3,$4,$5,$6,$7)
-             ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,hq=EXCLUDED.hq,ntn=EXCLUDED.ntn,strn=EXCLUDED.strn,industry=EXCLUDED.industry,contacts=EXCLUDED.contacts RETURNING *`,
-            [id, name, hq || null, ntn || null, strn || null, industry || null, JSON.stringify(contacts)]
+            `INSERT INTO clients (id,name,hq,ntn,strn,industry,contacts,asil_bu) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+             ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,hq=EXCLUDED.hq,ntn=EXCLUDED.ntn,strn=EXCLUDED.strn,industry=EXCLUDED.industry,contacts=EXCLUDED.contacts,asil_bu=COALESCE(EXCLUDED.asil_bu,clients.asil_bu) RETURNING *`,
+            [id, name, hq || null, ntn || null, strn || null, industry || null, JSON.stringify(contacts), asilBu || null]
         );
         res.json({ client: { ...clientFromDb(rows[0]), contracts: [] } });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1422,10 +1440,11 @@ app.post('/api/clients', requireAuth, async (req, res) => {
 
 app.put('/api/clients/:id', requireAuth, async (req, res) => {
     try {
-        const { name, hq, ntn, strn, industry, contacts = [] } = req.body;
+        await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS asil_bu TEXT`).catch(() => {});
+        const { name, hq, ntn, strn, industry, contacts = [], asilBu } = req.body;
         const { rows } = await pool.query(
-            `UPDATE clients SET name=$1,hq=$2,ntn=$3,strn=$4,industry=$5,contacts=$6 WHERE id=$7 RETURNING *`,
-            [name, hq || null, ntn || null, strn || null, industry || null, JSON.stringify(contacts), req.params.id]
+            `UPDATE clients SET name=$1,hq=$2,ntn=$3,strn=$4,industry=$5,contacts=$6,asil_bu=COALESCE($8,asil_bu) WHERE id=$7 RETURNING *`,
+            [name, hq || null, ntn || null, strn || null, industry || null, JSON.stringify(contacts), req.params.id, asilBu || null]
         );
         if (!rows.length) return res.status(404).json({ error: 'Not found' });
 
@@ -2118,7 +2137,26 @@ app.delete('/api/invoices/:id', requireAuth, requireRole('superadmin'), async (r
 // PAYSLIP GENERATION
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
-app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) => {
+// Staff or own-portal payslip access
+const requirePayslipAuth = (req, res, next) => {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+        if (payload.portal) {
+            const requested = decodeURIComponent(req.params.employeeId);
+            if (String(payload.employeeId) !== String(requested)) {
+                return res.status(403).json({ error: 'You can only view your own payslip' });
+            }
+            req.user = payload;
+            return next();
+        }
+        req.user = payload;
+        next();
+    } catch { res.status(401).json({ error: 'Token expired' }); }
+};
+
+app.get('/api/payslip/:employeeId/:month/:year', requirePayslipAuth, async (req, res) => {
     try {
         const employeeId = decodeURIComponent(req.params.employeeId);
         const { month, year } = req.params;
@@ -2366,36 +2404,137 @@ app.post('/api/sms/payroll-batch', requireAuth, async (req, res) => {
 // EMPLOYEE PORTAL — OTP LOGIN + SELF-SERVICE
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
-// Request OTP — looks up employee by phone, sends OTP via Jazz SMS
+async function lookupPortalEmployee({ phone, employeeId, forceEmployeeId }) {
+    if (employeeId) {
+        const { rows } = await pool.query(
+            `SELECT id, name, email, primary_contact FROM employees WHERE id=$1 AND active='Yes'`,
+            [String(employeeId).trim()]
+        );
+        return rows;
+    }
+    if (!phone) return [];
+    const p = normalisePhone(phone);
+    const { rows } = await pool.query(
+        `SELECT id, name, email, primary_contact FROM employees
+         WHERE regexp_replace(COALESCE(primary_contact,''),'\\D','','g') = $1 AND active='Yes'`,
+        [p]
+    );
+    if (rows.length > 1 && !forceEmployeeId) {
+        const err = new Error('MULTIPLE_MATCH');
+        err.employees = rows.map(r => ({ id: r.id, name: r.name }));
+        throw err;
+    }
+    return rows;
+}
+
+async function persistAndSendPortalOtp(emp, { preferSms = false } = {}) {
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const phoneNorm = normalisePhone(emp.primary_contact || '');
+    const email = String(emp.email || '').trim();
+    const canEmail = isValidEmail(email);
+
+    let channel = 'sms';
+    let destination = phoneNorm;
+    let fallbackReason = null;
+
+    if (!preferSms && canEmail) {
+        try {
+            const mailResult = await sendAppEmail({
+                to: email,
+                subject: 'ASIL Employee Portal login code',
+                html: `<p>Your ASIL Employee Portal login code is <strong>${otp}</strong>.</p>
+                       <p>Valid for 10 minutes. Do not share this code.</p>
+                       <p style="color:#64748b;font-size:12px;">Allied Services International (Pvt.) Ltd.</p>`,
+            });
+            if (mailResult?.ok) {
+                channel = 'email';
+                destination = email.toLowerCase();
+            } else {
+                fallbackReason = mailResult?.reason || 'email_skipped';
+            }
+        } catch (err) {
+            fallbackReason = err.message || 'email_send_failed';
+            console.warn('[portal OTP] email failed, falling back to SMS:', fallbackReason);
+        }
+    } else if (!canEmail) {
+        fallbackReason = 'no_email';
+    }
+
+    if (channel !== 'email') {
+        if (!phoneNorm) {
+            return { error: 'No phone on file and email OTP unavailable', status: 422 };
+        }
+        const message = `Your ASIL HCM login code is: ${otp}. Valid for 10 minutes. Do not share this code.`;
+        const smsResult = await sendJazzOtpSMS(phoneNorm, message);
+        if (!smsResult.ok) {
+            return { error: 'Failed to send OTP SMS', detail: smsResult.response, status: 502 };
+        }
+        channel = 'sms';
+        destination = phoneNorm;
+    }
+
+    await pool.query(
+        `INSERT INTO portal_otps (phone, otp, expires_at, channel, destination, employee_id)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [phoneNorm || emp.id, otp, expiresAt, channel, destination, emp.id]
+    );
+
+    return {
+        ok: true,
+        channel,
+        destinationMasked: channel === 'email' ? maskEmail(destination) : maskPhone(destination),
+        fallbackReason: channel === 'sms' ? fallbackReason : null,
+        fallbackAvailable: !!phoneNorm,
+        employeeName: emp.name,
+        employeeId: emp.id,
+    };
+}
+
+// Request OTP — email first, SMS fallback. Lookup by employeeId or phone.
 app.post('/api/portal/request-otp', portalOtpLimiter, async (req, res) => {
     try {
-        const { phone } = req.body;
-        if (!phone) return res.status(400).json({ error: 'Phone number required' });
-        const p = normalisePhone(phone);
+        const { phone, employeeId, preferSms } = req.body || {};
+        if (!phone && !employeeId) {
+            return res.status(400).json({ error: 'Employee code or phone number required' });
+        }
 
-        // Find employee with this phone
-        const { rows } = await pool.query(
-            `SELECT id, name FROM employees WHERE regexp_replace(primary_contact,'\\D','','g') = $1 AND active='Yes'`,
-            [p]
-        );
-        if (!rows.length) return res.status(404).json({ error: 'No active employee found with this phone number' });
+        let rows;
+        try {
+            rows = await lookupPortalEmployee({ phone, employeeId, forceEmployeeId: !!employeeId });
+        } catch (err) {
+            if (err.message === 'MULTIPLE_MATCH') {
+                return res.status(409).json({
+                    error: 'Multiple employees share this phone. Enter your Employee Code.',
+                    employees: err.employees,
+                });
+            }
+            throw err;
+        }
 
-        // Generate 6-digit OTP
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+        if (!rows.length) {
+            return res.status(404).json({ error: 'No active employee found with this phone number or employee code' });
+        }
 
-        // Save OTP
-        await pool.query(
-            `INSERT INTO portal_otps (phone, otp, expires_at) VALUES ($1,$2,$3)`,
-            [p, otp, expiresAt]
-        );
+        const result = await persistAndSendPortalOtp(rows[0], { preferSms: !!preferSms });
+        if (result.error) return res.status(result.status || 500).json({ error: result.error, detail: result.detail });
 
-        // Send via Jazz SMS
-        const message = `Your ASIL HCM login code is: ${otp}. Valid for 10 minutes. Do not share this code.`;
-        const smsResult = await sendJazzOtpSMS(p, message);
-        if (!smsResult.ok) return res.status(502).json({ error: 'Failed to send OTP SMS', detail: smsResult.response });
+        const msg = result.channel === 'email'
+            ? `OTP sent to ${result.destinationMasked}`
+            : (result.fallbackReason && result.fallbackReason !== 'no_email'
+                ? `Could not email you — OTP sent by SMS to ${result.destinationMasked}`
+                : `OTP sent to ${result.destinationMasked}`);
 
-        res.json({ ok: true, message: `OTP sent to ${p.slice(0,5)}****${p.slice(-2)}`, employeeName: rows[0].name });
+        res.json({
+            ok: true,
+            message: msg,
+            channel: result.channel,
+            destinationMasked: result.destinationMasked,
+            fallbackReason: result.fallbackReason,
+            fallbackAvailable: result.fallbackAvailable,
+            employeeName: result.employeeName,
+            employeeId: result.employeeId,
+        });
     } catch (err) {
         console.error('[POST /api/portal/request-otp]', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -2405,33 +2544,67 @@ app.post('/api/portal/request-otp', portalOtpLimiter, async (req, res) => {
 // Verify OTP — returns portal JWT
 app.post('/api/portal/verify-otp', async (req, res) => {
     try {
-        const { phone, otp } = req.body;
-        const p = normalisePhone(phone || '');
+        const { phone, employeeId, otp } = req.body || {};
+        if (!otp) return res.status(400).json({ error: 'OTP required' });
 
-        const { rows: otpRows } = await pool.query(
-            `SELECT * FROM portal_otps WHERE phone=$1 AND otp=$2 AND used=FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
-            [p, otp]
-        );
+        let otpRows = [];
+        if (employeeId) {
+            const r = await pool.query(
+                `SELECT * FROM portal_otps
+                 WHERE employee_id=$1 AND otp=$2 AND used=FALSE AND expires_at > NOW()
+                 ORDER BY created_at DESC LIMIT 1`,
+                [String(employeeId).trim(), otp]
+            );
+            otpRows = r.rows;
+        }
+        if (!otpRows.length && phone) {
+            const p = normalisePhone(phone);
+            const r = await pool.query(
+                `SELECT * FROM portal_otps
+                 WHERE phone=$1 AND otp=$2 AND used=FALSE AND expires_at > NOW()
+                 ORDER BY created_at DESC LIMIT 1`,
+                [p, otp]
+            );
+            otpRows = r.rows;
+        }
         if (!otpRows.length) return res.status(401).json({ error: 'Invalid or expired OTP' });
 
-        // Mark as used
         await pool.query('UPDATE portal_otps SET used=TRUE WHERE id=$1', [otpRows[0].id]);
 
-        // Find employee
-        const { rows: empRows } = await pool.query(
-            `SELECT id, name, designation, client, location FROM employees WHERE regexp_replace(primary_contact,'\\D','','g') = $1 AND active='Yes'`,
-            [p]
-        );
+        const empId = otpRows[0].employee_id;
+        let empRows;
+        if (empId) {
+            empRows = (await pool.query(
+                `SELECT id, name, designation, client, location FROM employees WHERE id=$1 AND active='Yes'`,
+                [empId]
+            )).rows;
+        } else {
+            const p = otpRows[0].phone;
+            empRows = (await pool.query(
+                `SELECT id, name, designation, client, location FROM employees
+                 WHERE regexp_replace(COALESCE(primary_contact,''),'\\D','','g') = $1 AND active='Yes'`,
+                [p]
+            )).rows;
+        }
         if (!empRows.length) return res.status(404).json({ error: 'Employee not found' });
         const emp = empRows[0];
 
-        // Issue portal JWT (24h, limited scope)
         const token = jwt.sign(
             { employeeId: emp.id, name: emp.name, portal: true },
             JWT_SECRET,
             { expiresIn: '24h' }
         );
-        res.json({ ok: true, token, employee: { id: emp.id, name: emp.name, designation: emp.designation, client: emp.client, location: emp.location } });
+        res.json({
+            ok: true,
+            token,
+            employee: {
+                id: emp.id,
+                name: emp.name,
+                designation: emp.designation,
+                client: emp.client,
+                location: emp.location,
+            },
+        });
     } catch (err) {
         console.error('[POST /api/portal/verify-otp]', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -2454,12 +2627,10 @@ function requirePortalAuth(req, res, next) {
 app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
     try {
         const empId = req.portalEmployee.employeeId;
-        const currentMonth = new Date().getMonth() + 1;
-        const currentYear = new Date().getFullYear();
 
         const [empRes, payrollRes, advancesRes, leavesRes] = await Promise.all([
             pool.query('SELECT * FROM employees WHERE id=$1', [empId]),
-            pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 ORDER BY year DESC, month DESC LIMIT 12', [empId]),
+            pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 ORDER BY year DESC, month DESC LIMIT 24', [empId]),
             pool.query('SELECT * FROM employee_advances WHERE employee_id=$1 ORDER BY created_at DESC', [empId]),
             pool.query('SELECT * FROM employee_leaves WHERE employee_id=$1 ORDER BY from_date DESC LIMIT 20', [empId]).catch(() => ({ rows: [] }))
         ]);
@@ -2467,14 +2638,18 @@ app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
         const emp = empRes.rows[0];
         if (!emp) return res.status(404).json({ error: 'Employee not found' });
 
-        // Remove sensitive fields before sending to portal
         const { bank_account, cnic, ...safeEmp } = emp;
+        const photoUrl = emp.photo_file_id
+            ? `${BACKEND_URL}/api/portal/me/photo`
+            : null;
 
         res.json({
             employee: {
                 ...safeEmp,
                 cnicMasked: emp.cnic ? emp.cnic.replace(/(\d{5})(\d{7})(\d)/, '$1-*******-$3') : null,
-                bankAccountMasked: emp.bank_account ? '****' + emp.bank_account.slice(-4) : null
+                bankAccountMasked: emp.bank_account ? '****' + emp.bank_account.slice(-4) : null,
+                photoUrl,
+                hasPhoto: !!emp.photo_file_id,
             },
             payslips: payrollRes.rows.map(p => ({
                 month: p.month, year: p.year,
@@ -2497,7 +2672,6 @@ app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
 });
 
 // ── Portal: submit a change request ──────────────────────────────────────────
-// Allowed fields employees can request changes to (no salary/contract/ID changes)
 const PORTAL_CHANGEABLE_FIELDS = {
     present_address:   'Present Address',
     permanent_address: 'Permanent Address',
@@ -2524,9 +2698,8 @@ app.post('/api/portal/change-request', requirePortalAuth, async (req, res) => {
             return res.status(400).json({ error: 'This field cannot be changed via the portal' });
         }
 
-        // Snapshot the current value from the employees table
         const { rows: empRows } = await pool.query(
-            `SELECT name, ${field_name} AS current_val FROM employees WHERE id=$1`, [empId]
+            `SELECT name, email, primary_contact, ${field_name} AS current_val FROM employees WHERE id=$1`, [empId]
         );
         if (!empRows.length) return res.status(404).json({ error: 'Employee not found' });
         const old_value = empRows[0].current_val;
@@ -2538,6 +2711,30 @@ app.post('/api/portal/change-request', requirePortalAuth, async (req, res) => {
              RETURNING *`,
             [empId, empRows[0].name, field_name, PORTAL_CHANGEABLE_FIELDS[field_name], old_value, new_value]
         );
+
+        const settings = await getPortalChangeSettings(pool);
+        if (settings.notify_on_submit && settings.approver_emails?.length) {
+            const cr = rows[0];
+            const link = `${FRONTEND_URL}/?tab=employees&cr=${cr.id}`;
+            const html = `<p>A new employee data change request needs review.</p>
+                <ul>
+                  <li><strong>Employee:</strong> ${empRows[0].name} (${empId})</li>
+                  <li><strong>Field:</strong> ${PORTAL_CHANGEABLE_FIELDS[field_name]}</li>
+                  <li><strong>Old:</strong> ${old_value || '—'}</li>
+                  <li><strong>New:</strong> ${new_value}</li>
+                </ul>
+                <p><a href="${link}">Open Pending Requests in ASIL HCM</a></p>`;
+            try {
+                await sendAppEmail({
+                    to: settings.approver_emails,
+                    subject: `[HCM] Change request: ${empRows[0].name} — ${PORTAL_CHANGEABLE_FIELDS[field_name]}`,
+                    html,
+                });
+            } catch (mailErr) {
+                console.warn('[portal/change-request] approver notify failed', mailErr.message);
+            }
+        }
+
         res.json({ ok: true, request: rows[0] });
     } catch (err) {
         console.error('[portal/change-request]', err);
@@ -2549,7 +2746,7 @@ app.post('/api/portal/change-request', requirePortalAuth, async (req, res) => {
 app.get('/api/portal/my-requests', requirePortalAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(
-            `SELECT id, field_label, old_value, new_value, status, submitted_at, reviewed_at, notes
+            `SELECT id, field_name, field_label, old_value, new_value, status, submitted_at, reviewed_at, notes
              FROM employee_change_requests
              WHERE employee_id=$1
              ORDER BY submitted_at DESC LIMIT 50`,
@@ -2563,7 +2760,7 @@ app.get('/api/portal/my-requests', requirePortalAuth, async (req, res) => {
 });
 
 // ── Office: list pending change requests ─────────────────────────────────────
-app.get('/api/change-requests', requireAuth, requireRole('superadmin', 'operations', 'payroll_initiator'), async (req, res) => {
+app.get('/api/change-requests', requireAuth, requireRole(...CHANGE_QUEUE_ROLES), async (req, res) => {
     try {
         const { status = 'Pending' } = req.query;
         const { rows } = await pool.query(
@@ -2581,12 +2778,26 @@ app.get('/api/change-requests', requireAuth, requireRole('superadmin', 'operatio
     }
 });
 
+async function assertCanReviewChangeRequest(req, res) {
+    const settings = await getPortalChangeSettings(pool);
+    if (!canApproveChangeRequest(req.user, settings)) {
+        res.status(403).json({
+            error: 'Only designated HCM approvers can approve or reject change requests',
+            approvers: settings.approver_emails,
+        });
+        return null;
+    }
+    return settings;
+}
+
 // ── Office: approve a change request → apply to employees table ───────────────
-app.patch('/api/change-requests/:id/approve', requireAuth, requireRole('superadmin', 'operations', 'payroll_initiator'), async (req, res) => {
+app.patch('/api/change-requests/:id/approve', requireAuth, requireRole(...CHANGE_QUEUE_ROLES), async (req, res) => {
     try {
+        const settings = await assertCanReviewChangeRequest(req, res);
+        if (!settings) return;
+
         const reqId = parseInt(req.params.id);
 
-        // Fetch the request
         const { rows: crRows } = await pool.query(
             'SELECT * FROM employee_change_requests WHERE id=$1', [reqId]
         );
@@ -2599,32 +2810,38 @@ app.patch('/api/change-requests/:id/approve', requireAuth, requireRole('superadm
             return res.status(400).json({ error: 'Field not in allowed list — cannot apply' });
         }
 
-        // Apply change to employees table (safe: field_name is whitelist-validated above)
         await pool.query(
             `UPDATE employees SET ${cr.field_name}=$1, updated_at=NOW() WHERE id=$2`,
             [cr.new_value, cr.employee_id]
         );
 
-        // Mark request as Approved
         await pool.query(
             `UPDATE employee_change_requests SET status='Approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2`,
             [req.user.email, reqId]
         );
 
-        // Send approval SMS to employee
         try {
             const { rows: empRows } = await pool.query(
-                'SELECT primary_contact FROM employees WHERE id=$1', [cr.employee_id]
+                'SELECT primary_contact, email FROM employees WHERE id=$1', [cr.employee_id]
             );
-            if (empRows.length && empRows[0].primary_contact) {
+            if (empRows.length) {
                 const smsMsg = `ASIL HR: Your request to update '${cr.field_label}' has been APPROVED. The change is now in effect.`;
-                await sendJazzSMS(empRows[0].primary_contact, smsMsg);
-                await pool.query(
-                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
-                    [cr.employee_id, smsMsg, req.user.email]
-                ).catch(() => {});
+                if (empRows[0].primary_contact) {
+                    await sendJazzSMS(empRows[0].primary_contact, smsMsg);
+                    await pool.query(
+                        `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                        [cr.employee_id, smsMsg, req.user.email]
+                    ).catch(() => {});
+                }
+                if (settings.notify_employee_on_decision && isValidEmail(empRows[0].email)) {
+                    await sendAppEmail({
+                        to: empRows[0].email,
+                        subject: `Change request approved: ${cr.field_label}`,
+                        html: `<p>${smsMsg}</p>`,
+                    }).catch(() => {});
+                }
             }
-        } catch (_) { /* SMS failure is non-fatal */ }
+        } catch (_) { /* notify failure is non-fatal */ }
 
         res.json({ ok: true, message: 'Change request approved and applied' });
     } catch (err) {
@@ -2634,8 +2851,11 @@ app.patch('/api/change-requests/:id/approve', requireAuth, requireRole('superadm
 });
 
 // ── Office: reject a change request ──────────────────────────────────────────
-app.patch('/api/change-requests/:id/reject', requireAuth, requireRole('superadmin', 'operations', 'payroll_initiator'), async (req, res) => {
+app.patch('/api/change-requests/:id/reject', requireAuth, requireRole(...CHANGE_QUEUE_ROLES), async (req, res) => {
     try {
+        const settings = await assertCanReviewChangeRequest(req, res);
+        if (!settings) return;
+
         const reqId = parseInt(req.params.id);
         const { note } = req.body;
 
@@ -2653,25 +2873,109 @@ app.patch('/api/change-requests/:id/reject', requireAuth, requireRole('superadmi
             [req.user.email, note || null, reqId]
         );
 
-        // Send rejection SMS to employee
         try {
             const { rows: empRows } = await pool.query(
-                'SELECT primary_contact FROM employees WHERE id=$1', [cr.employee_id]
+                'SELECT primary_contact, email FROM employees WHERE id=$1', [cr.employee_id]
             );
-            if (empRows.length && empRows[0].primary_contact) {
+            if (empRows.length) {
                 const reason = note ? ` Reason: ${note}` : '';
                 const smsMsg = `ASIL HR: Your request to update '${cr.field_label}' has been REJECTED.${reason} Contact HR for assistance.`;
-                await sendJazzSMS(empRows[0].primary_contact, smsMsg);
-                await pool.query(
-                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
-                    [cr.employee_id, smsMsg, req.user.email]
-                ).catch(() => {});
+                if (empRows[0].primary_contact) {
+                    await sendJazzSMS(empRows[0].primary_contact, smsMsg);
+                    await pool.query(
+                        `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                        [cr.employee_id, smsMsg, req.user.email]
+                    ).catch(() => {});
+                }
+                if (settings.notify_employee_on_decision && isValidEmail(empRows[0].email)) {
+                    await sendAppEmail({
+                        to: empRows[0].email,
+                        subject: `Change request rejected: ${cr.field_label}`,
+                        html: `<p>${smsMsg}</p>`,
+                    }).catch(() => {});
+                }
             }
-        } catch (_) { /* SMS failure is non-fatal */ }
+        } catch (_) { /* notify failure is non-fatal */ }
 
         res.json({ ok: true, message: 'Change request rejected' });
     } catch (err) {
         console.error('[PATCH /api/change-requests/:id/reject]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ── Portal profile photo ─────────────────────────────────────────────────────
+const portalMulter = require('multer')({
+    storage: require('multer').memoryStorage(),
+    limits: { fileSize: 2 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+        const ok = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype);
+        cb(ok ? null : new Error('Only JPEG, PNG, or WebP images allowed'), ok);
+    },
+});
+
+app.get('/api/portal/me/photo', requirePortalAuth, async (req, res) => {
+    try {
+        const empId = req.portalEmployee.employeeId;
+        const { rows } = await pool.query(
+            `SELECT f.mime, f.filename, f.data
+             FROM employees e
+             JOIN uploaded_files f ON f.id = e.photo_file_id
+             WHERE e.id=$1`,
+            [empId]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'No photo on file' });
+        res.setHeader('Content-Type', rows[0].mime || 'image/jpeg');
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        res.send(rows[0].data);
+    } catch (err) {
+        console.error('[GET /api/portal/me/photo]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post('/api/portal/me/photo', requirePortalAuth, (req, res) => {
+    portalMulter.single('photo')(req, res, async (err) => {
+        if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
+        try {
+            if (!req.file) return res.status(400).json({ error: 'photo file required' });
+            const empId = req.portalEmployee.employeeId;
+            const { rows: fileRows } = await pool.query(`
+                INSERT INTO uploaded_files (kind, ref_id, filename, mime, size_bytes, data, uploaded_by)
+                VALUES ('employee_photo',$1,$2,$3,$4,$5,$6) RETURNING id
+            `, [empId, req.file.originalname, req.file.mimetype, req.file.size, req.file.buffer, empId]);
+            const fileId = fileRows[0].id;
+            await pool.query(
+                `UPDATE employees SET photo_file_id=$1, updated_at=NOW() WHERE id=$2`,
+                [fileId, empId]
+            );
+
+            const settings = await getPortalChangeSettings(pool);
+            if (settings.notify_on_submit && settings.approver_emails?.length) {
+                const { rows: empRows } = await pool.query('SELECT name FROM employees WHERE id=$1', [empId]);
+                const name = empRows[0]?.name || empId;
+                sendAppEmail({
+                    to: settings.approver_emails,
+                    subject: `[HCM] Profile photo updated: ${name}`,
+                    html: `<p>${name} (${empId}) uploaded a new profile photo in the Employee Portal.</p>`,
+                }).catch(() => {});
+            }
+
+            res.json({ ok: true, photo_file_id: fileId, photoUrl: `${BACKEND_URL}/api/portal/me/photo` });
+        } catch (e) {
+            console.error('[POST /api/portal/me/photo]', e);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+});
+
+app.delete('/api/portal/me/photo', requirePortalAuth, async (req, res) => {
+    try {
+        const empId = req.portalEmployee.employeeId;
+        await pool.query(`UPDATE employees SET photo_file_id=NULL, updated_at=NOW() WHERE id=$1`, [empId]);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[DELETE /api/portal/me/photo]', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -8226,6 +8530,11 @@ if (require.main === module) app.listen(PORT, async () => {
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
         `);
+        await pool.query(`ALTER TABLE portal_otps ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'sms'`).catch(() => {});
+        await pool.query(`ALTER TABLE portal_otps ADD COLUMN IF NOT EXISTS destination TEXT`).catch(() => {});
+        await pool.query(`ALTER TABLE portal_otps ADD COLUMN IF NOT EXISTS employee_id TEXT`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_file_id INT`).catch(() => {});
+        await ensurePortalChangeSettings(pool);
         console.log('Migration OK: portal_otps');
 
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Invoices (persistent) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼

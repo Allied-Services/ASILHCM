@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Building, Search, Plus, MapPin, Users, X, Phone, Mail, FileText, ChevronLeft, Edit2, Trash2, CheckCircle, AlertCircle, Save, BarChart2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from './api';
+import { ASIL_BUS, normalizeAsilBu } from './orgHierarchy';
 
 // ── Sample Data ──────────────────────────────────────────────────────────────
 const SERVICE_TYPES = [
@@ -42,7 +43,7 @@ const EMPTY_CONTRACT = {
 
 // No sample data — loaded from Neon DB
 
-const EMPTY_CLIENT = { name: '', hq: '', ntn: '', strn: '', industry: '' };
+const EMPTY_CLIENT = { name: '', hq: '', ntn: '', strn: '', industry: '', asilBu: '' };
 const EMPTY_CONTACT = { name: '', title: '', phone: '', email: '' };
 
 const ST_CLR = { Active: '#22c55e', Expiring: '#eab308', Expired: '#ef4444', Cancelled: '#dc2626', Draft: '#94a3b8' };
@@ -738,6 +739,14 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
     const [newBU, setNewBU]       = useState({ bu_code: '', bu_name: '', description: '' });
     const [buSaving, setBuSaving] = useState(false);
     const [buError, setBuError]   = useState('');
+    // Locations / Departments masters
+    const [locations, setLocations] = useState([]);
+    const [departments, setDepartments] = useState([]);
+    const [locLoading, setLocLoading] = useState(false);
+    const [deptLoading, setDeptLoading] = useState(false);
+    const [newLoc, setNewLoc] = useState({ name: '', province: '', contract_id: '' });
+    const [newDept, setNewDept] = useState({ name: '', bu_id: '', location_id: '' });
+    const [orgError, setOrgError] = useState('');
 
     const loadBUs = async () => {
         setBuLoading(true);
@@ -748,6 +757,24 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
             setBus(d.bus || []);
         } catch (e) { setBuError(e.message); }
         setBuLoading(false);
+    };
+
+    const loadLocations = async () => {
+        setLocLoading(true); setOrgError('');
+        try {
+            const d = await api.getClientLocations(client.id);
+            setLocations(d.locations || []);
+        } catch (e) { setOrgError(e.message); }
+        setLocLoading(false);
+    };
+
+    const loadDepartments = async () => {
+        setDeptLoading(true); setOrgError('');
+        try {
+            const d = await api.getClientDepartments(client.id);
+            setDepartments(d.departments || []);
+        } catch (e) { setOrgError(e.message); }
+        setDeptLoading(false);
     };
 
     const saveBU = async () => {
@@ -835,12 +862,14 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
         setNewContact(EMPTY_CONTACT); setShowAddContact(false);
     };
 
-    const TABS = ['overview', 'contacts', 'contracts', 'business units', 'bid tracking'];
+    const TABS = ['overview', 'contacts', 'contracts', 'business units', 'locations', 'departments', 'bid tracking'];
 
     // Load BUs when Business Units tab selected
     const handleTabChange = (t) => {
         setTab(t);
         if (t === 'business units' && bus.length === 0) loadBUs();
+        if (t === 'locations') loadLocations();
+        if (t === 'departments') { loadDepartments(); if (bus.length === 0) loadBUs(); if (locations.length === 0) loadLocations(); }
     };
 
     return (
@@ -874,7 +903,7 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
             <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid var(--border)', marginBottom: '2rem', overflowX: 'auto' }}>
                 {TABS.map(t => (
                     <button key={t} onClick={() => handleTabChange(t)} style={{ padding: '0.85rem 1.75rem', background: 'transparent', border: 'none', borderBottom: `2px solid ${tab === t ? 'var(--primary)' : 'transparent'}`, color: tab === t ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: tab === t ? 700 : 400, fontSize: '0.9rem', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
-                        {t === 'bid tracking' ? '📊 Bid Tracking' : t === 'business units' ? '🏢 Business Units' : t.charAt(0).toUpperCase() + t.slice(1)}
+                        {t === 'bid tracking' ? '📊 Bid Tracking' : t === 'business units' ? '🏢 Business Units' : t === 'locations' ? '📍 Locations' : t === 'departments' ? '🗂 Departments' : t.charAt(0).toUpperCase() + t.slice(1)}
                     </button>
                 ))}
             </div>
@@ -884,7 +913,7 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
                         <h3 style={{ margin: '0 0 1rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>Client Details</h3>
-                        {[['Client ID', client.id], ['Industry', client.industry], ['Headquarters', client.hq], ['NTN', client.ntn], ['STRN', client.strn]].map(([l, v]) => (
+                        {[['Client ID', client.id], ['ASIL BU', normalizeAsilBu(client.asilBu) || client.asilBu || '—'], ['Industry', client.industry], ['Headquarters', client.hq], ['NTN', client.ntn], ['STRN', client.strn]].map(([l, v]) => (
                             <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.6rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.9rem' }}>
                                 <span style={{ color: 'var(--text-muted)' }}>{l}</span><span style={{ fontWeight: 500 }}>{v}</span>
                             </div>
@@ -1157,6 +1186,165 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                 </div>
             )}
 
+            {/* Locations Tab */}
+            {tab === 'locations' && (
+                <div>
+                    <div style={{ background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '10px', padding: '0.9rem 1.25rem', marginBottom: '1.25rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        Client locations feed the Employee Information location dropdown. Seed from contracts/employees, then tidy names here.
+                    </div>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Locations — {client.name}</div>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button onClick={async () => { try { await api.seedClientOrg(client.id); await loadLocations(); } catch (e) { setOrgError(e.message); } }}
+                                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '6px 12px', borderRadius: '7px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                                    <RefreshCw size={13} style={{ marginRight: 4, verticalAlign: 'middle' }} /> Seed from data
+                                </button>
+                            </div>
+                        </div>
+                        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr auto', gap: '0.6rem', alignItems: 'end' }}>
+                            <div>
+                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Location name</label>
+                                <input value={newLoc.name} onChange={e => setNewLoc(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Karachi Head Office"
+                                    style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)' }} />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Province</label>
+                                <select value={newLoc.province} onChange={e => setNewLoc(p => ({ ...p, province: e.target.value }))}
+                                    style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)' }}>
+                                    <option value="">—</option>
+                                    {['Sindh', 'Punjab', 'KPK', 'Balochistan', 'Gilgit-Baltistan', 'AJK', 'Islamabad (ICT)'].map(p => <option key={p} value={p}>{p}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Linked contract (optional)</label>
+                                <select value={newLoc.contract_id} onChange={e => setNewLoc(p => ({ ...p, contract_id: e.target.value }))}
+                                    style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)' }}>
+                                    <option value="">Any / all</option>
+                                    {client.contracts.map(ct => <option key={ct.id} value={ct.id}>{ct.contractName || ct.location || ct.id}</option>)}
+                                </select>
+                            </div>
+                            <button onClick={async () => {
+                                if (!newLoc.name.trim()) return alert('Location name required');
+                                try {
+                                    await api.createClientLocation(client.id, newLoc);
+                                    setNewLoc({ name: '', province: '', contract_id: '' });
+                                    await loadLocations();
+                                } catch (e) { setOrgError(e.message); }
+                            }} style={{ background: 'var(--primary)', border: 'none', color: '#fff', padding: '8px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 700, height: '38px' }}>Add</button>
+                        </div>
+                        {orgError && <div style={{ color: '#f87171', padding: '0.75rem 1.25rem', fontSize: '0.82rem' }}>{orgError}</div>}
+                        {locLoading ? <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div> : (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                <thead><tr>{['Location', 'Province', 'Status', ''].map(h => (
+                                    <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: '0.7rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                                ))}</tr></thead>
+                                <tbody>
+                                    {locations.length === 0 && <tr><td colSpan={4} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>No locations yet.</td></tr>}
+                                    {locations.map(loc => (
+                                        <tr key={loc.id} style={{ borderBottom: '1px solid var(--border)', opacity: loc.is_active ? 1 : 0.5 }}>
+                                            <td style={{ padding: '9px 14px', fontWeight: 600 }}>{loc.name}</td>
+                                            <td style={{ padding: '9px 14px', color: 'var(--text-muted)' }}>{loc.province || '—'}</td>
+                                            <td style={{ padding: '9px 14px' }}>{loc.is_active ? 'Active' : 'Inactive'}</td>
+                                            <td style={{ padding: '9px 14px' }}>
+                                                <button onClick={async () => { await api.updateClientLocation(client.id, loc.id, { is_active: !loc.is_active }); await loadLocations(); }}
+                                                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '4px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem', marginRight: 6 }}>
+                                                    {loc.is_active ? 'Deactivate' : 'Activate'}
+                                                </button>
+                                                <button onClick={async () => { if (!window.confirm(`Delete location "${loc.name}"?`)) return; await api.deleteClientLocation(client.id, loc.id); await loadLocations(); }}
+                                                    style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '4px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem' }}>
+                                                    <Trash2 size={11} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Departments Tab */}
+            {tab === 'departments' && (
+                <div>
+                    <div style={{ background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '10px', padding: '0.9rem 1.25rem', marginBottom: '1.25rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        Departments appear on the Employee form after Client / Contract / Client BU / Location. Optionally link a department to a BU or location.
+                    </div>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Departments — {client.name}</div>
+                            <button onClick={async () => { try { await api.seedClientOrg(client.id); await loadDepartments(); } catch (e) { setOrgError(e.message); } }}
+                                style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '6px 12px', borderRadius: '7px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                                <RefreshCw size={13} style={{ marginRight: 4, verticalAlign: 'middle' }} /> Seed from employees
+                            </button>
+                        </div>
+                        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '2fr 1.2fr 1.2fr auto', gap: '0.6rem', alignItems: 'end' }}>
+                            <div>
+                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Department name</label>
+                                <input value={newDept.name} onChange={e => setNewDept(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Security Services"
+                                    style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)' }} />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Client BU (optional)</label>
+                                <select value={newDept.bu_id} onChange={e => setNewDept(p => ({ ...p, bu_id: e.target.value }))}
+                                    style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)' }}>
+                                    <option value="">Any</option>
+                                    {bus.filter(b => b.id && b.bu_code !== 'ALL').map(b => <option key={b.id} value={b.id}>{b.bu_name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Location (optional)</label>
+                                <select value={newDept.location_id} onChange={e => setNewDept(p => ({ ...p, location_id: e.target.value }))}
+                                    style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)' }}>
+                                    <option value="">Any</option>
+                                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                </select>
+                            </div>
+                            <button onClick={async () => {
+                                if (!newDept.name.trim()) return alert('Department name required');
+                                try {
+                                    await api.createClientDepartment(client.id, {
+                                        name: newDept.name,
+                                        bu_id: newDept.bu_id ? Number(newDept.bu_id) : null,
+                                        location_id: newDept.location_id ? Number(newDept.location_id) : null,
+                                    });
+                                    setNewDept({ name: '', bu_id: '', location_id: '' });
+                                    await loadDepartments();
+                                } catch (e) { setOrgError(e.message); }
+                            }} style={{ background: 'var(--primary)', border: 'none', color: '#fff', padding: '8px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 700, height: '38px' }}>Add</button>
+                        </div>
+                        {orgError && <div style={{ color: '#f87171', padding: '0.75rem 1.25rem', fontSize: '0.82rem' }}>{orgError}</div>}
+                        {deptLoading ? <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div> : (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                <thead><tr>{['Department', 'Status', ''].map(h => (
+                                    <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: '0.7rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                                ))}</tr></thead>
+                                <tbody>
+                                    {departments.length === 0 && <tr><td colSpan={3} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>No departments yet.</td></tr>}
+                                    {departments.map(d => (
+                                        <tr key={d.id} style={{ borderBottom: '1px solid var(--border)', opacity: d.is_active ? 1 : 0.5 }}>
+                                            <td style={{ padding: '9px 14px', fontWeight: 600 }}>{d.name}</td>
+                                            <td style={{ padding: '9px 14px' }}>{d.is_active ? 'Active' : 'Inactive'}</td>
+                                            <td style={{ padding: '9px 14px' }}>
+                                                <button onClick={async () => { await api.updateClientDepartment(client.id, d.id, { is_active: !d.is_active }); await loadDepartments(); }}
+                                                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '4px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem', marginRight: 6 }}>
+                                                    {d.is_active ? 'Deactivate' : 'Activate'}
+                                                </button>
+                                                <button onClick={async () => { if (!window.confirm(`Delete department "${d.name}"?`)) return; await api.deleteClientDepartment(client.id, d.id); await loadDepartments(); }}
+                                                    style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '4px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem' }}>
+                                                    <Trash2 size={11} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Bid Tracking Tab */}
             {tab === 'bid tracking' && (
                 <div>
@@ -1263,7 +1451,7 @@ export default function ClientInformation() {
     const openEditClient = (cl, e) => {
         e.stopPropagation();
         setEditingClient(cl);
-        setEditForm({ name: cl.name, hq: cl.hq || '', ntn: cl.ntn || '', strn: cl.strn || '', industry: cl.industry || '' });
+        setEditForm({ name: cl.name, hq: cl.hq || '', ntn: cl.ntn || '', strn: cl.strn || '', industry: cl.industry || '', asilBu: normalizeAsilBu(cl.asilBu) || cl.asilBu || '' });
     };
 
     const saveEditClient = async () => {
@@ -1279,6 +1467,7 @@ export default function ClientInformation() {
 
     const addClient = async () => {
         if (!form.name) return alert('Client name is required.');
+        if (!form.asilBu) return alert('ASIL BU is required.');
         try {
             const data = await api.createClient({ ...form, id: `CLT-${Date.now()}`, contacts: [], contracts: [] });
             setClients(p => [...p, data.client]);
@@ -1326,6 +1515,11 @@ export default function ClientInformation() {
                                 <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{cl.name}</h3>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                                     <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{cl.industry}</span>
+                                    {(normalizeAsilBu(cl.asilBu) || cl.asilBu) && (
+                                        <span style={{ fontSize: '0.7rem', background: 'rgba(56,189,248,0.12)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.3)', padding: '1px 7px', borderRadius: '8px', fontWeight: 700 }}>
+                                            {normalizeAsilBu(cl.asilBu) || cl.asilBu}
+                                        </span>
+                                    )}
                                     {!isActive && <span style={{ fontSize: '0.7rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)', padding: '1px 7px', borderRadius: '8px', fontWeight: 700 }}>INACTIVE</span>}
                                 </div>
                             </div>
@@ -1368,6 +1562,13 @@ export default function ClientInformation() {
                     <ModalHeader title="Add New Client" sub="Enter the client's master information" onClose={() => { setShowAdd(false); setForm(EMPTY_CLIENT); }} />
                     <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                         <FRow label="Client Name *"><FInput value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} ph="e.g. Bank Al Habib" /></FRow>
+                        <FRow label="ASIL BU *">
+                            <select value={form.asilBu || ''} onChange={e => setForm(p => ({ ...p, asilBu: e.target.value }))}
+                                style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)' }}>
+                                <option value="">-- Select ASIL BU --</option>
+                                {ASIL_BUS.map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                        </FRow>
                         <FRow label="Industry"><FInput value={form.industry} onChange={e => setForm(p => ({ ...p, industry: e.target.value }))} ph="e.g. Banking & Finance" /></FRow>
                         <FRow label="Headquarters City"><FInput value={form.hq} onChange={e => setForm(p => ({ ...p, hq: e.target.value }))} ph="e.g. Karachi" /></FRow>
                         <FRow label="NTN Number"><FInput value={form.ntn} onChange={e => setForm(p => ({ ...p, ntn: e.target.value }))} ph="XXXXXXX-X" /></FRow>
@@ -1386,6 +1587,13 @@ export default function ClientInformation() {
                     <ModalHeader title={`Edit Client: ${editingClient.name}`} sub="Update the client's master information" onClose={() => setEditingClient(null)} />
                     <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                         <FRow label="Client Name *"><FInput value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} ph="e.g. Bank Al Habib" /></FRow>
+                        <FRow label="ASIL BU *">
+                            <select value={editForm.asilBu || ''} onChange={e => setEditForm(p => ({ ...p, asilBu: e.target.value }))}
+                                style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)' }}>
+                                <option value="">-- Select ASIL BU --</option>
+                                {ASIL_BUS.map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                        </FRow>
                         <FRow label="Industry"><FInput value={editForm.industry} onChange={e => setEditForm(p => ({ ...p, industry: e.target.value }))} ph="e.g. Banking &amp; Finance" /></FRow>
                         <FRow label="Headquarters City"><FInput value={editForm.hq} onChange={e => setEditForm(p => ({ ...p, hq: e.target.value }))} ph="e.g. Karachi" /></FRow>
                         <FRow label="NTN Number"><FInput value={editForm.ntn} onChange={e => setEditForm(p => ({ ...p, ntn: e.target.value }))} ph="XXXXXXX-X" /></FRow>
