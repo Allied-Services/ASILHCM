@@ -10,10 +10,14 @@ const {
     parseTimeToMinutes,
     hoursBetween,
     toIsoDate,
+    formatDateDdMonYyyy,
     isMeaningfulOtRow,
     isMeaningfulMoneyRow,
     MONTH_NAMES,
 } = require('./portalExcel');
+
+/** Standard weekday shift end (minutes from midnight) — OT may start at/after this. */
+const WEEKDAY_SHIFT_END_MIN = 17 * 60; // 5:00 PM
 
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '17', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '22', 10);
@@ -164,30 +168,31 @@ function validateClaimDateInPeriod(rawDate, period, kind = 'Claim') {
     const errors = [];
     let iso = null;
     if (rawDate == null || String(rawDate).trim() === '') {
-        errors.push(`${kind} date is missing. Please enter the date the work / expense happened.`);
+        errors.push(`${kind} date is missing. Please enter the date the work / expense happened (DD-MON-YYYY, e.g. 15-JUN-2026).`);
         return { errors, iso: null };
     }
     iso = toIsoDate(rawDate) || (String(rawDate).match(/^\d{4}-\d{2}-\d{2}/) ? String(rawDate).slice(0, 10) : null);
     if (!iso) {
         errors.push(
             `${kind} date "${rawDate}" could not be read. `
-            + 'Try formats like 15-06-2026, 15/06/2026, 15 Jun 2026, or 2026-06-15.'
+            + 'Try 15-JUN-2026, 15-06-2026, 15/06/2026, or 15 Jun 2026.'
         );
         return { errors, iso: null };
     }
+    const nice = formatDateDdMonYyyy(iso);
     if (period?.claim_month && period?.claim_year) {
         const [yy, mm] = iso.split('-').map(Number);
         if (yy !== Number(period.claim_year) || mm !== Number(period.claim_month)) {
             const got = `${MONTH_NAMES[mm] || mm} ${yy}`;
             const want = claimMonthLabel(period);
             errors.push(
-                `The date ${iso} falls in ${got}, but this form is only for ${want}. `
+                `The date ${nice} falls in ${got}, but this form is only for ${want}. `
                 + 'Older (or future) claim months cannot be submitted here. '
                 + 'Please email claims@asil.com.pk if you have questions about prior-period claims.'
             );
         }
     }
-    return { errors, iso };
+    return { errors, iso, nice };
 }
 
 function validateOtRow(row, period = null) {
@@ -196,14 +201,15 @@ function validateOtRow(row, period = null) {
     const dateCheck = validateClaimDateInPeriod(row.claim_date || row.claim_date_raw, period, 'OT');
     errors.push(...dateCheck.errors);
     const iso = dateCheck.iso;
+    const niceDate = dateCheck.nice || (iso ? formatDateDdMonYyyy(iso) : '');
     const hours = parseFloat(row.ot_hours);
     const multRaw = String(row.ot_multiplier || 'Double').trim();
     const mult = multRaw.toLowerCase();
     if (!Number.isFinite(hours) || hours <= 0) {
         errors.push(
             row.ot_hours == null || row.ot_hours === ''
-                ? 'OT hours are missing. Enter overtime hours only (after the 8-hour shift on weekdays).'
-                : `OT hours "${row.ot_hours}" is not valid. Enter a number such as 2 or 2.5.`
+                ? `OT hours are missing${niceDate ? ` for ${niceDate}` : ''}. Enter overtime hours only (after the 8-hour shift on weekdays).`
+                : `OT hours "${row.ot_hours}"${niceDate ? ` on ${niceDate}` : ''} is not valid. Enter a number such as 2 or 2.5.`
         );
     }
     if (!OT_MAP[mult]) {
@@ -214,17 +220,25 @@ function validateOtRow(row, period = null) {
         const d = parseLocalDate(iso);
         const dateType = getPkDateType(d);
         const isWeekday = dateType && dateType.type === 'WEEKDAY';
+        const dayLabel = `${niceDate}${dateType ? ` (${dateType.name})` : ''}`;
 
         if (dateType) {
-            const label = `${dateType.dateStr} (${dateType.name})`;
             if (mult === 'triple' && dateType.type !== 'EID') {
-                errors.push(
-                    `Triple (3×) OT is only allowed on gazetted Eid days. ${label} is not Eid — please use Double (2×).`
-                );
+                if (isWeekday) {
+                    errors.push(
+                        `On weekday ${dayLabel}, Triple (3×) overtime is not allowed under applicable rules. `
+                        + 'Only Double (2×) can be applied. Triple (3×) is reserved for gazetted Eid holidays only. '
+                        + 'Please change the rate to Double (2×).'
+                    );
+                } else {
+                    errors.push(
+                        `Triple (3×) OT is only allowed on gazetted Eid days. ${dayLabel} is not Eid — only Double (2×) can be applied.`
+                    );
+                }
             }
             if (mult === 'single' && (dateType.type === 'SUNDAY' || dateType.type === 'HOLIDAY' || dateType.type === 'EID')) {
                 errors.push(
-                    `Single (1×) is not allowed on ${label}. Use Double (2×), or Triple (3×) on Eid only.`
+                    `Single (1×) is not allowed on ${dayLabel}. Use Double (2×), or Triple (3×) on Eid only.`
                 );
             }
         }
@@ -234,8 +248,8 @@ function validateOtRow(row, period = null) {
             const tt = String(row.time_to || '').trim();
             if (!tf || !tt) {
                 errors.push(
-                    'On a weekday, enter Time From and Time To for OT after the standard 8-hour shift '
-                    + '(examples: 5:00 PM to 8:00 PM). Hours Worked must be OT hours only.'
+                    `On weekday ${dayLabel}, enter Time From and Time To for OT after completing the mandatory 8-hour duty `
+                    + '(example: 5:00 PM to 8:00 PM). Hours Worked must be OT hours only.'
                 );
             } else {
                 const fromMin = parseTimeToMinutes(tf);
@@ -243,13 +257,25 @@ function validateOtRow(row, period = null) {
                 if (fromMin == null || toMin == null) {
                     const bad = fromMin == null ? tf : tt;
                     errors.push(
-                        `Could not read time "${bad}". Try 5:00 PM, 17:00, 5pm, or 1700.`
+                        `Could not read time "${bad}" on ${dayLabel}. Try 5:00 PM, 17:00, 5pm, or 1700.`
                     );
                 } else {
                     const span = hoursBetween(fromMin, toMin);
+                    // OT must start after standard 8-hour shift end (5:00 PM). Earlier = still within regular duty.
+                    if (fromMin < WEEKDAY_SHIFT_END_MIN) {
+                        errors.push(
+                            `On weekday ${dayLabel}, overtime is allowed only after completing the mandatory 8 hours duty. `
+                            + `Time From (${tf}) is still within the regular shift (OT may start from 5:00 PM onward). `
+                            + 'The hours entered do not qualify for overtime.'
+                        );
+                    }
+                    // Claiming a block shorter than 8h that begins before shift end = incomplete duty as OT
+                    if (fromMin < WEEKDAY_SHIFT_END_MIN && span != null && span < 8) {
+                        // already covered above; keep single clear message
+                    }
                     if (span != null && Math.abs(span - hours) > 0.51) {
                         errors.push(
-                            `OT hours (${hours}) do not match Time From→To (${span}h). `
+                            `On ${dayLabel}, OT hours (${hours}) do not match Time From→To (${span}h). `
                             + 'Please correct the hours or the times so they agree.'
                         );
                     }
@@ -257,13 +283,13 @@ function validateOtRow(row, period = null) {
             }
             if (hours > 8) {
                 errors.push(
-                    'On a weekday you cannot claim more than 8 OT hours in one day. '
+                    `On weekday ${dayLabel}, you cannot claim more than 8 OT hours in one day. `
                     + 'Enter only overtime after the standard shift — not total hours worked.'
                 );
             }
         }
 
-        if (hours > 6) warnings.push(`High OT: ${hours}h on one day — please confirm this is correct`);
+        if (hours > 6) warnings.push(`High OT: ${hours}h on ${niceDate} — please confirm this is correct`);
     }
     return { errors, warnings, factor: OT_MAP[mult] || null, claim_date: iso };
 }
