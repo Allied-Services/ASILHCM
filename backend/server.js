@@ -73,6 +73,25 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
+// Strip HTML/script tags from incoming free-text fields (name, purpose, notes, etc.)
+// before they reach any route or the database. Skipped for strings over 2000 chars —
+// those are base64 images (OCR) or bulk CSV payloads, never hand-typed free text,
+// and running an HTML parser over multi-MB strings on every request would be wasteful.
+const striptags = require('striptags');
+function stripHtmlDeep(value) {
+    if (typeof value === 'string') {
+        if (value.length > 2000) return value;
+        return striptags(value);
+    }
+    if (Array.isArray(value)) { for (let i = 0; i < value.length; i++) value[i] = stripHtmlDeep(value[i]); return value; }
+    if (value && typeof value === 'object') { for (const k of Object.keys(value)) value[k] = stripHtmlDeep(value[k]); return value; }
+    return value;
+}
+app.use((req, res, next) => {
+    if (req.body && typeof req.body === 'object') stripHtmlDeep(req.body);
+    next();
+});
+
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Rate Limiters ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const globalLimiter = rateLimit({ windowMs: 60*1000, max: 200, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests, slow down.' } });
 const strictLimiter = rateLimit({ windowMs: 60*1000, max: 10, message: { error: 'Too many attempts. Try again in a minute.' } });
@@ -154,6 +173,14 @@ const requireRole = (...roles) => (req, res, next) => {
     if (req.user.role === 'superadmin' || roles.includes(req.user.role)) return next();
     return res.status(403).json({ error: 'Forbidden: insufficient role', required: roles, got: req.user.role });
 };
+
+// Fire-and-forget audit trail write. Never blocks or fails the calling route.
+function logAudit(req, actionType, entityType, entityId) {
+    pool.query(
+        `INSERT INTO audit_log (user_email, action_type, entity_type, entity_id, created_at) VALUES ($1, $2, $3, $4, NOW())`,
+        [req.user?.email || 'unknown', actionType, entityType, String(entityId)]
+    ).catch(err => console.error(`[audit_log] write failed for ${actionType} ${entityType}:${entityId}`, err));
+}
 
 const TEAM_SETUP_ROLE_FALLBACK = ['hr_manager', 'admin', 'operations', 'finance_manager', 'finance_approver'];
 
@@ -275,6 +302,7 @@ app.patch('/api/users/:id/role', requireAuth, requireRole(...USER_MGMT_ROLES), a
             [role, String(req.params.id)]
         );
         if (!rows.length) return res.status(404).json({ error: 'User not found' });
+        logAudit(req, 'user_role_change', 'user', rows[0].id);
         res.json({ ok: true, user: rows[0] });
     } catch (err) { console.error('[PATCH /api/users/:id/role]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -626,6 +654,7 @@ app.put('/api/employees/:id', requireAuth, async (req, res) => {
 app.delete('/api/employees/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM employees WHERE id=$1', [req.params.id]);
+        logAudit(req, 'employee_delete', 'employee', req.params.id);
         res.json({ ok: true });
     } catch (err) {
         console.error('[DELETE /api/employees/:id]', err);
@@ -670,6 +699,7 @@ app.post('/api/admin/dedup-employees', requireAuth, requireRole('superadmin'), a
             if (remove.length) {
                 await pool.query('DELETE FROM employees WHERE id = ANY($1)', [remove]);
                 deleted += remove.length;
+                logAudit(req, 'employee_dedup_delete', 'employee', remove.join(','));
             }
         }
         const total = await pool.query('SELECT COUNT(*) FROM employees');
@@ -693,6 +723,7 @@ app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin')
             'DELETE FROM employees WHERE LOWER(client) LIKE $1',
             [`%${client_contains.toLowerCase()}%`]
         );
+        logAudit(req, 'employee_delete_by_client', 'employee', `${client_contains} (${rowCount} rows)`);
         res.json({ ok: true, deleted: rowCount });
     } catch (err) { console.error('[DELETE /api/admin/delete-by-client]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -737,7 +768,9 @@ app.post('/api/admin/import-invoices', requireAuth, requireRole('superadmin'), a
 
 app.delete('/api/admin/purge-test-receipts', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
-        res.json(await purgeTestReceipts(pool));
+        const result = await purgeTestReceipts(pool);
+        logAudit(req, 'purge_test_receipts', 'receipt', 'bulk');
+        res.json(result);
     } catch (err) {
         console.error('[DELETE /api/admin/purge-test-receipts]', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -751,6 +784,7 @@ app.delete('/api/admin/purge-contract', requireAuth, requireRole('superadmin'), 
         const result = await purgeContract(pool, { contract_id, client_id }, {
             confirm: req.query.confirm === 'yes',
         });
+        if (req.query.confirm === 'yes') logAudit(req, 'purge_contract', 'contract', contract_id);
         res.json(result);
     } catch (err) { console.error('[DELETE /api/admin/purge-contract]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -809,7 +843,7 @@ app.post('/api/sms/bulk', requireAuth, async (req, res) => {
 // ── Bills / Procurement (persisted) ──────────────────────────────────────────
 
 // ── OCR endpoint — GPT-4o Vision ─────────────────────────────────────────────
-app.post('/api/bills/ocr', requireAuth, async (req, res) => {
+app.post('/api/bills/ocr', requireAuth, strictLimiter, async (req, res) => {
     const { imageBase64, mimeType = 'image/jpeg' } = req.body;
     if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
 
@@ -1106,6 +1140,7 @@ app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approve
             ? [status, req.params.id, req.user.email, paymentMethod || null, paymentAccount || null]
             : [status, req.params.id];
         await pool.query(`UPDATE bills SET status=$1, updated_at=NOW()${extra} WHERE id=$2`, params);
+        logAudit(req, `bill_status_${status.toLowerCase().replace(/\s+/g, '_')}`, 'bill', req.params.id);
         res.json({ ok: true, status });
     } catch (err) { console.error('[PATCH /api/bills/:id/status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1232,6 +1267,7 @@ app.delete('/api/bills/:id', requireAuth, async (req, res) => {
     try {
         const result = await pool.query('DELETE FROM bills WHERE id=$1 RETURNING id', [req.params.id]);
         if (!result.rows.length) return res.status(404).json({ error: 'Bill not found' });
+        logAudit(req, 'bill_delete', 'bill', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/bills/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1327,6 +1363,7 @@ app.patch('/api/clients/:id/toggle-active', requireAuth, async (req, res) => {
 app.delete('/api/clients/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM clients WHERE id=$1', [req.params.id]);
+        logAudit(req, 'client_delete', 'client', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/clients/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1419,6 +1456,7 @@ app.delete('/api/clients/:id/bus/:bu_id', requireAuth, requireRole('superadmin',
                 return res.status(409).json({ error: `Cannot delete — ${poCheck.rows[0].n} PO(s) reference this BU. Deactivate instead.` });
         }
         await pool.query('DELETE FROM client_business_units WHERE id=$1 AND client_id=$2', [req.params.bu_id, req.params.id]);
+        logAudit(req, 'client_bu_delete', 'client_business_unit', req.params.bu_id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/clients/:id/bus/:bu_id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1447,6 +1485,7 @@ app.get('/api/contracts', requireAuth, async (req, res) => {
 app.delete('/api/contracts/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM contracts WHERE id=$1', [req.params.id]);
+        logAudit(req, 'contract_delete', 'contract', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/contracts/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1527,6 +1566,7 @@ app.put('/api/vendors/:id', requireAuth, async (req, res) => {
 app.delete('/api/vendors/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM vendors WHERE id=$1', [req.params.id]);
+        logAudit(req, 'vendor_delete', 'vendor', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/vendors/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1620,6 +1660,7 @@ app.put('/api/employees/:id/documents/:docId', requireAuth, async (req, res) => 
 app.delete('/api/employees/:id/documents/:docId', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM employee_documents WHERE id=$1 AND employee_id=$2', [req.params.docId, req.params.id]);
+        logAudit(req, 'employee_document_delete', 'employee_document', req.params.docId);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/employees/:id/documents/:docId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1694,6 +1735,7 @@ app.post('/api/employees/:id/advances/:advId/pay-installment', requireAuth, asyn
 app.delete('/api/employees/:id/advances/:advId', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM employee_advances WHERE id=$1 AND employee_id=$2', [req.params.advId, req.params.id]);
+        logAudit(req, 'employee_advance_delete', 'employee_advance', req.params.advId);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/employees/:id/advances/:advId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1848,6 +1890,7 @@ app.delete('/api/employees/:id/pf-ledger/:entryId', requireAuth, requireRole('su
     try {
         await pool.query('DELETE FROM employee_pf_ledger WHERE id=$1 AND employee_id=$2',
             [req.params.entryId, req.params.id]);
+        logAudit(req, 'employee_pf_ledger_delete', 'employee_pf_ledger', req.params.entryId);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/employees/:id/pf-ledger/:entryId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1924,6 +1967,7 @@ app.patch('/api/employees/:id/assets/:assetId/return', requireAuth, async (req, 
 app.delete('/api/employees/:id/assets/:assetId', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM asset_issuances WHERE id=$1 AND employee_id=$2', [req.params.assetId, req.params.id]);
+        logAudit(req, 'employee_asset_delete', 'asset_issuance', req.params.assetId);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/employees/:id/assets/:assetId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1970,6 +2014,7 @@ app.patch('/api/invoices/:id/status', requireAuth, requireRole('finance_approver
             'UPDATE invoices SET status=$1,updated_at=NOW() WHERE id=$2 RETURNING *',
             [status, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
+        logAudit(req, `invoice_status_${String(status).toLowerCase()}`, 'invoice', req.params.id);
         res.json({ invoice: rows[0] });
     } catch (err) { console.error('[PATCH /api/invoices/:id/status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -1978,6 +2023,7 @@ app.delete('/api/invoices/:id', requireAuth, requireRole('superadmin'), async (r
     try {
         const result = await pool.query('DELETE FROM invoices WHERE id=$1 RETURNING id', [req.params.id]);
         if (!result.rows.length) return res.status(404).json({ error: 'Invoice not found' });
+        logAudit(req, 'invoice_delete', 'invoice', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/invoices/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -2478,6 +2524,7 @@ app.patch('/api/change-requests/:id/approve', requireAuth, requireRole('superadm
             `UPDATE employee_change_requests SET status='Approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2`,
             [req.user.email, reqId]
         );
+        logAudit(req, 'change_request_approve', 'employee_change_request', reqId);
 
         // Send approval SMS to employee
         try {
@@ -2608,6 +2655,7 @@ app.put('/api/inventory/items/:id', requireAuth, async (req, res) => {
 app.delete('/api/inventory/items/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM inventory_items WHERE id=$1', [req.params.id]);
+        logAudit(req, 'inventory_item_delete', 'inventory_item', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/inventory/items/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -2643,6 +2691,7 @@ app.post('/api/inventory/stock', requireAuth, async (req, res) => {
 app.delete('/api/inventory/stock/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM inventory_stock WHERE id=$1', [req.params.id]);
+        logAudit(req, 'inventory_stock_delete', 'inventory_stock', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/inventory/stock/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -2694,6 +2743,7 @@ app.put('/api/inventory/issuances/:id', requireAuth, async (req, res) => {
 app.delete('/api/inventory/issuances/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM inventory_issuance WHERE id=$1', [req.params.id]);
+        logAudit(req, 'inventory_issuance_delete', 'inventory_issuance', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/inventory/issuances/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -2898,6 +2948,7 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
             }
         }
 
+        logAudit(req, 'payroll_lock', 'payroll_period', `${yr}-${mo}${lockedEmpIds?.length ? ` (${lockedEmpIds.length} employees)` : ''}`);
         res.json({ ok: true, locked: true, lockedBy: req.user.email, accruals_posted: lockedEmpIds?.length || 0 });
     } catch (err) { console.error('[PATCH /api/payroll/:year/:month/lock]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -2923,6 +2974,7 @@ app.patch('/api/payroll/:year/:month/unlock', requireAuth, requireRole('finance_
                 [yr, mo]
             );
         }
+        logAudit(req, 'payroll_unlock', 'payroll_period', `${yr}-${mo}${employee_ids?.length ? ` (${employee_ids.length} employees)` : ''}`);
         res.json({ ok: true, locked: false });
     } catch (err) { console.error('[PATCH /api/payroll/:year/:month/unlock]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -2936,6 +2988,7 @@ app.delete('/api/payroll/:year/:month/:employeeId', requireAuth, requireRole('su
             [employeeId, parseInt(year), parseInt(month)]
         );
         // If 0 rows deleted the employee simply never had a saved override ΓÇö treat as success
+        if (result.rows.length) logAudit(req, 'payroll_row_delete', 'payroll_transaction', `${employeeId} ${year}-${month}`);
         res.json({ ok: true, deleted: result.rows.length });
     } catch (err) { console.error('[DELETE /api/payroll/:year/:month/:employeeId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -2977,6 +3030,7 @@ app.delete('/api/payroll/:year/:month', requireAuth, requireRole('superadmin', '
         );
 
         console.log(`[Payroll Reset] ${req.user?.email} erased ${result.rows.length} rows for ${yr}-${mo}`);
+        logAudit(req, 'payroll_bulk_reset', 'payroll_period', `${yr}-${mo} (${result.rows.length} rows)`);
         res.json({ ok: true, deleted: result.rows.length });
     } catch (err) { console.error('[DELETE /api/payroll/:year/:month]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -4785,6 +4839,7 @@ app.put('/api/purchase-orders/:id', requireAuth, requireRole('ar_team','finance_
 app.delete('/api/purchase-orders/:id', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         await pool.query('DELETE FROM purchase_orders WHERE id=$1', [req.params.id]);
+        logAudit(req, 'purchase_order_delete', 'purchase_order', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/purchase-orders/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -4843,6 +4898,7 @@ app.put('/api/contracts/:id/bid-items/:itemId', requireAuth, async (req, res) =>
 app.delete('/api/contracts/:id/bid-items/:itemId', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         await pool.query('DELETE FROM contract_bid_items WHERE id=$1 AND contract_id=$2', [req.params.itemId, req.params.id]);
+        logAudit(req, 'bid_item_delete', 'contract_bid_item', req.params.itemId);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/contracts/:id/bid-items/:itemId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -5130,6 +5186,7 @@ app.patch('/api/ap/batches/:batchId/fm-approve', requireAuth, requireRole('finan
             [req.user.email, req.params.batchId]
         );
         if (!rows.length) return res.status(404).json({ error: 'Batch not found or not in Confirmed state' });
+        logAudit(req, 'ap_batch_fm_approve', 'payment_batch', req.params.batchId);
         res.json({ ok: true, batch: rows[0] });
     } catch (err) { console.error('[PATCH /api/ap/batches/:batchId/fm-approve]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -5742,6 +5799,7 @@ app.post('/api/attendance/teams/assign', requireAuth, requireTeamSetup, async (r
 app.delete('/api/attendance/teams/:id', requireAuth, requireTeamSetup, async (req, res) => {
     try {
         await pool.query('DELETE FROM supervisor_teams WHERE id=$1', [req.params.id]);
+        logAudit(req, 'attendance_team_delete', 'supervisor_team', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/attendance/teams/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -5883,6 +5941,7 @@ app.patch('/api/claims/:id/status', requireAuth, async (req, res) => {
             claim_amount!=null?parseFloat(claim_amount):null,
             claim_month||null, match_remark||null, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Claim not found' });
+        if (status) logAudit(req, `claim_status_${status.toLowerCase()}`, 'claim', req.params.id);
         res.json({ ok: true, claim: rows[0] });
     } catch (err) { console.error('[PATCH /api/claims/:id/status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -7258,6 +7317,7 @@ app.delete('/api/wafi-claims/sessions/:id', requireAuth, requireRole('superadmin
         await pool.query('DELETE FROM wafi_claims_items WHERE session_id = $1', [sessionId]);
         const { rows } = await pool.query('DELETE FROM wafi_claims_sessions WHERE id = $1 RETURNING id, attachment_filename', [sessionId]);
         if (!rows.length) return res.status(404).json({ error: 'Session not found' });
+        logAudit(req, 'wafi_session_delete', 'wafi_claims_session', sessionId);
         res.json({ ok: true, message: `Session ${sessionId} (${rows[0].attachment_filename}) permanently deleted` });
     } catch (err) { console.error('[DELETE /api/wafi-claims/sessions/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -7488,6 +7548,7 @@ app.post('/api/wafi-claims/focal-points', requireAuth, async (req, res) => {
 app.delete('/api/wafi-claims/focal-points/:id', requireAuth, async (req, res) => {
     try {
         await pool.query(`UPDATE wafi_focal_points SET active = FALSE WHERE id = $1`, [parseInt(req.params.id)]);
+        logAudit(req, 'wafi_focal_point_deactivate', 'wafi_focal_point', req.params.id);
         res.json({ ok: true });
     } catch (err) { console.error('[DELETE /api/wafi-claims/focal-points/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });

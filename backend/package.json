@@ -31,11 +31,12 @@
     "multer": "^2.2.0",
     "node-pg-migrate": "^7.9.1",
     "openai": "^4.104.0",
-    "pg-boss": "^10.1.6",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.11.3",
+    "pg-boss": "^10.1.6",
     "resend": "^4.5.1",
+    "striptags": "^3.2.0",
     "xlsx": "^0.18.5"
   },
   "license": "ISC",

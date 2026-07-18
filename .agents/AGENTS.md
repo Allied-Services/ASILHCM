@@ -241,7 +241,7 @@ Eleven roles are defined. When adding a new feature, the authorization decision 
 These are documented, accepted gaps. Do not fix them as side effects of other tasks. They require dedicated planning:
 
 1. Leave Management — no DB persistence; UI tab hardcodes CL=10, ML=8, EL=14
-2. Two-step AP approval — currently single-step
+2. ~~Two-step AP approval — currently single-step~~ — RESOLVED: `PATCH /api/ap/batches/:batchId/fm-approve` exists (verified 2026-07-18), gated to `finance_manager`/`superadmin`. No test coverage yet though — see §2.2.
 3. Xero integration — stub only, no real API
 4. Employee Portal OTP auth — not built
 5. PF/Gratuity auto-accrual — manual entries only
@@ -275,7 +275,16 @@ This section is updated by Claude Code after any session that changes code, so C
 2. **`POST /api/bills/:id/unlock`** now requires `requireRole('superadmin')` (previously password-only). Also added an `audit_log` INSERT on unlock — note: `audit_log` table existed but nothing wrote to it anywhere in the codebase before this. Frontend `BillingProcurement.jsx` "Unlock" button is still shown to all roles (not yet gated) — non-superadmins will now see a "Forbidden" error instead of a working unlock; UI gating is a follow-up, not yet done.
 3. **DB pool SSL: `rejectUnauthorized` changed `false` → `true`** (line ~59). **NOT YET VERIFIED against a real Neon connection** — `backend/tests/setup.js` mocks `pg.Pool` entirely, so the test suite passing does not validate this. Before deploying: test against a Neon *dev branch* `DATABASE_URL` (see `.env.example` line ~52), confirm `/health` responds, only then push to `main`.
 
-None of the above has been committed or pushed. Run `git status` / `git diff backend/server.js` to review before committing.
+Committed as `511def6`. Not yet pushed to remote as of the next entry below.
+
+### 2026-07-18 (same day, second session) — Rate limiting, input sanitization, audit trail
+Continuing from the prioritized list above. All verified via `node --check` + full `npm test` (147/147) at multiple checkpoints during this batch. **Uncommitted as of this entry** — review `git diff backend/server.js` before committing.
+
+1. **SSL fix (item 3 above) — still unverified.** No DB access available in this environment to test against real Neon; still needs the dev-branch verification described above before that piece is pushed.
+2. **CSRF — investigated, no code change made.** `requireAuth` (line ~144) only ever checks the `Authorization: Bearer` JWT header — no route anywhere uses `req.session`/`req.isAuthenticated()` (confirmed via grep). The Passport session cookie is used only transiently during the `/auth/google` → `/auth/google/callback` handshake, and is already `sameSite: 'lax'`. Since no state-changing `/api/*` route relies on cookies for auth, the classic CSRF attack (forged cross-site request riding on ambient cookies) doesn't apply here — adding `csurf` would add complexity for near-zero actual risk reduction. Recorded here so this isn't re-investigated from scratch next time; revisit only if a route is ever added that uses session/cookie auth for a state change.
+3. **Input sanitization — added.** New global middleware right after body-parsing (line ~75) strips HTML/script tags from every string in `req.body` via the `striptags` package, skipping strings over 2000 chars (base64 OCR images, bulk CSV/import payloads) to avoid parsing large blobs on every request. (First attempt used `sanitize-html`, which pulled in an ESM-only `htmlparser2` that broke 7/11 Jest suites — swapped to `striptags`, a small zero-dependency CJS package, confirmed all 147 tests pass.)
+4. **OCR rate limit — added.** `POST /api/bills/ocr` now has `strictLimiter` (10 req/min, already defined and used elsewhere) — previously had no rate limit at all despite calling paid OpenAI credits per request.
+5. **Audit logging — expanded from 1 to 33 call sites.** Added a shared `logAudit(req, actionType, entityType, entityId)` helper (near `requireAuth`/`requireRole`, ~line 158) and wired it into every `app.delete(...)` route (24) and every role/status/lock/approve `PATCH` route (8), fire-and-forget with its own `.catch()` so a logging failure never blocks the actual response. This does **not** cover routes added after this date — new destructive routes need their own `logAudit()` call, it isn't automatic.
 
 ---
 
