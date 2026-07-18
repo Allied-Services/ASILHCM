@@ -56,7 +56,7 @@ async function sendAppEmail({ to, subject, html }) {
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ DB Pool ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: true },
     max: 10,                       // Neon free: stay under 100 connection limit
     idleTimeoutMillis: 30000,      // Release idle connections after 30s
     connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
@@ -224,7 +224,7 @@ app.get('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req, 
             'SELECT id, google_id, email, name, avatar, role, permissions, created_at, last_login FROM hcm_users ORDER BY created_at ASC'
         );
         res.json({ users: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/users]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/users ├óΓé¼ΓÇ¥ pre-register a user by email
@@ -252,7 +252,7 @@ app.post('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req,
             RETURNING id, google_id, email, name, avatar, role, created_at, last_login
         `, [`pending_${Date.now()}`, email.toLowerCase(), email.split('@')[0], role]);
         res.json({ ok: true, user: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/users]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // PATCH /api/users/:id/role ├óΓé¼ΓÇ¥ change a user's role
@@ -276,7 +276,7 @@ app.patch('/api/users/:id/role', requireAuth, requireRole(...USER_MGMT_ROLES), a
         );
         if (!rows.length) return res.status(404).json({ error: 'User not found' });
         res.json({ ok: true, user: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/users/:id/role]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // PATCH /api/users/:id/permissions ├óΓé¼ΓÇ¥ save granular sub-permissions (superadmin only)
@@ -301,7 +301,7 @@ app.patch('/api/users/:id/permissions', requireAuth, requireRole('superadmin'), 
         res.json({ ok: true, user: rows[0] });
     } catch (err) {
         console.error('permissions save error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 app.get('/health', (req, res) => {
@@ -319,7 +319,7 @@ app.get('/health/ip', requireAuth, requireRole('superadmin'), (req, res) => {
     https.get('https://api.ipify.org?format=json', (r) => {
         let d = ''; r.on('data', c => d += c);
         r.on('end', () => res.json({ outbound_ip: JSON.parse(d).ip, note: 'Whitelist this IP with Jazz CMT' }));
-    }).on('error', e => res.status(500).json({ error: e.message }));
+    }).on('error', e => { console.error('[GET /health/ip]', e); res.status(500).json({ error: 'Internal server error' }); });
 });
 app.get('/', (req, res) => res.json({ name: 'ASIL HCM API', status: 'running', app: 'https://asil-hcm-frontend.onrender.com' }));
 
@@ -335,7 +335,7 @@ app.get('/api/debug/bonus-check', requireAuth, requireRole('superadmin'), async 
             FROM contracts ORDER BY contract_name
         `);
         res.json({ count: rows.length, contracts: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/debug/bonus-check]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 const nullDate = (d) => (d && d !== '' && d !== 'undefined') ? d : null;
@@ -649,7 +649,7 @@ app.get('/api/admin/employee-duplicates', requireAuth, requireRole('superadmin')
         `);
         const total = await pool.query('SELECT COUNT(*) FROM employees');
         res.json({ total_employees: parseInt(total.rows[0].count), duplicate_groups: rows.length, duplicates: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/admin/employee-duplicates]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Deduplicate: per CNIC, keep the row with highest salary, delete the rest
@@ -674,7 +674,7 @@ app.post('/api/admin/dedup-employees', requireAuth, requireRole('superadmin'), a
         }
         const total = await pool.query('SELECT COUNT(*) FROM employees');
         res.json({ ok: true, deleted, remaining: parseInt(total.rows[0].count) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/admin/dedup-employees]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Delete all employees whose client name contains a substring (case-insensitive)
@@ -694,7 +694,7 @@ app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin')
             [`%${client_contains.toLowerCase()}%`]
         );
         res.json({ ok: true, deleted: rowCount });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/admin/delete-by-client]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Purge a contract and every record tied to it (runs, invoices, claims,
@@ -719,7 +719,7 @@ app.post('/api/admin/import-payroll-history', requireAuth, requireRole('superadm
         res.json(result);
     } catch (err) {
         console.error('[POST /api/admin/import-payroll-history]', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -731,7 +731,7 @@ app.post('/api/admin/import-invoices', requireAuth, requireRole('superadmin'), a
         }));
     } catch (err) {
         console.error('[POST /api/admin/import-invoices]', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -740,7 +740,7 @@ app.delete('/api/admin/purge-test-receipts', requireAuth, requireRole('superadmi
         res.json(await purgeTestReceipts(pool));
     } catch (err) {
         console.error('[DELETE /api/admin/purge-test-receipts]', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -752,7 +752,7 @@ app.delete('/api/admin/purge-contract', requireAuth, requireRole('superadmin'), 
             confirm: req.query.confirm === 'yes',
         });
         res.json(result);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/admin/purge-contract]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 
@@ -771,7 +771,7 @@ app.post('/api/sms/send', requireAuth, async (req, res) => {
             ).catch(() => {});
         }
         res.json(result);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/sms/send]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/sms/bulk', requireAuth, async (req, res) => {
@@ -1051,7 +1051,7 @@ app.get('/api/bills', requireAuth, async (req, res) => {
             status: r.status || 'Draft', createdBy: r.created_by, billCategory: r.bill_category || 'official', whtAmount: parseFloat(r.wht_amount) || 0, gstExempt: r.gst_exempt || false, paymentMethod: r.payment_method, paymentAccount: r.payment_account,
             createdAt: r.created_at,
         })));
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/bills]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/bills', requireAuth, requireRole('procurement_proposer','finance_proposer','finance_approver','superadmin'), async (req, res) => {
@@ -1087,7 +1087,7 @@ app.post('/api/bills', requireAuth, requireRole('procurement_proposer','finance_
             whtAmount: parseFloat(r.wht_amount) || 0, gstExempt: r.gst_exempt || false,
             paymentMethod: r.payment_method, paymentAccount: r.payment_account,
         } });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/bills]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approver','finance_approver','superadmin'), async (req, res) => {
@@ -1107,19 +1107,23 @@ app.patch('/api/bills/:id/status', requireAuth, requireRole('procurement_approve
             : [status, req.params.id];
         await pool.query(`UPDATE bills SET status=$1, updated_at=NOW()${extra} WHERE id=$2`, params);
         res.json({ ok: true, status });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/bills/:id/status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// POST /api/bills/:id/unlock — password-protected unlock for paid bills
-app.post('/api/bills/:id/unlock', requireAuth, async (req, res) => {
+// POST /api/bills/:id/unlock — password-protected unlock for paid bills (superadmin only)
+app.post('/api/bills/:id/unlock', requireAuth, requireRole('superadmin'), async (req, res) => {
     const { password } = req.body;
     const correctPwd = process.env.BILLS_UNLOCK_PASSWORD;
     if (!correctPwd) return res.status(503).json({ error: 'BILLS_UNLOCK_PASSWORD not set in environment. Please contact your system administrator.' });
     if (password !== correctPwd) return res.status(403).json({ error: 'Incorrect password. Access denied.' });
     try {
         await pool.query(`UPDATE bills SET status='Approved', paid_at=NULL, paid_by=NULL, updated_at=NOW() WHERE id=$1`, [req.params.id]);
+        pool.query(
+            `INSERT INTO audit_log (user_email, action_type, entity_type, entity_id, created_at) VALUES ($1, $2, $3, $4, NOW())`,
+            [req.user.email, 'bill_unlock', 'bill', req.params.id]
+        ).catch(err => console.error('[POST /api/bills/:id/unlock] audit_log write failed', err));
         res.json({ ok: true, message: 'Bill unlocked and reset to Approved status.' });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/bills/:id/unlock]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/bills/:id/challan — generate or retrieve a delivery challan
@@ -1203,7 +1207,7 @@ app.post('/api/bills/:id/challan', requireAuth, async (req, res) => {
              notes || null, req.user.email]
         );
         res.json({ ok: true, challan: newRows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/bills/:id/challan]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/bills/:id/challan — retrieve existing challan for a bill
@@ -1211,7 +1215,7 @@ app.get('/api/bills/:id/challan', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query('SELECT * FROM delivery_challans WHERE bill_id=$1', [req.params.id]);
         res.json({ challan: rows[0] || null });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/bills/:id/challan]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 
@@ -1229,7 +1233,7 @@ app.delete('/api/bills/:id', requireAuth, async (req, res) => {
         const result = await pool.query('DELETE FROM bills WHERE id=$1 RETURNING id', [req.params.id]);
         if (!result.rows.length) return res.status(404).json({ error: 'Bill not found' });
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/bills/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ── Client Mappers ──────────────────────────────────────────────────────────
@@ -1267,7 +1271,7 @@ app.get('/api/clients', requireAuth, async (req, res) => {
             }))
         }));
         res.json({ clients: result });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/clients]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/clients', requireAuth, async (req, res) => {
@@ -1280,7 +1284,7 @@ app.post('/api/clients', requireAuth, async (req, res) => {
             [id, name, hq || null, ntn || null, strn || null, industry || null, JSON.stringify(contacts)]
         );
         res.json({ client: { ...clientFromDb(rows[0]), contracts: [] } });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/clients]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.put('/api/clients/:id', requireAuth, async (req, res) => {
@@ -1305,7 +1309,7 @@ app.put('/api/clients/:id', requireAuth, async (req, res) => {
         // Return updated client with contracts
         const { rows: ctRows } = await pool.query('SELECT * FROM contracts WHERE client_id=$1', [req.params.id]);
         res.json({ client: { ...clientFromDb(rows[0]), contracts: ctRows.map(ct => ({ id: ct.id, contractName: ct.contract_name, location: ct.location, serviceType: ct.service_type, headcount: ct.headcount, status: ct.status, startDate: toDateStr(ct.start_date), endDate: toDateStr(ct.end_date), costs: ct.costs, financials: ct.financials, alliedFocalEmail: ct.allied_focal_email, clientFocalName: ct.client_focal_name, clientFocalEmail: ct.client_focal_email })) } });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PUT /api/clients/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // PATCH /api/clients/:id/toggle-active — soft activate / deactivate
@@ -1317,14 +1321,14 @@ app.patch('/api/clients/:id/toggle-active', requireAuth, async (req, res) => {
         );
         if (!rows.length) return res.status(404).json({ error: 'Client not found' });
         res.json({ ok: true, isActive: rows[0].is_active });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/clients/:id/toggle-active]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/clients/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM clients WHERE id=$1', [req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/clients/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1356,7 +1360,7 @@ app.get('/api/clients/:id/bus', requireAuth, async (req, res) => {
             'SELECT * FROM client_business_units WHERE client_id=$1 ORDER BY sort_order ASC, bu_code ASC',
             [req.params.id]);
         res.json({ bus: withAllBU(req.params.id, rows) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/clients/:id/bus]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/bus?client_id=X  or  ?client_name=X  — lightweight lookup
@@ -1373,7 +1377,7 @@ app.get('/api/bus', requireAuth, async (req, res) => {
             'SELECT id, bu_code, bu_name, is_active FROM client_business_units WHERE client_id=$1 AND is_active=TRUE ORDER BY sort_order ASC, bu_code ASC',
             [cid]);
         res.json({ bus: withAllBU(cid, rows) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/bus]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/clients/:id/bus
@@ -1387,7 +1391,8 @@ app.post('/api/clients/:id/bus', requireAuth, requireRole('superadmin','finance_
         res.json({ bu: rows[0] });
     } catch (err) {
         if (err.code === '23505') return res.status(409).json({ error: `BU code "${req.body.bu_code}" already exists for this client` });
-        res.status(500).json({ error: err.message });
+        console.error('[POST /api/clients/:id/bus]', err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1400,7 +1405,7 @@ app.put('/api/clients/:id/bus/:bu_id', requireAuth, requireRole('superadmin','fi
             [bu_name || null, description || null, is_active ?? null, sort_order ?? null, req.params.bu_id, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'BU not found' });
         res.json({ bu: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PUT /api/clients/:id/bus/:bu_id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // DELETE /api/clients/:id/bus/:bu_id
@@ -1415,7 +1420,7 @@ app.delete('/api/clients/:id/bus/:bu_id', requireAuth, requireRole('superadmin',
         }
         await pool.query('DELETE FROM client_business_units WHERE id=$1 AND client_id=$2', [req.params.bu_id, req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/clients/:id/bus/:bu_id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.get('/api/contracts', requireAuth, async (req, res) => {
@@ -1436,14 +1441,14 @@ app.get('/api/contracts', requireAuth, async (req, res) => {
             endOfService: ct.end_of_service || 'Gratuity',
             regionProvince: ct.region_province || null,
         })) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/contracts]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/contracts/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM contracts WHERE id=$1', [req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/contracts/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 
@@ -1457,7 +1462,7 @@ app.patch('/api/contracts/:id/reassign', requireAuth, async (req, res) => {
         );
         if (!rows.length) return res.status(404).json({ error: 'Contract not found' });
         res.json({ ok: true, contract: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/contracts/:id/reassign]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -1474,7 +1479,7 @@ app.get('/api/vendors', requireAuth, async (req, res) => {
             LEFT JOIN vendor_payments vp ON vp.vendor_id = v.id
             GROUP BY v.id ORDER BY v.name ASC`);
         res.json({ vendors: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/vendors]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/vendors', requireAuth, async (req, res) => {
@@ -1499,7 +1504,7 @@ app.post('/api/vendors', requireAuth, async (req, res) => {
              bank_name,bank_account,account_title,is_filer,is_active,payment_terms,notes]
         );
         res.json({ vendor: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/vendors]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.put('/api/vendors/:id', requireAuth, async (req, res) => {
@@ -1516,14 +1521,14 @@ app.put('/api/vendors/:id', requireAuth, async (req, res) => {
         );
         if (!rows.length) return res.status(404).json({ error: 'Not found' });
         res.json({ vendor: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PUT /api/vendors/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/vendors/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM vendors WHERE id=$1', [req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/vendors/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.get('/api/vendors/:id/payments', requireAuth, async (req, res) => {
@@ -1532,7 +1537,7 @@ app.get('/api/vendors/:id/payments', requireAuth, async (req, res) => {
             'SELECT * FROM vendor_payments WHERE vendor_id=$1 ORDER BY payment_date DESC, created_at DESC',
             [req.params.id]);
         res.json({ payments: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/vendors/:id/payments]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/vendors/:id/payments', requireAuth, async (req, res) => {
@@ -1546,7 +1551,7 @@ app.post('/api/vendors/:id/payments', requireAuth, async (req, res) => {
             [req.params.id, payment_date||null, amount, wht_rate||0, whtAmt, netPay, description, bill_ref, category]
         );
         res.json({ payment: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/vendors/:id/payments]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -1558,7 +1563,7 @@ app.get('/api/config/:key', requireAuth, async (req, res) => {
         const { rows } = await pool.query('SELECT * FROM system_config WHERE key=$1', [req.params.key]);
         if (!rows.length) return res.status(404).json({ error: 'Config key not found' });
         res.json({ config: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/config/:key]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.put('/api/config/:key', requireAuth, async (req, res) => {
@@ -1570,7 +1575,7 @@ app.put('/api/config/:key', requireAuth, async (req, res) => {
             [req.params.key, JSON.stringify(value)]
         );
         res.json({ config: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PUT /api/config/:key]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -1583,7 +1588,7 @@ app.get('/api/employees/:id/documents', requireAuth, async (req, res) => {
             'SELECT * FROM employee_documents WHERE employee_id=$1 ORDER BY doc_type, expiry_date ASC',
             [req.params.id]);
         res.json({ documents: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/employees/:id/documents]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/employees/:id/documents', requireAuth, async (req, res) => {
@@ -1595,7 +1600,7 @@ app.post('/api/employees/:id/documents', requireAuth, async (req, res) => {
             [req.params.id, doc_type, doc_name, issue_date||null, expiry_date||null, issuing_authority, doc_no, notes]
         );
         res.json({ document: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/documents]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.put('/api/employees/:id/documents/:docId', requireAuth, async (req, res) => {
@@ -1609,14 +1614,14 @@ app.put('/api/employees/:id/documents/:docId', requireAuth, async (req, res) => 
         );
         if (!rows.length) return res.status(404).json({ error: 'Not found' });
         res.json({ document: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PUT /api/employees/:id/documents/:docId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/employees/:id/documents/:docId', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM employee_documents WHERE id=$1 AND employee_id=$2', [req.params.docId, req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/employees/:id/documents/:docId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/employees/:id/messages', requireAuth, async (req, res) => {
@@ -1629,7 +1634,7 @@ app.post('/api/employees/:id/messages', requireAuth, async (req, res) => {
             [req.params.id, channel||'email', subject||'', body||'', sender]
         );
         res.json({ message: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/messages]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.get('/api/employees/:id/messages', requireAuth, async (req, res) => {
@@ -1638,7 +1643,7 @@ app.get('/api/employees/:id/messages', requireAuth, async (req, res) => {
             'SELECT * FROM employee_messages WHERE employee_id=$1 ORDER BY sent_at DESC',
             [req.params.id]);
         res.json({ messages: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/employees/:id/messages]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -1651,7 +1656,7 @@ app.get('/api/employees/:id/advances', requireAuth, async (req, res) => {
             'SELECT * FROM employee_advances WHERE employee_id=$1 ORDER BY created_at DESC',
             [req.params.id]);
         res.json({ advances: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/employees/:id/advances]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/employees/:id/advances', requireAuth, async (req, res) => {
@@ -1666,7 +1671,7 @@ app.post('/api/employees/:id/advances', requireAuth, async (req, res) => {
             [req.params.id, type||'Advance', reason||'', total, inst, inst_amt, req.user?.email||'system']
         );
         res.json({ advance: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/advances]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Mark one installment as paid
@@ -1683,14 +1688,14 @@ app.post('/api/employees/:id/advances/:advId/pay-installment', requireAuth, asyn
         );
         if (!rows.length) return res.status(404).json({ error: 'Advance not found or already settled' });
         res.json({ advance: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/advances/:advId/pay-installment]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/employees/:id/advances/:advId', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM employee_advances WHERE id=$1 AND employee_id=$2', [req.params.advId, req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/employees/:id/advances/:advId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Get active advance deduction for payroll (per employee, current month)
@@ -1705,7 +1710,7 @@ app.get('/api/payroll/advance-deductions', requireAuth, async (req, res) => {
         const map = {};
         rows.forEach(r => { map[r.employee_id] = { totalDeduction: parseFloat(r.total_deduction), details: r.details }; });
         res.json(map);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/payroll/advance-deductions]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -1778,7 +1783,7 @@ app.get('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
         const totalCredit = ledger.reduce((s, r) => s + r.credit, 0);
         const totalDebit  = ledger.reduce((s, r) => s + r.debit, 0);
         res.json({ ledger, balance: Math.round(runningBalance), totalCredit, totalDebit });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/employees/:id/pf-ledger]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST monthly contribution (existing endpoint — keeps backward compat)
@@ -1797,7 +1802,7 @@ app.post('/api/employees/:id/pf-ledger', requireAuth, async (req, res) => {
              narration || null]
         );
         res.json({ entry: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/pf-ledger]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST opening balance — only one allowed per employee (upsert on year=0, month=0)
@@ -1814,7 +1819,7 @@ app.post('/api/employees/:id/pf-ledger/opening-balance', requireAuth, async (req
             [req.params.id, parseFloat(amount) || 0, narration || 'Opening Balance / Balance Brought Forward']
         );
         res.json({ entry: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/pf-ledger/opening-balance]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST withdrawal — records a debit with cheque/bank ref
@@ -1835,7 +1840,7 @@ app.post('/api/employees/:id/pf-ledger/withdrawal', requireAuth, async (req, res
              narration || 'PF Withdrawal', reference_no || null]
         );
         res.json({ entry: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/pf-ledger/withdrawal]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // DELETE a ledger entry (superadmin only — irreversible)
@@ -1844,7 +1849,7 @@ app.delete('/api/employees/:id/pf-ledger/:entryId', requireAuth, requireRole('su
         await pool.query('DELETE FROM employee_pf_ledger WHERE id=$1 AND employee_id=$2',
             [req.params.entryId, req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/employees/:id/pf-ledger/:entryId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 
@@ -1858,7 +1863,7 @@ app.get('/api/employees/:id/gratuity-ledger', requireAuth, async (req, res) => {
             'SELECT * FROM employee_gratuity_ledger WHERE employee_id=$1 ORDER BY year DESC, month DESC',
             [req.params.id]);
         res.json({ ledger: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/employees/:id/gratuity-ledger]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/employees/:id/gratuity-ledger', requireAuth, async (req, res) => {
@@ -1871,7 +1876,7 @@ app.post('/api/employees/:id/gratuity-ledger', requireAuth, async (req, res) => 
             [req.params.id, month, year, parseFloat(accrual)||0, parseFloat(cumulative)||0]
         );
         res.json({ entry: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/gratuity-ledger]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -1884,7 +1889,7 @@ app.get('/api/employees/:id/assets', requireAuth, async (req, res) => {
             'SELECT * FROM asset_issuances WHERE employee_id=$1 ORDER BY issue_date DESC',
             [req.params.id]);
         res.json({ assets: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/employees/:id/assets]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/employees/:id/assets', requireAuth, async (req, res) => {
@@ -1904,7 +1909,7 @@ app.post('/api/employees/:id/assets', requireAuth, async (req, res) => {
             [req.params.id, category||'Uniform', item_desc, issue_date||null, replacementDue, parseFloat(cost)||null]
         );
         res.json({ asset: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/assets]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.patch('/api/employees/:id/assets/:assetId/return', requireAuth, async (req, res) => {
@@ -1913,14 +1918,14 @@ app.patch('/api/employees/:id/assets/:assetId/return', requireAuth, async (req, 
             'UPDATE asset_issuances SET returned=TRUE WHERE id=$1 AND employee_id=$2 RETURNING *',
             [req.params.assetId, req.params.id]);
         res.json({ asset: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/employees/:id/assets/:assetId/return]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/employees/:id/assets/:assetId', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM asset_issuances WHERE id=$1 AND employee_id=$2', [req.params.assetId, req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/employees/:id/assets/:assetId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -1939,7 +1944,7 @@ app.get('/api/invoices', requireAuth, async (req, res) => {
             grandTotal: parseFloat(r.grand_total)||0,
             status: r.status, createdBy: r.created_by, createdAt: r.created_at
         })) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/invoices]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/invoices', requireAuth, requireRole('finance_proposer'), async (req, res) => {
@@ -1955,7 +1960,7 @@ app.post('/api/invoices', requireAuth, requireRole('finance_proposer'), async (r
              req.user?.email||'system']
         );
         res.json({ invoice: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/invoices]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.patch('/api/invoices/:id/status', requireAuth, requireRole('finance_approver'), async (req, res) => {
@@ -1966,7 +1971,7 @@ app.patch('/api/invoices/:id/status', requireAuth, requireRole('finance_approver
             [status, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
         res.json({ invoice: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/invoices/:id/status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/invoices/:id', requireAuth, requireRole('superadmin'), async (req, res) => {
@@ -1974,7 +1979,7 @@ app.delete('/api/invoices/:id', requireAuth, requireRole('superadmin'), async (r
         const result = await pool.query('DELETE FROM invoices WHERE id=$1 RETURNING id', [req.params.id]);
         if (!result.rows.length) return res.status(404).json({ error: 'Invoice not found' });
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/invoices/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -2168,7 +2173,7 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
             res.setHeader('Content-Disposition', `attachment; filename="PaySlip_${safeName}_${monthName}_${year}.html"`);
         }
         res.send(html);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/payslip/:employeeId/:month/:year]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -2190,7 +2195,7 @@ app.get('/api/bills/hitl-flags', requireAuth, async (req, res) => {
             return { ...r, itemsSum: Math.round(itemsSum), discrepancy: Math.round(parseFloat(r.total||0) - itemsSum) };
         });
         res.json({ flagged, count: flagged.length });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/bills/hitl-flags]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -2222,7 +2227,7 @@ app.post('/api/sms/payroll-batch', requireAuth, async (req, res) => {
             results.push({ name: emp.name, phone: emp.primary_contact, ok: result.ok, response: result.response, error: result.ok ? undefined : result.response });
         }
         res.json({ sent: results.filter(r=>r.ok).length, failed: results.filter(r=>!r.ok).length, results });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/sms/payroll-batch]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
@@ -2572,7 +2577,7 @@ app.get('/api/inventory/items', requireAuth, async (req, res) => {
             GROUP BY i.id
             ORDER BY i.category, i.name`);
         res.json({ items: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/inventory/items]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/inventory/items', requireAuth, async (req, res) => {
@@ -2584,7 +2589,7 @@ app.post('/api/inventory/items', requireAuth, async (req, res) => {
             [name, category, description, unit, has_expiry, expiry_months || null, min_stock]
         );
         res.json({ item: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/inventory/items]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.put('/api/inventory/items/:id', requireAuth, async (req, res) => {
@@ -2597,14 +2602,14 @@ app.put('/api/inventory/items/:id', requireAuth, async (req, res) => {
         );
         if (!rows.length) return res.status(404).json({ error: 'Not found' });
         res.json({ item: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PUT /api/inventory/items/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/inventory/items/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM inventory_items WHERE id=$1', [req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/inventory/items/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Stock In (procurement) Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
@@ -2620,7 +2625,7 @@ app.get('/api/inventory/stock', requireAuth, async (req, res) => {
             ${where}
             ORDER BY s.received_date DESC, s.created_at DESC`, params);
         res.json({ stock: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/inventory/stock]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/inventory/stock', requireAuth, async (req, res) => {
@@ -2632,14 +2637,14 @@ app.post('/api/inventory/stock', requireAuth, async (req, res) => {
             [item_id, quantity, unit_cost || null, supplier, receipt_no, po_number, received_date || null, notes]
         );
         res.json({ stock: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/inventory/stock]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/inventory/stock/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM inventory_stock WHERE id=$1', [req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/inventory/stock/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Issuances Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
@@ -2658,7 +2663,7 @@ app.get('/api/inventory/issuances', requireAuth, async (req, res) => {
             ${where}
             ORDER BY iss.issue_date DESC, iss.created_at DESC`, params);
         res.json({ issuances: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/inventory/issuances]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/inventory/issuances', requireAuth, async (req, res) => {
@@ -2670,7 +2675,7 @@ app.post('/api/inventory/issuances', requireAuth, async (req, res) => {
             [item_id, employee_id, employee_name, quantity || 1, issue_date || null, expiry_date || null, notes, condition_out || 'New']
         );
         res.json({ issuance: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/inventory/issuances]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.put('/api/inventory/issuances/:id', requireAuth, async (req, res) => {
@@ -2683,14 +2688,14 @@ app.put('/api/inventory/issuances/:id', requireAuth, async (req, res) => {
         );
         if (!rows.length) return res.status(404).json({ error: 'Not found' });
         res.json({ issuance: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PUT /api/inventory/issuances/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/inventory/issuances/:id', requireAuth, async (req, res) => {
     try {
         await pool.query('DELETE FROM inventory_issuance WHERE id=$1', [req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/inventory/issuances/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 
@@ -2743,7 +2748,7 @@ app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
             lockedBy:  rows[0]?.locked_by  || null,
             lockedAt:  rows[0]?.locked_at  || null,
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/payroll/:year/:month]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/payroll/:year/:month Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ bulk UPSERT (newest import wins, blocked if locked)
@@ -2813,7 +2818,7 @@ app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer
             if (upserted.length) saved.push(upserted[0].employee_id);
         }
         res.json({ ok: true, saved: saved.length });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/payroll/:year/:month]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // PATCH /api/payroll/:year/:month/lock Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ lock a payroll month + auto-post PF/Gratuity
@@ -2894,7 +2899,7 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
         }
 
         res.json({ ok: true, locked: true, lockedBy: req.user.email, accruals_posted: lockedEmpIds?.length || 0 });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/payroll/:year/:month/lock]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // PATCH /api/payroll/:year/:month/unlock Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ unlock a payroll month (scoped to employee_ids if provided)
@@ -2919,7 +2924,7 @@ app.patch('/api/payroll/:year/:month/unlock', requireAuth, requireRole('finance_
             );
         }
         res.json({ ok: true, locked: false });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/payroll/:year/:month/unlock]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // DELETE /api/payroll/:year/:month/:employeeId ΓÇö delete one employee's payroll row (superadmin only)
@@ -2932,7 +2937,7 @@ app.delete('/api/payroll/:year/:month/:employeeId', requireAuth, requireRole('su
         );
         // If 0 rows deleted the employee simply never had a saved override ΓÇö treat as success
         res.json({ ok: true, deleted: result.rows.length });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/payroll/:year/:month/:employeeId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // DELETE /api/payroll/:year/:month ΓÇö bulk-reset (erase all entered data) for a payroll month
@@ -2973,7 +2978,7 @@ app.delete('/api/payroll/:year/:month', requireAuth, requireRole('superadmin', '
 
         console.log(`[Payroll Reset] ${req.user?.email} erased ${result.rows.length} rows for ${yr}-${mo}`);
         res.json({ ok: true, deleted: result.rows.length });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/payroll/:year/:month]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 
@@ -3414,7 +3419,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send('\uFEFF' + csv);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/payroll/:year/:month/export]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Send payslips by email Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
@@ -3545,7 +3550,7 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
             } catch (e) { failed.push({ id: emp.id, name: emp.name, err: e.message }); }
         }
         res.json({ ok: true, sent, failed, total: empRes.rows.length });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/payroll/:year/:month/send-payslips]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
@@ -3678,7 +3683,7 @@ app.get('/api/xero/status', requireAuth, async (req, res) => {
         } catch(e) {
             res.json({ connected: false, message: 'Token expired or revoked. Please reconnect at /api/xero/connect. Reason: ' + e.message });
         }
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/xero/status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ 1. Initiate Xero OAuth Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
@@ -3729,7 +3734,7 @@ app.get('/api/xero/check', requireAuth, async (req, res) => {
         const now = Date.now();
         const expiresAt = tokens.expires_at || 0;
         res.json({ connected: !!tokens.access_token, tenantId: tokens.tenant_id || null, expires_in_minutes: Math.max(0, Math.round((expiresAt - now) / 60_000)) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/xero/check]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.get('/api/xero/chart-of-accounts', requireAuth, async (req, res) => {
@@ -3755,7 +3760,7 @@ app.get('/api/xero/chart-of-accounts', requireAuth, async (req, res) => {
             [JSON.stringify(accounts)]
         ).catch(() => {});
         res.json({ ok: true, count: accounts.length, accounts });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/xero/chart-of-accounts]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ 3c. Get cached Chart of Accounts (no Xero call needed) Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
@@ -3764,7 +3769,7 @@ app.get('/api/xero/chart-of-accounts/cached', requireAuth, async (req, res) => {
         const cfg = await pool.query(`SELECT value, updated_at FROM system_config WHERE key = 'xero_chart_of_accounts'`);
         if (!cfg.rows.length) return res.json({ accounts: [], cached: false, message: 'No cache yet. Call /api/xero/chart-of-accounts to sync.' });
         res.json({ accounts: cfg.rows[0].value, cached: true, last_synced: cfg.rows[0].updated_at });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/xero/chart-of-accounts/cached]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ 4. Push invoice to Xero Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
@@ -3839,7 +3844,7 @@ app.post('/api/xero/invoices', requireAuth, async (req, res) => {
         res.json({ ok: true, xeroInvoiceId, xeroUrl });
     } catch (err) {
         console.error('[Xero] push error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -3851,7 +3856,7 @@ app.get('/api/banks', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query('SELECT * FROM banks ORDER BY is_hbl DESC, name ASC');
         res.json({ banks: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/banks]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/banks', requireAuth, requireRole('superadmin'), async (req, res) => {
@@ -3863,7 +3868,7 @@ app.post('/api/banks', requireAuth, requireRole('superadmin'), async (req, res) 
             [name, short_name || null, swift_code || null, is_hbl]
         );
         res.json({ bank: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/banks]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
@@ -3894,7 +3899,7 @@ app.get('/api/ap/payroll-queue', requireAuth, requireRole('ap_team','finance_man
             ORDER BY pt.year DESC, pt.month DESC, e.client ASC, e.contract_name ASC
         `);
         res.json({ queue: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/ap/payroll-queue]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/ap/payroll-queue/:year/:month Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ employee details scoped by client+contract
@@ -3921,7 +3926,7 @@ app.get('/api/ap/payroll-queue/:year/:month', requireAuth, requireRole('ap_team'
         if (filterContract) { batchParams.push(filterContract); batchQuery += ` AND COALESCE(contract_name,'')=$${batchParams.length}`; }
         const batch = await pool.query(batchQuery, batchParams);
         res.json({ employees: rows, batch: batch.rows[0] || null });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/ap/payroll-queue/:year/:month]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/ap/payroll-queue/:year/:month/confirm Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ AP team confirms payment + selects bank
@@ -4042,7 +4047,7 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
         }
 
         res.json({ ok: true, batch: batchRows[0], xero: xeroResult });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/ap/payroll-queue/:year/:month/confirm]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/ap/bills-queue Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ bills pending AP confirmation
@@ -4056,7 +4061,7 @@ app.get('/api/ap/bills-queue', requireAuth, requireRole('ap_team','finance_manag
             ORDER BY b.created_at DESC
         `);
         res.json({ bills: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/ap/bills-queue]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/ap/bills/:id/confirm Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ AP team confirms bill payment
@@ -4124,7 +4129,7 @@ app.post('/api/ap/bills/:id/confirm', requireAuth, requireRole('ap_team','financ
         }
 
         res.json({ ok: true, batch: batchRows[0], xero: xeroResult });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/ap/bills/:id/confirm]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/payment-ledger Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ full payment ledger view
@@ -4145,7 +4150,7 @@ app.get('/api/payment-ledger', requireAuth, requireRole('ap_team','ar_team','fin
             ORDER BY pb.payment_date DESC, pl.created_at DESC
         `, params);
         res.json({ ledger: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/payment-ledger]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
@@ -4185,7 +4190,7 @@ app.get('/api/client-invoices', requireAuth, requireRole('ar_team','finance_mana
             ORDER BY ci.created_at DESC
         `, params);
         res.json({ invoices: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/client-invoices]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/client-invoices ΓÇö AR team raises an invoice
@@ -4209,7 +4214,7 @@ app.post('/api/client-invoices', requireAuth, requireRole('ar_team','finance_man
             parseFloat(wht)||0, parseFloat(grand_total)||0, notes||null,
             region||null, bu||null, req.user.email]);
         res.json({ ok: true, invoice: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/client-invoices]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 
@@ -4249,7 +4254,7 @@ app.post('/api/bills/:id/create-invoice', requireAuth, requireRole('ar_team','fi
         res.json({ ok: true, invoice: rows[0], invoice_number: invNo });
     } catch (err) {
         console.error('create-invoice-from-bill error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -4274,7 +4279,7 @@ app.patch('/api/client-invoices/:id', requireAuth, requireRole('ar_team','financ
             notes||null, xero_invoice_id||null, xero_url||null, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
         res.json({ ok: true, invoice: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/client-invoices/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/client-invoices/:id/push-xero Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ push to Xero as AR invoice
@@ -4333,7 +4338,7 @@ app.post('/api/client-invoices/:id/push-xero', requireAuth, requireRole('ar_team
             linked = { linked: 0, error: linkErr.message };
         }
         res.json({ ok: true, xeroId, xeroUrl, linked });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/client-invoices/:id/push-xero]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/client-invoices/:id/void-xero', requireAuth, requireRole('superadmin'), async (req, res) => {
@@ -4352,7 +4357,7 @@ app.post('/api/client-invoices/:id/void-xero', requireAuth, requireRole('superad
         if (!xeroResp.ok) return res.status(502).json({ error: 'Xero void error', detail: xd });
         await pool.query(`UPDATE client_invoices SET status='Void', updated_at=NOW() WHERE id=$1`, [req.params.id]);
         res.json({ ok: true, xeroId: ci.xero_invoice_id, status: xd.Invoices?.[0]?.Status || 'VOIDED' });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/client-invoices/:id/void-xero]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
@@ -4373,7 +4378,7 @@ app.get('/api/payroll/:year/:month/invoice-status', requireAuth, async (req, res
             invoicedClients:   [...new Set(rows.map(r => r.client).filter(Boolean))],
             invoicedContracts: [...new Set(rows.map(r => r.contract).filter(Boolean))],
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/payroll/:year/:month/invoice-status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/payroll/:year/:month/preview-invoice
@@ -4633,7 +4638,7 @@ if (!po && buL) po = clientPOs.find(p =>
                 unmatched: invoice_groups.filter(g => !g.po_number).length,
             },
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/payroll/:year/:month/preview-invoice]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 function buildLabel(region, bu, component, showRegion, showBU, showComponent) {
@@ -4724,7 +4729,7 @@ app.get('/api/purchase-orders', requireAuth, async (req, res) => {
             total_utilized: pos.reduce((s,p) => s + p.utilized, 0),
             total_balance: pos.reduce((s,p) => s + p.balance, 0),
         }});
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/purchase-orders]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.get('/api/purchase-orders/suggest', requireAuth, async (req, res) => {
@@ -4745,7 +4750,7 @@ app.get('/api/purchase-orders/suggest', requireAuth, async (req, res) => {
             if (balance > 0) return res.json({ suggested: { ...po, utilized, balance, utilization_pct: Math.round(utilized/parseFloat(po.po_value)*100) } });
         }
         res.json({ suggested: null, warning: 'All active POs for this client/contract are exhausted.' });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/purchase-orders/suggest]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/purchase-orders', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
@@ -4759,7 +4764,7 @@ app.post('/api/purchase-orders', requireAuth, requireRole('ar_team','finance_man
              parseFloat(po_value)||0, po_date||null, po_expiry||null,
              allocation_method||'fifo', parseInt(priority)||100, notes||null, status||'active', req.user.email]);
         res.json({ ok: true, purchase_order: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/purchase-orders]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.put('/api/purchase-orders/:id', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
@@ -4774,14 +4779,14 @@ app.put('/api/purchase-orders/:id', requireAuth, requireRole('ar_team','finance_
              allocation_method||'fifo', parseInt(priority)||100, notes||null, status||'active', req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'PO not found' });
         res.json({ ok: true, purchase_order: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PUT /api/purchase-orders/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/purchase-orders/:id', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         await pool.query('DELETE FROM purchase_orders WHERE id=$1', [req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/purchase-orders/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.patch('/api/purchase-orders/:id/link-invoice', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
@@ -4789,7 +4794,7 @@ app.patch('/api/purchase-orders/:id/link-invoice', requireAuth, requireRole('ar_
         const { invoice_id } = req.body;
         await pool.query('UPDATE client_invoices SET po_id=$1, updated_at=NOW() WHERE id=$2', [req.params.id, invoice_id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/purchase-orders/:id/link-invoice]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 // CONTRACT BID TRACKING
 // ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
@@ -4801,7 +4806,7 @@ app.get('/api/contracts/:id/bid-items', requireAuth, async (req, res) => {
             [req.params.id]
         );
         res.json({ items: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/contracts/:id/bid-items]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/contracts/:id/bid-items', requireAuth, async (req, res) => {
@@ -4815,7 +4820,7 @@ app.post('/api/contracts/:id/bid-items', requireAuth, async (req, res) => {
             (parseFloat(bid_qty)||0)*(parseFloat(bid_unit_price)||0),
             frequency||'Monthly']);
         res.json({ item: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/contracts/:id/bid-items]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.put('/api/contracts/:id/bid-items/:itemId', requireAuth, async (req, res) => {
@@ -4832,14 +4837,14 @@ app.put('/api/contracts/:id/bid-items/:itemId', requireAuth, async (req, res) =>
             frequency||'Monthly', req.params.itemId, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Not found' });
         res.json({ item: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PUT /api/contracts/:id/bid-items/:itemId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/contracts/:id/bid-items/:itemId', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         await pool.query('DELETE FROM contract_bid_items WHERE id=$1 AND contract_id=$2', [req.params.itemId, req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/contracts/:id/bid-items/:itemId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Bid Actuals ├óΓé¼ΓÇ¥ record actual monthly spend vs budget
@@ -4857,7 +4862,7 @@ app.get('/api/contracts/:id/bid-actuals', requireAuth, async (req, res) => {
             ORDER BY ba.year DESC, ba.month DESC, bi.category, bi.name
         `, params);
         res.json({ actuals: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/contracts/:id/bid-actuals]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/contracts/:id/bid-actuals', requireAuth, async (req, res) => {
@@ -4874,7 +4879,7 @@ app.post('/api/contracts/:id/bid-actuals', requireAuth, async (req, res) => {
         `, [req.params.id, bid_item_id, parseInt(month), parseInt(year),
             parseFloat(actual_qty)||0, parseFloat(actual_unit_price)||0, actual_total, notes||null]);
         res.json({ actual: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/contracts/:id/bid-actuals]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 
@@ -4893,7 +4898,7 @@ app.get('/api/audit-log', requireAuth, requireRole('superadmin'), async (req, re
         params.push(parseInt(limit));
         const { rows } = await pool.query(sql, params);
         res.json({ logs: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/audit-log]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
@@ -4966,7 +4971,7 @@ app.get('/api/dashboard/summary', requireAuth, async (req, res) => {
             top_clients: byClient,
             recent_activity: recentLogs.rows,
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/dashboard/summary]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
@@ -4979,7 +4984,7 @@ app.get('/api/employees/:id/leaves', requireAuth, async (req, res) => {
         const { rows } = await pool.query(
             'SELECT * FROM employee_leaves WHERE employee_id=$1 ORDER BY from_date DESC', [req.params.id]);
         res.json({ leaves: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/employees/:id/leaves]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Apply for leave (HR applies on behalf of employee)
@@ -5006,7 +5011,7 @@ app.post('/api/employees/:id/leaves', requireAuth, async (req, res) => {
             `, [req.params.id, yr, leave_type, days]);
         }
         res.json({ leave: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/leaves]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Approve / Reject leave
@@ -5031,7 +5036,7 @@ app.patch('/api/employees/:id/leaves/:leaveId', requireAuth, requireRole('operat
             `, [req.params.id, yr, lv.leave_type, parseFloat(lv.days)||1]);
         }
         res.json({ leave: lv });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/employees/:id/leaves/:leaveId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Get leave balance for employee for a year
@@ -5053,7 +5058,7 @@ app.get('/api/employees/:id/leave-balance/:year', requireAuth, async (req, res) 
             results[lt] = rows[0];
         }
         res.json({ balances: results, year: yr });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/employees/:id/leave-balance/:year]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
@@ -5110,7 +5115,7 @@ app.get('/api/bills/export', requireAuth, requireRole('finance_manager','finance
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="Bills_${year||'all'}_${month||'all'}.csv"`);
         res.send('\uFEFF' + csv);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/bills/export]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
@@ -5126,7 +5131,7 @@ app.patch('/api/ap/batches/:batchId/fm-approve', requireAuth, requireRole('finan
         );
         if (!rows.length) return res.status(404).json({ error: 'Batch not found or not in Confirmed state' });
         res.json({ ok: true, batch: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/ap/batches/:batchId/fm-approve]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Get all batches pending FM approval
@@ -5135,7 +5140,7 @@ app.get('/api/ap/pending-fm-approval', requireAuth, requireRole('finance_manager
         const { rows } = await pool.query(
             `SELECT * FROM payment_batches WHERE status='Confirmed' ORDER BY created_at DESC`);
         res.json({ batches: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/ap/pending-fm-approval]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
@@ -5170,7 +5175,7 @@ app.post('/api/bills/:id/add-to-inventory', requireAuth, requireRole('procuremen
             created.push({ desc, qty, id: rows[0]?.id });
         }
         res.json({ ok: true, added: created.length, items: created });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/bills/:id/add-to-inventory]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
@@ -5185,7 +5190,7 @@ app.post('/api/employees/:id/document-history', requireAuth, async (req, res) =>
             [req.params.id, doc_type, action, req.user.email, notes||null]
         );
         res.json({ entry: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/employees/:id/document-history]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.get('/api/employees/:id/document-history', requireAuth, async (req, res) => {
@@ -5194,7 +5199,7 @@ app.get('/api/employees/:id/document-history', requireAuth, async (req, res) => 
             'SELECT * FROM document_history WHERE employee_id=$1 ORDER BY generated_at DESC',
             [req.params.id]);
         res.json({ history: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/employees/:id/document-history]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
@@ -5206,7 +5211,7 @@ app.get('/api/config/:key/history', requireAuth, requireRole('superadmin','finan
             `SELECT * FROM system_config_history WHERE config_key=$1 ORDER BY changed_at DESC LIMIT 50`,
             [req.params.key]);
         res.json({ history: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/config/:key/history]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Override PUT /api/config/:key to also log history
@@ -5230,7 +5235,7 @@ app.put('/api/config/:key', requireAuth, requireRole('superadmin','finance_manag
             ).catch(() => {});
         }
         res.json({ config: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PUT /api/config/:key]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ─── Force-run migrations (superadmin only) ─────────────────────────────────
@@ -5293,7 +5298,8 @@ app.all('/api/fix-medical-premiums', async (req, res) => {
         console.log(`fix-medical-premiums: fixed ${fixRes.rowCount} rows`);
         res.json({ fixed: fixRes.rowCount, stale_before_fix: affected });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        console.error('[POST /api/run-migrations]', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -5339,7 +5345,8 @@ app.get('/api/diag-employee-medical', async (req, res) => {
         }
         res.json(results);
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        console.error('[GET /api/diag-employee-medical]', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -5471,7 +5478,7 @@ app.get('/api/attendance/my-team', requireAuth, async (req, res) => {
             ORDER BY e.name
         `, [req.user.email]);
         res.json({ team: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/attendance/my-team]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ── GET /api/attendance/today — today's records for supervisor's team ─────────
@@ -5487,7 +5494,7 @@ app.get('/api/attendance/today', requireAuth, async (req, res) => {
         const map = {};
         rows.forEach(r => { map[r.employee_id] = { status: r.status, remarks: r.remarks }; });
         res.json({ date: today, attendance: map });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/attendance/today]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ── POST /api/attendance/mark — submit/update daily attendance (bulk) ─────────
@@ -5614,7 +5621,7 @@ app.get('/api/attendance/report/monthly', requireAuth, requireRole('hr_manager',
         });
 
         res.json({ month: mo, year: yr, working_days: workingDays, employees: summary });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/attendance/report/monthly]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ── GET /api/attendance/report/weekly — day-by-day for a specific week ────────
@@ -5647,7 +5654,7 @@ app.get('/api/attendance/report/weekly', requireAuth, requireRole('hr_manager','
         });
 
         res.json({ week_start, week_dates: weekDates, employees: Object.values(pivot) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/attendance/report/weekly]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ── GET /api/attendance/export — CSV download ─────────────────────────────────
@@ -5682,7 +5689,7 @@ app.get('/api/attendance/export', requireAuth, requireRole('hr_manager','finance
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename="attendance_${yr}_${String(mo).padStart(2,'0')}.csv"`);
         res.send(csv);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/attendance/export]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ── GET /api/attendance/teams — list all supervisor teams (admin) ─────────────
@@ -5705,7 +5712,7 @@ app.get('/api/attendance/teams', requireAuth, requireTeamSetup, async (req, res)
             grouped[r.supervisor_email].team.push({ id: r.assignment_id, employee_id: r.employee_id, name: r.employee_name, designation: r.designation });
         });
         res.json({ teams: Object.values(grouped) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/attendance/teams]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ── POST /api/attendance/teams/assign — assign employees to a supervisor ───────
@@ -5728,7 +5735,7 @@ app.post('/api/attendance/teams/assign', requireAuth, requireTeamSetup, async (r
         `, [emails, ids, sites, clients, ctIds]);
 
         res.json({ ok: true, assigned: employee_ids.length });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/attendance/teams/assign]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ── DELETE /api/attendance/teams/:id — remove assignment ─────────────────────
@@ -5736,7 +5743,7 @@ app.delete('/api/attendance/teams/:id', requireAuth, requireTeamSetup, async (re
     try {
         await pool.query('DELETE FROM supervisor_teams WHERE id=$1', [req.params.id]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/attendance/teams/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 
@@ -5803,7 +5810,7 @@ app.get('/api/claims/inbox', requireAuth, async (req, res) => {
             FROM claims_inbox
         `);
         res.json({ claims: rows, stats: stats.rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/claims/inbox]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/claims/consolidation — claims grouped per employee for a given month
@@ -5850,7 +5857,7 @@ app.get('/api/claims/consolidation', requireAuth, async (req, res) => {
         }), { employees: 0, ot2Hours: 0, ot3Hours: 0, opd: 0, expense: 0 });
 
         res.json({ rows, totals });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/claims/consolidation]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // PATCH /api/claims/:id/status — manually update a single claim status / corrections
@@ -5877,7 +5884,7 @@ app.patch('/api/claims/:id/status', requireAuth, async (req, res) => {
             claim_month||null, match_remark||null, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Claim not found' });
         res.json({ ok: true, claim: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[PATCH /api/claims/:id/status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/claims/:id/push-to-payroll — write claim data into payroll_transactions for a month
@@ -5931,7 +5938,7 @@ app.post('/api/claims/:id/push-to-payroll', requireAuth, async (req, res) => {
         `, [m, y, req.params.id]);
 
         res.json({ ok: true, message: `Pushed to payroll ${y}-${m} for employee ${claim.employee_id}` });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/claims/:id/push-to-payroll]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/claims/send-approval-emails — dispatch approval emails to line managers
@@ -6062,7 +6069,7 @@ app.post('/api/claims/send-approval-emails', requireAuth, async (req, res) => {
         }
 
         res.json({ ok: true, sent: sentTo.length, sentTo, errors });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/claims/send-approval-emails]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/claims/approval-cycles — list approval cycles and their status
@@ -6073,7 +6080,7 @@ app.get('/api/claims/approval-cycles', requireAuth, async (req, res) => {
             ORDER BY sent_at DESC LIMIT 100
         `);
         res.json({ cycles: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/claims/approval-cycles]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/claims/listener-status — returns listener config (no secrets)
@@ -6099,7 +6106,7 @@ app.post('/api/claims/trigger-poll', requireAuth, async (req, res) => {
     try {
         const result = await triggerManualPoll(pool);
         res.json({ ok: true, result });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/claims/trigger-poll]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/claims/approve/:token — secure one-click web approval (JWT link sent in approval email)
@@ -6208,7 +6215,7 @@ app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
         `);
 
         res.json({ sessions, total, page, limit, stats: statsRows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/wafi-claims/sessions]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/wafi-claims/sessions/:id
@@ -6249,7 +6256,7 @@ app.get('/api/wafi-claims/sessions/:id', requireAuth, async (req, res) => {
             'SELECT * FROM wafi_claims_items WHERE session_id = $1 ORDER BY tab_name, row_number', [id]
         );
         res.json({ session: sessionRows[0], items });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/wafi-claims/sessions/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/wafi-claims/items
@@ -6284,7 +6291,7 @@ app.get('/api/wafi-claims/items', requireAuth, async (req, res) => {
             vals
         );
         res.json({ items, total, page, limit });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/wafi-claims/items]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/wafi-claims/export
@@ -6333,7 +6340,7 @@ app.get('/api/wafi-claims/export', requireAuth, async (req, res) => {
         res.setHeader('Content-Disposition', `attachment; filename="wafi_claims_export_${dateStr}.xlsx"`);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.send(buf);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/wafi-claims/export]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/wafi-claims/sessions-export
@@ -6389,7 +6396,7 @@ app.get('/api/wafi-claims/sessions-export', requireAuth, async (req, res) => {
         res.setHeader('Content-Disposition', `attachment; filename="wafi_claims_sessions_${dateStr}.xlsx"`);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.send(buf);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/wafi-claims/sessions-export]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/wafi-claims/sessions/:id/stage-payroll
@@ -6526,7 +6533,7 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
                 medical: Object.keys(medPushMap).length,
             },
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/wafi-claims/sessions/:id/stage-payroll]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/wafi-claims/sessions/:id/resend-draft
@@ -6591,7 +6598,7 @@ app.post('/api/wafi-claims/sessions/:id/resend-draft', requireAuth, async (req, 
         }
     } catch (err) {
         console.error('[Wafi Claims] resend-draft error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -6604,7 +6611,7 @@ app.post('/api/wafi-claims/sessions/:id/reprocess', requireAuth, async (req, res
         res.json({ ok: true, ...result, message: `Session ${sessionId} queued for reprocessing. Run Poll Now to process it.` });
     } catch (e) {
         console.error('[Wafi Claims] Reprocess error:', e.message);
-        res.status(400).json({ error: e.message });
+        res.status(400).json({ error: 'Internal server error' });
     }
 });
 
@@ -6711,7 +6718,7 @@ app.post('/api/wafi-claims/sessions/:id/send-verification-draft', requireAuth, a
         });
     } catch (e) {
         console.error('[Send Verification Draft] Error:', e.message);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -6785,7 +6792,7 @@ app.post('/api/wafi-claims/sessions/:id/upload-excel', requireAuth, upload.singl
         res.json({ ok: true, message: 'Fix uploaded and processed successfully' });
     } catch (e) {
         console.error('[Upload Excel Fix] Error:', e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -6849,7 +6856,7 @@ app.post('/api/wafi-claims/sessions/:id/override-multiplier', requireAuth, async
         res.json({ ok: true, message: `Row ${rowNumber} OT multiplier overridden to ${newMultiplier}`, newPayout });
     } catch (e) {
         console.error('[Override Multiplier] Error:', e.message);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -6955,7 +6962,8 @@ app.post('/api/wafi-claims/sessions/:id/undo-stage', requireAuth, requireRole('s
         });
     } catch (err) {
         await client.query('ROLLBACK');
-        res.status(500).json({ error: err.message });
+        console.error('[POST /api/wafi-claims/sessions/:id/undo-stage]', err);
+        res.status(500).json({ error: 'Internal server error' });
     } finally {
         client.release();
     }
@@ -7039,7 +7047,8 @@ app.post('/api/wafi-claims/sessions/:id/override-employee', requireAuth, async (
         });
     } catch (err) {
         await client.query('ROLLBACK');
-        res.status(500).json({ error: err.message });
+        console.error('[POST /api/wafi-claims/sessions/:id/override-employee]', err);
+        res.status(500).json({ error: 'Internal server error' });
     } finally {
         client.release();
     }
@@ -7059,7 +7068,7 @@ app.get('/api/wafi-claims/employee-search', requireAuth, async (req, res) => {
             LIMIT 20
         `, [`%${q}%`]);
         res.json({ employees: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/wafi-claims/employee-search]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/wafi-claims/stats
@@ -7081,7 +7090,7 @@ app.get('/api/wafi-claims/stats', requireAuth, async (req, res) => {
             FROM wafi_claims_sessions
         `);
         res.json(rows[0]);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/wafi-claims/stats]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/wafi-claims/sessions/:id/verify
@@ -7205,7 +7214,8 @@ app.post('/api/wafi-claims/sessions/:id/verify', requireAuth, async (req, res) =
         });
     } catch (err) {
         await client.query('ROLLBACK');
-        res.status(500).json({ error: err.message });
+        console.error('[POST /api/wafi-claims/sessions/:id/verify]', err);
+        res.status(500).json({ error: 'Internal server error' });
     } finally {
         client.release();
     }
@@ -7222,7 +7232,7 @@ app.post('/api/wafi-claims/sessions/:id/skip', requireAuth, async (req, res) => 
         );
         if (!rows.length) return res.status(404).json({ error: 'Session not found' });
         res.json({ ok: true, message: `Session ${sessionId} skipped` });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/wafi-claims/sessions/:id/skip]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/wafi-claims/sessions/:id/reject
@@ -7238,7 +7248,7 @@ app.post('/api/wafi-claims/sessions/:id/reject', requireAuth, async (req, res) =
         );
         if (!rows.length) return res.status(404).json({ error: 'Session not found or cannot be rejected in its current state' });
         res.json({ ok: true, message: `Session ${sessionId} marked REJECTED` });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/wafi-claims/sessions/:id/reject]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // DELETE /api/wafi-claims/sessions/:id — hard delete a session and its items (superadmin only)
@@ -7249,7 +7259,7 @@ app.delete('/api/wafi-claims/sessions/:id', requireAuth, requireRole('superadmin
         const { rows } = await pool.query('DELETE FROM wafi_claims_sessions WHERE id = $1 RETURNING id, attachment_filename', [sessionId]);
         if (!rows.length) return res.status(404).json({ error: 'Session not found' });
         res.json({ ok: true, message: `Session ${sessionId} (${rows[0].attachment_filename}) permanently deleted` });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/wafi-claims/sessions/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/wafi-claims/admin/purge-bad-sessions
@@ -7268,7 +7278,7 @@ app.post('/api/wafi-claims/admin/purge-bad-sessions', requireAuth, requireRole('
         await pool.query('DELETE FROM wafi_claims_sessions WHERE id = ANY($1)', [ids]);
         console.log('[Admin] Purged bad auto-segregated sessions:', ids);
         res.json({ ok: true, purged: bad.length, sessions: bad.map(r => ({ id: r.id, file: r.attachment_filename, status: r.processing_status })) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/wafi-claims/admin/purge-bad-sessions]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/wafi-claims/sessions/:id/admin-override
@@ -7301,7 +7311,7 @@ app.post('/api/wafi-claims/sessions/:id/admin-override', requireAuth, async (req
         res.json({ ok: true, sessionId, message: `Session marked as Passed. You can now Stage it to payroll.` });
     } catch (err) {
         console.error('[Wafi Claims] Admin override error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -7424,7 +7434,7 @@ app.post('/api/wafi-claims/sessions/:id/qc-draft', requireAuth, async (req, res)
             acceptedExpense: expItems.length,
             acceptedMedical: medItems.filter(i=>i.raw_amount>0).length,
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/wafi-claims/sessions/:id/qc-draft]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/wafi-claims/sessions/batch-verify
@@ -7457,7 +7467,7 @@ app.get('/api/wafi-claims/focal-points', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(`SELECT * FROM wafi_focal_points ORDER BY location, name`);
         res.json({ focalPoints: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/wafi-claims/focal-points]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.post('/api/wafi-claims/focal-points', requireAuth, async (req, res) => {
@@ -7472,14 +7482,14 @@ app.post('/api/wafi-claims/focal-points', requireAuth, async (req, res) => {
             [email.toLowerCase().trim(), name || null, location || null, role || 'claimed_by']
         );
         res.json({ ok: true, focalPoint: rows[0] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/wafi-claims/focal-points]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 app.delete('/api/wafi-claims/focal-points/:id', requireAuth, async (req, res) => {
     try {
         await pool.query(`UPDATE wafi_focal_points SET active = FALSE WHERE id = $1`, [parseInt(req.params.id)]);
         res.json({ ok: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[DELETE /api/wafi-claims/focal-points/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/wafi-claims/employee-claims?employeeCode=...&dateFrom=...&dateTo=...&claimType=...
@@ -7551,7 +7561,7 @@ app.get('/api/wafi-claims/employee-claims', requireAuth, async (req, res) => {
         }));
 
         res.json({ employees, total: employees.length });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/wafi-claims/employee-claims]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 
@@ -7560,7 +7570,7 @@ app.post('/api/wafi-claims/trigger-poll', requireAuth, async (req, res) => {
     try {
         const result = await triggerWafiManualPoll(pool);
         res.json({ ok: true, result });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[POST /api/wafi-claims/trigger-poll]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/wafi-claims/admin/undo-all-staged
@@ -7661,7 +7671,8 @@ app.post('/api/wafi-claims/admin/undo-all-staged', requireAuth, requireRole('sup
         });
     } catch (err) {
         await client.query('ROLLBACK');
-        res.status(500).json({ error: err.message });
+        console.error('[POST /api/wafi-claims/admin/undo-all-staged]', err);
+        res.status(500).json({ error: 'Internal server error' });
     } finally {
         client.release();
     }
@@ -7684,7 +7695,7 @@ app.get('/api/wafi-claims/gmail-auth-status', requireAuth, async (req, res) => {
             last_poll: getLastPollAt(),
             total_captured: parseInt(rows[0]?.total) || 0,
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { console.error('[GET /api/wafi-claims/gmail-auth-status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // ── Central Error Handler ──────────────────────────────────────────────────

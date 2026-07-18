@@ -15,22 +15,63 @@ You are the **Principal Autonomous Software Engineer** on an Enterprise HCM & Pa
 
 ---
 
+## SECTION 1A — `backend/server.js` Route Map (orientation only, verify before relying on it)
+
+`server.js` is ~8,600 lines with no internal navigation. Approximate line ranges by path prefix (generated 2026-07-18 via grep — re-run if this drifts, don't trust blindly on a stale checkout):
+
+| Path prefix | Lines | Routes |
+|---|---|---|
+| `/auth/*` (google, me, logout) | 185–214 | 4 |
+| `/api/users` | 220–283 | 4 |
+| `/health`, `/health/ip` | 307–316 | 2 |
+| `/api/admin/*` | 638–747 | 7 |
+| `/api/sms/*` | 760–2205 | 3 |
+| `/api/bills/*` | 812–5149 | 13 |
+| `/api/employees/*` | 432–5196 | 32 (largest route group) |
+| `/api/clients/*` | 1249–1412 | 9 |
+| `/api/contracts/*` | 1426–4868 | 9 |
+| `/api/vendors/*` | 1472–1543 | 6 |
+| `/api/config/*` | 1561–5218 | 4 |
+| `/api/payroll/*` | 1702–4386 | 11 |
+| `/api/invoices/*`, `/api/payslip/*` | 1935–1989 | 5 |
+| `/api/portal/*` | 2238–2417 | 5 |
+| `/api/change-requests/*` | 2434–2505 | 3 |
+| `/api/inventory/*` | 2565–2694 | 11 |
+| `/api/xero/*` | 3652–3776 | 7 |
+| `/api/ap/*` (payroll-queue, bills confirm, fm-approve) | 3879–5138 | 7 |
+| `/api/client-invoices/*` | 4175–4344 | 5 |
+| `/api/purchase-orders/*` | 4695–4792 | 6 |
+| `/api/audit-log`, `/api/dashboard` | 4889–4907 | 2 |
+| `/api/attendance/*` | 5470–5742 | 9 |
+| `/api/claims/*` | 5775–6113 | 9 |
+| `/api/wafi-claims/*` | 6146–7682 | 31 |
+
+New route modules (post 2026-07-05 restructure) live outside `server.js` entirely, one file per domain: `backend/src/modules/{ar,attendance,billApproval,bizdev,claims,compliance,constraints,intake,onboarding,payrollrun,pnl,procurement,projects,xeroBillImport}/routes.js`, mounted via `backend/mountModules.js`.
+
+---
+
 ## SECTION 2 — Execution Guardrails (Non-Negotiable)
 
 ### 2.1 Zero-Blind Deploys
-Until a local test suite (`backend/tests/`) exists and is operational:
-- Do NOT make structural refactors to `server.js` (route reorganization, middleware chain changes, pool config changes).
+A local test suite now exists and is operational (`backend/tests/`, 11 suites, 147 tests, run via `npm test`). Still:
+- Run `npm test` and `node --check server.js` after any edit to `server.js` before considering the change done.
+- Avoid structural refactors to `server.js` (route reorganization, middleware chain changes, pool config changes) unless the specific route/logic being touched has test coverage — check `backend/tests/` first, don't assume.
 - Limit each change to the **smallest possible surgical edit** that achieves the goal.
 - After every edit to `server.js`, mentally trace the change for side effects on adjacent routes.
 
-### 2.2 Payroll Lock / Disbursement — Frozen Without Tests
-The following route patterns in `server.js` are **OFF-LIMITS for modification** until automated integration tests exist:
-- Any route matching `/api/payroll/:empId/lock`
-- Any route matching `/api/payroll/lock-all`
-- Any route matching `/api/ap/confirm`
+### 2.2 Payroll Lock / Disbursement — Frozen Where Untested
+Route names below are current as of 2026-07-18 (verified against `server.js` and `backend/tests/`) — the old names in prior versions of this doc (`/api/payroll/:empId/lock`, `/api/payroll/lock-all`, `/api/ap/confirm`) no longer exist in the code.
+
+**Has test coverage — edits OK if `npm test` stays green:**
+- `PATCH /api/payroll/:year/:month/lock` (`backend/tests/payroll.test.js` — role guards + lock scope)
+
+**Still OFF-LIMITS for modification — no test coverage found (verified 2026-07-18):**
+- `POST /api/ap/payroll-queue/:year/:month/confirm`
+- `POST /api/ap/bills/:id/confirm`
+- `PATCH /api/ap/batches/:batchId/fm-approve`
 - The `payment_batches` and `payment_ledger` INSERT logic
 
-**Why:** These routes directly control whether ~500 employees get paid. A silent bug here has immediate real-world payroll consequences. No fix is worth the risk without a test harness.
+**Why:** These routes directly control whether ~500 employees get paid. A silent bug here has immediate real-world payroll consequences. No fix to the still-untested routes is worth the risk without a test harness first — add the test, then make the change.
 
 ### 2.6 Restructure Modules (2026-07-05)
 New BPO/FM restructure code lives under `backend/src/` — **not** inside `server.js` body:
@@ -222,6 +263,19 @@ A task is NOT complete until:
 - [ ] `BLOCKED.md` is updated if a task could not be completed after 3 attempts
 - [ ] No new hardcoded credentials, secrets, or environment variable fallbacks introduced
 - [ ] User has been told which env vars (if any) need to be added to Render before deploying
+
+---
+
+## SECTION 10 — Claude Code Session Changelog
+
+This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
+
+### 2026-07-18 — Security fixes in `backend/server.js` (uncommitted, working tree only)
+1. **Fixed 183 error-message leak sites** — every `res.status(N).json({ error: err.message })` (and `e.message` variants) replaced with a generic message + `console.error('[METHOD /path]', err)` server-side logging. Verified via `node --check` + full `npm test` pass (147/147) before and after.
+2. **`POST /api/bills/:id/unlock`** now requires `requireRole('superadmin')` (previously password-only). Also added an `audit_log` INSERT on unlock — note: `audit_log` table existed but nothing wrote to it anywhere in the codebase before this. Frontend `BillingProcurement.jsx` "Unlock" button is still shown to all roles (not yet gated) — non-superadmins will now see a "Forbidden" error instead of a working unlock; UI gating is a follow-up, not yet done.
+3. **DB pool SSL: `rejectUnauthorized` changed `false` → `true`** (line ~59). **NOT YET VERIFIED against a real Neon connection** — `backend/tests/setup.js` mocks `pg.Pool` entirely, so the test suite passing does not validate this. Before deploying: test against a Neon *dev branch* `DATABASE_URL` (see `.env.example` line ~52), confirm `/health` responds, only then push to `main`.
+
+None of the above has been committed or pushed. Run `git status` / `git diff backend/server.js` to review before committing.
 
 ---
 

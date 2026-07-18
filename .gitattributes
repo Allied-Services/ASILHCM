@@ -1,0 +1,18 @@
+# Normalize line endings for text files, prevent the Windows CRLF/UTF-16
+# checkout corruption this repo has already hit once (see git log).
+* text=auto eol=lf
+
+# Never let git touch binary files as if they were text — auto-detection
+# can misfire and corrupt these on checkout.
+*.xlsx binary
+*.xls binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.zip binary
