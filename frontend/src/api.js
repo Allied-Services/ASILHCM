@@ -43,6 +43,12 @@ export const api = {
     deleteEmployee: (id) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(d => { _cacheClear('employees'); return d; }),
     bulkImportEmployees: (employees) => apiFetch('/api/employees/bulk', { method: 'POST', body: JSON.stringify({ employees }) }),
 
+    // ── Users (superadmin) ──────────────────────────────────────────────────────
+    getUsers: () => apiFetch('/api/users'),
+    createUser: (data) => apiFetch('/api/users', { method: 'POST', body: JSON.stringify(data) }),
+    updateUserRole: (userId, role) => apiFetch(`/api/users/${userId}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+    updateUserPermissions: (userId, permissions) => apiFetch(`/api/users/${userId}/permissions`, { method: 'PATCH', body: JSON.stringify({ permissions }) }),
+
     // ── Clients ───────────────────────────────────────────────────────────────
     getClients: () => apiFetch('/api/clients'),
     createClient: (data) => apiFetch('/api/clients', { method: 'POST', body: JSON.stringify(data) }),
@@ -359,11 +365,24 @@ export const api = {
     matchBillBudget: (billId, budgetLineId) => apiFetch(`/api/procurement/bills/${encodeURIComponent(billId)}/match-budget`, { method: 'POST', body: JSON.stringify({ budgetLineId }) }),
     canApproveBill: (billId) => apiFetch(`/api/procurement/bills/${encodeURIComponent(billId)}/can-approve`),
 
+    // ── Leave Management (contract policy + real per-employee ledger) ────────────
+    // Policy CRUD is a new module (backend/src/modules/leave/routes.js). Balance /
+    // history / logging reuse the existing employee_leave_balances + employee_leaves
+    // endpoints in server.js, which now resolve entitlements via the contract policy.
+    getLeavePolicy:     (contractId)    => apiFetch(`/api/leave/policy/${encodeURIComponent(contractId)}`),
+    updateLeavePolicy:  (contractId, d) => apiFetch(`/api/leave/policy/${encodeURIComponent(contractId)}`, { method: 'PUT', body: JSON.stringify(d) }),
+    getEmployeeLeave:   (employeeId, year) => apiFetch(`/api/employees/${encodeURIComponent(employeeId)}/leave-balance/${year}`),
+    getEmployeeLeaveHistory: (employeeId) => apiFetch(`/api/employees/${encodeURIComponent(employeeId)}/leaves`),
+    recordLeaveUsage:   (employeeId, d) => apiFetch(`/api/employees/${encodeURIComponent(employeeId)}/leaves`, { method: 'POST', body: JSON.stringify({ ...d, status: 'Approved' }) }),
+
     // ── Restructure: Compliance ──────────────────────────────────────────────────
     getComplianceLedger: (month, year) => apiFetch(`/api/compliance/ledger?month=${month}&year=${year}`),
     computeCompliance: (month, year) => apiFetch('/api/compliance/compute', { method: 'POST', body: JSON.stringify({ month, year }) }),
     generateFilingPreview: (month, year) => apiFetch('/api/compliance/filing-preview', { method: 'POST', body: JSON.stringify({ month, year }) }),
     validateInvoiceChallans: (invoiceId) => apiFetch(`/api/compliance/invoice/${encodeURIComponent(invoiceId)}/validate`, { method: 'POST' }),
+
+    // ── Audit Log (superadmin only) ───────────────────────────────────────────
+    getAuditLog: (params = {}) => apiFetch('/api/audit-log?' + new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== ''))).toString()),
 
     // ── Restructure: AR / PO / Dunning ───────────────────────────────────────────
     getPOBalance: (poId) => apiFetch(`/api/ar/po-balance/${poId}`),
@@ -407,16 +426,11 @@ export const api = {
         }),
     }),
     logXeroSync: (data) => apiFetch('/api/ar/xero-sync-log', { method: 'POST', body: JSON.stringify(data) }),
-    previewReceiptSplit: (data) => apiFetch('/api/ar/receipts/preview-split', { method: 'POST', body: JSON.stringify(data) }),
-    postReceipt: (data) => apiFetch('/api/ar/receipts', { method: 'POST', body: JSON.stringify(data) }),
     getReceipts: (q = {}) => apiFetch('/api/ar/receipts?' + new URLSearchParams(q).toString()),
 
   // ── Xero bill import / billable invoicing ────────────────────────────────────
-    syncXeroBills: () => apiFetch('/api/xero/bills/sync', { method: 'POST', body: '{}' }),
     getBillReviewQueue: () => apiFetch('/api/xero/bills/review-queue'),
     resolveBillReview: (id, data) => apiFetch(`/api/xero/bills/${id}/review`, { method: 'PATCH', body: JSON.stringify(data) }),
-    getBillableCandidates: (q) => apiFetch('/api/bills/billable-candidates?' + new URLSearchParams(q).toString()),
-    createInvoiceFromBillable: (data) => apiFetch('/api/client-invoices/from-billable', { method: 'POST', body: JSON.stringify(data) }),
     exportHblBills: async (data) => {
         const token = localStorage.getItem('asil_hcm_token');
         const res = await fetch(`${API}/api/ap/bills/hbl-export`, {

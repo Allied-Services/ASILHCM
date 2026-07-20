@@ -64,6 +64,7 @@ const ECombo = React.memo(function ECombo({ field, listId, suggestions, placehol
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = n => (parseFloat(n) || 0).toLocaleString('en-PK');
 const fmtRs = n => `Rs. ${fmt(n)}`;
+const toDateStr = d => (d ? String(d).slice(0, 10) : '');
 
 const dateDiff = (d1, d2) => {
     const ms = new Date(d2 || Date.now()) - new Date(d1);
@@ -182,6 +183,19 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     const [editForm, setEditForm] = useState({});
     const [editSaving, setEditSaving] = useState(false);
 
+    // ── Leave balances / history — real, persisted, contract-aware ───────────
+    // Fetched from GET /api/employees/:id/leave-balance/:year (entitlement =
+    // contract_leave_policies override, else CL=10/ML=8/EL=14 govt default)
+    // and GET /api/employees/:id/leaves. Replaces the old hardcoded emp.leaves.
+    const leaveYear = new Date().getFullYear();
+    const [leaveBalances, setLeaveBalances] = useState(null);
+    const [leaveHistory, setLeaveHistory] = useState([]);
+    const loadLeaveData = useCallback(() => {
+        api.getEmployeeLeave(emp.id, leaveYear).then(d => setLeaveBalances(d.balances || {})).catch(() => {});
+        api.getEmployeeLeaveHistory(emp.id).then(d => setLeaveHistory(d.leaves || [])).catch(() => {});
+    }, [emp.id, leaveYear]);
+    useEffect(() => { loadLeaveData(); }, [loadLeaveData]);
+
     // ── Inline edit helpers ──────────────────────────────────────────────────
     const ef = useCallback((field) => editForm[field] ?? '', [editForm]);
     const setEf = useCallback((field, val) => setEditForm(p => ({ ...p, [field]: val })), []);
@@ -273,17 +287,21 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
         save(updated); setShowAddSalary(false); setNewSalary({ date: '', basic: '', hra: '', conveyance: '', medical_allowance: '', other_allowances: '', note: '' });
     };
 
-    const addLeave = () => {
+    const [leaveSaving, setLeaveSaving] = useState(false);
+    const addLeave = async () => {
         if (!newLeave.startDate || !newLeave.endDate) return alert('Start and End date required.');
-        const days = Math.max(1, Math.round((new Date(newLeave.endDate) - new Date(newLeave.startDate)) / 86400000) + 1);
-        const lv = emp.leaves || { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } };
-        const typeLv = lv[newLeave.type];
-        const updated = {
-            ...emp,
-            leaves: { ...lv, [newLeave.type]: { ...typeLv, used: (typeLv.used || 0) + days } },
-            leaveHistory: [...(emp.leaveHistory || []), { ...newLeave, days, status: 'Approved' }]
-        };
-        save(updated); setShowAddLeave(false); setNewLeave({ type: 'cl', startDate: '', endDate: '', reason: '' });
+        setLeaveSaving(true);
+        try {
+            await api.recordLeaveUsage(emp.id, {
+                leave_type: newLeave.type.toUpperCase(),
+                from_date: newLeave.startDate,
+                to_date: newLeave.endDate,
+                reason: newLeave.reason,
+            });
+            loadLeaveData();
+            setShowAddLeave(false); setNewLeave({ type: 'cl', startDate: '', endDate: '', reason: '' });
+        } catch (err) { alert('Could not log leave: ' + err.message); }
+        setLeaveSaving(false);
     };
 
     const addPayroll = () => {
@@ -308,7 +326,8 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
         const lastPayday = new Date(now.getFullYear(), now.getMonth(), 1);
         const daysWorked = Math.round((now - lastPayday) / 86400000) + 1;
         const remainingSalary = Math.round(daysWorked * dailyRate);
-        const elBalance = (emp.leaves?.el?.total || 14) - (emp.leaves?.el?.used || 0);
+        const elRow = leaveBalances?.EL;
+        const elBalance = elRow ? (Number(elRow.entitled) - Number(elRow.used)) : 14;
         const leaveEncashment = Math.round(elBalance * dailyRate);
         const gratuity = calcGratuity(gross, emp.doj, settlementDate);
         const outstanding = 0; // TODO: advances
@@ -898,11 +917,13 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                         </button>
                     </div>
 
-                    {/* Leave Balance Summary */}
+                    {/* Leave Balance Summary — real, persisted, contract-aware entitlement */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.25rem', marginBottom: '2rem' }}>
                         {Object.entries(LEAVE_TYPES).map(([key, info]) => {
-                            const lv = emp.leaves?.[key] || { total: info.total, used: 0 };
-                            const bal = (lv.total || info.total) - (lv.used || 0);
+                            const row = leaveBalances?.[key.toUpperCase()];
+                            const total = row ? Number(row.entitled) : info.total;
+                            const used = row ? Number(row.used) : 0;
+                            const bal = total - used;
                             const renewalDate = emp.doj ? `${new Date(emp.doj).getFullYear() + Math.ceil(svc.years) + 1}-${String(new Date(emp.doj).getMonth() + 1).padStart(2, '0')}-${String(new Date(emp.doj).getDate()).padStart(2, '0')}` : '—';
                             return (
                                 <Card key={key}>
@@ -912,10 +933,10 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                                     </div>
                                     <div style={{ marginBottom: '0.75rem' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.85rem' }}>
-                                            <span style={{ color: 'var(--text-muted)' }}>Used</span><span style={{ fontWeight: 600 }}>{lv.used || 0} / {lv.total || info.total} days</span>
+                                            <span style={{ color: 'var(--text-muted)' }}>Used</span><span style={{ fontWeight: 600 }}>{used} / {total} days</span>
                                         </div>
                                         <div style={{ background: 'var(--bg-dark)', borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
-                                            <div style={{ height: '100%', width: `${Math.min(100, ((lv.used || 0) / (lv.total || info.total)) * 100)}%`, background: info.color, borderRadius: '4px', transition: 'width 0.5s' }} />
+                                            <div style={{ height: '100%', width: `${Math.min(100, total ? (used / total) * 100 : 0)}%`, background: info.color, borderRadius: '4px', transition: 'width 0.5s' }} />
                                         </div>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}>
@@ -930,16 +951,16 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
 
                     {/* Leave History */}
                     <Card><STitle>Leave History</STitle>
-                        {!(emp.leaveHistory || []).length && <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No leave records yet.</p>}
-                        {(emp.leaveHistory || []).slice().reverse().map((l, i) => (
-                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        {!leaveHistory.length && <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No leave records yet.</p>}
+                        {leaveHistory.slice().reverse().map((l) => (
+                            <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                                 <div>
-                                    <span style={{ background: LEAVE_TYPES[l.type]?.color + '22', color: LEAVE_TYPES[l.type]?.color, padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, marginRight: '8px' }}>{l.type?.toUpperCase()}</span>
-                                    <span style={{ fontWeight: 600 }}>{l.startDate} → {l.endDate}</span>
+                                    <span style={{ background: LEAVE_TYPES[l.leave_type?.toLowerCase()]?.color + '22', color: LEAVE_TYPES[l.leave_type?.toLowerCase()]?.color, padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, marginRight: '8px' }}>{l.leave_type}</span>
+                                    <span style={{ fontWeight: 600 }}>{toDateStr(l.from_date)} → {toDateStr(l.to_date)}</span>
                                     <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>({l.days} days)</span>
                                 </div>
                                 <div style={{ color: 'var(--text-muted)' }}>{l.reason}</div>
-                                <span style={{ color: '#22c55e', fontSize: '0.8rem' }}>{l.status}</span>
+                                <span style={{ color: l.status === 'Approved' ? '#22c55e' : 'var(--text-muted)', fontSize: '0.8rem' }}>{l.status}</span>
                             </div>
                         ))}
                     </Card>
@@ -967,8 +988,8 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                                     <div style={{ gridColumn: '1/-1' }}><FField label="Reason / Notes"><FInput value={newLeave.reason} onChange={e => setNewLeave(p => ({ ...p, reason: e.target.value }))} ph="Optional reason or notes" /></FField></div>
                                 </div>
                                 <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-                                    <button onClick={() => setShowAddLeave(false)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
-                                    <button onClick={addLeave} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>Log Leave</button>
+                                    <button onClick={() => setShowAddLeave(false)} disabled={leaveSaving} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                                    <button onClick={addLeave} disabled={leaveSaving} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, opacity: leaveSaving ? 0.6 : 1 }}>{leaveSaving ? 'Saving…' : 'Log Leave'}</button>
                                 </div>
                             </div>
                         </div>

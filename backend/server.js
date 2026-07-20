@@ -18,6 +18,7 @@ const { startOperationsScheduler } = require('./operationsScheduler');
 const { sendJazzSMS, sendJazzOtpSMS, normalisePhone } = require('./lib/sms');
 const { isJazzProxyConfigured } = require('./lib/jazz_http_transport');
 const { canApproveBill } = require('./src/modules/procurement/service');
+const { getLeavePolicy } = require('./src/modules/leave/service');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -453,7 +454,8 @@ const empFromDb = (r) => ({
     gatePassExpiry:      toDateStr(r.gate_pass_expiry),
     payrollCycleType:    r.payroll_cycle_type     || 'Monthly',
     salaryHistory: [],
-    leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
+    // Leave balances are no longer faked here — fetched per-employee from
+    // GET /api/employees/:id/leave-balance/:year (contract-aware, see below).
 });
 
 // ── Employee Routes ──────────────────────────────────────────────────────────
@@ -1606,17 +1608,12 @@ app.get('/api/config/:key', requireAuth, async (req, res) => {
     } catch (err) { console.error('[GET /api/config/:key]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-app.put('/api/config/:key', requireAuth, async (req, res) => {
-    try {
-        const { value } = req.body;
-        const { rows } = await pool.query(
-            `INSERT INTO system_config (key,value) VALUES ($1,$2)
-             ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW() RETURNING *`,
-            [req.params.key, JSON.stringify(value)]
-        );
-        res.json({ config: rows[0] });
-    } catch (err) { console.error('[PUT /api/config/:key]', err); res.status(500).json({ error: 'Internal server error' }); }
-});
+// NOTE: PUT /api/config/:key intentionally NOT defined here — the real
+// implementation (role-gated, with system_config_history logging) lives
+// further down this file. A duplicate used to be defined here; since
+// Express matches the first registered handler for a given method+path,
+// that duplicate was silently winning and the role-gated/history version
+// below was unreachable dead code. Removed 2026-07-20 — see AGENTS.md changelog.
 
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 // EMPLOYEE DOCUMENTS (Fitness to Work, Police Clearance, CNIC etc.)
@@ -2037,14 +2034,19 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const employeeId = decodeURIComponent(req.params.employeeId);
         const { month, year } = req.params;
 
-        const [empRes, payRes] = await Promise.all([
+        const [empRes, payRes, splitRes] = await Promise.all([
             pool.query('SELECT * FROM employees WHERE id=$1', [employeeId]),
             pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 AND month=$2 AND year=$3',
-                [employeeId, month, year])
+                [employeeId, month, year]),
+            pool.query(`SELECT value FROM system_config WHERE key='payslip_salary_split'`).catch(() => ({ rows: [] })),
         ]);
         const emp = empRes.rows[0];
         const pay = payRes.rows[0];
         if (!emp) return res.status(404).json({ error: 'Employee not found' });
+
+        // Display-only split (does NOT affect tax/EOBI, which run on full gross) —
+        // configurable via System Config > Payslip Split, falls back to these defaults.
+        const split = splitRes.rows[0]?.value || { basic: 60, hra: 20, conveyance: 10, medical: 7, other: 3 };
 
         const monthName = new Date(2000, parseInt(month)-1, 1).toLocaleString('en-PK', { month: 'long' });
         const fmt = v => Math.round(parseFloat(v)||0).toLocaleString('en-PK');
@@ -2054,11 +2056,11 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
         const workDays     = 26;
         const paidDays     = parseFloat(pay?.paid_days ?? workDays);
         const ratio        = paidDays / workDays;
-        const basicSalary  = Math.round(grossSalary * 0.60 * ratio);
-        const hra          = Math.round(grossSalary * 0.20 * ratio);
-        const conveyance   = Math.round(grossSalary * 0.10 * ratio);
-        const medical      = Math.round(grossSalary * 0.07 * ratio);
-        const otherAllow   = Math.round(grossSalary * 0.03 * ratio);
+        const basicSalary  = Math.round(grossSalary * (parseFloat(split.basic) || 0) / 100 * ratio);
+        const hra          = Math.round(grossSalary * (parseFloat(split.hra) || 0) / 100 * ratio);
+        const conveyance   = Math.round(grossSalary * (parseFloat(split.conveyance) || 0) / 100 * ratio);
+        const medical      = Math.round(grossSalary * (parseFloat(split.medical) || 0) / 100 * ratio);
+        const otherAllow   = Math.round(grossSalary * (parseFloat(split.other) || 0) / 100 * ratio);
 
         // ─ Variable components from payroll_transactions ────────────────────────
         // OT rate = Gross / (26×8) = Gross / 208
@@ -2077,18 +2079,12 @@ app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) =
                          + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile + bonusAmount;
 
         // ─ Deductions ──────────────────────────────────────────────────────────
-        // WHT: use saved DB value if available, else calculate from gross
-        const incomeTax = (() => {
-            if (pay?.wht && parseFloat(pay.wht) > 0) return Math.round(parseFloat(pay.wht));
-            // Tax on full grossTotal (bonus is taxable income)
-            const ann = grossTotal * 12;
-            if (ann <= 600000) return 0;
-            if (ann <= 1200000) return Math.round(((ann-600000)*0.05)/12);
-            if (ann <= 2200000) return Math.round((30000+(ann-1200000)*0.15)/12);
-            if (ann <= 3200000) return Math.round((180000+(ann-2200000)*0.25)/12);
-            if (ann <= 4100000) return Math.round((430000+(ann-3200000)*0.30)/12);
-            return Math.round((700000+(ann-4100000)*0.35)/12);
-        })();
+        // WHT: use saved DB value if available, else calculate via taxEngine.js
+        // (was previously an inline duplicate using stale 2024 slab rates — see AGENTS.md §3.2:
+        // "Always use taxEngine.js for WHT... never inline slab logic". Fixed 2026-07-20.)
+        const incomeTax = (pay?.wht && parseFloat(pay.wht) > 0)
+            ? Math.round(parseFloat(pay.wht))
+            : calculateMonthlyIncomeTax(grossTotal, opdClaim, reimbursement);
         const eobiEE       = Math.round(parseFloat(pay?.eobi_ee||0)) || 400;  // flat Rs.400
         const advanceDed   = Math.round(parseFloat(pay?.advance_deduction||0));
         const loanDed      = Math.round(parseFloat(pay?.loan_deduction||0));
@@ -3494,21 +3490,20 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
             empQuery += ` AND id = ANY($1)`;
             params.push(employeeIds);
         }
-        const [empRes, payRes] = await Promise.all([
+        const [empRes, payRes, splitRes] = await Promise.all([
             pool.query(empQuery, params),
-            pool.query('SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2', [yrInt, moInt])
+            pool.query('SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2', [yrInt, moInt]),
+            pool.query(`SELECT value FROM system_config WHERE key='payslip_salary_split'`).catch(() => ({ rows: [] })),
         ]);
         const payMap = {};
         payRes.rows.forEach(p => { payMap[p.employee_id] = p; });
+        // Display-only split (does NOT affect tax/EOBI) — see System Config > Payslip Split.
+        const split = splitRes.rows[0]?.value || { basic: 60, hra: 20, conveyance: 10, medical: 7, other: 3 };
+        const splitPct = k => (parseFloat(split[k]) || 0) / 100;
 
-        const calcWHT = (a) => {
-            if (a <= 600000) return 0;
-            if (a <= 1200000) return Math.round(((a-600000)*0.05)/12);
-            if (a <= 2200000) return Math.round((30000+(a-1200000)*0.15)/12);
-            if (a <= 3200000) return Math.round((180000+(a-2200000)*0.25)/12);
-            if (a <= 4100000) return Math.round((430000+(a-3200000)*0.30)/12);
-            return Math.round((700000+(a-4100000)*0.35)/12);
-        };
+        // WHT fallback now uses taxEngine.js (was an inline duplicate with stale 2024
+        // slab rates — see AGENTS.md §3.2. Fixed 2026-07-20, matches the same fix in
+        // the individual payslip route above.)
         const fmt = v => Math.round(v||0).toLocaleString('en-PK');
 
         let sent = 0, failed = [];
@@ -3519,7 +3514,7 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
             const WD = 26, pd = parseFloat(pay?.paid_days ?? WD);
             const ratio = pd / WD;
             const grossM = Math.round(gross * ratio);
-            const wht = pay?.wht && parseFloat(pay.wht)>0 ? Math.round(parseFloat(pay.wht)) : calcWHT(grossM*12);
+            const wht = pay?.wht && parseFloat(pay.wht)>0 ? Math.round(parseFloat(pay.wht)) : calculateMonthlyIncomeTax(grossM);
             const eobi = 400;
             const adv  = Math.round(parseFloat(pay?.advance_deduction||0));
             const loan = Math.round(parseFloat(pay?.loan_deduction||0));
@@ -3558,10 +3553,10 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
     <div class="slip">
       <div class="slip-title">EARNINGS</div>
       <table>
-        <tr><td>Basic Salary</td><td>Rs. ${fmt(gross*0.60*ratio)}</td></tr>
-        <tr><td>House Rent Allowance</td><td>Rs. ${fmt(gross*0.20*ratio)}</td></tr>
-        <tr><td>Conveyance</td><td>Rs. ${fmt(gross*0.10*ratio)}</td></tr>
-        <tr><td>Medical Allowance</td><td>Rs. ${fmt(gross*0.07*ratio)}</td></tr>
+        <tr><td>Basic Salary</td><td>Rs. ${fmt(gross*splitPct('basic')*ratio)}</td></tr>
+        <tr><td>House Rent Allowance</td><td>Rs. ${fmt(gross*splitPct('hra')*ratio)}</td></tr>
+        <tr><td>Conveyance</td><td>Rs. ${fmt(gross*splitPct('conveyance')*ratio)}</td></tr>
+        <tr><td>Medical Allowance</td><td>Rs. ${fmt(gross*splitPct('medical')*ratio)}</td></tr>
         ${pay?.arrears > 0 ? `<tr><td>Arrears</td><td>Rs. ${fmt(pay.arrears)}</td></tr>` : ''}
         ${pay?.bonus_amount > 0 ? `<tr><td>Bonus</td><td>Rs. ${fmt(pay.bonus_amount)}</td></tr>` : ''}
         <tr class="total-row"><td>Gross Earnings</td><td>Rs. ${fmt(grossM)}</td></tr>
@@ -5044,6 +5039,16 @@ app.get('/api/employees/:id/leaves', requireAuth, async (req, res) => {
 });
 
 // Apply for leave (HR applies on behalf of employee)
+// Resolve the CL/ML/EL entitlement for one leave_type on an employee's contract
+// (contract override from contract_leave_policies, else the Pakistan government
+// default — see backend/src/modules/leave/service.js).
+async function entitlementForEmployeeLeave(employeeId, leaveType) {
+    const { rows } = await pool.query('SELECT contract_id FROM employees WHERE id = $1', [employeeId]);
+    const policy = await getLeavePolicy(pool, rows[0]?.contract_id || null);
+    const key = String(leaveType || '').toLowerCase();
+    return policy[key] != null ? policy[key] : 5;
+}
+
 app.post('/api/employees/:id/leaves', requireAuth, async (req, res) => {
     try {
         const { leave_type, from_date, to_date, reason, status = 'Pending' } = req.body;
@@ -5058,13 +5063,13 @@ app.post('/api/employees/:id/leaves', requireAuth, async (req, res) => {
         // Auto-update balance if approved
         if (status === 'Approved') {
             const yr = from.getFullYear();
+            const entitled = await entitlementForEmployeeLeave(req.params.id, leave_type);
             await pool.query(`
                 INSERT INTO employee_leave_balances (employee_id, year, leave_type, entitled, used)
-                VALUES ($1,$2,$3,
-                    CASE $3 WHEN 'CL' THEN 10 WHEN 'EL' THEN 14 WHEN 'ML' THEN 8 ELSE 5 END, $4)
+                VALUES ($1,$2,$3,$4,$5)
                 ON CONFLICT (employee_id, year, leave_type)
-                DO UPDATE SET used = employee_leave_balances.used + $4
-            `, [req.params.id, yr, leave_type, days]);
+                DO UPDATE SET used = employee_leave_balances.used + $5
+            `, [req.params.id, yr, leave_type, entitled, days]);
         }
         res.json({ leave: rows[0] });
     } catch (err) { console.error('[POST /api/employees/:id/leaves]', err); res.status(500).json({ error: 'Internal server error' }); }
@@ -5084,24 +5089,28 @@ app.patch('/api/employees/:id/leaves/:leaveId', requireAuth, requireRole('operat
         const lv = rows[0];
         if (status === 'Approved') {
             const yr = new Date(lv.from_date).getFullYear();
+            const entitled = await entitlementForEmployeeLeave(req.params.id, lv.leave_type);
             await pool.query(`
                 INSERT INTO employee_leave_balances (employee_id, year, leave_type, entitled, used)
-                VALUES ($1,$2,$3, CASE $3 WHEN 'CL' THEN 10 WHEN 'EL' THEN 14 WHEN 'ML' THEN 8 ELSE 5 END, $4)
+                VALUES ($1,$2,$3,$4,$5)
                 ON CONFLICT (employee_id, year, leave_type)
                 DO UPDATE SET used = employee_leave_balances.used + EXCLUDED.used
-            `, [req.params.id, yr, lv.leave_type, parseFloat(lv.days)||1]);
+            `, [req.params.id, yr, lv.leave_type, entitled, parseFloat(lv.days)||1]);
         }
         res.json({ leave: lv });
     } catch (err) { console.error('[PATCH /api/employees/:id/leaves/:leaveId]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Get leave balance for employee for a year
+// Entitlement = contract_leave_policies override for the employee's contract,
+// else the CL=10/ML=8/EL=14 Pakistan government default (see leave module service).
 app.get('/api/employees/:id/leave-balance/:year', requireAuth, async (req, res) => {
     try {
         const yr = parseInt(req.params.year);
-        // Seed defaults if no record exists
+        const { rows: empRows } = await pool.query('SELECT contract_id FROM employees WHERE id = $1', [req.params.id]);
+        const policy = await getLeavePolicy(pool, empRows[0]?.contract_id || null);
         const leaveTypes = ['CL', 'EL', 'ML'];
-        const entitlements = { CL: 10, EL: 14, ML: 8 };
+        const entitlements = { CL: policy.cl, EL: policy.el, ML: policy.ml };
         const results = {};
         for (const lt of leaveTypes) {
             const { rows } = await pool.query(

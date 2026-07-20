@@ -32,6 +32,10 @@ desktop.ini
 *.njsproj
 *.sln
 
+# Claude Code — local-only settings (machine/session-specific permission
+# allowlists), never shared. launch.json (dev server config) IS committed.
+.claude/settings.local.json
+
 # Temp / cache
 .cache/
 .parcel-cache/

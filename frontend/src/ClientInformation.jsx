@@ -80,6 +80,55 @@ const FSelect = ({ value, onChange, opts = [] }) => (
 );
 
 // ── Contract Editor ─────────────────────────────────────────────────────────
+// ── Leave Policy override (CL/ML/EL) — separate table, own save action ──────
+// Pakistan govt default is CL=10/ML=8/EL=14; a saved row here overrides it for
+// this contract only. Only shown for an already-saved contract (has an id).
+function LeavePolicyEditor({ contractId }) {
+    const [policy, setPolicy] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const [savedMsg, setSavedMsg] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        api.getLeavePolicy(contractId).then(d => { if (!cancelled) setPolicy(d); }).catch(() => {});
+        return () => { cancelled = true; };
+    }, [contractId]);
+
+    if (!policy) return null;
+
+    const save = async () => {
+        setSaving(true); setSavedMsg('');
+        try {
+            const saved = await api.updateLeavePolicy(contractId, policy);
+            setPolicy(saved);
+            setSavedMsg('Saved.');
+        } catch (err) { setSavedMsg('Save failed: ' + err.message); }
+        setSaving(false);
+    };
+
+    return (
+        <div style={{ background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '10px', padding: '1rem', marginTop: '1rem' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--primary)', marginBottom: '0.75rem' }}>Leave Entitlement Override (days/year)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                <FRow label="Casual Leave (CL)">
+                    <FInput type="number" value={policy.cl} onChange={e => setPolicy(p => ({ ...p, cl: parseFloat(e.target.value) || 0 }))} ph="10" />
+                </FRow>
+                <FRow label="Medical Leave (ML)">
+                    <FInput type="number" value={policy.ml} onChange={e => setPolicy(p => ({ ...p, ml: parseFloat(e.target.value) || 0 }))} ph="8" />
+                </FRow>
+                <FRow label="Earned Leave (EL)">
+                    <FInput type="number" value={policy.el} onChange={e => setPolicy(p => ({ ...p, el: parseFloat(e.target.value) || 0 }))} ph="14" />
+                </FRow>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.75rem' }}>
+                <button type="button" onClick={save} disabled={saving} className="btn-secondary" style={{ padding: '0.5rem 1rem' }}>{saving ? 'Saving…' : 'Save Leave Policy'}</button>
+                {savedMsg && <span style={{ fontSize: '0.78rem', color: savedMsg.startsWith('Save failed') ? '#ef4444' : '#22c55e' }}>{savedMsg}</span>}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Government default is CL=10 / ML=8 / EL=14. Only set these if this contract negotiates different entitlements — every employee on this contract inherits whatever is saved here.</div>
+        </div>
+    );
+}
+
 function ContractEditor({ contract, onSave, onCancel, allClients = [], currentClientId }) {
     const [c, setC] = useState({ ...EMPTY_CONTRACT, ...contract, costs: { ...EMPTY_CONTRACT.costs, ...(contract?.costs || {}) }, financials: { ...EMPTY_CONTRACT.financials, ...(contract?.financials || {}) }, assignedClientId: currentClientId });
 
@@ -133,6 +182,7 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                         <FRow label="Client Focal Name"><FInput value={c.clientFocalName || ''} onChange={e => set('clientFocalName', e.target.value)} ph="External client approver" /></FRow>
                         <FRow label="Client Focal Email"><FInput value={c.clientFocalEmail || ''} onChange={e => set('clientFocalEmail', e.target.value)} ph="client@company.com" /></FRow>
                     </div>
+                    {contract?.id && <LeavePolicyEditor contractId={contract.id} />}
                 </div>
 
                 {/* Per-Head Costs */}

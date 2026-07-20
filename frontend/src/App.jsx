@@ -14,7 +14,6 @@ import BillingProcurement from './BillingProcurement';
 import InvoiceSection from './InvoiceSection';
 import AccountsPayable from './AccountsPayable';
 import EmployeePortal from './EmployeePortal';
-import ClientCMMSPortal from './ClientCMMSPortal';
 import LoginScreen from './LoginScreen';
 import InventoryManagement from './InventoryManagement';
 import SystemConfig from './SystemConfig';
@@ -30,6 +29,7 @@ import BillVerification from './features/procurement/BillVerification';
 import ComplianceLedger from './features/compliance/ComplianceLedger';
 import PayrollRun from './features/payroll/PayrollRun';
 import ARDashboard from './features/ar/ARDashboard';
+import AuditLogViewer from './features/audit/AuditLogViewer';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -37,7 +37,7 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'],
+    superadmin:           ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'],
     supervisor:           ['attendance','maintenance'],
     operations:           ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','contract_ops','bizdev'],
     procurement_proposer: ['billing','vendor','inventory','bill_verification','ap'],
@@ -69,12 +69,6 @@ const ROLE_BADGE = {
 };
 
 function App() {
-  const portalPath = window.location.pathname === '/portal' || window.location.pathname === '/portal/';
-  if (portalPath) return <EmployeePortal />;
-
-  const cmmsPath = window.location.pathname === '/cmms' || window.location.pathname === '/cmms/';
-  if (cmmsPath) return <ClientCMMSPortal />;
-
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showESS, setShowESS] = useState(false);
   const [user, setUser] = useState(null);
@@ -125,7 +119,7 @@ function App() {
   // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
-    allowedTabs = ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'];
+    allowedTabs = ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'];
   } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
     // Saved custom permissions: show all modules where access === true
     allowedTabs = Object.entries(user.permissions)
@@ -178,6 +172,7 @@ function App() {
     { key: 'annexure',  label: 'Annexure Approval',      icon: <ScanLine size={20} /> },
     { key: 'config',    label: 'System Configs',         icon: <Settings size={20} /> },
     { key: 'users',       label: 'User Management',        icon: <Shield size={20} /> },
+    { key: 'audit_log',   label: 'Audit Log',              icon: <ClipboardList size={20} /> },
     { key: 'attendance',    label: 'Attendance',              icon: <Clock size={20} /> },
     { key: 'maintenance',   label: 'Maintenance & CMMS',      icon: <Wrench size={20} /> },
     { key: 'email_claims',  label: 'Email Claims',            icon: <Mail size={20} /> },
@@ -264,6 +259,7 @@ function App() {
           {effectiveTab === 'annexure'   && <AnnexureDashboard />}
           {effectiveTab === 'config'     && <SystemConfig user={user} />}
           {effectiveTab === 'users'      && <UserManagement user={user} />}
+          {effectiveTab === 'audit_log'  && <AuditLogViewer />}
           {effectiveTab === 'attendance'   && <AttendanceManagement user={user} />}
           {effectiveTab === 'maintenance'  && <MaintenanceCMMS user={user} />}
           {effectiveTab === 'email_claims' && <EmailClaimsListener user={user} />}

@@ -70,6 +70,9 @@
 | `asset_issuances` | Uniform/PPE/equipment issued to employee | ✅ Live |
 | `system_config` | Key-value config store (tax tables etc.) | ✅ Live |
 | `inventory` | Equipment/item stock tracking | ✅ Live |
+| `employee_leaves` | Leave applications/history (office + portal) | ✅ Live (created by `phase2Service.js`, was previously undocumented) |
+| `employee_leave_balances` | Per-employee CL/ML/EL entitled/used per year, auto-seeded on first read | ✅ Live (created by `phase2Service.js`, wired to `EmployeeProfile.jsx` UI 2026-07-20) |
+| `contract_leave_policies` | Per-contract CL/ML/EL override (falls back to gov't default 10/8/14 if absent) | ✅ Live — added 2026-07-20, `backend/migrations/20260720120000_leave_policies.js` |
 
 ---
 
@@ -98,7 +101,7 @@
 - Salary history tab (manual entries only — no automatic ledger journal)
 - Contract date auto-matched from client→contract relationship
 - PDF document generation for individual employees
-- **Known Gap**: Leave management tab exists in UI but leaves are hardcoded (CL=10, ML=8, EL=14) — not persisted per employee in DB
+- ~~**Known Gap**: Leave management tab exists in UI but leaves are hardcoded (CL=10, ML=8, EL=14) — not persisted per employee in DB~~ — RESOLVED 2026-07-20: `EmployeeProfile.jsx`'s Leave Management tab now reads/writes the real `employee_leave_balances` / `employee_leaves` tables via `GET/POST /api/employees/:id/leave-balance/:year` and `GET/POST /api/employees/:id/leaves` (these tables and routes already existed from the Phase 2 build but were never wired to this UI — it was rendering an in-memory-only fake object instead). CL=10/ML=8/EL=14 remain the Pakistan government defaults but are now overridable per contract via the new `contract_leave_policies` table and `GET/PUT /api/leave/policy/:contractId` (`backend/src/modules/leave/`). The employee self-service portal leave-request/approval flow (Section 4 item 6 below) is untouched by this fix.
 
 ### 3.4 Payroll Sheet ✅ WORKING (Core Features)
 - Monthly payroll view with filter by client, contract, BU, date of joining
@@ -230,7 +233,7 @@
 | # | Item | Status | Impact |
 |---|---|---|---|
 | 1 | **Xero OAuth Integration** | Stub only — button exists, no real API call | Medium — finance team must manually enter in Xero |
-| 2 | **Leave Management** | UI tab present, values hardcoded, no DB persistence | High — leave approvals happen outside system |
+| 2 | ~~**Leave Management**~~ | RESOLVED 2026-07-20 — real per-employee CL/ML/EL ledger (`employee_leave_balances`), contract-level override table (`contract_leave_policies`, new) | — |
 | 3 | **OCR vendor dropdown** | OCR modal still uses free-text vendor field | Low |
 | 4 | **Two invoice tables** | `invoices` and `client_invoices` coexist with different schemas | Medium — risk of data split |
 | 5 | **Two-step AP approval** | AP team confirms but no Finance Manager final approval | High — no maker-checker on payments |
@@ -441,6 +444,9 @@ This endpoint is public (no `requireAuth`), returns the server's outbound IP, an
 - `GET /api/employees/:id/gratuity-ledger` + `POST` — Gratuity ledger
 - `GET /api/employees/:id/assets` + `POST/DELETE` — Asset issuances
 - `PATCH /api/employees/:id/assets/:assetId/return` — Return asset
+- `GET /api/employees/:id/leaves` + `POST` — Leave history / office-logged leave (auto-updates balance when `status: 'Approved'`)
+- `PATCH /api/employees/:id/leaves/:leaveId` — Approve/reject a leave record
+- `GET /api/employees/:id/leave-balance/:year` — CL/ML/EL balance for a year; auto-seeds on first read using the entitlement from `GET /api/leave/policy/:contractId` (contract override, else government default). Updated 2026-07-20 — see Section 3.3.
 
 ### Admin Tools
 - `GET /api/admin/employee-duplicates` — Find CNIC duplicates ⚠️ needs role guard
@@ -560,6 +566,8 @@ This endpoint is public (no `requireAuth`), returns the server's outbound IP, an
 - `POST /api/ar/validate-po` — Block invoice if PO exceeded
 - `POST /api/ar/run-dunning` — Overdue invoice reminders
 - `GET /api/ar/invoice-schedules` — Invoice generation schedule
+- `GET /api/leave/policy/:contractId` — CL/ML/EL entitlement override for a contract (returns `{cl,ml,el}`, default `{10,8,14}` if no override row) — added 2026-07-20, `backend/src/modules/leave/`
+- `PUT /api/leave/policy/:contractId` — Upsert a contract's leave entitlement override (`superadmin`/`operations`/`payroll_initiator`) — added 2026-07-20
 
 **Frontend screens (2026-07-05 Phase 2–6):** Intake Hub, Claims Queue, Contract Policies, BD Pipeline, Bill Verification, Compliance Ledger, Attendance CSV Intake tab. Live test trace: `docs/LIVE_TEST_TRACE.md`.
 

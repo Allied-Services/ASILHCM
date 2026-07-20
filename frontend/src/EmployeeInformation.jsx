@@ -262,7 +262,8 @@ export default function EmployeeInformation({ user }) {
                         gatePassExpiry:      getF(obj, 'Gate Pass Expiry', 'Gate Pass Expiry Date'),
                         payrollCycleType:    getF(obj, 'Payroll Cycle Type', 'Payroll Cycle') || 'Monthly',
                         salaryHistory: parseSalary(getF(obj, 'Salary')) ? [{ date: getF(obj, 'Date of Joining', 'DOJ') || '', basic: parseSalary(getF(obj, 'Salary')), hra: 0, conveyance: 0, medical: 0, other: 0, gross: parseSalary(getF(obj, 'Salary')), note: 'Imported from CSV' }] : [],
-                        leaves: { cl: { total: 10, used: 0 }, ml: { total: 8, used: 0 }, el: { total: 14, used: 0 } },
+                        // Leave balances are no longer seeded here — the real, contract-aware
+                        // ledger is created on first read via GET /api/employees/:id/leave-balance/:year.
                     };
                 }).filter(r => r.name);
                 setCsvRows(rows);

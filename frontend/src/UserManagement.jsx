@@ -8,8 +8,7 @@ import {
   Truck, Package, ScanLine, Settings, UserPlus, Info,
   Mail, Inbox, Wrench,
 } from 'lucide-react';
-
-const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+import { api } from './api';
 
 // ─── Role Definitions ────────────────────────────────────────────────────────
 const ROLE_META = {
@@ -364,24 +363,13 @@ function PermissionsPanel({ user, onClose, onSaved }) {
 
   const handleSave = async () => {
     setSaving(true);
-    const token = localStorage.getItem('asil_hcm_token');
     try {
-      const r = await fetch(`${API}/api/users/${user.id}/permissions`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permissions: perms }),
-      });
-      let data = {};
-      try { data = await r.json(); } catch (_) {}
-      if (!r.ok) {
-        showToast(`\u274c Save failed: ${data.error || 'Status ' + r.status}`);
-      } else {
-        showToast('\u2705 Permissions saved successfully');
-        setDirty(false);
-        if (onSaved) onSaved();
-      }
+      await api.updateUserPermissions(user.id, perms);
+      showToast('\u2705 Permissions saved successfully');
+      setDirty(false);
+      if (onSaved) onSaved();
     } catch (err) {
-      showToast(`\u274c Network error: ${err.message}`);
+      showToast(`\u274c Save failed: ${err.message}`);
     }
     setSaving(false);
   };
@@ -614,21 +602,13 @@ export default function UserManagement({ user: currentUser }) {
   const [addLoading, setAddLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
 
-  const token = localStorage.getItem('asil_hcm_token');
-  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const tok = localStorage.getItem('asil_hcm_token');
-      const r = await fetch(`${API}/api/users`, {
-        headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      const d = await api.getUsers();
       setUsers(d.users || []);
     } catch (e) {
       setError(`Failed to load users: ${e.message}`);
@@ -647,12 +627,7 @@ export default function UserManagement({ user: currentUser }) {
     }
     setAddLoading(true);
     try {
-      const r = await fetch(`${API}/api/users`, {
-        method: 'POST', headers,
-        body: JSON.stringify({ email: addEmail.trim().toLowerCase(), role: addRole }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Failed');
+      const d = await api.createUser({ email: addEmail.trim().toLowerCase(), role: addRole });
       setUsers(prev => [...prev.filter(u => u.email !== d.user.email), d.user]);
       setAddEmail(''); setAddRole('finance_proposer'); setShowAddForm(false);
       showToast(`✅ ${d.user.email} pre-registered as ${ROLE_META[addRole]?.label}`);
@@ -663,11 +638,7 @@ export default function UserManagement({ user: currentUser }) {
   const changeRole = async (userId, newRole, userName) => {
     setSaving(userId);
     try {
-      const r = await fetch(`${API}/api/users/${userId}/role`, {
-        method: 'PATCH', headers, body: JSON.stringify({ role: newRole }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Failed');
+      await api.updateUserRole(userId, newRole);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
       showToast(`✅ ${userName}'s role → ${ROLE_META[newRole]?.label}`);
     } catch (e) { showToast(`❌ ${e.message}`); }

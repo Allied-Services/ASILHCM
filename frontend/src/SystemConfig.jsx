@@ -208,6 +208,10 @@ function VendorWHTEditor({ rates, onChange }) {
     );
 }
 
+// ─── Payslip Salary Split (Editable — display/reference only, does NOT affect
+// tax/EOBI calculations, which always run on gross salary — see taxEngine.js) ──
+const DEFAULT_PAYSLIP_SPLIT = { basic: 60, hra: 20, conveyance: 10, medical: 7, other: 3 };
+
 // ─── Statutory Reference Panel (Editable) ────────────────────────────────────
 const DEFAULT_STATUTORY = [
     { label: 'EOBI — Employer Contribution', rate: '5% of minimum wage (Rs. 37,000 cap)', section: 'EOBI Act 1976' },
@@ -367,7 +371,7 @@ function RegionTaxEditor({ rates, onChange }) {
 }
 
 // ─── Main SystemConfig ────────────────────────────────────────────────────────
-const TABS = ['Employee Taxes', 'Vendor WHT Rates', 'Tax by Region', 'Statutory Reference', 'Integrations', 'Report Distribution'];
+const TABS = ['Employee Taxes', 'Vendor WHT Rates', 'Tax by Region', 'Statutory Reference', 'Integrations', 'Report Distribution', 'Payslip Split'];
 
 const DEFAULT_SLABS = [
     { from: 0,       to: 600000,  rate: 0,  base: 0,      label: 'Up to Rs. 600,000' },
@@ -403,6 +407,7 @@ export default function SystemConfig({ user }) {
     const [whtRates, setWhtRates] = useState(DEFAULT_WHT);
     const [statutory, setStatutory] = useState(DEFAULT_STATUTORY);
     const [regionTax, setRegionTax] = useState(DEFAULT_REGION_TAX);
+    const [payslipSplit, setPayslipSplit] = useState(DEFAULT_PAYSLIP_SPLIT);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState('');
     const [toast, setToast] = useState('');
@@ -436,11 +441,13 @@ export default function SystemConfig({ user }) {
             api.getConfig('fbr_vendor_wht').catch(() => null),
             api.getConfig('statutory_reference').catch(() => null),
             api.getConfig('region_tax').catch(() => null),
-        ]).then(([iTaxRes, vWHTRes, statRes, regRes]) => {
+            api.getConfig('payslip_salary_split').catch(() => null),
+        ]).then(([iTaxRes, vWHTRes, statRes, regRes, splitRes]) => {
             if (iTaxRes?.config?.value) setSlabs(iTaxRes.config.value);
             if (vWHTRes?.config?.value) setWhtRates(vWHTRes.config.value);
             if (statRes?.config?.value) setStatutory(statRes.config.value);
             if (regRes?.config?.value) setRegionTax(regRes.config.value);
+            if (splitRes?.config?.value) setPayslipSplit(splitRes.config.value);
             setLoading(false);
         });
     }, []);
@@ -477,6 +484,17 @@ export default function SystemConfig({ user }) {
         try {
             await api.updateConfig('region_tax', regionTax);
             showToast('✅ Regional tax rates saved');
+        } catch (err) { alert('Save failed: ' + err.message); }
+        setSaving('');
+    };
+
+    const payslipSplitTotal = Object.values(payslipSplit).reduce((a, v) => a + (parseFloat(v) || 0), 0);
+    const savePayslipSplit = async () => {
+        if (Math.round(payslipSplitTotal) !== 100) { alert('The split must add up to 100%.'); return; }
+        setSaving('split');
+        try {
+            await api.updateConfig('payslip_salary_split', payslipSplit);
+            showToast('✅ Payslip split saved');
         } catch (err) { alert('Save failed: ' + err.message); }
         setSaving('');
     };
@@ -764,6 +782,63 @@ export default function SystemConfig({ user }) {
                                     ))}
                                 </tbody>
                             </table>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Payslip Split Tab ────────────────────────────────────────── */}
+            {tab === 'Payslip Split' && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <div>
+                            <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Payslip Salary Split</h2>
+                            <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                How gross salary is broken down for display on the printed/emailed payslip only.
+                                This does <strong>not</strong> change tax, EOBI, or net pay — those are always calculated on full gross salary.
+                            </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <button onClick={() => setPayslipSplit(DEFAULT_PAYSLIP_SPLIT)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                <RotateCcw size={14} /> Reset to Default
+                            </button>
+                            {isSuperAdmin ? (
+                                <button onClick={savePayslipSplit} disabled={saving === 'split'}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', border: 'none', color: 'white', padding: '8px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', opacity: saving === 'split' ? 0.6 : 1 }}>
+                                    <Save size={14} /> {saving === 'split' ? 'Saving...' : 'Save Split'}
+                                </button>
+                            ) : (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(100,116,139,0.12)', border: '1px solid rgba(100,116,139,0.25)', color: '#64748b', padding: '8px 16px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
+                                    🔒 Super Admin Only
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem', maxWidth: '460px' }}>
+                        {[
+                            ['basic', 'Basic Salary'],
+                            ['hra', 'House Rent Allowance'],
+                            ['conveyance', 'Conveyance'],
+                            ['medical', 'Medical Allowance'],
+                            ['other', 'Other Allowance'],
+                        ].map(([key, label]) => (
+                            <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+                                <label style={{ fontSize: '0.88rem', color: 'var(--text)' }}>{label}</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input type="number" min="0" max="100" value={payslipSplit[key] ?? 0}
+                                        onChange={e => setPayslipSplit(p => ({ ...p, [key]: e.target.value }))}
+                                        style={{ width: '70px', textAlign: 'right', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 9px', color: 'var(--text)' }} />
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>%</span>
+                                </div>
+                            </div>
+                        ))}
+                        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                            <span>Total</span>
+                            <span style={{ color: Math.round(payslipSplitTotal) === 100 ? '#22c55e' : '#ef4444' }}>{payslipSplitTotal}%</span>
+                        </div>
+                        {Math.round(payslipSplitTotal) !== 100 && (
+                            <p style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '0.5rem' }}>Must add up to 100% before saving.</p>
                         )}
                     </div>
                 </div>

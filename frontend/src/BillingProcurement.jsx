@@ -87,7 +87,7 @@ const FL = ({ label, children, span }) => (
 );
 
 // ─── OCR Modal ────────────────────────────────────────────────────────────────
-function OCRModal({ onSave, onClose, clientsList = [], contractsList = [] }) {
+function OCRModal({ onSave, onClose, clientsList = [], contractsList = [], vendorsList = [] }) {
     const fileRef = useRef();
     const [phase, setPhase] = useState('upload'); // upload | scanning | review
     const [manualMode, setManualMode] = useState(false);
@@ -337,7 +337,16 @@ function OCRModal({ onSave, onClose, clientsList = [], contractsList = [] }) {
                         {/* Right: editable form */}
                         <div style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: '4px' }}>
                             <div style={{ fontWeight: 700, marginBottom: '0.75rem', fontSize: '0.9rem' }}>Extracted Data — Verify &amp; Edit</div>
-                            <FL label="Vendor"><SI value={cur.extracted.vendor} onChange={e => setExt({ vendor: e.target.value })} /></FL>
+                            <FL label="Vendor">
+                                <select value={cur.extracted.vendorId || ''} onChange={e => {
+                                    const v = vendorsList.find(v => v.id === parseInt(e.target.value));
+                                    setExt({ vendorId: e.target.value, vendor: v?.name || '' });
+                                }} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem', marginBottom: '4px' }}>
+                                    <option value="">— Match to Registered Vendor —</option>
+                                    {vendorsList.map(v => <option key={v.id} value={v.id}>{v.name}{v.category ? ` (${v.category})` : ''}</option>)}
+                                </select>
+                                {!cur.extracted.vendorId && <SI value={cur.extracted.vendor} onChange={e => setExt({ vendor: e.target.value })} placeholder="OCR-extracted name — edit or match above" />}
+                            </FL>
                             <FL label="Date"><SI type="date" value={cur.extracted.date} onChange={e => setExt({ date: e.target.value })} /></FL>
 
                             <div style={{ fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1242,7 +1251,7 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
                                                     style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>
                                                     📄 Challan
                                                 </button>
-                                                {isPaid && (
+                                                {isPaid && isSuperAdmin && (
                                                     <button onClick={() => { setUnlockTarget(b); setUnlockPwd(''); setUnlockError(null); }}
                                                         style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>
                                                         🔓 Unlock
