@@ -31,8 +31,8 @@ function registerComplianceRoutes(app, deps) {
             const month = parseInt(req.body.month, 10);
             const year = parseInt(req.body.year, 10);
             const computed = await computeStatutoryForMonth(pool, month, year);
-            await upsertStatutoryLedger(pool, month, year, computed);
-            res.json(computed);
+            const ledger = await upsertStatutoryLedger(pool, month, year, computed);
+            res.json({ ...computed, ledger });
         } catch (err) {
             handleRouteError(res, 'compliance.compute', err);
         }

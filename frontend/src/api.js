@@ -41,7 +41,29 @@ export const api = {
     createEmployee: (data) => apiFetch('/api/employees', { method: 'POST', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
     updateEmployee: (id, data) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
     deleteEmployee: (id) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(d => { _cacheClear('employees'); return d; }),
-    bulkImportEmployees: (employees) => apiFetch('/api/employees/bulk', { method: 'POST', body: JSON.stringify({ employees }) }),
+    bulkImportEmployees: (employees, notifyNew = false) => apiFetch('/api/employees/bulk', { method: 'POST', body: JSON.stringify({ employees, notifyNew }) }),
+    exportMasterRoster: async () => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const url = `${API}/api/employees/export`;
+        const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || `Export failed (HTTP ${r.status})`);
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get('Content-Disposition') || '';
+        const match = cd.match(/filename="?([^"]+)"?/i);
+        const filename = match?.[1] || `ASIL_Master_Roster.csv`;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+        return { ok: true, filename };
+    },
+    importMasterRoster: (data) => apiFetch('/api/employees/import', { method: 'POST', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
 
     // ── Users (superadmin) ──────────────────────────────────────────────────────
     getUsers: () => apiFetch('/api/users'),
@@ -50,10 +72,29 @@ export const api = {
     updateUserPermissions: (userId, permissions) => apiFetch(`/api/users/${userId}/permissions`, { method: 'PATCH', body: JSON.stringify({ permissions }) }),
 
     // ── Clients ───────────────────────────────────────────────────────────────
-    getClients: () => apiFetch('/api/clients'),
+    getClients: (opts = {}) => {
+        const q = opts.all ? '?all=true' : '';
+        return apiFetch(`/api/clients${q}`);
+    },
     createClient: (data) => apiFetch('/api/clients', { method: 'POST', body: JSON.stringify(data) }),
     updateClient: (id, data) => apiFetch(`/api/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteClient: (id) => apiFetch(`/api/clients/${id}`, { method: 'DELETE' }),
+    getClientBus: (clientId) => apiFetch(`/api/clients/${clientId}/bus`),
+    getClientLocations: (clientId, q = {}) => {
+        const qs = new URLSearchParams(Object.fromEntries(Object.entries(q).filter(([, v]) => v != null && v !== ''))).toString();
+        return apiFetch(`/api/clients/${clientId}/locations${qs ? `?${qs}` : ''}`);
+    },
+    createClientLocation: (clientId, data) => apiFetch(`/api/clients/${clientId}/locations`, { method: 'POST', body: JSON.stringify(data) }),
+    updateClientLocation: (clientId, locId, data) => apiFetch(`/api/clients/${clientId}/locations/${locId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteClientLocation: (clientId, locId) => apiFetch(`/api/clients/${clientId}/locations/${locId}`, { method: 'DELETE' }),
+    getClientDepartments: (clientId, q = {}) => {
+        const qs = new URLSearchParams(Object.fromEntries(Object.entries(q).filter(([, v]) => v != null && v !== ''))).toString();
+        return apiFetch(`/api/clients/${clientId}/departments${qs ? `?${qs}` : ''}`);
+    },
+    createClientDepartment: (clientId, data) => apiFetch(`/api/clients/${clientId}/departments`, { method: 'POST', body: JSON.stringify(data) }),
+    updateClientDepartment: (clientId, deptId, data) => apiFetch(`/api/clients/${clientId}/departments/${deptId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteClientDepartment: (clientId, deptId) => apiFetch(`/api/clients/${clientId}/departments/${deptId}`, { method: 'DELETE' }),
+    seedClientOrg: (clientId) => apiFetch(`/api/clients/${clientId}/org-seed`, { method: 'POST', body: '{}' }),
 
     // ── Contracts ─────────────────────────────────────────────────────────────
     getContracts: () => {
@@ -215,13 +256,35 @@ export const api = {
     markAttendance:      (date, recs) => apiFetch('/api/attendance/mark', { method: 'POST', body: JSON.stringify({ date, records: recs }) }),
     getMonthlyReport:    (q = {})     => apiFetch('/api/attendance/report/monthly?' + new URLSearchParams(q).toString()),
     getWeeklyReport:     (week_start) => apiFetch(`/api/attendance/report/weekly?week_start=${week_start}`),
-    exportAttendance:    (q = {})     => `${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/attendance/export?` + new URLSearchParams(q).toString(),
+    exportAttendance:    (q = {})     => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const url = `${API}/api/attendance/export?` + new URLSearchParams(q).toString();
+        return fetch(url, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }).then(async (r) => {
+            if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
+                throw new Error(err.error || `Export failed (HTTP ${r.status})`);
+            }
+            const blob = await r.blob();
+            const cd = r.headers.get('Content-Disposition') || '';
+            const match = cd.match(/filename="?([^"]+)"?/i);
+            const filename = match?.[1] || `attendance_export_${q.year || ''}_${q.month || ''}.csv`;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(a.href);
+            return { ok: true, filename };
+        });
+    },
     getAttendanceTeams:  ()           => apiFetch('/api/attendance/teams'),
     assignTeam:          (d)          => apiFetch('/api/attendance/teams/assign', { method: 'POST', body: JSON.stringify(d) }),
     removeTeamMember:    (id)         => apiFetch(`/api/attendance/teams/${id}`, { method: 'DELETE' }),
 
     // ── Employee Change Requests (portal → office approval) ───────────────────
-    // Called from EmployeePortal.jsx using a portal token (not the main HCM token)
     portalSubmitChangeRequest: (portalToken, fieldName, newValue) => {
         const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
         return fetch(`${API_URL}/api/portal/change-request`, {
@@ -235,6 +298,30 @@ export const api = {
         return fetch(`${API_URL}/api/portal/my-requests`, {
             headers: { Authorization: `Bearer ${portalToken}` },
         }).then(r => r.json());
+    },
+    portalUploadPhoto: async (portalToken, file) => {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        const fd = new FormData();
+        fd.append('photo', file);
+        const res = await fetch(`${API_URL}/api/portal/me/photo`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${portalToken}` },
+            body: fd,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Photo upload failed');
+        return data;
+    },
+    portalDeletePhoto: (portalToken) => {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        return fetch(`${API_URL}/api/portal/me/photo`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${portalToken}` },
+        }).then(r => r.json());
+    },
+    portalPhotoUrl: (portalToken) => {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+        return `${API_URL}/api/portal/me/photo?t=${Date.now()}&auth=bearer`;
     },
     // Called from EmployeeInformation.jsx with the normal HCM staff token
     getChangeRequests:   (status = 'Pending') => apiFetch(`/api/change-requests?status=${status}`),
@@ -354,6 +441,31 @@ export const api = {
     getAttendanceAlertRules: () => apiFetch('/api/attendance/alert-rules'),
     saveAttendanceAlertRule: (data) => apiFetch('/api/attendance/alert-rules', { method: 'POST', body: JSON.stringify(data) }),
     runAttendanceAlerts: () => apiFetch('/api/attendance/run-alerts', { method: 'POST' }),
+    exportMonthlyHub: async (q = {}) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const url = `${API}/api/attendance/monthly-hub/export?` + new URLSearchParams(q).toString();
+        const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || `Export failed (HTTP ${r.status})`);
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get('Content-Disposition') || '';
+        const match = cd.match(/filename="?([^"]+)"?/i);
+        const filename = match?.[1] || `monthly_hub_${q.year}_${q.month}.csv`;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+        return { ok: true, filename };
+    },
+    importMonthlyHub: (data) => apiFetch('/api/attendance/monthly-hub/import', { method: 'POST', body: JSON.stringify(data) }),
+    getMonthlyHubRollups: (q = {}) => apiFetch('/api/attendance/monthly-hub/rollups?' + new URLSearchParams(q).toString()),
+    saveClientFocals: (data) => apiFetch('/api/attendance/client-focals', { method: 'POST', body: JSON.stringify(data) }),
+    getClientFocals: (q = {}) => apiFetch('/api/attendance/client-focals?' + new URLSearchParams(q).toString()),
 
     // ── Restructure: Procurement Verification ────────────────────────────────────
     getProcurementQueue: () => apiFetch('/api/procurement/verification-queue'),
@@ -426,6 +538,20 @@ export const api = {
         }),
     }),
     logXeroSync: (data) => apiFetch('/api/ar/xero-sync-log', { method: 'POST', body: JSON.stringify(data) }),
+
+    // ── Portal Claims ────────────────────────────────────────────────────────────
+    portalClaimsList: (q = {}) => apiFetch('/api/portal-claims/admin/list?' + new URLSearchParams(q).toString()),
+    portalClaimsCampaign: (data) => apiFetch('/api/portal-claims/campaign', { method: 'POST', body: JSON.stringify(data) }),
+    portalClaimsNotifyApprovers: (periodId, month, year) => apiFetch('/api/portal-claims/notify-approvers', {
+        method: 'POST',
+        body: JSON.stringify({ periodId: periodId || undefined, month, year }),
+    }),
+    portalClaimsTieout: (month, year) => apiFetch(`/api/portal-claims/admin/tieout?month=${month}&year=${year}`),
+    portalClaimsResend: (batchId) => apiFetch(`/api/portal-claims/admin/resend/${batchId}`, { method: 'POST' }),
+    portalClaimsManualOverride: (data) => apiFetch('/api/portal-claims/manual-override', { method: 'POST', body: JSON.stringify(data) }),
+    portalClaimsManualImport: (data) => apiFetch('/api/portal-claims/manual-override/import', { method: 'POST', body: JSON.stringify(data) }),
+    portalClaimsEligible: () => apiFetch('/api/portal-claims/eligible'),
+    portalClaimsResetSample: () => apiFetch('/api/portal-claims/admin/reset-sample', { method: 'POST' }),
     getReceipts: (q = {}) => apiFetch('/api/ar/receipts?' + new URLSearchParams(q).toString()),
 
   // ── Xero bill import / billable invoicing ────────────────────────────────────

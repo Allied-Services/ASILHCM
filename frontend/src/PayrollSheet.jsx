@@ -560,6 +560,12 @@ export default function PayrollSheet({ user }) {
     const [bulkSMSMsg, setBulkSMSMsg] = useState('');
     const [bulkSMSSending, setBulkSMSSending] = useState(false);
     const [bulkSMSResult, setBulkSMSResult] = useState(null);
+    const [showAddClaims, setShowAddClaims] = useState(false);
+    const [addClaimsForm, setAddClaimsForm] = useState({
+        employeeId: '', ot1Hours: 0, ot2Hours: 0, ot3Hours: 0,
+        expenseAmount: 0, medicalAmount: 0, mode: 'add', reason: '',
+    });
+    const [addClaimsMsg, setAddClaimsMsg] = useState('');
 
     const isSuperAdmin = user?.role === 'superadmin';
     const [PROVINCE_RATES, setPROVINCE_RATES] = useState([]); // from System Config Tax by Region
@@ -1186,6 +1192,51 @@ export default function PayrollSheet({ user }) {
                 <h1>Payroll Sheet</h1>
                 <p>Monthly payroll — net pay for employees + total cost invoice for clients.</p>
             </header>
+
+            <div style={{ marginBottom: '1rem' }}>
+                <button type="button" onClick={() => setShowAddClaims(v => !v)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(37,99,235,0.12)', border: '1px solid rgba(37,99,235,0.35)', color: '#60a5fa', padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
+                    ADD OT / CLAIMS
+                </button>
+                {showAddClaims && (
+                    <div style={{ marginTop: 10, padding: 14, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+                        <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--text-muted)' }}>
+                            Unusual / other-source claims. Finance can Add; Superadmin can Replace/Remove. Dry-run first.
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8 }}>
+                            <input placeholder="Employee code" value={addClaimsForm.employeeId} onChange={e => setAddClaimsForm(f => ({ ...f, employeeId: e.target.value }))} />
+                            <input type="number" placeholder="OT1" value={addClaimsForm.ot1Hours} onChange={e => setAddClaimsForm(f => ({ ...f, ot1Hours: e.target.value }))} />
+                            <input type="number" placeholder="OT2" value={addClaimsForm.ot2Hours} onChange={e => setAddClaimsForm(f => ({ ...f, ot2Hours: e.target.value }))} />
+                            <input type="number" placeholder="OT3" value={addClaimsForm.ot3Hours} onChange={e => setAddClaimsForm(f => ({ ...f, ot3Hours: e.target.value }))} />
+                            <input type="number" placeholder="Expense" value={addClaimsForm.expenseAmount} onChange={e => setAddClaimsForm(f => ({ ...f, expenseAmount: e.target.value }))} />
+                            <input type="number" placeholder="Medical" value={addClaimsForm.medicalAmount} onChange={e => setAddClaimsForm(f => ({ ...f, medicalAmount: e.target.value }))} />
+                            <select value={addClaimsForm.mode} onChange={e => setAddClaimsForm(f => ({ ...f, mode: e.target.value }))}>
+                                <option value="add">Add</option>
+                                {isSuperAdmin && <option value="replace">Replace</option>}
+                                {isSuperAdmin && <option value="remove">Remove</option>}
+                            </select>
+                            <input placeholder="Reason (required)" value={addClaimsForm.reason} onChange={e => setAddClaimsForm(f => ({ ...f, reason: e.target.value }))} style={{ gridColumn: 'span 2' }} />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                            <button type="button" className="btn-secondary" onClick={async () => {
+                                try {
+                                    const [y, m] = month.split('-').map(Number);
+                                    const d = await api.portalClaimsManualOverride({ ...addClaimsForm, month: m, year: y, dryRun: true });
+                                    setAddClaimsMsg(`Dry-run OK${d.warning ? ' — ' + d.warning : ''}. After: OT2=${d.after?.ot2_hrs} OT3=${d.after?.ot3_hrs} Exp=${d.after?.reimbursement} Med=${d.after?.opd_claim}`);
+                                } catch (e) { setAddClaimsMsg(e.message); }
+                            }}>Dry-run</button>
+                            <button type="button" className="btn-primary" onClick={async () => {
+                                try {
+                                    const [y, m] = month.split('-').map(Number);
+                                    const d = await api.portalClaimsManualOverride({ ...addClaimsForm, month: m, year: y, dryRun: false });
+                                    setAddClaimsMsg(`Committed.${d.warning ? ' ' + d.warning : ''}`);
+                                } catch (e) { setAddClaimsMsg(e.message); }
+                            }}>Commit</button>
+                        </div>
+                        {addClaimsMsg && <p style={{ marginTop: 8, fontSize: 13 }}>{addClaimsMsg}</p>}
+                    </div>
+                )}
+            </div>
 
             {/* Controls */}
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>

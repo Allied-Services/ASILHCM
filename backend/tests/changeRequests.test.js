@@ -26,7 +26,7 @@ describe('Employee change-request loop', () => {
   test('portal worker submits change request with old value snapshot', async () => {
     const portalToken = makePortalToken({ employeeId: 'ASIL-001' });
     mockPool.query
-      .mockResolvedValueOnce({ rows: [{ name: 'Ali Khan', current_val: 'Old Address' }] })
+      .mockResolvedValueOnce({ rows: [{ name: 'Ali Khan', email: null, primary_contact: '03001234567', current_val: 'Old Address' }] })
       .mockResolvedValueOnce({
         rows: [{
           id: 1,
@@ -38,7 +38,8 @@ describe('Employee change-request loop', () => {
           new_value: 'New Address',
           status: 'Pending',
         }],
-      });
+      })
+      .mockResolvedValueOnce({ rows: [] }); // portal_change_request_settings → defaults
 
     const res = await request()
       .post('/api/portal/change-request')
@@ -97,9 +98,10 @@ describe('Employee change-request loop', () => {
     expect(res.status).toBe(403);
   });
 
-  test('approve applies new value to employees table', async () => {
-    const token = makeToken({ role: 'operations', email: 'ops@asil.com.pk' });
+  test('designated HCM approver applies new value to employees table', async () => {
+    const token = makeToken({ role: 'operations_supervisor', email: 'rabia.bhutto@asil.com.pk' });
     mockPool.query
+      .mockResolvedValueOnce({ rows: [] }) // settings → default Rabia
       .mockResolvedValueOnce({
         rows: [{
           id: 1,
@@ -114,7 +116,7 @@ describe('Employee change-request loop', () => {
       })
       .mockResolvedValueOnce({ rows: [] }) // UPDATE employees
       .mockResolvedValueOnce({ rows: [] }) // UPDATE change_requests
-      .mockResolvedValueOnce({ rows: [{ primary_contact: '03001234567' }] })
+      .mockResolvedValueOnce({ rows: [{ primary_contact: '03001234567', email: null }] })
       .mockResolvedValueOnce({ rows: [] }); // employee_messages
 
     const res = await request()
@@ -123,13 +125,25 @@ describe('Employee change-request loop', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(mockPool.query.mock.calls[1][0]).toMatch(/UPDATE employees SET present_address/i);
-    expect(mockPool.query.mock.calls[1][1]).toEqual(['New Address', 'ASIL-001']);
+    expect(mockPool.query.mock.calls[2][0]).toMatch(/UPDATE employees SET present_address/i);
+    expect(mockPool.query.mock.calls[2][1]).toEqual(['New Address', 'ASIL-001']);
+  });
+
+  test('non-approver ops email cannot approve → 403', async () => {
+    const token = makeToken({ role: 'operations', email: 'ops@asil.com.pk' });
+    mockPool.query.mockResolvedValueOnce({ rows: [] }); // settings → Rabia only
+
+    const res = await request()
+      .patch('/api/change-requests/1/approve')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(403);
   });
 
   test('reject stores reviewer note', async () => {
-    const token = makeToken({ role: 'operations', email: 'ops@asil.com.pk' });
+    const token = makeToken({ role: 'operations_supervisor', email: 'rabia.bhutto@asil.com.pk' });
     mockPool.query
+      .mockResolvedValueOnce({ rows: [] }) // settings
       .mockResolvedValueOnce({
         rows: [{
           id: 2,
@@ -140,7 +154,7 @@ describe('Employee change-request loop', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ primary_contact: '03001234567' }] })
+      .mockResolvedValueOnce({ rows: [{ primary_contact: '03001234567', email: null }] })
       .mockResolvedValueOnce({ rows: [] });
 
     const res = await request()
@@ -150,6 +164,6 @@ describe('Employee change-request loop', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(mockPool.query.mock.calls[1][1]).toEqual(['ops@asil.com.pk', 'Incomplete documentation', 2]);
+    expect(mockPool.query.mock.calls[2][1]).toEqual(['rabia.bhutto@asil.com.pk', 'Incomplete documentation', 2]);
   });
 });

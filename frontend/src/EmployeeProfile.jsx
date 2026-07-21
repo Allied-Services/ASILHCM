@@ -2,6 +2,8 @@ import React, { useState, useEffect, useContext, createContext, useCallback } fr
 import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmark, FileText,
          Calculator, AlertTriangle, CheckCircle, Shield, Trash2, MessageSquare, Package, CreditCard, Clock } from 'lucide-react';
 import { api } from './api';
+import EmploymentOrgCascade from './EmploymentOrgCascade';
+import { normalizeAsilBu } from './orgHierarchy';
 
 // ── Edit-form context (module-level) ─────────────────────────────────────────
 // Keeps EI / ERow / ECombo as STABLE module-level components so React never
@@ -199,7 +201,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     // ── Inline edit helpers ──────────────────────────────────────────────────
     const ef = useCallback((field) => editForm[field] ?? '', [editForm]);
     const setEf = useCallback((field, val) => setEditForm(p => ({ ...p, [field]: val })), []);
-    const startEdit = () => { setEditForm({ ...emp }); setIsEditing(true); };
+    const startEdit = () => { setEditForm({ ...emp, bu: normalizeAsilBu(emp.bu) || emp.bu || '' }); setIsEditing(true); };
     const cancelEdit = () => { setEditForm({}); setIsEditing(false); };
     const saveEdit = async () => {
         setEditSaving(true);
@@ -216,16 +218,12 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     const [contractsList, setContractsList] = useState([]);
     useEffect(() => {
         api.getContracts()
-            .then(d => setContractsList(d.contracts || []))
+            .then(list => setContractsList(Array.isArray(list) ? list : (list?.contracts || [])))
             .catch(() => {});
     }, []);
 
-    // ── Autocomplete option lists (deduplicated from full employee roster) ─────
-    const suggestBU    = [...new Set(allEmployees.map(e => e.bu).filter(Boolean))].sort();
-    const suggestDept  = [...new Set(allEmployees.map(e => e.dept).filter(Boolean))].sort();
+    // ── Autocomplete for designation only (org fields use masters) ─────────────
     const suggestDesig = [...new Set(allEmployees.map(e => e.designation).filter(Boolean))].sort();
-    const suggestLoc   = [...new Set(allEmployees.map(e => e.location).filter(Boolean))].sort();
-    const suggestCliB  = [...new Set(allEmployees.map(e => e.clientBU).filter(Boolean))].sort();
 
 
 
@@ -622,7 +620,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                 {!isSuperAdmin && isEditing && <div style={{ background:'rgba(234,179,8,0.1)', border:'1px solid rgba(234,179,8,0.3)', borderRadius:'8px', padding:'0.6rem 1rem', fontSize:'0.84rem', color:'#eab308', marginBottom:'0.75rem' }}>🔒 Fields with lock icon can only be changed by an Administrator.</div>}
                 {!isEditing && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                     <Card><STitle>Employment</STitle>
-                        {[['Employee Code', emp.id], ['ASIL BU', emp.bu], ['Client', emp.client], ['Client BU', emp.clientBU], ['Department', emp.dept], ['Designation', emp.designation], ['Location', emp.location + ', ' + (emp.province || '')], ['Date of Joining', emp.doj], ['Last Working Day', emp.lastWorkingDay || '—'], ['Status', emp.active === 'Yes' ? 'Active' : 'Inactive']].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
+                        {[['Employee Code', emp.id], ['ASIL BU', normalizeAsilBu(emp.bu) || emp.bu], ['Client', emp.client], ['Client BU', emp.clientBU], ['Department', emp.dept], ['Designation', emp.designation], ['Location', emp.location + ', ' + (emp.province || '')], ['Date of Joining', emp.doj], ['Last Working Day', emp.lastWorkingDay || '—'], ['Status', emp.active === 'Yes' ? 'Active' : 'Inactive']].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
                         <div style={{marginTop:'0.6rem',paddingTop:'0.6rem',borderTop:'1px dashed rgba(99,102,241,0.3)'}}>
                           <div style={{fontSize:'0.68rem',color:'#6366f1',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'4px'}}>Line Manager</div>
                           <Row label="Manager Name" value={emp.lineManagerName || '—'} />
@@ -666,51 +664,10 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                 {isEditing && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                     <Card><STitle>Employment</STitle>
                         <ERow label="Employee Code" field="id" disabled />
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>ASIL BU</span>
-                            <div style={{ flex: 1 }}><ECombo field="bu" listId="opt-bu" suggestions={suggestBU} placeholder="e.g. Retail, Operations..." /></div>
-                        </div>
-                        {/* ── Assign Contract dropdown ── */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
-                            <span style={{ color: editForm.contractId ? 'var(--text-muted)' : '#f59e0b', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Contract *</span>
-                            <div style={{ flex: 1 }}>
-                                <select value={editForm.contractId || ''}
-                                    onChange={e => {
-                                        const ct = contractsList.find(c => c.id === e.target.value);
-                                        setEditForm(p => ({
-                                            ...p,
-                                            contractId:   ct?.id           || '',
-                                            contractName: ct?.contractName || '',
-                                            client:       ct?.clientName   || p.client,
-                                        }));
-                                    }}
-                                    style={{ background: 'var(--bg-dark)', border: `1px solid ${editForm.contractId ? 'var(--primary)' : '#f59e0b'}`, borderRadius: '6px', padding: '4px 8px', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}>
-                                    <option value="">⚠ -- Select Contract --</option>
-                                    {contractsList.filter(ct => ct.status === 'Active' || !ct.status).map(ct => (
-                                        <option key={ct.id} value={ct.id}>
-                                            {ct.contractName} ({ct.clientName || ct.id})
-                                        </option>
-                                    ))}
-                                </select>
-                                {editForm.contractId && <div style={{ fontSize: '0.72rem', color: '#22c55e', marginTop: '2px' }}>✓ ID: {editForm.contractId}</div>}
-                            </div>
-                        </div>
-                        <ERow label="Client Name" field="client" />
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Client BU</span>
-                            <div style={{ flex: 1 }}><ECombo field="clientBU" listId="opt-clientbu" suggestions={suggestCliB} placeholder="e.g. Facility Management..." /></div>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Department</span>
-                            <div style={{ flex: 1 }}><ECombo field="dept" listId="opt-dept" suggestions={suggestDept} placeholder="e.g. Security Services..." /></div>
-                        </div>
+                        <EmploymentOrgCascade form={editForm} setForm={setEditForm} layout="rows" compact />
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Designation</span>
                             <div style={{ flex: 1 }}><ECombo field="designation" listId="opt-desig" suggestions={suggestDesig} placeholder="e.g. Security Guard..." /></div>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', gap: '8px' }}>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', minWidth: '44%', flexShrink: 0 }}>Location</span>
-                            <div style={{ flex: 1 }}><ECombo field="location" listId="opt-loc" suggestions={suggestLoc} placeholder="e.g. Islamabad..." /></div>
                         </div>
                         <ERow label="Province" field="province" opts={['Sindh','Punjab','KPK','Balochistan','Gilgit-Baltistan','Islamabad']} />
                         <ERow label="Date of Joining" field="doj" type="date" />

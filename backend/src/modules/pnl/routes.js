@@ -1,7 +1,7 @@
 'use strict';
 
 const { handleRouteError } = require('../../core/validate');
-const { listContractPnl, allocateFromLockedPayroll, getWeeklyCashflow } = require('./service');
+const { listContractPnl, getLatestPnlPeriod, allocateFromLockedPayroll, getWeeklyCashflow } = require('./service');
 const { computePrSheetRow } = require('../../payroll/prSheetEngine');
 const { getPolicy } = require('../constraints/service');
 

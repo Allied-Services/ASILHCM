@@ -371,7 +371,7 @@ function RegionTaxEditor({ rates, onChange }) {
 }
 
 // ─── Main SystemConfig ────────────────────────────────────────────────────────
-const TABS = ['Employee Taxes', 'Vendor WHT Rates', 'Tax by Region', 'Statutory Reference', 'Integrations', 'Report Distribution', 'Payslip Split'];
+const TABS = ['Employee Taxes', 'Vendor WHT Rates', 'Tax by Region', 'Statutory Reference', 'Employee Portal', 'Integrations', 'Report Distribution', 'Payslip Split'];
 
 const DEFAULT_SLABS = [
     { from: 0,       to: 600000,  rate: 0,  base: 0,      label: 'Up to Rs. 600,000' },
@@ -415,6 +415,13 @@ export default function SystemConfig({ user }) {
     const [reportSubs, setReportSubs] = useState([]);
     const [dispatchLog, setDispatchLog] = useState([]);
     const [subForm, setSubForm] = useState({ site: '', recipients: '' });
+    const [portalSettings, setPortalSettings] = useState({
+        approver_emails: ['rabia.bhutto@asil.com.pk'],
+        notify_on_submit: true,
+        notify_employee_on_decision: true,
+        photo_requires_approval: false,
+    });
+    const [approverDraft, setApproverDraft] = useState('');
 
     const showToast = msg => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -442,12 +449,16 @@ export default function SystemConfig({ user }) {
             api.getConfig('statutory_reference').catch(() => null),
             api.getConfig('region_tax').catch(() => null),
             api.getConfig('payslip_salary_split').catch(() => null),
-        ]).then(([iTaxRes, vWHTRes, statRes, regRes, splitRes]) => {
+            api.getConfig('portal_change_request_settings').catch(() => null),
+        ]).then(([iTaxRes, vWHTRes, statRes, regRes, splitRes, portalRes]) => {
             if (iTaxRes?.config?.value) setSlabs(iTaxRes.config.value);
             if (vWHTRes?.config?.value) setWhtRates(vWHTRes.config.value);
             if (statRes?.config?.value) setStatutory(statRes.config.value);
             if (regRes?.config?.value) setRegionTax(regRes.config.value);
             if (splitRes?.config?.value) setPayslipSplit(splitRes.config.value);
+            if (portalRes?.config?.value) {
+                setPortalSettings(prev => ({ ...prev, ...portalRes.config.value }));
+            }
             setLoading(false);
         });
     }, []);
@@ -495,6 +506,15 @@ export default function SystemConfig({ user }) {
         try {
             await api.updateConfig('payslip_salary_split', payslipSplit);
             showToast('✅ Payslip split saved');
+        } catch (err) { alert('Save failed: ' + err.message); }
+        setSaving('');
+    };
+
+    const savePortalSettings = async () => {
+        setSaving('portal');
+        try {
+            await api.updateConfig('portal_change_request_settings', portalSettings);
+            showToast('Employee Portal settings saved');
         } catch (err) { alert('Save failed: ' + err.message); }
         setSaving('');
     };
@@ -714,6 +734,65 @@ export default function SystemConfig({ user }) {
                                 {xeroStatus === 'loading' ? 'Checking…' : '⚡ Connect to Xero'}
                             </button>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Employee Portal Tab ─────────────────────────────────────── */}
+            {tab === 'Employee Portal' && (
+                <div>
+                    <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem' }}>Employee Portal — Change Request Approvers</h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                        Data-change requests from the Employee Portal must be approved by designated Allied HCM users.
+                        Default: rabia.bhutto@asil.com.pk. Superadmin can always approve.
+                    </p>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem', maxWidth: 640 }}>
+                        <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.95rem' }}>Approver emails</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '1rem' }}>
+                            {(portalSettings.approver_emails || []).map((email, idx) => (
+                                <div key={`${email}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-dark)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                    <span style={{ fontSize: '0.9rem' }}>{email}</span>
+                                    <button type="button" onClick={() => setPortalSettings(p => ({
+                                        ...p,
+                                        approver_emails: p.approver_emails.filter((_, i) => i !== idx),
+                                    }))} style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', fontWeight: 600 }}>Remove</button>
+                                </div>
+                            ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '1.25rem' }}>
+                            <input type="email" placeholder="add.approver@asil.com.pk" value={approverDraft}
+                                onChange={e => setApproverDraft(e.target.value)}
+                                style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)' }} />
+                            <button type="button" onClick={() => {
+                                const e = approverDraft.trim().toLowerCase();
+                                if (!e || !e.includes('@')) return;
+                                setPortalSettings(p => ({
+                                    ...p,
+                                    approver_emails: [...new Set([...(p.approver_emails || []), e])],
+                                }));
+                                setApproverDraft('');
+                            }} style={{ padding: '8px 16px', background: 'var(--primary)', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Add</button>
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '0.88rem' }}>
+                            <input type="checkbox" checked={!!portalSettings.notify_on_submit}
+                                onChange={e => setPortalSettings(p => ({ ...p, notify_on_submit: e.target.checked }))} />
+                            Email approvers when a change request is submitted
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '0.88rem' }}>
+                            <input type="checkbox" checked={!!portalSettings.notify_employee_on_decision}
+                                onChange={e => setPortalSettings(p => ({ ...p, notify_employee_on_decision: e.target.checked }))} />
+                            Notify employee by email on approve/reject (when email on file)
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1.25rem', fontSize: '0.88rem' }}>
+                            <input type="checkbox" checked={!!portalSettings.photo_requires_approval}
+                                onChange={e => setPortalSettings(p => ({ ...p, photo_requires_approval: e.target.checked }))} />
+                            Require approval for profile photo changes (currently informational — photos apply immediately)
+                        </label>
+                        <button type="button" disabled={saving === 'portal' || !isSuperAdmin} onClick={savePortalSettings}
+                            style={{ padding: '10px 20px', background: 'var(--primary)', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer', opacity: isSuperAdmin ? 1 : 0.5 }}>
+                            {saving === 'portal' ? 'Saving…' : 'Save Portal Settings'}
+                        </button>
+                        {!isSuperAdmin && <p style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Only superadmin can save these settings.</p>}
                     </div>
                 </div>
             )}

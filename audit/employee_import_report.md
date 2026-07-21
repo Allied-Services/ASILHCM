@@ -125,12 +125,12 @@ Full ID list in audit/phase2b_created_ids.txt.
 Rollback: audit/employee_phase2b_rollback.json (written on finish run).
 ## Phase 2b execution (finish_phase2b.py)
 
-Finished: 2026-07-08T14:31:25Z
+Finished: 2026-07-08T15:28:04Z
 
 | Action | Result |
 |---|---|
-| Backfill bank/email | 0 saved, skip 665, fail 1 |
-| Client renames | 50 saved, fail 0 |
+| Backfill bank/email | 1 saved, skip 665, fail 0 |
+| Client renames | 0 saved, fail 0 |
 | Junk deletes | 0 ok, fail 3 |
 | HCM count after | 682 |
 | MATCHED | 666 |
@@ -143,8 +143,4 @@ Finished: 2026-07-08T14:31:25Z
 - `ASIL/SPL-418/21` Shahzad Masih | client=Wafi Energy Pakistan Limited | bank=HBL | email=Kanwar.Azhar@wafi-energy.com | cnic=(omitted — duplicate CNIC)
 - `ASIL/SPL-420/21` Rafae Kayani | client=Wafi Energy Pakistan Limited | bank=Faysal Bank | email=R.Kayani-Contractor@wafi-energy.com | cnic=(omitted — duplicate CNIC)
 
-Rollback: `audit\employee_phase2b_rollback.json`
-
-### Backfill failures (first 10)
-
-- `ASIL/PSO-085/25`: Internal server error
+Rollback: `audit\phase2b_rollback.json`

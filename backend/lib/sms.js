@@ -1,28 +1,67 @@
 'use strict';
 
-const { jazzHttpGet, isJazzProxyConfigured } = require('./jazz_http_transport');
+const {
+  jazzHttpGet,
+  isJazzProxyConfigured,
+  jazzProxyLogLabel,
+} = require('./jazz_http_transport');
 
 function normalisePhone(raw = '') {
-  const digits = raw.replace(/\D/g, '');
+  const digits = String(raw || '').replace(/\D/g, '');
   if (digits.startsWith('92') && digits.length === 12) return '0' + digits.slice(2);
-  if (digits.startsWith('3')  && digits.length === 10)  return '0' + digits;
-  if (digits.startsWith('03') && digits.length === 11)  return digits;
+  if (digits.startsWith('3') && digits.length === 10) return '0' + digits;
+  if (digits.startsWith('03') && digits.length === 11) return digits;
   return digits;
+}
+
+function jazzResponseIndicatesHardFailure(response) {
+  const s = String(response || '').toLowerCase();
+  if (!s.trim()) return false;
+  if (s.includes('gateway returned html response')) return true;
+  if (s.includes('<!doctype') || s.includes('<html')) return true;
+  if (s.includes('cloudflare') || s.includes('attention required')) return true;
+  return [
+    'not authorized',
+    'unauthorized',
+    'ip not',
+    'invalid mask',
+    'mask not allowed',
+    'authentication failed',
+    'auth failed',
+    'invalid user',
+    'invalid password',
+    'insufficient balance',
+    'low balance',
+    'account suspended',
+    'user blocked',
+    'invalid credentials',
+  ].some((w) => s.includes(w));
 }
 
 function isJazzSmsDeliveryOk(response, httpStatus = 0) {
   const raw = String(response || '').trim();
   const low = raw.toLowerCase();
   const st = Number(httpStatus) || 0;
-  const hardFails = [
-    'not authorized', 'ip not', 'unauthorized', 'invalid mask', 'mask not allowed',
-    'authentication failed', 'invalid user', 'invalid password',
-    'insufficient balance', 'low balance', 'account suspended', 'user blocked',
-    'cloudflare', 'attention required', '<!doctype', '<html',
-  ];
-  if (hardFails.some((w) => low.includes(w))) return false;
-  if (['success','message sent','msg sent','sent successfully','delivered','queued','accepted','ok','1','true']
-      .some((w) => low.includes(w))) return true;
+
+  if (raw && jazzResponseIndicatesHardFailure(raw)) return false;
+
+  // Exact match for short tokens — avoid false positives from includes('ok')/includes('1').
+  if (
+    low.includes('success') ||
+    low.includes('message sent') ||
+    low.includes('msg sent') ||
+    low.includes('sent successfully') ||
+    low.includes('delivered') ||
+    low.includes('queued') ||
+    low.includes('accepted') ||
+    low === 'ok' ||
+    low === '1' ||
+    low === 'true'
+  ) {
+    return true;
+  }
+
+  // HTTP 200 with non-failure body (incl. empty) — Jazz often accepts this way.
   return st === 200;
 }
 
@@ -48,33 +87,58 @@ async function sendJazzSMS(phone, message, { otp = false } = {}) {
       ? 'Missing JAZZ_OTP_USER / JAZZ_OTP_PASS (or JAZZ_SMS_* fallback)'
       : 'Missing JAZZ_SMS_USER / JAZZ_SMS_PASS');
   }
-  if (!isJazzProxyConfigured()) {
+
+  const viaProxy = isJazzProxyConfigured();
+  if (!viaProxy) {
     console.warn('[SMS] JAZZ_HTTPS_PROXY not set — Jazz will likely reject with IP not authorized');
+  } else {
+    console.log(`[SMS] Jazz proxy active (${jazzProxyLogLabel()})`);
   }
+
   const jazzTo = normalisePhone(phone);
   const digitsOnly = jazzTo.replace(/\D/g, '');
   const endpoints = [
-    () => {
-      const p = new URLSearchParams({ Username: USER, Password: PASS, From: MASK, To: jazzTo, Message: message });
-      return `https://connect.jazzcmt.com/sendsms_url.html?${p.toString()}&`;
+    {
+      label: 'sendsms_url.html',
+      buildUrl: () => {
+        const p = new URLSearchParams({
+          Username: USER,
+          Password: PASS,
+          From: MASK,
+          To: jazzTo,
+          Message: message,
+        });
+        return `https://connect.jazzcmt.com/sendsms_url.html?${p.toString()}&`;
+      },
     },
-    () => {
-      const p = new URLSearchParams({ username: USER, password: PASS, mask: MASK, to: digitsOnly, message });
-      return `https://connect.jazzcmt.com/sendsms/?${p.toString()}`;
+    {
+      label: 'sendsms/',
+      buildUrl: () => {
+        const p = new URLSearchParams({
+          username: USER,
+          password: PASS,
+          mask: MASK,
+          to: digitsOnly,
+          message,
+        });
+        return `https://connect.jazzcmt.com/sendsms/?${p.toString()}`;
+      },
     },
   ];
-  let last = { to: jazzTo, response: 'No attempt', status: 0 };
-  for (const buildUrl of endpoints) {
-    const url = buildUrl();
+
+  let last = { to: jazzTo, response: 'No attempt', status: 0, viaProxy };
+  for (const ep of endpoints) {
+    const url = ep.buildUrl();
     try {
+      console.log(`[SMS] Trying ${ep.label} for ${jazzTo}${viaProxy ? ` via ${jazzProxyLogLabel()}` : ''}`);
       const { status, body } = await jazzHttpGet(url);
-      console.log(`[SMS] HTTP ${status} | ${body.slice(0, 120)}`);
-      last = { to: jazzTo, response: body, status };
+      console.log(`[SMS] ${ep.label} → HTTP ${status} | ${body.slice(0, 160)}`);
+      last = { to: jazzTo, response: body, status, endpoint: ep.label, viaProxy };
       if (isJazzSmsDeliveryOk(body, status)) return { ...last, ok: true };
-      if (['not authorized','mask not','invalid user','insufficient balance','account suspended']
-          .some((w) => body.toLowerCase().includes(w))) break;
+      if (jazzResponseIndicatesHardFailure(body)) break;
     } catch (err) {
-      last = { to: jazzTo, response: err.message, status: 0 };
+      console.error(`[SMS] ${ep.label} error:`, err.message);
+      last = { to: jazzTo, response: err.message, status: 0, endpoint: ep.label, viaProxy };
     }
   }
   return { ...last, ok: false };
@@ -84,4 +148,10 @@ function sendJazzOtpSMS(phone, message) {
   return sendJazzSMS(phone, message, { otp: true });
 }
 
-module.exports = { sendJazzSMS, sendJazzOtpSMS, normalisePhone, isJazzSmsDeliveryOk };
+module.exports = {
+  sendJazzSMS,
+  sendJazzOtpSMS,
+  normalisePhone,
+  isJazzSmsDeliveryOk,
+  jazzResponseIndicatesHardFailure,
+};

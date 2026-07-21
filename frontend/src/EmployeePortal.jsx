@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, FileText, CreditCard, Umbrella, Phone, Home, LogOut, Clock, CheckCircle, AlertCircle, Download, ChevronRight, Building, MapPin, Calendar, Briefcase, Mail, Phone as PhoneIcon, Shield } from 'lucide-react';
+import { User, FileText, CreditCard, Umbrella, Phone, Home, LogOut, Clock, CheckCircle, AlertCircle, Download, ChevronRight, MapPin, Briefcase, Mail, Shield } from 'lucide-react';
 import { api } from './api';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
@@ -31,28 +31,110 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 const monthName = m => MONTHS[(parseInt(m)||1) - 1];
 const fmtDate = s => s ? new Date(s).toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' }) : '—';
 
+// Native <select> dropdowns use OS popup colors; force readable dark options on Windows.
+const selectStyle = {
+    padding: '10px',
+    background: '#0f172a',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '8px',
+    color: '#e2e8f0',
+    colorScheme: 'dark',
+};
+const optionStyle = { background: '#0f172a', color: '#e2e8f0' };
+const inputStyle = {
+    padding: '10px',
+    background: '#0f172a',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '8px',
+    color: '#e2e8f0',
+};
+
+const OFFICE_LOCATIONS = [
+    {
+        city: 'Karachi (Head Office)',
+        address: '6 Hilltop Arcade, 4D/2 Gizri Blvd Rd, D.H.A. Phase 4, Karachi, 75500',
+        maps: 'https://maps.app.goo.gl/qH3zwWfDYKFPhwGA6',
+    },
+    {
+        city: 'Rawalpindi',
+        address: 'C73, opposite Bilal Hospital, Satellite Town Block C, Rawalpindi',
+        maps: 'https://maps.app.goo.gl/DYb6K8tMZRy2ThZr9',
+    },
+    {
+        city: 'Lahore',
+        address: '30, Sabzazar Block D, Sabzazar Housing Scheme Phase 1 & 2, Lahore, 54000',
+        maps: 'https://maps.app.goo.gl/xFu2DA45xsNVEDbk9',
+    },
+    {
+        city: 'Dubai',
+        address: 'Allied Services FZ LLC — Boulevard Plaza, Downtown Dubai, UAE',
+        maps: null,
+    },
+    {
+        city: 'Riyadh',
+        address: 'Olaya Street, Riyadh, KSA',
+        maps: null,
+    },
+];
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // LOGIN SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
 function LoginScreen({ onLogin }) {
-    const [phase, setPhase] = useState('phone'); // 'phone' | 'otp'
-    const [phone, setPhone] = useState('');
-    const [otp, setOtp]   = useState('');
+    const [phase, setPhase] = useState('identify'); // identify | otp
+    const [identifier, setIdentifier] = useState('');
+    const [otp, setOtp] = useState('');
     const [empName, setEmpName] = useState('');
+    const [employeeId, setEmployeeId] = useState('');
+    const [channel, setChannel] = useState('email');
+    const [destinationMasked, setDestinationMasked] = useState('');
+    const [fallbackAvailable, setFallbackAvailable] = useState(false);
+    const [fallbackMsg, setFallbackMsg] = useState('');
     const [loading, setLoading] = useState(false);
-    const [error, setError]   = useState('');
+    const [error, setError] = useState('');
+    const [dupes, setDupes] = useState([]);
 
-    async function requestOtp(e) {
-        e.preventDefault();
-        setError(''); setLoading(true);
+    function parseIdentifier(raw) {
+        const t = (raw || '').trim();
+        if (!t) return {};
+        const digits = t.replace(/\D/g, '');
+        if (/[A-Za-z]/.test(t)) return { employeeId: t };
+        if (digits.length >= 10) return { phone: normalisePhone(t) };
+        return { employeeId: t };
+    }
+
+    async function requestOtp(e, { preferSms = false, forcedEmployeeId } = {}) {
+        if (e?.preventDefault) e.preventDefault();
+        setError(''); setLoading(true); setDupes([]); setFallbackMsg('');
         try {
-            const res = await fetch(`${API}/api/portal/request-otp`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: normalisePhone(phone) })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error);
+            const body = forcedEmployeeId
+                ? { employeeId: forcedEmployeeId, preferSms }
+                : { ...parseIdentifier(identifier), preferSms };
+            if (!body.phone && !body.employeeId) throw new Error('Enter your employee code or mobile number');
+
+            let res;
+            try {
+                res = await fetch(`${API}/api/portal/request-otp`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+            } catch {
+                throw new Error('Cannot reach the server (network/CORS). Please try again in a minute, or use https://hcm.asil.com.pk/portal/');
+            }
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 409 && data.employees?.length) {
+                setDupes(data.employees);
+                throw new Error(data.error || 'Multiple matches — pick your employee code');
+            }
+            if (!res.ok) throw new Error(data.error || 'Failed to send OTP');
             setEmpName(data.employeeName);
+            setEmployeeId(data.employeeId || body.employeeId || '');
+            setChannel(data.channel || 'sms');
+            setDestinationMasked(data.destinationMasked || '');
+            setFallbackAvailable(!!data.fallbackAvailable);
+            if (data.channel === 'sms' && data.fallbackReason && data.fallbackReason !== 'no_email') {
+                setFallbackMsg(data.message || 'Could not email you — code sent by SMS.');
+            }
             setPhase('otp');
         } catch (err) { setError(err.message); }
         setLoading(false);
@@ -62,9 +144,14 @@ function LoginScreen({ onLogin }) {
         e.preventDefault();
         setError(''); setLoading(true);
         try {
+            const body = {
+                otp,
+                employeeId: employeeId || undefined,
+                ...(!employeeId ? parseIdentifier(identifier) : {}),
+            };
             const res = await fetch(`${API}/api/portal/verify-otp`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: normalisePhone(phone), otp })
+                body: JSON.stringify(body),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
@@ -78,7 +165,6 @@ function LoginScreen({ onLogin }) {
     return (
         <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
             <div style={{ width: '100%', maxWidth: '420px' }}>
-                {/* Logo / Brand */}
                 <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
                     <div style={{ width: 64, height: 64, background: 'linear-gradient(135deg, #38bdf8, #6366f1)', borderRadius: '16px', margin: '0 auto 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Shield size={32} color="white" />
@@ -88,26 +174,42 @@ function LoginScreen({ onLogin }) {
                 </div>
 
                 <div style={{ background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '20px', padding: '2rem' }}>
-                    {phase === 'phone' ? (
-                        <form onSubmit={requestOtp}>
+                    {phase === 'identify' ? (
+                        <form onSubmit={(e) => requestOtp(e)}>
                             <h2 style={{ color: '#fff', fontWeight: 700, marginBottom: '0.25rem', fontSize: '1.1rem' }}>Sign In</h2>
-                            <p style={{ color: '#94a3b8', fontSize: '0.83rem', marginBottom: '1.5rem' }}>Enter your registered mobile number to receive an OTP.</p>
-                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Mobile Number</label>
+                            <p style={{ color: '#94a3b8', fontSize: '0.83rem', marginBottom: '1.5rem' }}>
+                                Enter your employee code or registered mobile. We email a code when an email is on file; otherwise we text your phone.
+                            </p>
+                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Employee Code or Mobile</label>
                             <input
-                                type="tel" value={phone} onChange={e => setPhone(e.target.value)}
-                                placeholder="0300 0000000" required autoFocus
+                                type="text" value={identifier} onChange={e => setIdentifier(e.target.value)}
+                                placeholder="ASIL-001 or 0300 0000000" required autoFocus
                                 style={{ width: '100%', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '10px', padding: '12px 16px', color: '#fff', fontSize: '1rem', outline: 'none', boxSizing: 'border-box' }}
                             />
+                            {dupes.length > 0 && (
+                                <div style={{ marginTop: '12px' }}>
+                                    <p style={{ color: '#fbbf24', fontSize: '0.8rem', marginBottom: '8px' }}>Multiple employees share this phone — select yours:</p>
+                                    {dupes.map(d => (
+                                        <button key={d.id} type="button" onClick={() => requestOtp(null, { forcedEmployeeId: d.id })}
+                                            style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: '6px', padding: '10px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: '#e2e8f0', cursor: 'pointer' }}>
+                                            {d.name} · {d.id}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                             {error && <p style={{ color: '#f87171', fontSize: '0.82rem', marginTop: '8px' }}>{error}</p>}
                             <button type="submit" disabled={loading}
                                 style={{ width: '100%', marginTop: '1rem', background: 'linear-gradient(135deg, #38bdf8, #6366f1)', border: 'none', color: '#fff', padding: '13px', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
-                                {loading ? 'Sending OTP...' : 'Send OTP →'}
+                                {loading ? 'Sending code...' : 'Send login code →'}
                             </button>
                         </form>
                     ) : (
                         <form onSubmit={verifyOtp}>
                             <h2 style={{ color: '#fff', fontWeight: 700, marginBottom: '0.25rem', fontSize: '1.1rem' }}>Welcome, {empName || 'Employee'}</h2>
-                            <p style={{ color: '#94a3b8', fontSize: '0.83rem', marginBottom: '1.5rem' }}>Enter the 6-digit OTP sent to {phone}.</p>
+                            <p style={{ color: '#94a3b8', fontSize: '0.83rem', marginBottom: '0.75rem' }}>
+                                Enter the 6-digit code sent by {channel === 'email' ? 'email' : 'SMS'} to {destinationMasked || 'your contact'}.
+                            </p>
+                            {fallbackMsg && <p style={{ color: '#fbbf24', fontSize: '0.8rem', marginBottom: '0.75rem' }}>{fallbackMsg}</p>}
                             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>One-Time Password</label>
                             <input
                                 type="text" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g,'').slice(0,6))}
@@ -119,9 +221,15 @@ function LoginScreen({ onLogin }) {
                                 style={{ width: '100%', marginTop: '1rem', background: 'linear-gradient(135deg, #38bdf8, #6366f1)', border: 'none', color: '#fff', padding: '13px', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: (loading || otp.length < 6) ? 'not-allowed' : 'pointer', opacity: (loading || otp.length < 6) ? 0.7 : 1 }}>
                                 {loading ? 'Verifying...' : 'Verify & Sign In →'}
                             </button>
-                            <button type="button" onClick={() => { setPhase('phone'); setOtp(''); setError(''); }}
+                            {channel === 'email' && fallbackAvailable && (
+                                <button type="button" onClick={() => requestOtp(null, { preferSms: true, forcedEmployeeId: employeeId })}
+                                    style={{ width: '100%', marginTop: '0.5rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.12)', color: '#94a3b8', padding: '10px', borderRadius: '10px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                    Send code to my phone instead
+                                </button>
+                            )}
+                            <button type="button" onClick={() => { setPhase('identify'); setOtp(''); setError(''); setFallbackMsg(''); }}
                                 style={{ width: '100%', marginTop: '0.5rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.12)', color: '#94a3b8', padding: '10px', borderRadius: '10px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                                ← Change Number
+                                ← Change ID / number
                             </button>
                         </form>
                     )}
@@ -143,19 +251,48 @@ function PortalDashboard({ token, empBasic, onLogout }) {
     const [leaveData, setLeaveData] = useState(null);
     const [leaveForm, setLeaveForm] = useState({ leave_type: 'CL', from_date: '', to_date: '', reason: '' });
     const [leaveMsg, setLeaveMsg] = useState('');
+    const [myRequests, setMyRequests] = useState([]);
+    const [changeField, setChangeField] = useState('present_address');
+    const [changeValue, setChangeValue] = useState('');
+    const [changeMsg, setChangeMsg] = useState('');
+    const [photoBusy, setPhotoBusy] = useState(false);
+    const [photoObjectUrl, setPhotoObjectUrl] = useState(null);
+
+    const reloadMe = () => portalFetch('/api/portal/me', token).then(setData);
 
     useEffect(() => {
         portalFetch('/api/portal/me', token)
             .then(setData)
             .catch(err => { setError(err.message); if (err.message.includes('expired') || err.message.includes('portal')) onLogout(); })
             .finally(() => setLoading(false));
+        api.portalGetMyRequests(token).then(d => setMyRequests(d.requests || [])).catch(() => {});
     }, [token]);
 
     useEffect(() => {
         if (activeTab === 'leaves' && token) {
             api.portalLeaveBalance(token).then(setLeaveData).catch(() => {});
         }
+        if (activeTab === 'profile' && token) {
+            api.portalGetMyRequests(token).then(d => setMyRequests(d.requests || [])).catch(() => {});
+        }
     }, [activeTab, token]);
+
+    useEffect(() => {
+        let revoked = false;
+        let url;
+        async function loadPhoto() {
+            if (!data?.employee?.hasPhoto || !token) { setPhotoObjectUrl(null); return; }
+            try {
+                const r = await fetch(`${API}/api/portal/me/photo`, { headers: { Authorization: `Bearer ${token}` } });
+                if (!r.ok) return;
+                const blob = await r.blob();
+                url = URL.createObjectURL(blob);
+                if (!revoked) setPhotoObjectUrl(url);
+            } catch { /* ignore */ }
+        }
+        loadPhoto();
+        return () => { revoked = true; if (url) URL.revokeObjectURL(url); };
+    }, [data?.employee?.hasPhoto, data?.employee?.photo_file_id, token]);
 
     const TABS = [
         { id: 'home', label: 'Home', icon: Home },
@@ -193,6 +330,7 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                     <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>ASIL Employee Portal</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    {photoObjectUrl && <img src={photoObjectUrl} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.15)' }} />}
                     <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>Welcome, <strong style={{ color: '#e2e8f0' }}>{emp.name || empBasic?.name}</strong></span>
                     <button onClick={onLogout} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem' }}>
                         <LogOut size={14} /> Sign Out
@@ -231,7 +369,7 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                     { label: 'This Month Net Pay', value: latestPayslip ? Rs(latestPayslip.net) : '—', icon: CreditCard, color: '#22c55e', sub: latestPayslip ? `${monthName(latestPayslip.month)} ${latestPayslip.year}` : 'No payslip yet' },
                                     { label: 'Designation', value: emp.designation || '—', icon: Briefcase, color: '#38bdf8', sub: emp.client || '—' },
                                     { label: 'Location', value: emp.location || '—', icon: MapPin, color: '#a78bfa', sub: emp.province || '' },
-                                    { label: 'Active Advances', value: advances.filter(a => a.status === 'Active').length, icon: AlertCircle, color: '#f59e0b', sub: advances.filter(a=>a.status==='Active').length ? Rs(advances.filter(a=>a.status==='Active').reduce((s,a)=>s+a.remaining,0)) + ' remaining' : 'None outstanding' },
+                                    { label: 'Pending Requests', value: myRequests.filter(r => r.status === 'Pending').length, icon: AlertCircle, color: '#f59e0b', sub: 'Data change requests awaiting HCM' },
                                 ].map(card => {
                                     const Icon = card.icon;
                                     return (
@@ -293,9 +431,9 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                                 </div>
                                                 <button
                                                     onClick={() => {
-                                                        const url = `${API}/api/payslip/${emp.id}/${p.month}/${p.year}`;
+                                                        const url = `${API}/api/payslip/${encodeURIComponent(emp.id)}/${p.month}/${p.year}`;
                                                         fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-                                                            .then(r => r.text())
+                                                            .then(r => { if (!r.ok) throw new Error('Could not load payslip'); return r.text(); })
                                                             .then(html => { const w = window.open('', '_blank'); w.document.write(html); w.document.close(); })
                                                             .catch(() => alert('Could not load payslip'));
                                                     }}
@@ -314,39 +452,127 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                     {activeTab === 'profile' && (
                         <div>
                             <h2 style={{ margin: '0 0 1.5rem', fontSize: '1.2rem', fontWeight: 800 }}>My Profile</h2>
+
+                            <div style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
+                                <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', fontWeight: 700 }}>Request a data change</h3>
+                                <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>
+                                    Changes are reviewed by Allied HCM before they apply to your record.
+                                </p>
+                                <form onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    setChangeMsg('');
+                                    try {
+                                        const res = await api.portalSubmitChangeRequest(token, changeField, changeValue);
+                                        if (res.error) throw new Error(res.error);
+                                        setChangeMsg('Request submitted. Allied HCM will review it shortly.');
+                                        setChangeValue('');
+                                        const d = await api.portalGetMyRequests(token);
+                                        setMyRequests(d.requests || []);
+                                    } catch (err) { setChangeMsg(err.message); }
+                                }} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.75rem' }}>
+                                    <select value={changeField} onChange={e => setChangeField(e.target.value)} style={selectStyle}>
+                                        <option value="present_address" style={optionStyle}>Present Address</option>
+                                        <option value="permanent_address" style={optionStyle}>Permanent Address</option>
+                                        <option value="primary_contact" style={optionStyle}>Primary Contact</option>
+                                        <option value="emergency_contact" style={optionStyle}>Emergency Contact</option>
+                                        <option value="email" style={optionStyle}>Email Address</option>
+                                        <option value="bank_name" style={optionStyle}>Bank Name</option>
+                                        <option value="bank_account" style={optionStyle}>Bank Account Number</option>
+                                        <option value="account_title" style={optionStyle}>Account Title</option>
+                                        <option value="nok_name" style={optionStyle}>Next of Kin Name</option>
+                                        <option value="nok_relation" style={optionStyle}>Next of Kin Relation</option>
+                                        <option value="nok_contact" style={optionStyle}>Next of Kin Contact</option>
+                                    </select>
+                                    <input required value={changeValue} onChange={e => setChangeValue(e.target.value)} placeholder="New value" style={inputStyle} />
+                                    <button type="submit" style={{ padding: '10px 16px', background: 'linear-gradient(135deg,#38bdf8,#6366f1)', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Submit</button>
+                                </form>
+                                {changeMsg && <p style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: changeMsg.includes('submitted') ? '#22c55e' : '#f87171' }}>{changeMsg}</p>}
+
+                                {myRequests.length > 0 && (
+                                    <div style={{ marginTop: '1.25rem' }}>
+                                        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>My requests</h4>
+                                        {myRequests.slice(0, 10).map(r => (
+                                            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.82rem' }}>
+                                                <span>{r.field_label}: <span style={{ color: '#94a3b8' }}>{r.old_value || '—'} → </span>{r.new_value}</span>
+                                                <span style={{ color: r.status === 'Approved' ? '#22c55e' : r.status === 'Rejected' ? '#f87171' : '#f59e0b', fontWeight: 600 }}>{r.status}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
+                                <div style={{ width: 88, height: 88, borderRadius: '50%', overflow: 'hidden', background: 'rgba(56,189,248,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '2px solid rgba(56,189,248,0.3)' }}>
+                                    {photoObjectUrl
+                                        ? <img src={photoObjectUrl} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        : <User size={36} color="#38bdf8" />}
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 700, marginBottom: '4px' }}>Profile photo</div>
+                                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '10px' }}>JPEG, PNG or WebP · max 2 MB. Visible to Allied HCM.</div>
+                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <label style={{ background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.25)', color: '#38bdf8', padding: '7px 14px', borderRadius: '8px', cursor: photoBusy ? 'wait' : 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                                            {photoBusy ? 'Uploading…' : 'Upload photo'}
+                                            <input type="file" accept="image/jpeg,image/png,image/webp" hidden disabled={photoBusy}
+                                                onChange={async (e) => {
+                                                    const file = e.target.files?.[0];
+                                                    e.target.value = '';
+                                                    if (!file) return;
+                                                    setPhotoBusy(true);
+                                                    try {
+                                                        await api.portalUploadPhoto(token, file);
+                                                        await reloadMe();
+                                                    } catch (err) { alert(err.message); }
+                                                    setPhotoBusy(false);
+                                                }} />
+                                        </label>
+                                        {emp.hasPhoto && (
+                                            <button type="button" disabled={photoBusy} onClick={async () => {
+                                                setPhotoBusy(true);
+                                                try { await api.portalDeletePhoto(token); await reloadMe(); setPhotoObjectUrl(null); }
+                                                catch (err) { alert(err.message); }
+                                                setPhotoBusy(false);
+                                            }} style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', padding: '7px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                                                Remove
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                                 {[
-                                    { title: '📋 Employment Details', fields: [
+                                    { title: 'Employment Details', fields: [
                                         ['Employee Code', emp.id], ['Business Unit', emp.bu], ['Client', emp.client], ['Department', emp.dept],
                                         ['Designation', emp.designation], ['Location', emp.location], ['Province', emp.province],
-                                        ['Date of Joining', fmtDate(emp.doj)], ['Employment Status', emp.active === 'Yes' ? '✅ Active' : '❌ Inactive'],
+                                        ['Date of Joining', fmtDate(emp.doj)], ['Employment Status', emp.active === 'Yes' ? 'Active' : 'Inactive'],
                                     ]},
-                                    { title: '👤 Personal Information', fields: [
+                                    { title: 'Personal Information', fields: [
                                         ['Full Name', emp.name], ['Father\'s Name', emp.father_name], ['Mother\'s Name', emp.mother_name],
                                         ['Date of Birth', fmtDate(emp.dob)], ['Place of Birth', emp.place_of_birth],
                                         ['Religion', emp.religion], ['Marital Status', emp.marital_status],
                                     ]},
-                                    { title: '📞 Contact Information', fields: [
+                                    { title: 'Contact Information', fields: [
                                         ['Primary Phone', emp.primary_contact], ['Emergency Contact', emp.emergency_contact],
                                         ['Email', emp.email], ['Present Address', emp.present_address],
                                     ]},
-                                    { title: '🏦 Bank & Salary', fields: [
+                                    { title: 'Bank & Salary', fields: [
                                         ['Bank Name', emp.bank_name], ['Account Title', emp.account_title],
                                         ['Account Number', emp.bankAccountMasked || '****'],
                                         ['Gross Salary', emp.salary ? Rs(emp.salary) : '—'],
                                         ['EOBI Number', emp.eobi_no],
                                     ]},
-                                    { title: '👨‍👩‍👧 Family', fields: [
+                                    { title: 'Family', fields: [
                                         ['Spouse Name', emp.spouse_name], ['Spouse Age', emp.spouse_age],
                                         ['Child 1', emp.child1_name ? `${emp.child1_name} (${emp.child1_age||'?'} yrs)` : '—'],
                                         ['Child 2', emp.child2_name ? `${emp.child2_name} (${emp.child2_age||'?'} yrs)` : '—'],
                                     ]},
-                                    { title: '🏥 Medical & Insurance', fields: [
+                                    { title: 'Medical & Insurance', fields: [
                                         ['Medical Type', emp.medical_type], ['Total Coverage', emp.total_medical_coverage ? Rs(emp.total_medical_coverage) : '—'],
                                         ['Maternity Cover', emp.medical_maternity], ['Insurance Policy #', emp.insurance_policy_no || '—'],
                                         ['ID Card Status', emp.id_card_status || '—'],
                                     ]},
-                                    { title: '🚨 Next of Kin', fields: [
+                                    { title: 'Next of Kin', fields: [
                                         ['NOK Name', emp.nok_name], ['Relation', emp.nok_relation], ['NOK Contact', emp.nok_contact],
                                     ]},
                                 ].map(section => (
@@ -361,7 +587,6 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                     </div>
                                 ))}
                             </div>
-                            <p style={{ marginTop: '1rem', fontSize: '0.78rem', color: '#475569' }}>⚠️ To update your information, please contact HR at hr@asil.com.pk or +92-21-35640001.</p>
                         </div>
                     )}
 
@@ -398,16 +623,14 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                         api.portalLeaveBalance(token).then(setLeaveData);
                                     } catch (err) { setLeaveMsg(err.message); }
                                 }} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                                    <select value={leaveForm.leave_type} onChange={e => setLeaveForm(p => ({ ...p, leave_type: e.target.value }))}
-                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }}>
-                                        <option value="CL">Casual Leave</option><option value="ML">Medical Leave</option><option value="EL">Earned Leave</option>
+                                    <select value={leaveForm.leave_type} onChange={e => setLeaveForm(p => ({ ...p, leave_type: e.target.value }))} style={selectStyle}>
+                                        <option value="CL" style={optionStyle}>Casual Leave</option>
+                                        <option value="ML" style={optionStyle}>Medical Leave</option>
+                                        <option value="EL" style={optionStyle}>Earned Leave</option>
                                     </select>
-                                    <input type="date" required value={leaveForm.from_date} onChange={e => setLeaveForm(p => ({ ...p, from_date: e.target.value }))}
-                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }} />
-                                    <input type="date" required value={leaveForm.to_date} onChange={e => setLeaveForm(p => ({ ...p, to_date: e.target.value }))}
-                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }} />
-                                    <input placeholder="Reason" value={leaveForm.reason} onChange={e => setLeaveForm(p => ({ ...p, reason: e.target.value }))}
-                                        style={{ padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0' }} />
+                                    <input type="date" required value={leaveForm.from_date} onChange={e => setLeaveForm(p => ({ ...p, from_date: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
+                                    <input type="date" required value={leaveForm.to_date} onChange={e => setLeaveForm(p => ({ ...p, to_date: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
+                                    <input placeholder="Reason" value={leaveForm.reason} onChange={e => setLeaveForm(p => ({ ...p, reason: e.target.value }))} style={inputStyle} />
                                     <button type="submit" style={{ gridColumn: '1/-1', padding: '12px', background: 'linear-gradient(135deg,#38bdf8,#6366f1)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Submit Leave Request</button>
                                 </form>
                                 {leaveMsg && <p style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: leaveMsg.includes('submitted') ? '#22c55e' : '#f87171' }}>{leaveMsg}</p>}
@@ -467,9 +690,7 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                             <h2 style={{ margin: '0 0 1.5rem', fontSize: '1.2rem', fontWeight: 800 }}>Contact HR</h2>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
                                 {[
-                                    { icon: PhoneIcon, label: 'HR Hotline', value: '+92-21-35640001', color: '#22c55e' },
-                                    { icon: Mail, label: 'HR Email', value: 'hr@asil.com.pk', color: '#38bdf8' },
-                                    { icon: Building, label: 'Office', value: 'Business Avenue, Karachi', color: '#a78bfa' },
+                                    { icon: Mail, label: 'Email', value: 'ops-support@asil.com.pk', href: 'mailto:ops-support@asil.com.pk', color: '#38bdf8' },
                                     { icon: Clock, label: 'Office Hours', value: 'Mon–Fri: 9am – 6pm', color: '#f59e0b' },
                                 ].map(c => {
                                     const Icon = c.icon;
@@ -478,28 +699,54 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                             <div style={{ width: 44, height: 44, background: `${c.color}18`, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                                 <Icon size={20} color={c.color} />
                                             </div>
-                                            <div><div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '2px' }}>{c.label}</div><div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{c.value}</div></div>
+                                            <div>
+                                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '2px' }}>{c.label}</div>
+                                                {c.href
+                                                    ? <a href={c.href} style={{ fontWeight: 700, fontSize: '0.9rem', color: '#e2e8f0', textDecoration: 'none' }}>{c.value}</a>
+                                                    : <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{c.value}</div>}
+                                            </div>
                                         </div>
                                     );
                                 })}
                             </div>
+
+                            <h3 style={{ margin: '0 0 1rem', fontWeight: 700, fontSize: '0.95rem' }}>Office Address</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                                {OFFICE_LOCATIONS.map(loc => (
+                                    <div key={loc.city} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                            <MapPin size={16} color="#eab308" />
+                                            {loc.maps
+                                                ? <a href={loc.maps} target="_blank" rel="noreferrer" style={{ fontWeight: 700, fontSize: '0.95rem', color: '#eab308', textDecoration: 'none' }}>{loc.city}</a>
+                                                : <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#eab308' }}>{loc.city}</span>}
+                                        </div>
+                                        <div style={{ fontSize: '0.82rem', color: '#94a3b8', lineHeight: 1.45 }}>{loc.address}</div>
+                                        {loc.maps && (
+                                            <a href={loc.maps} target="_blank" rel="noreferrer"
+                                                style={{ display: 'inline-block', marginTop: '10px', fontSize: '0.78rem', fontWeight: 600, color: '#38bdf8', textDecoration: 'none' }}>
+                                                Open in Google Maps →
+                                            </a>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+
                             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', padding: '1.5rem' }}>
                                 <h3 style={{ margin: '0 0 1rem', fontWeight: 700 }}>Quick Requests</h3>
                                 {[
-                                    { label: '📄 Request Salary Certificate', desc: 'Bank salary letter or employment certificate' },
-                                    { label: '✅ EOBI Certificate', desc: 'For personal or property documentation' },
-                                    { label: '💼 NOC / Experience Letter', desc: 'After at least 6 months of service' },
-                                    { label: '💰 Advance Request', desc: 'Submit a new advance or loan request' },
-                                    { label: '🏖️ Leave Application', desc: 'Contact your manager first, then HR' },
+                                    { label: 'Salary Certificate', desc: 'Bank salary letter or employment certificate' },
+                                    { label: 'EOBI Certificate', desc: 'For personal or property documentation' },
+                                    { label: 'NOC / Experience Letter', desc: 'After at least 6 months of service' },
+                                    { label: 'Advance Request', desc: 'Submit a new advance or loan request' },
                                 ].map(r => (
                                     <div key={r.label} style={{ padding: '0.85rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                         <div>
                                             <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{r.label}</div>
                                             <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '2px' }}>{r.desc}</div>
                                         </div>
-                                        <button onClick={() => window.location.href='mailto:hr@asil.com.pk?subject=' + encodeURIComponent(r.label.replace(/^[^ ]+ /,''))}
+                                        <button onClick={() => { window.location.href = 'mailto:ops-support@asil.com.pk?subject=' + encodeURIComponent(r.label); }}
                                             style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.2)', color: '#38bdf8', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, flexShrink: 0 }}>
-                                            Email HR →
+                                            Email Ops →
                                         </button>
                                     </div>
                                 ))}

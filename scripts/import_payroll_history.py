@@ -17,16 +17,40 @@ from urllib.request import Request, urlopen
 import openpyxl
 
 REPO = Path(__file__).resolve().parent.parent
-WORKBOOK = REPO / "Attachments" / "Audit BPO FM Jul 2026" / "BPO FM Payroll & Invoice File.xlsx"
+# MD Mandate §3 — primary source workbook
+WORKBOOK = REPO / "Attachments" / "BPO FM Payroll & Invoice File.xlsx"
+# Fallback if primary missing (audit copy)
+WORKBOOK_FALLBACK = REPO / "Attachments" / "Audit BPO FM Jul 2026" / "BPO FM Payroll & Invoice File.xlsx"
 LIVE_API = "https://asilhcm.onrender.com"
 JWT_PATH = Path(r"C:\temp\hcm_jwt.txt")
 REPORT_PATH = REPO / "audit" / "payroll_import_report.md"
 
+# ALL historical month tabs present in the master spreadsheet
 SHEET_PERIOD = {
-    "May-26": (5, 2026),
-    "Apr-26": (4, 2026),
+    "PR Dec-24": (12, 2024),
+    "Jan-25": (1, 2025),
+    "Mar-25": (3, 2025),
+    "Apr-25": (4, 2025),
+    "May-25": (5, 2025),
+    "June-25": (6, 2025),
+    "Jul-25": (7, 2025),
+    "Aug-25": (8, 2025),
+    "Sep-25": (9, 2025),
+    "Oct-25": (10, 2025),
+    "Nov-25": (11, 2025),
+    "Dec-25": (12, 2025),
+    "Jan-26": (1, 2026),
+    "Feb-26": (2, 2026),
     "Mar-26": (3, 2026),
+    "Apr-26": (4, 2026),
+    "May-26": (5, 2026),
 }
+# Expected continuous months for gap reporting (Feb-25 missing from workbook)
+EXPECTED_PERIODS = [
+    (12, 2024), (1, 2025), (2, 2025), (3, 2025), (4, 2025), (5, 2025), (6, 2025),
+    (7, 2025), (8, 2025), (9, 2025), (10, 2025), (11, 2025), (12, 2025),
+    (1, 2026), (2, 2026), (3, 2026), (4, 2026), (5, 2026),
+]
 
 # Fallback when employee has no contractId in HCM
 CLIENT_CONTRACT_FALLBACK = {
@@ -134,14 +158,34 @@ def load_employees(token: str) -> dict[str, dict[str, Any]]:
     return {e["id"]: e for e in api_json("GET", "/api/employees", token).get("employees", [])}
 
 
-def resolve_contract(row: dict[str, Any], emp_by_id: dict[str, dict[str, Any]]) -> str | None:
+def load_contracts(token: str) -> dict[str, str]:
+    """Map normalized client / contract_name -> contract id."""
+    out: dict[str, str] = {}
+    for ct in api_json("GET", "/api/contracts", token).get("contracts", []):
+        cid = ct.get("id")
+        if not cid:
+            continue
+        for key in (ct.get("contractName"), ct.get("clientName"), ct.get("client")):
+            if key:
+                out[str(key).lower().strip()] = cid
+    return out
+
+
+def resolve_contract(
+    row: dict[str, Any],
+    emp_by_id: dict[str, dict[str, Any]],
+    client_to_contract: dict[str, str],
+) -> str | None:
     emp = emp_by_id.get(row["employeeId"])
     if emp and emp.get("contractId"):
         return emp["contractId"]
-    return CLIENT_CONTRACT_FALLBACK.get(row["client"].lower().strip())
+    client_key = row["client"].lower().strip()
+    if client_key in client_to_contract:
+        return client_to_contract[client_key]
+    return CLIENT_CONTRACT_FALLBACK.get(client_key)
 
 
-def load_sheet(wb, sheet_name: str, emp_by_id: dict[str, dict[str, Any]]) -> tuple[dict[str, list[dict]], dict[str, int]]:
+def load_sheet(wb, sheet_name: str, emp_by_id: dict[str, dict[str, Any]], client_to_contract: dict[str, str]) -> tuple[dict[str, list[dict]], dict[str, int]]:
     ws = wb[sheet_name]
     rows = list(ws.iter_rows(values_only=True))
     hdr = [str(h).strip() if h is not None else "" for h in rows[0]]
@@ -154,7 +198,7 @@ def load_sheet(wb, sheet_name: str, emp_by_id: dict[str, dict[str, Any]]) -> tup
         stats["parsed"] += 1
         if payload["inputs"].get("formula_broken"):
             stats["formula_broken"] += 1
-        cid = resolve_contract(payload, emp_by_id)
+        cid = resolve_contract(payload, emp_by_id, client_to_contract)
         if not cid:
             stats["no_contract"] += 1
             continue
@@ -163,18 +207,28 @@ def load_sheet(wb, sheet_name: str, emp_by_id: dict[str, dict[str, Any]]) -> tup
     return dict(by_contract), stats
 
 
-def write_report(results: list[dict[str, Any]], dry_run: bool) -> None:
+def write_report(results: list[dict[str, Any]], dry_run: bool, workbook: Path, missing_periods: list[tuple[int, int]]) -> None:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        wb_rel = str(workbook.relative_to(REPO))
+    except ValueError:
+        wb_rel = str(workbook)
     lines = [
-        "# Payroll history import (Build 3)",
+        "# Payroll history import (MD Mandate §3 / Build 3)",
         "",
         f"Generated: {now}",
-        f"Workbook: `{WORKBOOK.relative_to(REPO)}`",
+        f"Workbook: `{wb_rel}`",
         f"Mode: {'DRY RUN' if dry_run else 'LIVE'}",
         "",
-        "## Summary",
+        "## Missing periods (gap analysis)",
         "",
     ]
+    if missing_periods:
+        for m, y in missing_periods:
+            lines.append(f"- **{m:02d}/{y}** — no sheet in master workbook")
+    else:
+        lines.append("- None — all expected periods present")
+    lines += ["", "## Summary", ""]
     for block in results:
         if "sheet" in block and "stats" in block:
             s = block["stats"]
@@ -183,7 +237,7 @@ def write_report(results: list[dict[str, Any]], dry_run: bool) -> None:
                 f"- Parsed: {s['parsed']}",
                 f"- Importable: {s['importable']}",
                 f"- No contract map: {s['no_contract']}",
-                f"- Formula fallback (May tab): {s['formula_broken']}",
+                f"- Formula fallback: {s['formula_broken']}",
                 f"- Contracts: {block.get('contracts', 0)}",
                 "",
             ]
@@ -203,23 +257,37 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--sheets", nargs="*", default=list(SHEET_PERIOD.keys()))
+    ap.add_argument("--workbook", default=None)
     args = ap.parse_args()
 
-    if not WORKBOOK.exists():
-        print(f"Missing workbook: {WORKBOOK}", file=sys.stderr)
+    workbook = Path(args.workbook) if args.workbook else WORKBOOK
+    if not workbook.exists():
+        workbook = WORKBOOK_FALLBACK
+    if not workbook.exists():
+        print(f"Missing workbook: {WORKBOOK} (and fallback)", file=sys.stderr)
         return 1
+
+    present = set(SHEET_PERIOD.values())
+    missing_periods = [p for p in EXPECTED_PERIODS if p not in present]
+    if missing_periods:
+        print("Missing periods in workbook:", missing_periods, flush=True)
 
     token = read_jwt()
     emp_by_id = load_employees(token)
-    wb = openpyxl.load_workbook(WORKBOOK, read_only=True, data_only=True)
+    client_to_contract = load_contracts(token)
+    wb = openpyxl.load_workbook(workbook, read_only=True, data_only=True)
     results: list[dict[str, Any]] = []
 
     for sheet in args.sheets:
         if sheet not in SHEET_PERIOD:
             print(f"Skip unknown sheet: {sheet}", file=sys.stderr)
             continue
+        if sheet not in wb.sheetnames:
+            print(f"Sheet absent in workbook: {sheet}", file=sys.stderr)
+            results.append({"sheet": sheet, "ok": False, "error": "sheet_absent"})
+            continue
         month, year = SHEET_PERIOD[sheet]
-        by_contract, stats = load_sheet(wb, sheet, emp_by_id)
+        by_contract, stats = load_sheet(wb, sheet, emp_by_id, client_to_contract)
         results.append({"sheet": sheet, "month": month, "year": year, "stats": stats, "contracts": len(by_contract)})
         print(f"{sheet}: {stats['importable']} rows across {len(by_contract)} contracts", flush=True)
 
@@ -236,7 +304,7 @@ def main() -> int:
             time.sleep(0.25)
 
     wb.close()
-    write_report(results, args.dry_run)
+    write_report(results, args.dry_run, workbook, missing_periods)
     print(f"Report: {REPORT_PATH}")
     fails = sum(1 for r in results if r.get("ok") is False)
     return 1 if fails else 0

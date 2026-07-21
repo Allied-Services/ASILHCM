@@ -14,6 +14,7 @@ import BillingProcurement from './BillingProcurement';
 import InvoiceSection from './InvoiceSection';
 import AccountsPayable from './AccountsPayable';
 import EmployeePortal from './EmployeePortal';
+import ClientCMMSPortal from './ClientCMMSPortal';
 import LoginScreen from './LoginScreen';
 import InventoryManagement from './InventoryManagement';
 import SystemConfig from './SystemConfig';
@@ -23,6 +24,9 @@ import AttendanceManagement from './AttendanceManagement';
 import MaintenanceCMMS from './MaintenanceCMMS';
 import IntakeHub from './features/intake/IntakeHub';
 import ClaimsQueue from './features/claims/ClaimsQueue';
+import PortalClaimsHub from './features/claims/PortalClaimsHub';
+import ClaimsFillPage from './features/claims/ClaimsFillPage';
+import ClaimsApprovePage from './features/claims/ClaimsApprovePage';
 import ContractOps from './features/contracts/ContractOps';
 import BizDevPipeline from './features/bizdev/BizDevPipeline';
 import BillVerification from './features/procurement/BillVerification';
@@ -37,18 +41,23 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'],
+    superadmin:           ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','bill_verification','compliance','ar'],
     supervisor:           ['attendance','maintenance'],
-    operations:           ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','contract_ops','bizdev'],
+    operations:           ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
+    operations_supervisor:['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
+    operations_team:      ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops'],
     procurement_proposer: ['billing','vendor','inventory','bill_verification','ap'],
     procurement_approver: ['billing','vendor','inventory','bill_verification'],
     procurement_manager:  ['billing','vendor','inventory','ap','maintenance','bill_verification'],
+    procurement:          ['billing','vendor','inventory','ap','bill_verification'],
     finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
-    finance_approver:     ['payroll','payroll_run','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','contract_ops','compliance','bizdev','ar'],
-    finance_manager:      ['payroll','payroll_run','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','compliance','ar'],
+    finance_approver:     ['payroll','payroll_run','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal','contract_ops','compliance','bizdev','ar'],
+    finance_manager:      ['payroll','payroll_run','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','compliance','ar'],
     ap_team:              ['ap','billing'],
     ar_team:              ['invoices','po_tracking','billing','compliance'],
-    payroll_initiator:    ['payroll','payroll_run','employee','claims_queue'],
+    payroll_initiator:    ['payroll','payroll_run','employee','claims_queue','claims_portal'],
+    payroll:              ['payroll','payroll_run','employee','claims_queue','claims_portal'],
+    bizdev:               ['bizdev','client','contract_ops'],
     pending:              [],
 };
 
@@ -56,19 +65,44 @@ const ROLE_BADGE = {
     superadmin:           { label: 'Super Admin',           color: '#f59e0b' },
     supervisor:           { label: 'Supervisor',             color: '#22c55e' },
     operations:           { label: 'Operations',            color: '#3b82f6' },
+    operations_supervisor:{ label: 'Ops Supervisor',        color: '#2563eb' },
+    operations_team:      { label: 'Operations Team',       color: '#3b82f6' },
     procurement_proposer: { label: 'Proc. Proposer',        color: '#8b5cf6' },
     procurement_approver: { label: 'Proc. Approver',        color: '#6366f1' },
     procurement_manager:  { label: 'Procurement Mgr',       color: '#7c3aed' },
+    procurement:          { label: 'Procurement',           color: '#7c3aed' },
     finance_proposer:     { label: 'Finance Proposer',      color: '#10b981' },
     finance_approver:     { label: 'Finance Approver',      color: '#14b8a6' },
     finance_manager:      { label: 'Finance Manager',       color: '#0ea5e9' },
     ap_team:              { label: 'AP Team',               color: '#22c55e' },
     ar_team:              { label: 'AR Team',               color: '#38bdf8' },
     payroll_initiator:    { label: 'Payroll Initiator',     color: '#f43f5e' },
+    payroll:              { label: 'Payroll',               color: '#f43f5e' },
+    bizdev:               { label: 'BizDev (BD)',           color: '#a855f7' },
     pending:              { label: 'Access Pending',         color: '#94a3b8' },
 };
 
+function isPublicMagicPath(pathname, search = '') {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  const asilClaims = params.get('asil_claims');
+  if (asilClaims === 'fill' || asilClaims === 'approve') return true;
+  return (
+    pathname === '/portal' || pathname === '/portal/' ||
+    pathname === '/cmms' || pathname === '/cmms/' ||
+    pathname === '/claims-fill' || pathname.startsWith('/claims-fill/') ||
+    pathname === '/claims-approve' || pathname.startsWith('/claims-approve/')
+  );
+}
+
 function App() {
+  const pathname = window.location.pathname;
+  const search = window.location.search;
+  const asilClaims = new URLSearchParams(search).get('asil_claims');
+  const portalPath = pathname === '/portal' || pathname === '/portal/';
+  const claimsFillPath = asilClaims === 'fill' || pathname === '/claims-fill' || pathname.startsWith('/claims-fill/');
+  const claimsApprovePath = asilClaims === 'approve' || pathname === '/claims-approve' || pathname.startsWith('/claims-approve/');
+  const cmmsPath = pathname === '/cmms' || pathname === '/cmms/';
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showESS, setShowESS] = useState(false);
   const [user, setUser] = useState(null);
@@ -76,6 +110,12 @@ function App() {
   const [authError, setAuthError] = useState(null);
 
   useEffect(() => {
+    // Magic-link / public portals must not treat ?token= as staff Google JWT
+    if (isPublicMagicPath(window.location.pathname, window.location.search)) {
+      setAuthReady(true);
+      return;
+    }
+
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
     const urlError = params.get('error');
@@ -92,6 +132,11 @@ function App() {
       .then(data => { setUser(data.user); setAuthReady(true); })
       .catch(() => { localStorage.removeItem('asil_hcm_token'); setAuthReady(true); });
   }, []);
+
+  if (portalPath) return <EmployeePortal />;
+  if (claimsFillPath) return <ClaimsFillPage />;
+  if (claimsApprovePath) return <ClaimsApprovePage />;
+  if (cmmsPath) return <ClientCMMSPortal />;
 
   const handleLogout = () => { localStorage.removeItem('asil_hcm_token'); setUser(null); setAuthError(null); };
 
@@ -119,7 +164,7 @@ function App() {
   // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
-    allowedTabs = ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','contract_ops','bizdev','bill_verification','compliance','ar'];
+    allowedTabs = ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','bill_verification','compliance','ar'];
   } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
     // Saved custom permissions: show all modules where access === true
     allowedTabs = Object.entries(user.permissions)
@@ -179,6 +224,7 @@ function App() {
     { key: 'wafi_claims',   label: 'Wafi Claims',             icon: <Inbox size={20} /> },
     { key: 'intake_hub',    label: 'Intake Hub',              icon: <Inbox size={20} /> },
     { key: 'claims_queue',  label: 'Claims Queue',            icon: <CheckSquare size={20} /> },
+    { key: 'claims_portal', label: 'Portal Claims',           icon: <ClipboardList size={20} /> },
     { key: 'contract_ops',  label: 'Contract Policies',       icon: <ClipboardList size={20} /> },
     { key: 'bizdev',        label: 'BD Pipeline',             icon: <Briefcase size={20} /> },
     { key: 'bill_verification', label: 'Bill Verification',   icon: <ScanLine size={20} /> },
@@ -266,6 +312,7 @@ function App() {
           {effectiveTab === 'wafi_claims'  && <WafiClaimsDashboard user={user} />}
           {effectiveTab === 'intake_hub'  && <IntakeHub />}
           {effectiveTab === 'claims_queue' && <ClaimsQueue />}
+          {effectiveTab === 'claims_portal' && <PortalClaimsHub user={user} />}
           {effectiveTab === 'contract_ops' && <ContractOps />}
           {effectiveTab === 'bizdev'       && <BizDevPipeline />}
           {effectiveTab === 'bill_verification' && <BillVerification />}

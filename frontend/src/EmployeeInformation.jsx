@@ -3,6 +3,9 @@ import { Users, Search, Plus, Filter, Upload, Download, CheckCircle, X,
          ChevronDown, Mail, MessageCircle } from 'lucide-react';
 import { api } from './api';
 import EmployeeProfile from './EmployeeProfile';
+import EmployeeDirectoryToolbar from './features/employees/EmployeeDirectory';
+import EmploymentOrgCascade from './EmploymentOrgCascade';
+import { normalizeAsilBu } from './orgHierarchy';
 
 // ── Exact columns from Master Data.csv ───────────────────────────────────────
 export const MASTER_COLUMNS = [
@@ -109,12 +112,16 @@ export default function EmployeeInformation({ user }) {
 
     // ── Load employees + contracts from DB on mount ────────────────────────────
     const [contractsList, setContractsList] = useState([]);
-    useEffect(() => {
+    const loadEmployees = () => {
+        setLoading(true);
         api.getEmployees()
-            .then(data => { setEmps(data.employees); setLoading(false); })
+            .then(data => { setEmps(data.employees || []); setLoading(false); })
             .catch(() => setLoading(false));
+    };
+    useEffect(() => {
+        loadEmployees();
         api.getContracts()
-            .then(data => setContractsList(data.contracts || []))
+            .then(list => setContractsList(Array.isArray(list) ? list : (list?.contracts || [])))
             .catch(() => {});
     }, []);
 
@@ -195,7 +202,7 @@ export default function EmployeeInformation({ user }) {
 
                     return {
                         id:          getF(obj, 'ASIL Employee Code', 'Employee Code', 'ID', 'EmpID') || `IMP-${i + 1}`,
-                        bu:          getF(obj, 'ASIL BU', 'BU', 'Business Unit'),
+                        bu:          normalizeAsilBu(getF(obj, 'ASIL BU', 'BU', 'Business Unit')) || getF(obj, 'ASIL BU', 'BU', 'Business Unit'),
                         // ── Contract ──
                         contractName: resolvedCt?.contractName || rawContract || '',
                         contractId:   resolvedCt?.id           || '',
@@ -519,6 +526,8 @@ export default function EmployeeInformation({ user }) {
                 <p>Full master roster — Employment, Personal, Compliance, Salary, Family, Medical &amp; Banking.</p>
             </header>
 
+            <EmployeeDirectoryToolbar onImported={() => loadEmployees()} />
+
             {/* ── Import Results Modal ─────────────────────────────────────── */}
             {importResult && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '2rem' }}>
@@ -826,39 +835,8 @@ export default function EmployeeInformation({ user }) {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                                 {sec === 'Employment' && <>
                                     <F label="ASIL Employee Code" field="id" opts={{ ph: 'ASIL/SPL-XXX/25' }} />
-                                    <F label="ASIL BU" field="bu" opts={{ ph: 'e.g. WafiBPO', list: [...new Set(emps.map(e => e.bu).filter(Boolean))].sort() }} />
-                                    <div style={{ gridColumn: '1/-1' }}>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                            <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Contract *</label>
-                                            <select value={form.contractId || ''}
-                                                onChange={e => {
-                                                    const ct = contractsList.find(c => c.id === e.target.value);
-                                                    setForm(p => ({ ...p,
-                                                        contractId: ct?.id || '',
-                                                        contractName: ct?.contractName || '',
-                                                        client: ct?.clientName || p.client,
-                                                        location: ct?.location || p.location,
-                                                        province: ct?.province || p.province,
-                                                    }));
-                                                }}
-                                                style={{ background: 'var(--bg-dark)', border: `1px solid ${form.contractId ? '#22c55e' : '#f59e0b'}`, borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%' }}>
-                                                <option value="">⚠ -- Select Contract (Required) --</option>
-                                                {contractsList.filter(ct => ct.status === 'Active' || !ct.status).map(ct => (
-                                                    <option key={ct.id} value={ct.id}>
-                                                        {ct.contractName} ({ct.clientName || ct.id})
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            {form.contractId && <div style={{ fontSize: '0.75rem', color: '#22c55e', marginTop: '2px' }}>✓ ID: {form.contractId} · Client auto-filled: {form.client}</div>}
-                                            {!form.contractId && <div style={{ fontSize: '0.75rem', color: '#f59e0b', marginTop: '2px' }}>⚠ Without a contract, EOSB, service charge, and invoice calculations will be skipped in payroll.</div>}
-                                        </div>
-                                    </div>
-                                    <F label="Client Name" field="client" opts={{ ph: 'Client organisation name' }} />
-                                    <F label="Client Business Unit" field="clientBU" opts={{ ph: 'e.g. Trading & Supply', list: [...new Set(emps.map(e => e.clientBU).filter(Boolean))].sort() }} />
-                                    <F label="Department" field="dept" opts={{ ph: 'e.g. Security Services', list: [...new Set(emps.map(e => e.dept).filter(Boolean))].sort() }} />
+                                    <EmploymentOrgCascade form={form} setForm={setForm} layout="grid" />
                                     <F label="Designation" field="designation" opts={{ ph: 'e.g. Security Guard', list: [...new Set(emps.map(e => e.designation).filter(Boolean))].sort() }} />
-                                    <F label="Client Location" field="location" opts={{ ph: 'e.g. Karachi', list: [...new Set(emps.map(e => e.location).filter(Boolean))].sort() }} />
-                                    <F label="Province" field="province" opts={{ sel: ['', 'Sindh', 'Punjab', 'KPK', 'Balochistan', 'Gilgit-Baltistan', 'AJK', 'Islamabad (ICT)'] }} />
                                     <F label="Date of Joining" field="doj" type="date" />
                                     <F label="Last Working Day" field="lastWorkingDay" type="date" opts={{ ph: 'Leave blank if still active' }} />
                                     <F label="Contract Start Date" field="contractDate" type="date" />

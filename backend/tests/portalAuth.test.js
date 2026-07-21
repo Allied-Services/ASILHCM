@@ -24,9 +24,9 @@ afterAll(async () => {
 const request = () => require('supertest')(app);
 
 describe('POST /api/portal/request-otp', () => {
-  test('normalizes 92300… format and sends OTP → 200', async () => {
+  test('normalizes 92300… format and sends OTP → 200 (SMS when no email)', async () => {
     mockPool.query
-      .mockResolvedValueOnce({ rows: [{ id: 'ASIL-001', name: 'Ali Khan' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'ASIL-001', name: 'Ali Khan', email: null, primary_contact: '03001234567' }] })
       .mockResolvedValueOnce({ rows: [] });
 
     const res = await request()
@@ -36,6 +36,7 @@ describe('POST /api/portal/request-otp', () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.employeeName).toBe('Ali Khan');
+    expect(res.body.channel).toBe('sms');
     expect(mockPool.query.mock.calls[0][1]).toEqual(['03001234567']);
     expect(sendJazzOtpSMS).toHaveBeenCalled();
   });
@@ -51,19 +52,32 @@ describe('POST /api/portal/request-otp', () => {
     expect(res.body.error).toMatch(/No active employee/i);
   });
 
-  test('returns 400 when phone is missing', async () => {
+  test('returns 400 when phone and employeeId are missing', async () => {
     const res = await request()
       .post('/api/portal/request-otp')
       .send({});
 
     expect(res.status).toBe(400);
   });
+
+  test('looks up by employee code', async () => {
+    mockPool.query
+      .mockResolvedValueOnce({ rows: [{ id: 'ASIL-001', name: 'Ali Khan', email: null, primary_contact: '03001234567' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await request()
+      .post('/api/portal/request-otp')
+      .send({ employeeId: 'ASIL-001' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.employeeId).toBe('ASIL-001');
+  });
 });
 
 describe('POST /api/portal/verify-otp', () => {
   test('issues portal JWT on valid OTP', async () => {
     mockPool.query
-      .mockResolvedValueOnce({ rows: [{ id: 1, phone: '03001234567', otp: '123456', used: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 1, phone: '03001234567', otp: '123456', used: false, employee_id: null }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 'ASIL-001', name: 'Ali Khan', designation: 'Guard', client: 'WAFI', location: 'Karachi' }] });
 
@@ -98,16 +112,16 @@ describe('Portal vs staff auth separation', () => {
       .set('Authorization', `Bearer ${staffToken}`);
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/portal token/i);
   });
 
-  test('portal JWT is rejected by staff role-guarded routes → 403', async () => {
-    const portalToken = makePortalToken();
+  test('portal JWT is rejected by staff requireAuth → 403', async () => {
+    const portalToken = makePortalToken({ employeeId: 'ASIL-001' });
 
     const res = await request()
-      .get('/api/change-requests')
+      .get('/api/employees')
       .set('Authorization', `Bearer ${portalToken}`);
 
     expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/Portal tokens/i);
   });
 });

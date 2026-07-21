@@ -4,6 +4,7 @@ import { api } from '../../api';
 const AttendanceIntake = () => {
     const [csvText, setCsvText] = useState('');
     const [inputMode, setInputMode] = useState('full_ledger');
+    const [formatHint, setFormatHint] = useState('auto');
     const [projectId, setProjectId] = useState('');
     const [result, setResult] = useState(null);
     const [alertRules, setAlertRules] = useState([]);
@@ -17,7 +18,14 @@ const AttendanceIntake = () => {
     const parseCsv = async () => {
         setError('');
         try {
-            const r = await api.parseAttendanceCsv({ csvText, inputMode, projectId, periodMonth: new Date().getMonth() + 1, periodYear: new Date().getFullYear() });
+            const r = await api.parseAttendanceCsv({
+                csvText,
+                inputMode,
+                projectId,
+                formatHint: formatHint === 'auto' ? undefined : formatHint,
+                periodMonth: new Date().getMonth() + 1,
+                periodYear: new Date().getFullYear(),
+            });
             setResult(r);
         } catch (e) {
             setError(e.message);
@@ -52,8 +60,17 @@ const AttendanceIntake = () => {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <Card>
-                <h3 style={{ marginBottom: '1rem' }}>CSV Attendance Import (Trace: P3-OPS-001)</h3>
+                <h3 style={{ marginBottom: '0.5rem' }}>CSV Attendance Import — Multi-Format</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                    Format A: EmployeeID, Date, Status (P/A/SUN/HOL). Format B: EmployeeID, Date, TimeIn, TimeOut — hours &gt; 8 auto-map to OT.
+                </p>
                 <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                    <select value={formatHint} onChange={e => setFormatHint(e.target.value)}
+                        style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: 8, color: 'var(--text)' }}>
+                        <option value="auto">Auto-detect format</option>
+                        <option value="format_a">Format A — Explicit Codes (P/A/SUN/HOL)</option>
+                        <option value="format_b">Format B — Biometric Timestamps</option>
+                    </select>
                     <select value={inputMode} onChange={e => setInputMode(e.target.value)}
                         style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: 8, color: 'var(--text)' }}>
                         <option value="full_ledger">Full ledger (all rows)</option>
@@ -63,13 +80,14 @@ const AttendanceIntake = () => {
                     <input placeholder="Project / Site ID" value={projectId} onChange={e => setProjectId(e.target.value)}
                         style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: 8, color: 'var(--text)' }} />
                 </div>
-                <textarea value={csvText} onChange={e => setCsvText(e.target.value)} placeholder="Paste CSV content here (employee_id, date, status columns)"
-                    rows={6} style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, color: 'var(--text)', fontFamily: 'monospace', fontSize: '0.85rem' }} />
+                <textarea value={csvText} onChange={e => setCsvText(e.target.value)}
+                    placeholder={"Format A example:\nEmployeeID,Date,Status\nASIL/SPL-205/21,2026-06-02,P\n\nFormat B example:\nEmployeeID,Date,TimeIn,TimeOut\nASIL/SPL-205/21,2026-06-02,08:00,18:30"}
+                    rows={8} style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, color: 'var(--text)', fontFamily: 'monospace', fontSize: '0.85rem' }} />
                 <button onClick={parseCsv} className="btn-primary" style={{ marginTop: '0.75rem' }}>Parse & Import</button>
             </Card>
 
             <Card>
-                <h3 style={{ marginBottom: '1rem' }}>FM Site Alert Rules (Trace: P3-OPS-004)</h3>
+                <h3 style={{ marginBottom: '1rem' }}>FM Site Alert Rules</h3>
                 <form onSubmit={saveRule} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
                     <input placeholder="Project ID" value={ruleForm.project_id} onChange={e => setRuleForm(f => ({ ...f, project_id: e.target.value }))} required
                         style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: 8, color: 'var(--text)' }} />

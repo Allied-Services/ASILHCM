@@ -16,9 +16,18 @@ const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmai
 const phase2 = require('./phase2Service');
 const { startOperationsScheduler } = require('./operationsScheduler');
 const { sendJazzSMS, sendJazzOtpSMS, normalisePhone } = require('./lib/sms');
-const { isJazzProxyConfigured } = require('./lib/jazz_http_transport');
+const { isJazzProxyConfigured, jazzProxyLogLabel } = require('./lib/jazz_http_transport');
 const { canApproveBill } = require('./src/modules/procurement/service');
 const { getLeavePolicy } = require('./src/modules/leave/service');
+const {
+    isValidEmail,
+    maskEmail,
+    maskPhone,
+    getPortalChangeSettings,
+    ensurePortalChangeSettings,
+    canApproveChangeRequest,
+    CHANGE_QUEUE_ROLES,
+} = require('./src/modules/portal/essHelpers');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -44,10 +53,13 @@ const resend = new Resend(process.env.RESEND_API_KEY || '');
 const EMAIL_FROM = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
 
 async function sendAppEmail({ to, subject, html }) {
-    const recipients = Array.isArray(to) ? to : [to];
-    if (!process.env.RESEND_API_KEY || !recipients.length) return;
+    const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
+    if (!process.env.RESEND_API_KEY || !recipients.length) {
+        return { skipped: true, reason: 'missing_key_or_recipients' };
+    }
     try {
-        await resend.emails.send({ from: EMAIL_FROM, to: recipients, subject, html });
+        const result = await resend.emails.send({ from: EMAIL_FROM, to: recipients, subject, html });
+        return { ok: true, result };
     } catch (err) {
         console.error('[sendAppEmail]', err);
         throw err;
@@ -67,8 +79,22 @@ const pool = new Pool({
 app.use(helmet({ contentSecurityPolicy: false })); // CSP off ├óΓé¼ΓÇ¥ frontend served separately
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ CORS ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
+// Browser portals (Employee Portal, CMMS, claims) load from hcm.asil.com.pk while the API
+// is on asilhcm.onrender.com — both origins must be allowed or fetch() fails with "Failed to fetch".
+const CORS_ORIGINS = [
+    FRONTEND_URL,
+    'https://hcm.asil.com.pk',
+    'https://asil-hcm-frontend.onrender.com',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    ...(process.env.EXTRA_CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean),
+].filter(Boolean);
 app.use(cors({
-    origin: [FRONTEND_URL, 'http://localhost:5173', 'http://localhost:5174'],
+    origin: (origin, cb) => {
+        // Non-browser / same-origin tools send no Origin
+        if (!origin || CORS_ORIGINS.includes(origin)) return cb(null, true);
+        return cb(null, false);
+    },
     credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -164,8 +190,12 @@ passport.use(new GoogleStrategy({
 const requireAuth = (req, res, next) => {
     const auth = req.headers.authorization;
     if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
-    try { req.user = jwt.verify(auth.slice(7), JWT_SECRET); next(); }
-    catch { res.status(401).json({ error: 'Token expired' }); }
+    try {
+        const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+        if (payload.portal) return res.status(403).json({ error: 'Portal tokens cannot access staff APIs' });
+        req.user = payload;
+        next();
+    } catch { res.status(401).json({ error: 'Token expired' }); }
 };
 
 // Require one of the listed roles (superadmin always passes)
@@ -265,9 +295,9 @@ app.post('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req,
         if (!email || !isValidDomain) {
             return res.status(400).json({ error: isSupervisorRole ? 'A valid email is required for supervisor role' : `Email must be @${ALLOWED_DOMAIN}` });
         }
-        const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver',
-            'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
-            'procurement_manager','finance_manager','supervisor','hr_manager','admin','pending'];
+        const VALID_ROLES = ['superadmin','operations','operations_supervisor','operations_team','procurement_proposer','procurement_approver',
+            'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator','payroll',
+            'procurement_manager','procurement','finance_manager','supervisor','hr_manager','admin','bizdev','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
         // Non-superadmins cannot create superadmin accounts
         if (role === 'superadmin' && req.user.role !== 'superadmin') {
@@ -287,9 +317,9 @@ app.post('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req,
 app.patch('/api/users/:id/role', requireAuth, requireRole(...USER_MGMT_ROLES), async (req, res) => {
     try {
         const { role } = req.body;
-        const VALID_ROLES = ['superadmin','operations','procurement_proposer','procurement_approver',
-            'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator',
-            'procurement_manager','finance_manager','supervisor','hr_manager','admin','pending'];
+        const VALID_ROLES = ['superadmin','operations','operations_supervisor','operations_team','procurement_proposer','procurement_approver',
+            'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator','payroll',
+            'procurement_manager','procurement','finance_manager','supervisor','hr_manager','admin','bizdev','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
         // Non-superadmins cannot assign or escalate to superadmin
         if (role === 'superadmin' && req.user.role !== 'superadmin') {
@@ -401,7 +431,9 @@ const empToDb = (e) => ({
     contract_id:   e.contractId   || null,
     region: e.region || null,
     line_manager_name:  e.lineManagerName  || null,
-    line_manager_email: e.lineManagerEmail || null,
+    line_manager_email: e.lineManagerEmail || e.supervisorEmail || null,
+    supervisor_email:   e.supervisorEmail || e.lineManagerEmail || null,
+    client_focal_emails: e.clientFocalEmails || e.client_focal_emails || null,
     // ── Operational fields (2026-07-02) ─────────────────────────────────────
     sessi_no:                e.sessiNo               || null,
     shirt_size:              e.shirtSize             || null,
@@ -443,7 +475,9 @@ const empFromDb = (r) => ({
     contractId:   r.contract_id   || null,
     region: r.region || null,
     lineManagerName:  r.line_manager_name  || null,
-    lineManagerEmail: r.line_manager_email || null,
+    lineManagerEmail: r.line_manager_email || r.supervisor_email || null,
+    supervisorEmail:  r.supervisor_email || r.line_manager_email || null,
+    clientFocalEmails: r.client_focal_emails || null,
     // ── Operational fields (2026-07-02) ─────────────────────────────────────
     sessiNo:             r.sessi_no               || null,
     shirtSize:           r.shirt_size             || null,
@@ -459,6 +493,49 @@ const empFromDb = (r) => ({
 });
 
 // ── Employee Routes ──────────────────────────────────────────────────────────
+const {
+    exportMasterRosterCsv,
+    importMasterRosterCsv,
+    MASTER_ROSTER_COLUMNS,
+} = require('./src/modules/employees/masterRoster');
+
+app.get('/api/employees/export', requireAuth, requireRole('superadmin', 'hr_manager', 'operations', 'operations_supervisor', 'operations_team', 'finance_manager', 'finance_approver'), async (req, res) => {
+    try {
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_email VARCHAR(255)`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_focal_emails TEXT`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS claim_authority TEXT`).catch(() => {});
+        const scope = req.query.scope === 'all' ? 'all' : 'active';
+        const { csv, filename, rowCount, columnCount } = await exportMasterRosterCsv(pool, { scope });
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('X-Row-Count', String(rowCount));
+        res.setHeader('X-Column-Count', String(columnCount));
+        res.send(csv);
+    } catch (err) {
+        console.error('[GET /api/employees/export]', err);
+        res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+});
+
+app.post('/api/employees/import', requireAuth, requireRole('superadmin', 'hr_manager', 'operations', 'operations_supervisor', 'finance_manager'), async (req, res) => {
+    try {
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_email VARCHAR(255)`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_focal_emails TEXT`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS claim_authority TEXT`).catch(() => {});
+        const csvText = req.body?.csvText || req.body?.csv || '';
+        if (!csvText.trim()) return res.status(400).json({ error: 'csvText required' });
+        // MD Step 1: no automated SMS/email on roster ingest
+        const result = await importMasterRosterCsv(pool, {
+            csvText,
+            updatedBy: req.user?.email || null,
+        });
+        res.json({ ...result, columns: MASTER_ROSTER_COLUMNS });
+    } catch (err) {
+        console.error('[POST /api/employees/import]', err);
+        res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+});
+
 app.get('/api/employees', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(`
@@ -513,6 +590,7 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
         'medical_type', 'medical_maternity', 'total_medical_coverage',
         'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact',
         'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email',
+        'supervisor_email', 'client_focal_emails',
         'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size',
         'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
     const placeholders = COLS.map((_, i) => `$${i + 1}`).join(',');
@@ -709,6 +787,61 @@ app.post('/api/admin/dedup-employees', requireAuth, requireRole('superadmin'), a
     } catch (err) { console.error('[POST /api/admin/dedup-employees]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
+// MD Mandate §2 — cascade-delete junk employee after clearing FK deps
+app.post('/api/admin/purge-employee-cascade', requireAuth, requireRole('superadmin'), async (req, res) => {
+    const employeeId = req.body?.employeeId || req.body?.id;
+    const PROTECTED = new Set(['ASIL/PSO-298/25', 'ASIL/SPL-418/21', 'ASIL/SPL-420/21']);
+    if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
+    if (PROTECTED.has(employeeId)) {
+        return res.status(403).json({ error: `Employee ${employeeId} is CNIC-protected and cannot be deleted` });
+    }
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const cleared = {};
+        const tables = [
+            ['payroll_run_rows', 'employee_id'],
+            ['payroll_transactions', 'employee_id'],
+            ['attendance_records', 'employee_id'],
+            ['employee_claims', 'employee_id'],
+            ['claims_inbox', 'employee_id'],
+            ['pf_ledger', 'employee_id'],
+            ['payroll_advances', 'employee_id'],
+            ['employee_documents', 'employee_id'],
+            ['employee_assets', 'employee_id'],
+            ['employee_change_requests', 'employee_id'],
+            ['cost_allocations', 'employee_id'],
+        ];
+        for (const [table, col] of tables) {
+            const sp = `sp_${table.replace(/[^a-z0-9_]/gi, '_')}`;
+            try {
+                await client.query(`SAVEPOINT ${sp}`);
+                const r = await client.query(`DELETE FROM ${table} WHERE ${col} = $1`, [employeeId]);
+                await client.query(`RELEASE SAVEPOINT ${sp}`);
+                cleared[table] = r.rowCount;
+            } catch (e) {
+                await client.query(`ROLLBACK TO SAVEPOINT ${sp}`).catch(() => {});
+                // Missing table/column is fine — skip
+                if (e.code === '42P01' || e.code === '42703') {
+                    cleared[table] = `skip:${e.code}`;
+                } else {
+                    cleared[table] = `err:${e.code || 'unknown'}:${e.message}`;
+                }
+            }
+        }
+        const del = await client.query('DELETE FROM employees WHERE id = $1 RETURNING id, name', [employeeId]);
+        await client.query('COMMIT');
+        if (!del.rows.length) return res.status(404).json({ error: 'Employee not found' });
+        res.json({ ok: true, deleted: del.rows[0], cleared });
+    } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('[purge-employee-cascade]', err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
 // Delete all employees whose client name contains a substring (case-insensitive)
 app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin'), async (req, res) => {
     const { client_contains } = req.body;
@@ -734,9 +867,20 @@ app.delete('/api/admin/delete-by-client', requireAuth, requireRole('superadmin')
 // attendance, rate cards, policies, employees, optionally the client).
 // Used to remove TEST/demo data. Requires ?confirm=yes to actually delete.
 const { purgeContract } = require('./src/modules/admin/purgeContract');
+const { purgeExcelPayrollImports } = require('./src/modules/admin/purgeExcelPayroll');
 const { importHistoricRun } = require('./src/modules/payrollrun/service');
 const { importHistoricInvoices } = require('./src/modules/ar/service');
 const { purgeTestReceipts } = require('./src/modules/ar/receipts');
+
+app.post('/api/admin/purge-excel-payroll-imports', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const confirm = req.body?.confirm === true || req.query?.confirm === 'yes';
+        res.json(await purgeExcelPayrollImports(pool, { confirm }));
+    } catch (err) {
+        console.error('[POST /api/admin/purge-excel-payroll-imports]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 app.post('/api/admin/import-payroll-history', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
@@ -753,6 +897,20 @@ app.post('/api/admin/import-payroll-history', requireAuth, requireRole('superadm
     } catch (err) {
         console.error('[POST /api/admin/import-payroll-history]', err);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// MD Mandate §6 — live focal claim notification test
+app.post('/api/admin/test-claim-notify', requireAuth, requireRole('superadmin', 'finance_manager'), async (req, res) => {
+    try {
+        const to = req.body?.to || 'laiba.mughal@asil.com.pk';
+        const subject = req.body?.subject || '[HCM] Focal claim notification test';
+        const html = req.body?.html || `<p>Focal claim notification test to ${to}</p>`;
+        await sendAppEmail({ to, subject, html });
+        res.json({ ok: true, to, subject });
+    } catch (err) {
+        console.error('[POST /api/admin/test-claim-notify]', err);
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -793,6 +951,33 @@ app.delete('/api/admin/purge-contract', requireAuth, requireRole('superadmin'), 
 
 
 // ── SMS Routes (Jazz CMT via Fixie) ─────────────────────────────────────────
+app.get('/api/sms/status', requireAuth, requireRole('superadmin'), (req, res) => {
+    res.json({
+        proxyConfigured: isJazzProxyConfigured(),
+        proxyHost: jazzProxyLogLabel(),
+        mask: process.env.JAZZ_SMS_MASK || 'ALLIED SERV',
+        userConfigured: Boolean(process.env.JAZZ_SMS_USER && String(process.env.JAZZ_SMS_USER).trim()),
+        passConfigured: Boolean(process.env.JAZZ_SMS_PASS && String(process.env.JAZZ_SMS_PASS).trim()),
+        otpUserConfigured: Boolean(process.env.JAZZ_OTP_USER && String(process.env.JAZZ_OTP_USER).trim()),
+    });
+});
+
+app.post('/api/sms/diagnostic', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const to = req.body?.to || '03008275688';
+        const message = req.body?.message || 'HCM SMS is live — Fixie diagnostic test';
+        const result = await sendJazzSMS(to, message);
+        res.status(result.ok ? 200 : 502).json({
+            ...result,
+            proxyConfigured: isJazzProxyConfigured(),
+            proxyHost: jazzProxyLogLabel(),
+            mask: process.env.JAZZ_SMS_MASK || 'ALLIED SERV',
+        });
+    } catch (err) {
+        res.status(500).json({ ok: false, error: err.message, proxyConfigured: isJazzProxyConfigured(), proxyHost: jazzProxyLogLabel() });
+    }
+});
+
 app.post('/api/sms/send', requireAuth, async (req, res) => {
     const { to, message } = req.body;
     if (!to || !message) return res.status(400).json({ error: 'to and message are required' });
@@ -1062,12 +1247,21 @@ pool.query(`
     `ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE`,
 ].forEach(sql => pool.query(sql).catch(e => console.error('clients migration:', e.message)));
 
-// Named-user role assignments — enforced on every startup
+// MD Mandate §1 — named-user role assignments enforced on every startup
 [
-    ['laiba.mughal@asil.com.pk',    'finance_proposer'],
-    ['huzaifa.rafaqat@asil.com.pk', 'finance_approver'],
+    ['huzaifa.rafaqat@asil.com.pk', 'finance_manager'],
+    ['laiba.mughal@asil.com.pk',    'procurement_manager'],
+    ['asif.awan@asil.com.pk',       'finance_approver'],
+    ['obaid.rana@asil.com.pk',      'operations'],
+    ['rabia.bhutto@asil.com.pk',    'operations_supervisor'],
 ].forEach(([email, role]) => {
-    pool.query('UPDATE hcm_users SET role=$1 WHERE email=$2', [role, email])
+    pool.query(
+        `INSERT INTO hcm_users (email, name, role, google_id)
+         VALUES ($2, split_part($2,'@',1), $1, 'pending:' || $2)
+         ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role
+         WHERE hcm_users.role IS DISTINCT FROM EXCLUDED.role`,
+        [role, email]
+    )
         .then(r => { if (r.rowCount) console.log('Role enforced: ' + email + ' -> ' + role); })
         .catch(e => console.error('Named role error:', e.message));
 });
@@ -1278,6 +1472,7 @@ app.delete('/api/bills/:id', requireAuth, async (req, res) => {
 
 const clientFromDb = (r) => ({
     id: r.id, name: r.name, hq: r.hq, ntn: r.ntn, strn: r.strn, industry: r.industry,
+    asilBu: r.asil_bu || '',
     isActive: r.is_active !== false,  // default true for old rows without the column
     contacts: r.contacts || [],
     contracts: [],  // loaded separately
@@ -1314,12 +1509,13 @@ app.get('/api/clients', requireAuth, async (req, res) => {
 
 app.post('/api/clients', requireAuth, async (req, res) => {
     try {
-        const { name, hq, ntn, strn, industry, contacts = [] } = req.body;
+        await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS asil_bu TEXT`).catch(() => {});
+        const { name, hq, ntn, strn, industry, contacts = [], asilBu } = req.body;
         const id = req.body.id || `CLT-${Date.now()}`;
         const { rows } = await pool.query(
-            `INSERT INTO clients (id,name,hq,ntn,strn,industry,contacts) VALUES ($1,$2,$3,$4,$5,$6,$7)
-             ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,hq=EXCLUDED.hq,ntn=EXCLUDED.ntn,strn=EXCLUDED.strn,industry=EXCLUDED.industry,contacts=EXCLUDED.contacts RETURNING *`,
-            [id, name, hq || null, ntn || null, strn || null, industry || null, JSON.stringify(contacts)]
+            `INSERT INTO clients (id,name,hq,ntn,strn,industry,contacts,asil_bu) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+             ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,hq=EXCLUDED.hq,ntn=EXCLUDED.ntn,strn=EXCLUDED.strn,industry=EXCLUDED.industry,contacts=EXCLUDED.contacts,asil_bu=COALESCE(EXCLUDED.asil_bu,clients.asil_bu) RETURNING *`,
+            [id, name, hq || null, ntn || null, strn || null, industry || null, JSON.stringify(contacts), asilBu || null]
         );
         res.json({ client: { ...clientFromDb(rows[0]), contracts: [] } });
     } catch (err) { console.error('[POST /api/clients]', err); res.status(500).json({ error: 'Internal server error' }); }
@@ -1327,10 +1523,11 @@ app.post('/api/clients', requireAuth, async (req, res) => {
 
 app.put('/api/clients/:id', requireAuth, async (req, res) => {
     try {
-        const { name, hq, ntn, strn, industry, contacts = [] } = req.body;
+        await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS asil_bu TEXT`).catch(() => {});
+        const { name, hq, ntn, strn, industry, contacts = [], asilBu } = req.body;
         const { rows } = await pool.query(
-            `UPDATE clients SET name=$1,hq=$2,ntn=$3,strn=$4,industry=$5,contacts=$6 WHERE id=$7 RETURNING *`,
-            [name, hq || null, ntn || null, strn || null, industry || null, JSON.stringify(contacts), req.params.id]
+            `UPDATE clients SET name=$1,hq=$2,ntn=$3,strn=$4,industry=$5,contacts=$6,asil_bu=COALESCE($8,asil_bu) WHERE id=$7 RETURNING *`,
+            [name, hq || null, ntn || null, strn || null, industry || null, JSON.stringify(contacts), req.params.id, asilBu || null]
         );
         if (!rows.length) return res.status(404).json({ error: 'Not found' });
 
@@ -2029,7 +2226,26 @@ app.delete('/api/invoices/:id', requireAuth, requireRole('superadmin'), async (r
 // PAYSLIP GENERATION
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
-app.get('/api/payslip/:employeeId/:month/:year', requireAuth, async (req, res) => {
+// Staff or own-portal payslip access
+const requirePayslipAuth = (req, res, next) => {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+        if (payload.portal) {
+            const requested = decodeURIComponent(req.params.employeeId);
+            if (String(payload.employeeId) !== String(requested)) {
+                return res.status(403).json({ error: 'You can only view your own payslip' });
+            }
+            req.user = payload;
+            return next();
+        }
+        req.user = payload;
+        next();
+    } catch { res.status(401).json({ error: 'Token expired' }); }
+};
+
+app.get('/api/payslip/:employeeId/:month/:year', requirePayslipAuth, async (req, res) => {
     try {
         const employeeId = decodeURIComponent(req.params.employeeId);
         const { month, year } = req.params;
@@ -2276,36 +2492,137 @@ app.post('/api/sms/payroll-batch', requireAuth, async (req, res) => {
 // EMPLOYEE PORTAL — OTP LOGIN + SELF-SERVICE
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
-// Request OTP — looks up employee by phone, sends OTP via Jazz SMS
+async function lookupPortalEmployee({ phone, employeeId, forceEmployeeId }) {
+    if (employeeId) {
+        const { rows } = await pool.query(
+            `SELECT id, name, email, primary_contact FROM employees WHERE id=$1 AND active='Yes'`,
+            [String(employeeId).trim()]
+        );
+        return rows;
+    }
+    if (!phone) return [];
+    const p = normalisePhone(phone);
+    const { rows } = await pool.query(
+        `SELECT id, name, email, primary_contact FROM employees
+         WHERE regexp_replace(COALESCE(primary_contact,''),'\\D','','g') = $1 AND active='Yes'`,
+        [p]
+    );
+    if (rows.length > 1 && !forceEmployeeId) {
+        const err = new Error('MULTIPLE_MATCH');
+        err.employees = rows.map(r => ({ id: r.id, name: r.name }));
+        throw err;
+    }
+    return rows;
+}
+
+async function persistAndSendPortalOtp(emp, { preferSms = false } = {}) {
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const phoneNorm = normalisePhone(emp.primary_contact || '');
+    const email = String(emp.email || '').trim();
+    const canEmail = isValidEmail(email);
+
+    let channel = 'sms';
+    let destination = phoneNorm;
+    let fallbackReason = null;
+
+    if (!preferSms && canEmail) {
+        try {
+            const mailResult = await sendAppEmail({
+                to: email,
+                subject: 'ASIL Employee Portal login code',
+                html: `<p>Your ASIL Employee Portal login code is <strong>${otp}</strong>.</p>
+                       <p>Valid for 10 minutes. Do not share this code.</p>
+                       <p style="color:#64748b;font-size:12px;">Allied Services International (Pvt.) Ltd.</p>`,
+            });
+            if (mailResult?.ok) {
+                channel = 'email';
+                destination = email.toLowerCase();
+            } else {
+                fallbackReason = mailResult?.reason || 'email_skipped';
+            }
+        } catch (err) {
+            fallbackReason = err.message || 'email_send_failed';
+            console.warn('[portal OTP] email failed, falling back to SMS:', fallbackReason);
+        }
+    } else if (!canEmail) {
+        fallbackReason = 'no_email';
+    }
+
+    if (channel !== 'email') {
+        if (!phoneNorm) {
+            return { error: 'No phone on file and email OTP unavailable', status: 422 };
+        }
+        const message = `Your ASIL HCM login code is: ${otp}. Valid for 10 minutes. Do not share this code.`;
+        const smsResult = await sendJazzOtpSMS(phoneNorm, message);
+        if (!smsResult.ok) {
+            return { error: 'Failed to send OTP SMS', detail: smsResult.response, status: 502 };
+        }
+        channel = 'sms';
+        destination = phoneNorm;
+    }
+
+    await pool.query(
+        `INSERT INTO portal_otps (phone, otp, expires_at, channel, destination, employee_id)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [phoneNorm || emp.id, otp, expiresAt, channel, destination, emp.id]
+    );
+
+    return {
+        ok: true,
+        channel,
+        destinationMasked: channel === 'email' ? maskEmail(destination) : maskPhone(destination),
+        fallbackReason: channel === 'sms' ? fallbackReason : null,
+        fallbackAvailable: !!phoneNorm,
+        employeeName: emp.name,
+        employeeId: emp.id,
+    };
+}
+
+// Request OTP — email first, SMS fallback. Lookup by employeeId or phone.
 app.post('/api/portal/request-otp', portalOtpLimiter, async (req, res) => {
     try {
-        const { phone } = req.body;
-        if (!phone) return res.status(400).json({ error: 'Phone number required' });
-        const p = normalisePhone(phone);
+        const { phone, employeeId, preferSms } = req.body || {};
+        if (!phone && !employeeId) {
+            return res.status(400).json({ error: 'Employee code or phone number required' });
+        }
 
-        // Find employee with this phone
-        const { rows } = await pool.query(
-            `SELECT id, name FROM employees WHERE regexp_replace(primary_contact,'\\D','','g') = $1 AND active='Yes'`,
-            [p]
-        );
-        if (!rows.length) return res.status(404).json({ error: 'No active employee found with this phone number' });
+        let rows;
+        try {
+            rows = await lookupPortalEmployee({ phone, employeeId, forceEmployeeId: !!employeeId });
+        } catch (err) {
+            if (err.message === 'MULTIPLE_MATCH') {
+                return res.status(409).json({
+                    error: 'Multiple employees share this phone. Enter your Employee Code.',
+                    employees: err.employees,
+                });
+            }
+            throw err;
+        }
 
-        // Generate 6-digit OTP
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+        if (!rows.length) {
+            return res.status(404).json({ error: 'No active employee found with this phone number or employee code' });
+        }
 
-        // Save OTP
-        await pool.query(
-            `INSERT INTO portal_otps (phone, otp, expires_at) VALUES ($1,$2,$3)`,
-            [p, otp, expiresAt]
-        );
+        const result = await persistAndSendPortalOtp(rows[0], { preferSms: !!preferSms });
+        if (result.error) return res.status(result.status || 500).json({ error: result.error, detail: result.detail });
 
-        // Send via Jazz SMS
-        const message = `Your ASIL HCM login code is: ${otp}. Valid for 10 minutes. Do not share this code.`;
-        const smsResult = await sendJazzOtpSMS(p, message);
-        if (!smsResult.ok) return res.status(502).json({ error: 'Failed to send OTP SMS', detail: smsResult.response });
+        const msg = result.channel === 'email'
+            ? `OTP sent to ${result.destinationMasked}`
+            : (result.fallbackReason && result.fallbackReason !== 'no_email'
+                ? `Could not email you — OTP sent by SMS to ${result.destinationMasked}`
+                : `OTP sent to ${result.destinationMasked}`);
 
-        res.json({ ok: true, message: `OTP sent to ${p.slice(0,5)}****${p.slice(-2)}`, employeeName: rows[0].name });
+        res.json({
+            ok: true,
+            message: msg,
+            channel: result.channel,
+            destinationMasked: result.destinationMasked,
+            fallbackReason: result.fallbackReason,
+            fallbackAvailable: result.fallbackAvailable,
+            employeeName: result.employeeName,
+            employeeId: result.employeeId,
+        });
     } catch (err) {
         console.error('[POST /api/portal/request-otp]', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -2315,33 +2632,67 @@ app.post('/api/portal/request-otp', portalOtpLimiter, async (req, res) => {
 // Verify OTP — returns portal JWT
 app.post('/api/portal/verify-otp', async (req, res) => {
     try {
-        const { phone, otp } = req.body;
-        const p = normalisePhone(phone || '');
+        const { phone, employeeId, otp } = req.body || {};
+        if (!otp) return res.status(400).json({ error: 'OTP required' });
 
-        const { rows: otpRows } = await pool.query(
-            `SELECT * FROM portal_otps WHERE phone=$1 AND otp=$2 AND used=FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
-            [p, otp]
-        );
+        let otpRows = [];
+        if (employeeId) {
+            const r = await pool.query(
+                `SELECT * FROM portal_otps
+                 WHERE employee_id=$1 AND otp=$2 AND used=FALSE AND expires_at > NOW()
+                 ORDER BY created_at DESC LIMIT 1`,
+                [String(employeeId).trim(), otp]
+            );
+            otpRows = r.rows;
+        }
+        if (!otpRows.length && phone) {
+            const p = normalisePhone(phone);
+            const r = await pool.query(
+                `SELECT * FROM portal_otps
+                 WHERE phone=$1 AND otp=$2 AND used=FALSE AND expires_at > NOW()
+                 ORDER BY created_at DESC LIMIT 1`,
+                [p, otp]
+            );
+            otpRows = r.rows;
+        }
         if (!otpRows.length) return res.status(401).json({ error: 'Invalid or expired OTP' });
 
-        // Mark as used
         await pool.query('UPDATE portal_otps SET used=TRUE WHERE id=$1', [otpRows[0].id]);
 
-        // Find employee
-        const { rows: empRows } = await pool.query(
-            `SELECT id, name, designation, client, location FROM employees WHERE regexp_replace(primary_contact,'\\D','','g') = $1 AND active='Yes'`,
-            [p]
-        );
+        const empId = otpRows[0].employee_id;
+        let empRows;
+        if (empId) {
+            empRows = (await pool.query(
+                `SELECT id, name, designation, client, location FROM employees WHERE id=$1 AND active='Yes'`,
+                [empId]
+            )).rows;
+        } else {
+            const p = otpRows[0].phone;
+            empRows = (await pool.query(
+                `SELECT id, name, designation, client, location FROM employees
+                 WHERE regexp_replace(COALESCE(primary_contact,''),'\\D','','g') = $1 AND active='Yes'`,
+                [p]
+            )).rows;
+        }
         if (!empRows.length) return res.status(404).json({ error: 'Employee not found' });
         const emp = empRows[0];
 
-        // Issue portal JWT (24h, limited scope)
         const token = jwt.sign(
             { employeeId: emp.id, name: emp.name, portal: true },
             JWT_SECRET,
             { expiresIn: '24h' }
         );
-        res.json({ ok: true, token, employee: { id: emp.id, name: emp.name, designation: emp.designation, client: emp.client, location: emp.location } });
+        res.json({
+            ok: true,
+            token,
+            employee: {
+                id: emp.id,
+                name: emp.name,
+                designation: emp.designation,
+                client: emp.client,
+                location: emp.location,
+            },
+        });
     } catch (err) {
         console.error('[POST /api/portal/verify-otp]', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -2364,12 +2715,10 @@ function requirePortalAuth(req, res, next) {
 app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
     try {
         const empId = req.portalEmployee.employeeId;
-        const currentMonth = new Date().getMonth() + 1;
-        const currentYear = new Date().getFullYear();
 
         const [empRes, payrollRes, advancesRes, leavesRes] = await Promise.all([
             pool.query('SELECT * FROM employees WHERE id=$1', [empId]),
-            pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 ORDER BY year DESC, month DESC LIMIT 12', [empId]),
+            pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 ORDER BY year DESC, month DESC LIMIT 24', [empId]),
             pool.query('SELECT * FROM employee_advances WHERE employee_id=$1 ORDER BY created_at DESC', [empId]),
             pool.query('SELECT * FROM employee_leaves WHERE employee_id=$1 ORDER BY from_date DESC LIMIT 20', [empId]).catch(() => ({ rows: [] }))
         ]);
@@ -2377,14 +2726,18 @@ app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
         const emp = empRes.rows[0];
         if (!emp) return res.status(404).json({ error: 'Employee not found' });
 
-        // Remove sensitive fields before sending to portal
         const { bank_account, cnic, ...safeEmp } = emp;
+        const photoUrl = emp.photo_file_id
+            ? `${BACKEND_URL}/api/portal/me/photo`
+            : null;
 
         res.json({
             employee: {
                 ...safeEmp,
                 cnicMasked: emp.cnic ? emp.cnic.replace(/(\d{5})(\d{7})(\d)/, '$1-*******-$3') : null,
-                bankAccountMasked: emp.bank_account ? '****' + emp.bank_account.slice(-4) : null
+                bankAccountMasked: emp.bank_account ? '****' + emp.bank_account.slice(-4) : null,
+                photoUrl,
+                hasPhoto: !!emp.photo_file_id,
             },
             payslips: payrollRes.rows.map(p => ({
                 month: p.month, year: p.year,
@@ -2407,7 +2760,6 @@ app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
 });
 
 // ── Portal: submit a change request ──────────────────────────────────────────
-// Allowed fields employees can request changes to (no salary/contract/ID changes)
 const PORTAL_CHANGEABLE_FIELDS = {
     present_address:   'Present Address',
     permanent_address: 'Permanent Address',
@@ -2434,9 +2786,8 @@ app.post('/api/portal/change-request', requirePortalAuth, async (req, res) => {
             return res.status(400).json({ error: 'This field cannot be changed via the portal' });
         }
 
-        // Snapshot the current value from the employees table
         const { rows: empRows } = await pool.query(
-            `SELECT name, ${field_name} AS current_val FROM employees WHERE id=$1`, [empId]
+            `SELECT name, email, primary_contact, ${field_name} AS current_val FROM employees WHERE id=$1`, [empId]
         );
         if (!empRows.length) return res.status(404).json({ error: 'Employee not found' });
         const old_value = empRows[0].current_val;
@@ -2448,6 +2799,30 @@ app.post('/api/portal/change-request', requirePortalAuth, async (req, res) => {
              RETURNING *`,
             [empId, empRows[0].name, field_name, PORTAL_CHANGEABLE_FIELDS[field_name], old_value, new_value]
         );
+
+        const settings = await getPortalChangeSettings(pool);
+        if (settings.notify_on_submit && settings.approver_emails?.length) {
+            const cr = rows[0];
+            const link = `${FRONTEND_URL}/?tab=employees&cr=${cr.id}`;
+            const html = `<p>A new employee data change request needs review.</p>
+                <ul>
+                  <li><strong>Employee:</strong> ${empRows[0].name} (${empId})</li>
+                  <li><strong>Field:</strong> ${PORTAL_CHANGEABLE_FIELDS[field_name]}</li>
+                  <li><strong>Old:</strong> ${old_value || '—'}</li>
+                  <li><strong>New:</strong> ${new_value}</li>
+                </ul>
+                <p><a href="${link}">Open Pending Requests in ASIL HCM</a></p>`;
+            try {
+                await sendAppEmail({
+                    to: settings.approver_emails,
+                    subject: `[HCM] Change request: ${empRows[0].name} — ${PORTAL_CHANGEABLE_FIELDS[field_name]}`,
+                    html,
+                });
+            } catch (mailErr) {
+                console.warn('[portal/change-request] approver notify failed', mailErr.message);
+            }
+        }
+
         res.json({ ok: true, request: rows[0] });
     } catch (err) {
         console.error('[portal/change-request]', err);
@@ -2459,7 +2834,7 @@ app.post('/api/portal/change-request', requirePortalAuth, async (req, res) => {
 app.get('/api/portal/my-requests', requirePortalAuth, async (req, res) => {
     try {
         const { rows } = await pool.query(
-            `SELECT id, field_label, old_value, new_value, status, submitted_at, reviewed_at, notes
+            `SELECT id, field_name, field_label, old_value, new_value, status, submitted_at, reviewed_at, notes
              FROM employee_change_requests
              WHERE employee_id=$1
              ORDER BY submitted_at DESC LIMIT 50`,
@@ -2473,7 +2848,7 @@ app.get('/api/portal/my-requests', requirePortalAuth, async (req, res) => {
 });
 
 // ── Office: list pending change requests ─────────────────────────────────────
-app.get('/api/change-requests', requireAuth, requireRole('superadmin', 'operations', 'payroll_initiator'), async (req, res) => {
+app.get('/api/change-requests', requireAuth, requireRole(...CHANGE_QUEUE_ROLES), async (req, res) => {
     try {
         const { status = 'Pending' } = req.query;
         const { rows } = await pool.query(
@@ -2491,12 +2866,26 @@ app.get('/api/change-requests', requireAuth, requireRole('superadmin', 'operatio
     }
 });
 
+async function assertCanReviewChangeRequest(req, res) {
+    const settings = await getPortalChangeSettings(pool);
+    if (!canApproveChangeRequest(req.user, settings)) {
+        res.status(403).json({
+            error: 'Only designated HCM approvers can approve or reject change requests',
+            approvers: settings.approver_emails,
+        });
+        return null;
+    }
+    return settings;
+}
+
 // ── Office: approve a change request → apply to employees table ───────────────
-app.patch('/api/change-requests/:id/approve', requireAuth, requireRole('superadmin', 'operations', 'payroll_initiator'), async (req, res) => {
+app.patch('/api/change-requests/:id/approve', requireAuth, requireRole(...CHANGE_QUEUE_ROLES), async (req, res) => {
     try {
+        const settings = await assertCanReviewChangeRequest(req, res);
+        if (!settings) return;
+
         const reqId = parseInt(req.params.id);
 
-        // Fetch the request
         const { rows: crRows } = await pool.query(
             'SELECT * FROM employee_change_requests WHERE id=$1', [reqId]
         );
@@ -2509,33 +2898,39 @@ app.patch('/api/change-requests/:id/approve', requireAuth, requireRole('superadm
             return res.status(400).json({ error: 'Field not in allowed list — cannot apply' });
         }
 
-        // Apply change to employees table (safe: field_name is whitelist-validated above)
         await pool.query(
             `UPDATE employees SET ${cr.field_name}=$1, updated_at=NOW() WHERE id=$2`,
             [cr.new_value, cr.employee_id]
         );
 
-        // Mark request as Approved
         await pool.query(
             `UPDATE employee_change_requests SET status='Approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2`,
             [req.user.email, reqId]
         );
         logAudit(req, 'change_request_approve', 'employee_change_request', reqId);
 
-        // Send approval SMS to employee
         try {
             const { rows: empRows } = await pool.query(
-                'SELECT primary_contact FROM employees WHERE id=$1', [cr.employee_id]
+                'SELECT primary_contact, email FROM employees WHERE id=$1', [cr.employee_id]
             );
-            if (empRows.length && empRows[0].primary_contact) {
+            if (empRows.length) {
                 const smsMsg = `ASIL HR: Your request to update '${cr.field_label}' has been APPROVED. The change is now in effect.`;
-                await sendJazzSMS(empRows[0].primary_contact, smsMsg);
-                await pool.query(
-                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
-                    [cr.employee_id, smsMsg, req.user.email]
-                ).catch(() => {});
+                if (empRows[0].primary_contact) {
+                    await sendJazzSMS(empRows[0].primary_contact, smsMsg);
+                    await pool.query(
+                        `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                        [cr.employee_id, smsMsg, req.user.email]
+                    ).catch(() => {});
+                }
+                if (settings.notify_employee_on_decision && isValidEmail(empRows[0].email)) {
+                    await sendAppEmail({
+                        to: empRows[0].email,
+                        subject: `Change request approved: ${cr.field_label}`,
+                        html: `<p>${smsMsg}</p>`,
+                    }).catch(() => {});
+                }
             }
-        } catch (_) { /* SMS failure is non-fatal */ }
+        } catch (_) { /* notify failure is non-fatal */ }
 
         res.json({ ok: true, message: 'Change request approved and applied' });
     } catch (err) {
@@ -2545,8 +2940,11 @@ app.patch('/api/change-requests/:id/approve', requireAuth, requireRole('superadm
 });
 
 // ── Office: reject a change request ──────────────────────────────────────────
-app.patch('/api/change-requests/:id/reject', requireAuth, requireRole('superadmin', 'operations', 'payroll_initiator'), async (req, res) => {
+app.patch('/api/change-requests/:id/reject', requireAuth, requireRole(...CHANGE_QUEUE_ROLES), async (req, res) => {
     try {
+        const settings = await assertCanReviewChangeRequest(req, res);
+        if (!settings) return;
+
         const reqId = parseInt(req.params.id);
         const { note } = req.body;
 
@@ -2564,25 +2962,109 @@ app.patch('/api/change-requests/:id/reject', requireAuth, requireRole('superadmi
             [req.user.email, note || null, reqId]
         );
 
-        // Send rejection SMS to employee
         try {
             const { rows: empRows } = await pool.query(
-                'SELECT primary_contact FROM employees WHERE id=$1', [cr.employee_id]
+                'SELECT primary_contact, email FROM employees WHERE id=$1', [cr.employee_id]
             );
-            if (empRows.length && empRows[0].primary_contact) {
+            if (empRows.length) {
                 const reason = note ? ` Reason: ${note}` : '';
                 const smsMsg = `ASIL HR: Your request to update '${cr.field_label}' has been REJECTED.${reason} Contact HR for assistance.`;
-                await sendJazzSMS(empRows[0].primary_contact, smsMsg);
-                await pool.query(
-                    `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
-                    [cr.employee_id, smsMsg, req.user.email]
-                ).catch(() => {});
+                if (empRows[0].primary_contact) {
+                    await sendJazzSMS(empRows[0].primary_contact, smsMsg);
+                    await pool.query(
+                        `INSERT INTO employee_messages (employee_id, channel, direction, body, sent_by) VALUES ($1,'sms','out',$2,$3)`,
+                        [cr.employee_id, smsMsg, req.user.email]
+                    ).catch(() => {});
+                }
+                if (settings.notify_employee_on_decision && isValidEmail(empRows[0].email)) {
+                    await sendAppEmail({
+                        to: empRows[0].email,
+                        subject: `Change request rejected: ${cr.field_label}`,
+                        html: `<p>${smsMsg}</p>`,
+                    }).catch(() => {});
+                }
             }
-        } catch (_) { /* SMS failure is non-fatal */ }
+        } catch (_) { /* notify failure is non-fatal */ }
 
         res.json({ ok: true, message: 'Change request rejected' });
     } catch (err) {
         console.error('[PATCH /api/change-requests/:id/reject]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ── Portal profile photo ─────────────────────────────────────────────────────
+const portalMulter = require('multer')({
+    storage: require('multer').memoryStorage(),
+    limits: { fileSize: 2 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+        const ok = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype);
+        cb(ok ? null : new Error('Only JPEG, PNG, or WebP images allowed'), ok);
+    },
+});
+
+app.get('/api/portal/me/photo', requirePortalAuth, async (req, res) => {
+    try {
+        const empId = req.portalEmployee.employeeId;
+        const { rows } = await pool.query(
+            `SELECT f.mime, f.filename, f.data
+             FROM employees e
+             JOIN uploaded_files f ON f.id = e.photo_file_id
+             WHERE e.id=$1`,
+            [empId]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'No photo on file' });
+        res.setHeader('Content-Type', rows[0].mime || 'image/jpeg');
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        res.send(rows[0].data);
+    } catch (err) {
+        console.error('[GET /api/portal/me/photo]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post('/api/portal/me/photo', requirePortalAuth, (req, res) => {
+    portalMulter.single('photo')(req, res, async (err) => {
+        if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
+        try {
+            if (!req.file) return res.status(400).json({ error: 'photo file required' });
+            const empId = req.portalEmployee.employeeId;
+            const { rows: fileRows } = await pool.query(`
+                INSERT INTO uploaded_files (kind, ref_id, filename, mime, size_bytes, data, uploaded_by)
+                VALUES ('employee_photo',$1,$2,$3,$4,$5,$6) RETURNING id
+            `, [empId, req.file.originalname, req.file.mimetype, req.file.size, req.file.buffer, empId]);
+            const fileId = fileRows[0].id;
+            await pool.query(
+                `UPDATE employees SET photo_file_id=$1, updated_at=NOW() WHERE id=$2`,
+                [fileId, empId]
+            );
+
+            const settings = await getPortalChangeSettings(pool);
+            if (settings.notify_on_submit && settings.approver_emails?.length) {
+                const { rows: empRows } = await pool.query('SELECT name FROM employees WHERE id=$1', [empId]);
+                const name = empRows[0]?.name || empId;
+                sendAppEmail({
+                    to: settings.approver_emails,
+                    subject: `[HCM] Profile photo updated: ${name}`,
+                    html: `<p>${name} (${empId}) uploaded a new profile photo in the Employee Portal.</p>`,
+                }).catch(() => {});
+            }
+
+            res.json({ ok: true, photo_file_id: fileId, photoUrl: `${BACKEND_URL}/api/portal/me/photo` });
+        } catch (e) {
+            console.error('[POST /api/portal/me/photo]', e);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+});
+
+app.delete('/api/portal/me/photo', requirePortalAuth, async (req, res) => {
+    try {
+        const empId = req.portalEmployee.employeeId;
+        await pool.query(`UPDATE employees SET photo_file_id=NULL, updated_at=NOW() WHERE id=$1`, [empId]);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[DELETE /api/portal/me/photo]', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -4307,12 +4789,27 @@ app.post('/api/bills/:id/create-invoice', requireAuth, requireRole('ar_team','fi
     }
 });
 
-// PATCH /api/client-invoices/:id Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ update invoice (AR can override number, change status)
+// PATCH /api/client-invoices/:id Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ update invoice (AR can override number; Paid status = MD/FM only)
 app.patch('/api/client-invoices/:id', requireAuth, requireRole('ar_team','finance_manager','finance_approver','superadmin'), async (req, res) => {
     try {
         const { invoice_number, status, po_number, due_date, notes, xero_invoice_id, xero_url } = req.body;
         const VALID_STATUSES = ['Draft','Raised','Sent','Paid','Voided'];
         if (status && !VALID_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+
+        const { canManuallySetPaymentStatus, recordPaymentStatusChange } = require('./src/modules/ar/paymentStatusGuard');
+        if (status === 'Paid') {
+            const actor = req.user?.email || '';
+            const isSuper = req.user?.role === 'superadmin';
+            if (!isSuper && !canManuallySetPaymentStatus(actor)) {
+                return res.status(403).json({
+                    error: 'Manual payment status changes are restricted to MD (shezad.mumtaz) or Finance Manager (asif.awan).',
+                });
+            }
+        }
+
+        const prev = await pool.query('SELECT id, invoice_number, status FROM client_invoices WHERE id=$1', [req.params.id]);
+        if (!prev.rows.length) return res.status(404).json({ error: 'Invoice not found' });
+
         const { rows } = await pool.query(`
             UPDATE client_invoices SET
                 invoice_number = COALESCE($1, invoice_number),
@@ -4327,6 +4824,16 @@ app.patch('/api/client-invoices/:id', requireAuth, requireRole('ar_team','financ
         `, [invoice_number||null, status||null, po_number||null, due_date||null,
             notes||null, xero_invoice_id||null, xero_url||null, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
+
+        if (status && status !== prev.rows[0].status) {
+            await recordPaymentStatusChange(pool, {
+                invoiceId: rows[0].id,
+                invoiceNumber: rows[0].invoice_number,
+                fromStatus: prev.rows[0].status,
+                toStatus: status,
+                changedBy: req.user?.email,
+            });
+        }
         res.json({ ok: true, invoice: rows[0] });
     } catch (err) { console.error('[PATCH /api/client-invoices/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -4725,6 +5232,17 @@ pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS po_id      INT 
     .catch(e => console.warn('po_id col init:', e.message));
 pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS contract_id TEXT`)
     .catch(e => console.warn('ci_contract_id col init:', e.message));
+pool.query(`
+    DO $$ BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'client_invoices' AND column_name = 'contract_id'
+              AND data_type IN ('integer', 'bigint', 'smallint')
+        ) THEN
+            ALTER TABLE client_invoices ALTER COLUMN contract_id TYPE TEXT USING contract_id::text;
+        END IF;
+    END $$;
+`).catch(e => console.warn('ci_contract_id type fix:', e.message));
 pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS region      TEXT`)
     .catch(e => console.warn('ci_region col init:', e.message));
 pool.query(`ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS bu          TEXT`)
@@ -5783,7 +6301,7 @@ app.get('/api/attendance/teams', requireAuth, requireTeamSetup, async (req, res)
 
 // ── POST /api/attendance/teams/assign — assign employees to a supervisor ───────
 app.post('/api/attendance/teams/assign', requireAuth, requireTeamSetup, async (req, res) => {
-    const { supervisor_email, employee_ids, site, client, contract_id } = req.body;
+    const { supervisor_email, employee_ids, site, client, contract_id, focal_emails } = req.body;
     if (!supervisor_email || !employee_ids?.length) return res.status(400).json({ error: 'supervisor_email and employee_ids required' });
 
     try {
@@ -5800,7 +6318,22 @@ app.post('/api/attendance/teams/assign', requireAuth, requireTeamSetup, async (r
             DO UPDATE SET site=$3[1], client=$4[1], contract_id=$5[1], active=true
         `, [emails, ids, sites, clients, ctIds]);
 
-        res.json({ ok: true, assigned: employee_ids.length });
+        let focal = null;
+        if (Array.isArray(focal_emails) || typeof focal_emails === 'string') {
+            const { upsertProjectClientFocals } = require('./src/modules/attendance/clientFocals');
+            const list = Array.isArray(focal_emails)
+                ? focal_emails
+                : String(focal_emails).split(',').map(s => s.trim()).filter(Boolean);
+            focal = await upsertProjectClientFocals(pool, {
+                supervisor_email,
+                site,
+                client,
+                contract_id,
+                focal_emails: list,
+            });
+        }
+
+        res.json({ ok: true, assigned: employee_ids.length, focal });
     } catch (err) { console.error('[POST /api/attendance/teams/assign]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
@@ -7826,7 +8359,7 @@ if (require.main === module) app.listen(PORT, async () => {
     console.log(`ASIL HCM Backend running on port ${PORT}`);
     console.log(`[DB] Pool configured: max=10, idle=30s`);
     console.log(`Allowed domain: @${ALLOWED_DOMAIN}`);
-    console.log(`[SMS] Jazz proxy ${isJazzProxyConfigured() ? 'active (Fixie)' : 'NOT configured — SMS will fail with IP not authorized'}`);
+    console.log(`[SMS] Jazz proxy ${isJazzProxyConfigured() ? `active (${jazzProxyLogLabel()})` : 'NOT configured — SMS will fail with IP not authorized'}`);
     // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ One-time migrations (safe to run every restart, IF NOT EXISTS guards) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼
     try {
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ hcm_users table (RBAC) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
@@ -7849,19 +8382,38 @@ if (require.main === module) app.listen(PORT, async () => {
         await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_id TEXT');
         console.log('Migration OK: contract_id column ready');
 
-        // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Seed known users with correct roles (only if still pending) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
-        // Safe to run every restart ├óΓé¼ΓÇ¥ only updates 'pending' users, never demotes
+        // MD Mandate §1 — seed known users (only if still pending; startup block above forces roles)
         const roleSeed = [
-            { email: 'laiba.mughal@asil.com.pk',    role: 'finance_proposer' },
-            { email: 'huzaifa.rafaqat@asil.com.pk', role: 'finance_approver' },
+            { email: 'huzaifa.rafaqat@asil.com.pk', role: 'finance_manager' },
+            { email: 'laiba.mughal@asil.com.pk',    role: 'procurement_manager' },
+            { email: 'asif.awan@asil.com.pk',       role: 'finance_approver' },
+            { email: 'obaid.rana@asil.com.pk',      role: 'operations' },
+            { email: 'rabia.bhutto@asil.com.pk',    role: 'operations_supervisor' },
         ];
         for (const u of roleSeed) {
             await pool.query(
-                `UPDATE hcm_users SET role=$1 WHERE email=$2 AND role='pending'`,
-                [u.role, u.email]
+                `INSERT INTO hcm_users (google_id, email, name, role)
+                 VALUES ($1, $2, split_part($2,'@',1), $3)
+                 ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role
+                 WHERE hcm_users.role = 'pending'`,
+                [`pending_${u.email}`, u.email, u.role]
             );
         }
         console.log('Migration OK: known user roles seeded');
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS payment_status_change_log (
+                id SERIAL PRIMARY KEY,
+                invoice_id INT,
+                invoice_number TEXT,
+                from_status TEXT,
+                to_status TEXT NOT NULL,
+                changed_by TEXT,
+                changed_at TIMESTAMPTZ DEFAULT NOW(),
+                summarized_at TIMESTAMPTZ
+            )
+        `);
+        console.log('Migration OK: payment_status_change_log');
 
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Inventory tables ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
         await pool.query(`
@@ -8100,6 +8652,11 @@ if (require.main === module) app.listen(PORT, async () => {
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
         `);
+        await pool.query(`ALTER TABLE portal_otps ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'sms'`).catch(() => {});
+        await pool.query(`ALTER TABLE portal_otps ADD COLUMN IF NOT EXISTS destination TEXT`).catch(() => {});
+        await pool.query(`ALTER TABLE portal_otps ADD COLUMN IF NOT EXISTS employee_id TEXT`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_file_id INT`).catch(() => {});
+        await ensurePortalChangeSettings(pool);
         console.log('Migration OK: portal_otps');
 
         // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Invoices (persistent) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
@@ -8690,6 +9247,10 @@ if (require.main === module) app.listen(PORT, async () => {
             pool,
             runReportDispatch: (p) => phase2.runReportDispatch(p, sendAppEmail),
             runEscalationCheck: (p) => phase2.runEscalationCheck(p, sendAppEmail, sendJazzSMS),
+            runPaymentStatusSummary: async (p) => {
+                const { sendEndOfDayPaymentStatusSummary } = require('./src/modules/ar/paymentStatusGuard');
+                return sendEndOfDayPaymentStatusSummary(p, sendAppEmail);
+            },
         });
 
         bootstrapRestructure({ pool, sendAppEmail, sendJazzSMS }).catch(e =>

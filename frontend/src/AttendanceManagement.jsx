@@ -155,28 +155,74 @@ function DailyMarking({user}) {
   );
 }
 
-// ── Monthly Report (HR/Finance) ───────────────────────────────────────────────
+// ── Monthly Report Hub (15-column export/import + rollups) ────────────────────
 function MonthlyReport({user}) {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth()+1);
   const [year, setYear]   = useState(now.getFullYear());
   const [client, setClient] = useState('');
   const [data, setData]   = useState(null);
+  const [rollups, setRollups] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importResult, setImportResult] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
-    api.getMonthlyReport({month, year, ...(client?{client}:{})})
-      .then(d=>setData(d)).catch(e=>alert(e.message)).finally(()=>setLoading(false));
+    Promise.all([
+      api.getMonthlyReport({month, year, ...(client?{client}:{})}),
+      api.getMonthlyHubRollups({month, year, ...(client?{client}:{})}).catch(() => null),
+    ])
+      .then(([d, r]) => { setData(d); setRollups(r); })
+      .catch(e=>alert(e.message))
+      .finally(()=>setLoading(false));
   }, [month, year, client]);
 
   useEffect(()=>{ load(); }, [load]);
 
   const pctColor = p => p==null?'var(--text-muted)' : p>=95?'#22c55e' : p>=80?'#f59e0b' : '#ef4444';
 
+  const exportHub = async () => {
+    setBusy(true);
+    try {
+      await api.exportMonthlyHub({ month, year, ...(client ? { client } : {}) });
+    } catch (e) {
+      alert(e.message || 'Export failed');
+    }
+    setBusy(false);
+  };
+
+  const importHub = async () => {
+    if (!importText.trim()) return alert('Paste the 15-column CSV first.');
+    setBusy(true);
+    try {
+      const r = await api.importMonthlyHub({ csvText: importText, month, year });
+      setImportResult(r);
+      load();
+    } catch (e) {
+      alert(e.message || 'Import failed');
+    }
+    setBusy(false);
+  };
+
+  const RollupCard = ({ title, rows }) => (
+    <Card style={{ padding: '1rem' }}>
+      <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>{title}</div>
+      <div style={{ maxHeight: 180, overflowY: 'auto', fontSize: '0.82rem' }}>
+        {(rows || []).slice(0, 12).map((r, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+            <span>{r.label || r.key}</span>
+            <span style={{ color: 'var(--text-muted)' }}>{r.records} rec · {r.present || 0} present</span>
+          </div>
+        ))}
+        {!rows?.length && <div style={{ color: 'var(--text-muted)' }}>No records</div>}
+      </div>
+    </Card>
+  );
+
   return (
     <div style={{display:'flex',flexDirection:'column',gap:'1rem'}}>
-      {/* Controls */}
       <div style={{display:'flex',gap:'0.75rem',flexWrap:'wrap',alignItems:'flex-end'}}>
         {[['Month','month',Array.from({length:12},(_,i)=>({v:i+1,l:new Date(2000,i).toLocaleString('en',{month:'long'})}))],
           ['Year', 'year',[2024,2025,2026].map(y=>({v:y,l:y}))]].map(([lbl,key,opts])=>(
@@ -194,19 +240,29 @@ function MonthlyReport({user}) {
             style={{background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:'8px',padding:'7px 12px',color:'var(--text)',fontSize:'0.88rem',width:'180px'}}/>
         </div>
         <div style={{flex:1}}/>
-        {data && (
-          <a href={api.exportAttendance({month,year,...(client?{client}:{})})}
-            target="_blank" rel="noreferrer"
-            style={{background:'rgba(34,197,94,0.12)',border:'1px solid #22c55e',color:'#22c55e',padding:'8px 16px',borderRadius:'8px',textDecoration:'none',fontWeight:600,fontSize:'0.84rem'}}>
-            ⬇ Export CSV
-          </a>
-        )}
+        <button type="button" disabled={busy} onClick={exportHub}
+          style={{background:'rgba(34,197,94,0.12)',border:'1px solid #22c55e',color:'#22c55e',padding:'8px 16px',borderRadius:'8px',fontWeight:600,fontSize:'0.84rem',cursor:'pointer'}}>
+          ⬇ Export CSV (15 cols)
+        </button>
       </div>
+
+      <Card>
+        <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>Import CSV (15 master columns)</h3>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+          Match on ASIL Employee Code only. Blank cells never wipe existing values.
+        </p>
+        <textarea value={importText} onChange={e => setImportText(e.target.value)} rows={5}
+          placeholder="CNIC,Staff Code,Month,Year,ASIL Employee Code,Contract Name,Present Days,OT Hrs @ 2X,OT Hrs @ 3X,OPD,Expense Reimbursement,Arrears,Special Allowance,Other Allowance Fuel | Mobile,Other Deduction"
+          style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, color: 'var(--text)', fontFamily: 'monospace', fontSize: '0.8rem' }} />
+        <button type="button" disabled={busy} onClick={importHub} className="btn-primary" style={{ marginTop: '0.75rem' }}>
+          Import CSV Overrides
+        </button>
+        {importResult && <pre style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.75rem' }}>{JSON.stringify(importResult, null, 2)}</pre>}
+      </Card>
 
       {loading && <div style={{padding:'3rem',textAlign:'center',color:'var(--text-muted)'}}>Loading report...</div>}
 
       {data && !loading && (<>
-        {/* Summary KPIs */}
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'0.75rem'}}>
           <Kpi label="Total Employees" value={data.employees?.length||0} color="var(--primary)"/>
           <Kpi label="Working Days" value={data.working_days} color="var(--primary)"/>
@@ -219,7 +275,15 @@ function MonthlyReport({user}) {
           <Kpi label="Total Deductions" value={'Rs. '+fmt(data.employees?.reduce((a,r)=>a+(r.salary_deduction||0),0)||0)} color="#ef4444"/>
         </div>
 
-        {/* Table */}
+        {rollups && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+            <RollupCard title="By Location" rows={rollups.byLocation} />
+            <RollupCard title="By Employee" rows={rollups.byEmployee} />
+            <RollupCard title="By Contract" rows={rollups.byContract} />
+            <RollupCard title="By Business Unit" rows={rollups.byBu} />
+          </div>
+        )}
+
         <Card style={{padding:0,overflow:'hidden'}}>
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.84rem'}}>
@@ -292,6 +356,7 @@ function TeamAdmin({user}) {
   const [fLocation,setFLocation]=useState('');
   const [fBU,setFBU]=useState('');
   const [supEmail,setSupEmail]=useState('');
+  const [focalEmails,setFocalEmails]=useState('');
   const [selectedIds,setSelectedIds]=useState([]);
 
   useEffect(()=>{
@@ -320,11 +385,11 @@ function TeamAdmin({user}) {
   const locationOpts=uniq(active.filter(e=>(!fClient||e.client===fClient)&&(!fContract||e.contractName===fContract)).map(e=>e.location));
   const buOpts=uniq(active.filter(e=>(!fClient||e.client===fClient)&&(!fContract||e.contractName===fContract)&&(!fLocation||e.location===fLocation)).map(e=>e.bu||e.dept));
 
-  const resetBelow=(level)=>{if(level<=1)setFContract('');if(level<=2)setFLocation('');if(level<=3)setFBU('');setSupEmail('');setSelectedIds([]);};
+  const resetBelow=(level)=>{if(level<=1)setFContract('');if(level<=2)setFLocation('');if(level<=3)setFBU('');setSupEmail('');setFocalEmails('');setSelectedIds([]);};
   const setClient=v=>{setFClient(v);resetBelow(1);};
   const setContract=v=>{setFContract(v);resetBelow(2);};
   const setLocation=v=>{setFLocation(v);resetBelow(3);};
-  const setBU=v=>{setFBU(v);setSupEmail('');setSelectedIds([]);};
+  const setBU=v=>{setFBU(v);setSupEmail('');setFocalEmails('');setSelectedIds([]);};
 
   const filtered=active.filter(e=>
     (!fClient||e.client===fClient)&&
@@ -339,9 +404,16 @@ function TeamAdmin({user}) {
     if(!selectedIds.length)return alert('Select at least one team member.');
     setSaving(true);
     try{
-      await api.assignTeam({supervisor_email:supEmail.trim().toLowerCase(),employee_ids:selectedIds,site:fLocation||fClient,client:fClient,contract_id:filtered[0]?.contractId||null});
+      await api.assignTeam({
+        supervisor_email:supEmail.trim().toLowerCase(),
+        employee_ids:selectedIds,
+        site:fLocation||fClient,
+        client:fClient,
+        contract_id:filtered[0]?.contractId||null,
+        focal_emails: focalEmails.split(',').map(s=>s.trim()).filter(Boolean),
+      });
       const t=await api.getAttendanceTeams();
-      setTeams(t.teams||[]);setSupEmail('');setSelectedIds([]);
+      setTeams(t.teams||[]);setSupEmail('');setFocalEmails('');setSelectedIds([]);
     }catch(e){alert(e.message);}
     setSaving(false);
   };
@@ -401,6 +473,17 @@ function TeamAdmin({user}) {
               </div>
             )}
             {supEmail&&<div style={{fontSize:'0.78rem',color:'#a78bfa',background:'rgba(167,139,250,0.1)',borderRadius:'6px',padding:'5px 8px'}}>👤 Supervisor: {supEmail}</div>}
+            <div>
+              <div style={{fontSize:'0.72rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'#f59e0b',marginBottom:'6px'}}>Client Focal Email(s) (Comma-Separated)</div>
+              <input
+                type="text"
+                value={focalEmails}
+                onChange={e=>setFocalEmails(e.target.value)}
+                placeholder="e.g. focal1@client.com, focal2@client.com"
+                style={{width:'100%',background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:'7px',padding:'8px 10px',color:'var(--text)',fontSize:'0.88rem',boxSizing:'border-box',outline:'none'}}
+              />
+              <div style={{fontSize:'0.74rem',color:'var(--text-muted)',marginTop:'4px'}}>Bound to this Project/Site/Department for passwordless leave Approve / Reject / Remarks links.</div>
+            </div>
           </div>
 
           {/* Step 3 — Team members */}
