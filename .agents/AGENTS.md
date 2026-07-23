@@ -15,6 +15,16 @@ You are the **Principal Autonomous Software Engineer** on an Enterprise HCM & Pa
 
 ---
 
+## SECTION 0 — ACTIVE REMEDIATION PROGRAM (2026-07-24) — READ THIS FIRST
+
+A full-codebase audit (2026-07-24, Claude Fable 5) established that ASIL HCM contains **two disconnected payroll systems** — legacy browser-computed payroll (`PayrollSheet.jsx` → `payroll_transactions`, owns the only payment path) and the July-2026 server-side engine (`backend/src/modules/payrollrun/`, Excel-parity-validated, owns no payment path) — and that this split is why payroll has never run a single month. A phased consolidation program is now the governing plan:
+
+- **Master plan:** `.agents/REMEDIATION_PLAN.md` — read it before any non-trivial work.
+- **Execution protocol:** work happens as discrete sessions defined in `.agents/sessions/S*.md`, executed in ID order, one file per session, each with its own verification checklist. Do not free-lance work that a session file covers.
+- **Until the program says otherwise:** World A (legacy payroll) must keep working — ~500 people are paid through it; the blueprints named above are scheduled for deletion in session S0C (after which `ARCHITECTURE.md` replaces them); the staging-lane rules in the session files supersede the "no staging environment" line above once S0B completes.
+
+---
+
 ## SECTION 1A — `backend/server.js` Route Map (orientation only, verify before relying on it)
 
 `server.js` is ~8,600 lines with no internal navigation. Approximate line ranges by path prefix (generated 2026-07-18 via grep — re-run if this drifts, don't trust blindly on a stale checkout):
@@ -303,6 +313,17 @@ Verified via `node --check server.js` + full `npm test` (147/147, unchanged) aft
 
 **Env vars needed before deploying:** none new.
 **Not done / explicitly out of scope for this pass:** portal leave-request contract-override wiring (see point 3); leave approval workflow changes; carry-forward rules; any change to the `employee_leaves`/`employee_leave_balances` table schemas themselves (reused as-is).
+
+### 2026-07-24 — Full-codebase audit + Remediation Program established (docs only, no application code changed)
+Claude Code (Fable 5) session. Three-track audit (backend, frontend, docs/deployment) followed by an MD-approved master plan. Key audit facts, recorded so no future session re-derives them:
+
+1. **Two disconnected payroll systems** (the root cause of payroll never running): legacy World A (browser-computed `PayrollSheet.jsx`/`payrollUtils.js` → `POST /api/payroll/:year/:month` stores blindly into `payroll_transactions`; ignores attendance + contract_policies; owns the ONLY payment path AP queue → `payment_batches`/`payment_ledger`) vs World B (`backend/src/modules/payrollrun/` — server-computed from attendance + contract_policies + employee_claims, Excel-parity-validated via `payrollParity.test.js`; owns NO payment path). Different proration bases (26 working days vs 30 calendar days).
+2. **Wafi stage-payroll is broken**: server.js ~7065 and ~7739 compute OT payout amounts and INSERT into `payroll_transactions (ot, reimb, opd)` — dead legacy columns from `setup-db.js` (or nonexistent on a fresh bootstrap). Verified Wafi claims never reach payroll. The working pattern is `employee_claims` (`focal_approved`) consumed by `computeRunForContract`.
+3. Reachable frontend crashes: `BillingProcurement.jsx:729-734` (undefined CLIENTS/CONTRACTS/SITES), `PayrollSheet.jsx:1390` (undefined netPay), relative-origin fetch `PayrollSheet.jsx:894`.
+4. Three contradictory schema sources (dead `database/schema.sql`, ~42 inline CREATE TABLEs in server.js ~8580-8960, 21 migrations) and three contradictory blueprints (this file is the only accurate doc). Backend tests mock pg.Pool entirely — SQL bugs invisible by design.
+5. `classifyOtDate` (payrollrun/service.js:86-92) returns 'ot2' for ordinary weekdays — flagged for MD confirmation during the pilot shadow month.
+
+**Artifacts created this session:** `.agents/REMEDIATION_PLAN.md` (master plan: strangler-fig consolidation onto World B, disbursement bridge, pilot parallel-run milestone, contract-by-contract cutover, World A retirement) and `.agents/sessions/S0A…S9` (17 self-contained Composer 2.5 session files with rules headers, verification checklists, rollback notes). New SECTION 0 added at the top of this file. No application code, schema, or data was modified.
 
 ---
 
