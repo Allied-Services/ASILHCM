@@ -304,6 +304,18 @@ Verified via `node --check server.js` + full `npm test` (147/147, unchanged) aft
 **Env vars needed before deploying:** none new.
 **Not done / explicitly out of scope for this pass:** portal leave-request contract-override wiring (see point 3); leave approval workflow changes; carry-forward rules; any change to the `employee_leaves`/`employee_leave_balances` table schemas themselves (reused as-is).
 
+### 2026-07-24 — S0A production ground-truth snapshot (remediation program)
+Read-only session per `.agents/sessions/S0A_ground_truth_snapshot.md`. No application code or database changes.
+
+1. **`scripts/backup_prod.ps1`** — repeatable `pg_dump -Fc` wrapper; `backups/` added to `.gitignore`.
+2. **`audit/groundtruth/schema_prod.sql`** — schema-only prod snapshot (6,246 lines).
+3. **`audit/groundtruth/facts.md`** — live query outputs: 19/21 migrations applied (`payroll_runs` present — Phase 4 not blocked); legacy `ot`/`opd`/`reimb` columns confirmed on `payroll_transactions`; all 8 World B dependency tables exist; locked payroll only April 2026 (303 rows); pilot contract matrix for S5.
+4. **Full backup** — `backups/prod_20260724_041440.dump` (797 MB, local only). Integrity verified via `pg_restore --list`.
+5. **SSL note:** `/health` on commit `8efc8c0` returns HTTP 200 with live Neon connection — `rejectUnauthorized: true` concern resolved in production.
+6. **Restore-test BLOCKED** — Neon branch create/delete requires `NEON_API_KEY` or MD manual branch; documented in `BLOCKED.md`.
+
+**Env vars needed:** `DATABASE_URL` (prod, shell-only) for backup script re-runs; `NEON_API_KEY` to unblock restore-test.
+
 ---
 
 *This file is maintained by the Antigravity Development Consultant. Update it when architectural decisions change.*

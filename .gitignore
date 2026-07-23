@@ -66,6 +66,9 @@ preview_server.js
 *.bak
 sms_test.ps1
 
+# Production database dumps (S0A) — local only, never commit
+backups/
+
 # Client data exports / reference attachments — never commit real PII or client scripts
 Attachments/
 /*.xlsx
