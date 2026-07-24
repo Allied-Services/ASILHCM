@@ -14,8 +14,8 @@ describe('integration smoke', () => {
 
   test('insert and read employee + contract', async () => {
     await pool.query(`
-      INSERT INTO clients (id, name, status)
-      VALUES ('CLI-INT-1', 'Integration Client', 'Active')
+      INSERT INTO clients (id, name, is_active)
+      VALUES ('CLI-INT-1', 'Integration Client', true)
       ON CONFLICT (id) DO NOTHING
     `);
     await pool.query(`
@@ -38,8 +38,4 @@ describe('integration smoke', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].contract_name).toBe('INT-TEST-CONTRACT');
   });
-});
-
-afterAll(async () => {
-  await pool.end();
 });

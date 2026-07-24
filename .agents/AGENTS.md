@@ -65,13 +65,13 @@ Route names below are current as of 2026-07-18 (verified against `server.js` and
 **Has test coverage — edits OK if `npm test` stays green:**
 - `PATCH /api/payroll/:year/:month/lock` (`backend/tests/payroll.test.js` — role guards + lock scope)
 
-**Still OFF-LIMITS for modification — no test coverage found (verified 2026-07-18):**
+**Covered by integration tests (`backend/tests-int/worldA.payment.test.js`) — edits allowed while `npm run test:int` stays green (procedural gate: run locally before every push touching these paths):**
 - `POST /api/ap/payroll-queue/:year/:month/confirm`
 - `POST /api/ap/bills/:id/confirm`
 - `PATCH /api/ap/batches/:batchId/fm-approve`
 - The `payment_batches` and `payment_ledger` INSERT logic
 
-**Why:** These routes directly control whether ~500 employees get paid. A silent bug here has immediate real-world payroll consequences. No fix to the still-untested routes is worth the risk without a test harness first — add the test, then make the change.
+**Why the gate exists:** These routes directly control whether ~500 employees get paid. The integration suite must stay green before any change ships.
 
 ### 2.6 Restructure Modules (2026-07-05)
 New BPO/FM restructure code lives under `backend/src/` — **not** inside `server.js` body:
@@ -388,7 +388,18 @@ Per `.agents/sessions/S1C_portal_otp_409.md`.
 3. **`GET /api/admin/portal-readiness`** — superadmin readiness report.
 4. **`EmployeePortal.jsx`**, **`api.getPortalReadiness`**, **`portalAuth.test.js`** extended.
 
-### 2026-07-24 — S1A frontend runtime crash fixes (remediation program)
+### 2026-07-24 — S2B World A AP payment integration tests (remediation program)
+Per `.agents/sessions/S2B_world_a_payment_tests.md`. No AP route logic changes.
+
+1. **`tests-int/fixtures/worldA.js`** — client/contract/bank/employees + locked payroll_transactions fixture builder.
+2. **`tests-int/worldA.payment.test.js`** — supertest against real app: payroll lock (finance_approver/superadmin), AP queue GET, confirm (batch + ledger exact rows), idempotent double-confirm, fm-approve role guard, bill confirm happy path.
+3. **`tests-int/harness-proof.test.js`** — legacy `ot`/`opd`/`reimb` INSERT succeeds on prod-shaped schema (S0A facts §2).
+4. **`tests-int/globalSetup.js`** + **`helpers/`** — psql schema bootstrap, pgmigrations seeding, runtime DDL for payment_batches FM columns + scoped unique index.
+5. **AGENTS.md §2.2** — AP confirm routes unfrozen; `npm run test:int` procedural gate.
+
+**Verification:** `npm run test:int` 3 suites / 12 tests green; `node --check server.js` clean. Unit tier via local `C:\temp\BPOFMSystem-backend` node_modules (GDrive-corrupted `backend/node_modules/jest`).
+
+---
 Per `.agents/sessions/S1A_frontend_crashes.md`.
 
 1. **`BillingProcurement.jsx`** — `ImportQuotationModal` review stage now uses `clientsList`/`contractsList` props (was undefined `CLIENTS`/`CONTRACTS`/`SITES`).

@@ -2,6 +2,7 @@
 
 module.exports = {
   testEnvironment: 'node',
+  globalSetup: '<rootDir>/tests-int/globalSetup.js',
   setupFilesAfterEnv: ['<rootDir>/tests-int/setup.js'],
   testMatch: ['<rootDir>/tests-int/**/*.test.js'],
   transform: {},
