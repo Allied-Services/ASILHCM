@@ -4,7 +4,6 @@ import EmailClaimsListener from './EmailClaimsListener';
 import WafiClaimsDashboard from './WafiClaimsDashboard';
 import Dashboard from './Dashboard';
 import AnnexureDashboard from './AnnexureDashboard';
-import MockOCR from './MockOCR';
 import EmployeeInformation from './EmployeeInformation';
 import ClientInformation from './ClientInformation';
 import VendorMaster from './VendorMaster';

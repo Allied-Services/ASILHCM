@@ -11,7 +11,7 @@ You are the **Principal Autonomous Software Engineer** on an Enterprise HCM & Pa
 
 - **Primary Objective:** Protect production uptime, database integrity, and payroll calculation accuracy for ~500 active employees.
 - **Live production URLs are always at risk.** Every `git push main` auto-deploys to Render production. Remediation work uses the **`staging` git branch** and Render services documented in `render.yaml` / `docs/STAGING_SETUP.md`. Merge to `main` only after staging verification.
-- **Authoritative Documentation:** Always read `SYSTEM_BLUEPRINT.md` (root) and `backend/BLUEPRINT.md` before writing any backend code. These files are the ground truth for architecture decisions, known gaps, and business rules.
+- **Authoritative Documentation:** Always read `ARCHITECTURE.md` (root) and `.agents/REMEDIATION_PLAN.md` before writing any backend code. Operational guardrails live in this file (`.agents/AGENTS.md`).
 
 ---
 
@@ -86,7 +86,17 @@ New BPO/FM restructure code lives under `backend/src/` — **not** inside `serve
 - New routes go in `backend/src/modules/<name>/routes.js`, mounted via `mountModules.js`
 - Never add CREATE TABLE to `server.js` startup for restructure features
 - Payroll lock / AP confirm routes remain frozen (Section 2.2)
-- After adding routes: update `frontend/src/api.js` and document in `SYSTEM_BLUEPRINT.md`
+- After adding routes: update `frontend/src/api.js` and document in `ARCHITECTURE.md`
+
+### 2.8 No New DDL in server.js — Ever (S0C)
+
+The inline CREATE TABLE block in `server.js` startup is **frozen as-is** (load-bearing until Phase 9). All new DDL goes through `backend/migrations/` (node-pg-migrate). Present schema changes to MD for review before applying.
+
+### 2.9 Remediation Program (2026-07-24)
+
+Active multi-session payroll consolidation. **Current phase:** 0 (ground truth & safety) → see `.agents/REMEDIATION_PLAN.md` for session order.
+
+**Protocol:** Execute one file from `.agents/sessions/` at a time, in order. Append to Section 10 changelog when done. Work on `staging` branch; merge to `main` only after staging verification. `[MD GATE]` sessions require human sign-off — prepare tools, do not fake approval.
 
 ### 2.7 Background Jobs (`JOBS_RUNNER`) — Ops Note (S0B)
 
@@ -115,7 +125,7 @@ const SMS_PASS = process.env.JAZZ_SMS_PASS || 'Jazz@123';
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error('FATAL: JWT_SECRET env var is not set.');
 ```
-If you need to add a new environment variable, add it to the table in `SYSTEM_BLUEPRINT.md` Section 6 and state that it must be added to Render before deploying.
+If you need to add a new environment variable, add it to `backend/.env.example` with a comment and state that it must be added to Render before deploying.
 
 ### 2.5 No `err.message` in HTTP Responses
 ```js
@@ -141,7 +151,7 @@ Before considering a backend route complete, verify all of the following:
 - [ ] All DB values use parameterized queries (`$1`, `$2` — never string interpolation)
 - [ ] No `pool.query` call inside a `for` loop (use `UNNEST` or bulk VALUES)
 - [ ] New endpoint is added to `frontend/src/api.js` with a typed function name
-- [ ] New endpoint is documented in `SYSTEM_BLUEPRINT.md` Section 8
+- [ ] New endpoint is documented in `ARCHITECTURE.md`
 
 ### 3.2 Tax & Payroll Calculations
 - **Always** use `taxEngine.js` for WHT and SESSI calculations. Never inline slab logic.
@@ -240,7 +250,6 @@ Eleven roles are defined. When adding a new feature, the authorization decision 
 | Add a new npm package without stating it in your response | Dependency changes affect Render's build and must be visible |
 | Use `console.log` with sensitive data in production paths | Personal data (CNIC, email, salary) must not appear in server logs |
 | Add rate-limiting exceptions | Rate limiting, once implemented, must apply uniformly |
-| Create a new top-level route file without discussion | Until server.js is deliberately split, all routes stay in server.js |
 
 ---
 
@@ -267,7 +276,7 @@ A task is NOT complete until:
 - [ ] The code change is minimal and surgical (no unrelated edits)
 - [ ] Backend route checklist (Section 3.1) is satisfied for any new routes
 - [ ] `api.js` is updated for any new endpoints
-- [ ] `SYSTEM_BLUEPRINT.md` is updated if a new route, table, or known gap is added/resolved
+- [ ] `ARCHITECTURE.md` is updated if a new route, table, or known gap is added/resolved
 - [ ] `BLOCKED.md` is updated if a task could not be completed after 3 attempts
 - [ ] No new hardcoded credentials, secrets, or environment variable fallbacks introduced
 - [ ] User has been told which env vars (if any) need to be added to Render before deploying
@@ -333,6 +342,16 @@ Infrastructure-as-code session per `.agents/sessions/S0B_staging_and_iac.md`. No
 4. **Neon/Render dashboard steps** — not executed in agent environment (`NEON_API_KEY` / staging `DATABASE_URL` unavailable). See `BLOCKED.md` §S0B for MD actions.
 
 **Env vars needed before staging is live:** Neon `staging` branch `DATABASE_URL` on Render `asil-hcm-staging`; OAuth staging URLs in Google Cloud Console.
+
+### 2026-07-24 — S0C dead weight cleanup + ARCHITECTURE.md (remediation program)
+Per `.agents/sessions/S0C_dead_weight_and_docs.md`.
+
+1. **Deleted dead code:** `backend/_attendance_routes.js`, `attendanceKPI.js`, `check_bonus_http.js`, `test.js`, `cleanup.js`; `frontend/src/PayrollIntegration.jsx`, `ClientMaster.jsx`, `features/attendance/MonthlyReport.jsx`, `TeamSetup.jsx`; removed unused `MockOCR` import from `App.jsx` (component file retained).
+2. **Deleted contradictory blueprints:** `SYSTEM_BLUEPRINT.md`, `SYSTEM_BLUEPRINT_MASTER.md`, `backend/BLUEPRINT.md`.
+3. **`ARCHITECTURE.md`** — verified-facts architecture doc (two-world payroll, canonical tables, deployment topology).
+4. **AGENTS.md** — blueprint refs → `ARCHITECTURE.md` + `REMEDIATION_PLAN.md`; §2.8 no-new-DDL-in-server.js; §2.9 remediation protocol; removed obsolete anti-pattern row re route files.
+
+**Not deleted:** `server.js.bak` (did not exist). `scripts/archive/inject_attendance.js` still references deleted `_attendance_routes.js` (archive only).
 
 ---
 
