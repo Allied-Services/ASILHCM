@@ -388,6 +388,19 @@ Per `.agents/sessions/S1C_portal_otp_409.md`.
 3. **`GET /api/admin/portal-readiness`** — superadmin readiness report.
 4. **`EmployeePortal.jsx`**, **`api.getPortalReadiness`**, **`portalAuth.test.js`** extended.
 
+### 2026-07-24 — S2C World B payroll engine integration tests (remediation program)
+Per `.agents/sessions/S2C_world_b_engine_tests.md`.
+
+1. **`tests-int/fixtures/worldB.js`** — policy, rate card, attendance, monthly override, focal_approved + wafi claims, holiday.
+2. **`tests-int/worldB.engine.test.js`** — characterization tests for `computeRunForContract`, OT cap/disallow, claim consumption, recompute idempotency, `RUN_LOCKED`, `patchRunRow` (override not preserved on recompute), `lockRun`/`cost_allocations`, `generateInvoiceFromRun`, `classifyOtDate`.
+3. **`runtimeDdl.js`** — added `attendance_records.ot_rate` (engine SELECT expects column absent from S0A snapshot).
+
+**S5B triage flags:** `classifyOtDate` returns `ot2` for weekdays (never `ot1`); `patchRunRow` overrides lost on full recompute.
+
+**Verification:** `npm run test:int` 22 tests green; `payrollParity.test.js` green.
+
+---
+
 ### 2026-07-24 — S2B World A AP payment integration tests (remediation program)
 Per `.agents/sessions/S2B_world_a_payment_tests.md`. No AP route logic changes.
 
