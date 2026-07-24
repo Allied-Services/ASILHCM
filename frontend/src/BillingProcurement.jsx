@@ -654,12 +654,16 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
 }
 
 // ─── Import Quotation Modal ───────────────────────────────────────────────────
-function ImportQuotationModal({ onSave, onClose }) {
+function ImportQuotationModal({ onSave, onClose, clientsList = [], contractsList = [] }) {
     const fileRef = useRef();
     const [stage, setStage] = useState('upload');
     const [parsed, setParsed] = useState(null);
     const [form, setForm] = useState({ client: '', contract: '', site: '', billType: 'Client Debit Note', purpose: 'Procurement — Fixed Supply', note: '' });
     const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+    const clientNames = clientsList.map(c => c.name);
+    const contractOptions = contractsList
+        .filter(ct => !form.client || ct.clientName === form.client)
+        .map(ct => ct.contractName || ct.name || String(ct.id));
 
     const downloadTemplate = () => {
         const csv = 'Description,Quantity,Unit Price\nSafety Helmets,10,850\nSafety Boots,10,1200\nReflective Vests,10,450';
@@ -726,12 +730,12 @@ function ImportQuotationModal({ onSave, onClose }) {
                             {/* Classify */}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1rem', marginBottom: '0.5rem' }}>
                                 <FL label="Client">
-                                    <SS value={form.client} onChange={e => { set('client', e.target.value); set('contract', ''); }} opts={CLIENTS} />
+                                    <SS value={form.client} onChange={e => { set('client', e.target.value); set('contract', ''); }} opts={clientNames} />
                                 </FL>
                                 <FL label="Contract">
-                                    <SS value={form.contract} onChange={e => set('contract', e.target.value)} opts={CONTRACTS[form.client] || []} />
+                                    <SS value={form.contract} onChange={e => set('contract', e.target.value)} opts={contractOptions} />
                                 </FL>
-                                <FL label="Site"><SS value={form.site} onChange={e => set('site', e.target.value)} opts={SITES} /></FL>
+                                <FL label="Site"><SI value={form.site} onChange={e => set('site', e.target.value)} placeholder="e.g. Karachi Office" /></FL>
                             </div>
 
                             <div style={{ border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', marginBottom: '1rem' }}>
@@ -1366,7 +1370,7 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
 
             {showOCR    && <OCRModal    onSave={addBill} onClose={() => setShowOCR(false)}    clientsList={clientsList} contractsList={contractsList} vendorsList={vendorsList} />}
             {showManual && <ManualBillModal onSave={addBill} onClose={() => setShowManual(false)} clientsList={clientsList} contractsList={contractsList} vendorsList={vendorsList} />}
-            {showQuote  && <ImportQuotationModal onSave={addBill} onClose={() => setShowQuote(false)} />}
+            {showQuote  && <ImportQuotationModal onSave={addBill} onClose={() => setShowQuote(false)} clientsList={clientsList} contractsList={contractsList} />}
             {detailBill && <BillDetailModal bill={detailBill} onAction={doAction} onXero={doAction} isApprover={['finance_approver','procurement_approver','superadmin'].includes(user?.role)} onClose={() => setDetailBill(null)} generateChallan={generateChallan} onCreateInvoice={createInvoiceFromBill} />}
 
             {/* Create Invoice success toast */}

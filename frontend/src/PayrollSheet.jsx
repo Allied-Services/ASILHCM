@@ -891,12 +891,7 @@ export default function PayrollSheet({ user }) {
         setSendingEmails(true); setEmailResult(null);
         try {
             const [yr2, mo2] = month.split('-');
-            const res = await fetch(`/api/payroll/${yr2}/${mo2}/send-payslips`, {
-                method: 'POST', credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ employeeIds: targets }),
-            });
-            const d = await res.json();
+            const d = await api.sendPayslipEmails(yr2, mo2, targets);
             if (d.error) throw new Error(d.error);
             setEmailResult({ ok: true, msg: `✅ Sent to ${d.sent} employee(s)${d.failed?.length ? ` (⚠️ ${d.failed.length} failed)` : ''}.` });
         } catch(e) { setEmailResult({ ok: false, msg: '❌ ' + e.message }); }
@@ -1387,7 +1382,7 @@ export default function PayrollSheet({ user }) {
                                         style={{ padding: '5px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.78rem' }}>{t.label}</button>
                                 ))}
                             </div>
-                            <div style={{ marginBottom: '4px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Message (use {name} and {netPay} as placeholders)</div>
+                            <div style={{ marginBottom: '4px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Message (use {'{name}'} and {'{netPay}'} as placeholders)</div>
                             <textarea value={bulkSMSMsg} onChange={e => setBulkSMSMsg(e.target.value.slice(0, 160))}
                                 rows={5} style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px', color: 'var(--text)', fontSize: '0.88rem', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} />
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>{bulkSMSMsg.length}/160 characters</div>

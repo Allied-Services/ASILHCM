@@ -217,6 +217,8 @@ export const api = {
 
     // ── Payslips ──────────────────────────────────────────────────────────────
     getPayslipUrl: (empId, month, year) => `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}`,
+    sendPayslipEmails: (year, month, employeeIds = []) =>
+        apiFetch(`/api/payroll/${year}/${month}/send-payslips`, { method: 'POST', body: JSON.stringify({ employeeIds }) }),
     openPayslip:   (empId, month, year) => {
         const token = localStorage.getItem('asil_hcm_token');
         // URL-encode employee ID to handle IDs with slashes or special characters

@@ -353,6 +353,13 @@ Per `.agents/sessions/S0C_dead_weight_and_docs.md`.
 
 **Not deleted:** `server.js.bak` (did not exist). `scripts/archive/inject_attendance.js` still references deleted `_attendance_routes.js` (archive only).
 
+### 2026-07-24 — S1A frontend runtime crash fixes (remediation program)
+Per `.agents/sessions/S1A_frontend_crashes.md`.
+
+1. **`BillingProcurement.jsx`** — `ImportQuotationModal` review stage now uses `clientsList`/`contractsList` props (was undefined `CLIENTS`/`CONTRACTS`/`SITES`).
+2. **`PayrollSheet.jsx`** — Bulk-SMS placeholder label escaped (`{'{name}'}` / `{'{netPay}'}`); payslip email routed through `api.sendPayslipEmails`.
+3. **`api.js`** — added `sendPayslipEmails(year, month, employeeIds)`.
+
 ---
 
 *This file is maintained by the Antigravity Development Consultant. Update it when architectural decisions change.*
