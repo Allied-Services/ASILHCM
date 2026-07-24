@@ -52,7 +52,7 @@ const ROLE_NAV = {
     finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
     finance_approver:     ['payroll','payroll_run','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal','contract_ops','compliance','bizdev','ar'],
     finance_manager:      ['payroll','payroll_run','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','compliance','ar'],
-    ap_team:              ['ap','billing'],
+    ap_team:              ['ap','billing','payroll_run'],
     ar_team:              ['invoices','po_tracking','billing','compliance'],
     payroll_initiator:    ['payroll','payroll_run','employee','claims_queue','claims_portal'],
     payroll:              ['payroll','payroll_run','employee','claims_queue','claims_portal'],
@@ -292,7 +292,7 @@ function App() {
           {effectiveTab === 'dashboard'  && <Dashboard />}
           {effectiveTab === 'employee'   && <EmployeeInformation user={user} />}
           {effectiveTab === 'payroll'    && <PayrollSheet user={user} />}
-          {effectiveTab === 'payroll_run' && <PayrollRun />}
+          {effectiveTab === 'payroll_run' && <PayrollRun user={user} />}
           {effectiveTab === 'documents'  && <DocumentGenerator />}
           {effectiveTab === 'billing'    && <BillingProcurement user={user} />}
           {effectiveTab === 'invoices'    && <InvoiceSection user={user} />}

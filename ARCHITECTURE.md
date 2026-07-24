@@ -26,7 +26,7 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 |---|---|---|
 | Compute | Browser: `PayrollSheet.jsx` + `payrollUtils.js` | Server: `backend/src/modules/payrollrun/` + `prSheetEngine.js` + `taxEngine.js` |
 | Storage | `POST /api/payroll/:year/:month` → `payroll_transactions` | `payroll_runs` + `payroll_run_rows` |
-| Disbursement | AP queue → `payment_batches` → `payment_ledger` ✅ | No path yet — **S4 builds the bridge** |
+| Disbursement | AP queue → `payment_batches` → `payment_ledger` ✅ | `POST /api/payroll-runs/:id/disburse` → same tables ✅ (S4B) |
 | Status | Pays ~500 employees today | Excel-parity-validated engine; not yet paying |
 
 **Direction:** Build disbursement bridge (S4), pilot one contract at zero variance (S5), cut over contracts (S7), retire World A compute (S7R). World A must keep working until Phase 7.

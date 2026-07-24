@@ -46,7 +46,9 @@ You are the **Principal Autonomous Software Engineer** on an Enterprise HCM & Pa
 | `/api/claims/*` | 5775–6113 | 9 |
 | `/api/wafi-claims/*` | 6146–7682 | 31 |
 
-New route modules (post 2026-07-05 restructure) live outside `server.js` entirely, one file per domain: `backend/src/modules/{ar,attendance,billApproval,bizdev,claims,compliance,constraints,intake,onboarding,payrollrun,pnl,procurement,projects,xeroBillImport}/routes.js`, mounted via `backend/mountModules.js`.
+New route modules (post 2026-07-05 restructure) live outside `server.js` entirely, one file per domain: `backend/src/modules/{ar,attendance,billApproval,bizdev,claims,compliance,constraints,disbursement,intake,onboarding,payrollrun,pnl,procurement,projects,xeroBillImport}/routes.js`, mounted via `backend/mountModules.js`.
+
+**World B disbursement (S4B):** `POST /api/payroll-runs/:id/disburse` in `backend/src/modules/disbursement/routes.js` — roles `ap_team`, `finance_manager`, `superadmin`; bridges locked/invoiced runs to `payment_batches` + `payment_ledger`.
 
 ---
 
@@ -440,6 +442,20 @@ Per `.agents/sessions/S4A_disbursement_service.md`. No HTTP route; World A AP co
 **Verification:** `node --check server.js` clean; `npm test` 203/203; `npm run test:int` 5 suites / 28 tests green (ci-test).
 
 **Env vars needed:** none new. Run `npm run migrate` on staging when deploying.
+
+---
+
+### 2026-07-24 — S4B disbursement route + PayrollRun UI (remediation program)
+Per `.agents/sessions/S4B_disbursement_route_ui.md`. World A AP confirm routes untouched.
+
+1. **`backend/src/modules/disbursement/routes.js`** — `POST /api/payroll-runs/:id/disburse` with `requireAuth` + `requireRole('ap_team','finance_manager','superadmin')`; maps service codes to HTTP (200/404/409/422); `logAudit(req, 'DISBURSE', 'payroll_run', id)` on success.
+2. **`mountModules.js`** — registers `registerDisbursementRoutes`; `logAudit` passed in deps from `server.js`.
+3. **`frontend/src/api.js`** — `disbursePayrollRun(runId, payload)` with structured error (`code`, `employees`, `batch_id`).
+4. **`frontend/src/features/payroll/PayrollRun.jsx`** — Disburse button (locked/invoiced runs, role-gated); modal with bank select, payment date, reference, notes; 422 missing-bank list + exclude checkbox; 409 typed messages; success shows batch id.
+5. **`frontend/src/App.jsx`** — `payroll_run` tab added for `ap_team`; `PayrollRun` receives `user` prop.
+6. **`backend/tests/disbursement.test.js`** — role guard contract tests (401/403/allowed roles).
+
+**Env vars needed:** none new.
 
 ---
 Per `.agents/sessions/S1A_frontend_crashes.md`.

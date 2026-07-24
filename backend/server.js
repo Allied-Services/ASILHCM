@@ -8466,6 +8466,7 @@ mountRestructureModules(app, {
     pool,
     requireAuth,
     requireRole,
+    logAudit,
     sendAppEmail,
     sendJazzSMS,
     getXeroAccessToken: xeroGetAccessToken,
