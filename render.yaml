@@ -1,0 +1,142 @@
+# ASIL HCM — Render Blueprint (infrastructure-as-code record)
+# Created: S0B remediation session (2026-07-24)
+#
+# Render may not yet be switched to Blueprint-managed deploys. This file documents
+# the intended topology. MD can apply via Render Dashboard → Blueprints, or create
+# services manually using the values below.
+#
+# Secrets (DATABASE_URL, JWT_SECRET, OAuth keys, etc.) use sync: false — set in dashboard.
+
+services:
+  # --- Production backend (auto-deploys from main) ---
+  - type: web
+    name: asilhcm
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_URL
+        value: https://asil-hcm-frontend.onrender.com
+      - key: BACKEND_URL
+        value: https://asilhcm.onrender.com
+      - key: APP_BASE_URL
+        value: https://asilhcm.onrender.com
+      - key: ALLOWED_DOMAIN
+        value: asil.com.pk
+      - key: JOBS_RUNNER
+        value: web
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: JAZZ_SMS_USER
+        sync: false
+      - key: JAZZ_SMS_PASS
+        sync: false
+      - key: JAZZ_HTTPS_PROXY
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_CLIENT_ID
+        sync: false
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false
+      - key: INTAKE_EMAIL_USER
+        sync: false
+      - key: INTAKE_EMAIL_PASS
+        sync: false
+      - key: XERO_CLIENT_ID
+        sync: false
+      - key: XERO_CLIENT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+
+  # --- Production frontend (auto-deploys from main) ---
+  - type: web
+    name: asil-hcm-frontend
+    runtime: static
+    plan: free
+    branch: main
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://asilhcm.onrender.com
+
+  # --- Staging backend (deploys from staging branch) ---
+  - type: web
+    name: asil-hcm-staging
+    runtime: node
+    plan: free
+    region: singapore
+    branch: staging
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_URL
+        value: https://asil-hcm-frontend-staging.onrender.com
+      - key: BACKEND_URL
+        value: https://asil-hcm-staging.onrender.com
+      - key: APP_BASE_URL
+        value: https://asil-hcm-staging.onrender.com
+      - key: ALLOWED_DOMAIN
+        value: asil.com.pk
+      - key: JOBS_RUNNER
+        value: web
+      - key: DATABASE_URL
+        sync: false
+        # MUST be Neon `staging` branch — never production
+      - key: JWT_SECRET
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Intentionally UNSET on staging (no real email/SMS/Xero):
+      # RESEND_API_KEY, JAZZ_*, GMAIL_*, INTAKE_EMAIL_*, XERO_*, OPENAI_API_KEY
+
+  # --- Staging frontend (deploys from staging branch) ---
+  - type: web
+    name: asil-hcm-frontend-staging
+    runtime: static
+    plan: free
+    branch: staging
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://asil-hcm-staging.onrender.com

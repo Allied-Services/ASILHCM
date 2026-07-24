@@ -10,7 +10,7 @@
 You are the **Principal Autonomous Software Engineer** on an Enterprise HCM & Payroll Platform serving Allied Services International Limited (Pvt.) Ltd.
 
 - **Primary Objective:** Protect production uptime, database integrity, and payroll calculation accuracy for ~500 active employees.
-- **Live production URLs are always at risk.** Every code change you make auto-deploys to Render on `git push main`. There is no staging environment. Treat every change as a production change.
+- **Live production URLs are always at risk.** Every `git push main` auto-deploys to Render production. Remediation work uses the **`staging` git branch** and Render services documented in `render.yaml` / `docs/STAGING_SETUP.md`. Merge to `main` only after staging verification.
 - **Authoritative Documentation:** Always read `SYSTEM_BLUEPRINT.md` (root) and `backend/BLUEPRINT.md` before writing any backend code. These files are the ground truth for architecture decisions, known gaps, and business rules.
 
 ---
@@ -87,6 +87,14 @@ New BPO/FM restructure code lives under `backend/src/` — **not** inside `serve
 - Never add CREATE TABLE to `server.js` startup for restructure features
 - Payroll lock / AP confirm routes remain frozen (Section 2.2)
 - After adding routes: update `frontend/src/api.js` and document in `SYSTEM_BLUEPRINT.md`
+
+### 2.7 Background Jobs (`JOBS_RUNNER`) — Ops Note (S0B)
+
+**Current mode:** `JOBS_RUNNER=web` (default). pg-boss scheduled jobs (intake poll, compliance crons) register inside the main Express web process via `backend/mountModules.js`.
+
+**Limitation:** On Render's free tier, crons only fire while the web dyno is awake. Cold starts and sleep gaps can delay intake polling by hours.
+
+**Upgrade path (Phase 9 / S9):** Deploy `backend/worker.js` as a paid Render Background Worker ($7/mo) with `JOBS_RUNNER=worker` on the worker and `JOBS_RUNNER=none` on the web service. No scheduled job is on the payroll-compute critical path today, so web-mode is acceptable until then.
 
 ---
 
@@ -315,6 +323,16 @@ Read-only session per `.agents/sessions/S0A_ground_truth_snapshot.md`. No applic
 6. **Restore-test PASSED** (2026-07-24) — MD-created Neon branch `restore-test`; `pg_restore --clean --if-exists` + `SELECT COUNT(*) FROM employees` → **682** (prod parity). Minor EOF on `uploaded_files` tail — see `facts.md` §7. Delete scratch branch in Neon when done.
 
 **Env vars needed:** `DATABASE_URL` (prod, shell-only) for backup script re-runs.
+
+### 2026-07-24 — S0B staging environment + render.yaml (remediation program)
+Infrastructure-as-code session per `.agents/sessions/S0B_staging_and_iac.md`. No application code changes.
+
+1. **`render.yaml`** — four services: prod backend (`asilhcm`), prod frontend (`asil-hcm-frontend`), staging backend (`asil-hcm-staging`), staging frontend (`asil-hcm-frontend-staging`). Secrets marked `sync: false`.
+2. **`docs/STAGING_SETUP.md`** — MD click-by-click: Neon branches `staging` + `ci-test`, Render services, OAuth origins, DB seed via `pg_restore`.
+3. **§2.7 JOBS_RUNNER ops note** — web-mode documented; worker upgrade path deferred to Phase 9.
+4. **Neon/Render dashboard steps** — not executed in agent environment (`NEON_API_KEY` / staging `DATABASE_URL` unavailable). See `BLOCKED.md` §S0B for MD actions.
+
+**Env vars needed before staging is live:** Neon `staging` branch `DATABASE_URL` on Render `asil-hcm-staging`; OAuth staging URLs in Google Cloud Console.
 
 ---
 
