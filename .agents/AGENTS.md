@@ -426,6 +426,22 @@ Per `.agents/sessions/S2B_world_a_payment_tests.md`. No AP route logic changes.
 **Verification:** `npm run test:int` 3 suites / 12 tests green; `node --check server.js` clean. Unit tier via local `C:\temp\BPOFMSystem-backend` node_modules (GDrive-corrupted `backend/node_modules/jest`).
 
 ---
+
+### 2026-07-24 — S4A disbursement bridge service (remediation program)
+Per `.agents/sessions/S4A_disbursement_service.md`. No HTTP route; World A AP confirm routes untouched.
+
+1. **Migration `20260724140000_payment_batches_source_run.js`** — nullable `payment_batches.source_run_id` (no FK).
+2. **`backend/src/modules/disbursement/service.js`** — `disburseRun(pool, runId, opts, actor)` in one transaction: guards (`RUN_NOT_DISBURSABLE`, `BATCH_EXISTS`, `LEGACY_PAYROLL_LOCKED`, `MISSING_BANK_DETAILS`), bulk `payment_ledger` INSERT mirroring World A confirm id/reference/bank-slug format, sets run `paid`.
+3. **`payrollrun/service.js`** — `invoiced` added to `PAYROLL_RUN_STATUSES`; `invoiced → paid` transition for disbursement.
+4. **`tests-int/disbursement.test.js`** — happy path, Guard A/B, missing bank + `allow_missing_bank`, idempotence, atomicity rollback.
+5. **`scripts/rollback_disbursement.sql`** — manual pre-bank-file rollback (ledger → batch → run `locked`).
+6. **`jest.config.js`** — exclude `portalClaims.test.js` (Node `--test` runner only; was breaking `npm test`).
+
+**Verification:** `node --check server.js` clean; `npm test` 203/203; `npm run test:int` 5 suites / 28 tests green (ci-test).
+
+**Env vars needed:** none new. Run `npm run migrate` on staging when deploying.
+
+---
 Per `.agents/sessions/S1A_frontend_crashes.md`.
 
 1. **`BillingProcurement.jsx`** — `ImportQuotationModal` review stage now uses `clientsList`/`contractsList` props (was undefined `CLIENTS`/`CONTRACTS`/`SITES`).

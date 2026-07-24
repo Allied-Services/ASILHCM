@@ -8,11 +8,12 @@ const { provinceSalesTaxRate } = require('../../core/regionTax');
 const DEFAULT_OT_HOURS_PER_DAY = 8;
 
 /** MD Mandate §4 — payroll run status cycle */
-const PAYROLL_RUN_STATUSES = ['draft', 'proposed', 'locked', 'paid', 'revised'];
+const PAYROLL_RUN_STATUSES = ['draft', 'proposed', 'locked', 'invoiced', 'paid', 'revised'];
 const PAYROLL_STATUS_TRANSITIONS = {
     draft: ['proposed'],
     proposed: ['locked', 'draft'],
     locked: ['paid', 'revised'],
+    invoiced: ['paid', 'revised'],
     paid: ['revised'],
     revised: ['proposed', 'locked'],
 };

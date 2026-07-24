@@ -202,14 +202,15 @@ describe('Pillar 7 — Pakistan tax deductions', () => {
 });
 
 describe('Payroll status cycle', () => {
-    test('statuses are Draft → Proposed → Locked → Paid → Revised', () => {
-        expect(PAYROLL_RUN_STATUSES).toEqual(['draft', 'proposed', 'locked', 'paid', 'revised']);
+    test('statuses include invoiced between locked and paid', () => {
+        expect(PAYROLL_RUN_STATUSES).toEqual(['draft', 'proposed', 'locked', 'invoiced', 'paid', 'revised']);
     });
 
     test('allowed transitions', () => {
         expect(canTransitionStatus('draft', 'proposed')).toBe(true);
         expect(canTransitionStatus('proposed', 'locked')).toBe(true);
         expect(canTransitionStatus('locked', 'paid')).toBe(true);
+        expect(canTransitionStatus('invoiced', 'paid')).toBe(true);
         expect(canTransitionStatus('paid', 'revised')).toBe(true);
         expect(canTransitionStatus('revised', 'proposed')).toBe(true);
         expect(canTransitionStatus('draft', 'paid')).toBe(false);

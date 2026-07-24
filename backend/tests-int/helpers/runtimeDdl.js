@@ -10,6 +10,7 @@ async function applyRuntimeDdl(pool) {
     ALTER TABLE payment_batches ADD COLUMN IF NOT EXISTS fm_approved_at TIMESTAMPTZ;
     ALTER TABLE payment_batches ADD COLUMN IF NOT EXISTS client TEXT;
     ALTER TABLE payment_batches ADD COLUMN IF NOT EXISTS contract_name TEXT;
+    ALTER TABLE payment_batches ADD COLUMN IF NOT EXISTS source_run_id INTEGER;
     ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS ot_rate NUMERIC;
   `);
 
