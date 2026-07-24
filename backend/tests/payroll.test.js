@@ -105,6 +105,7 @@ describe('PATCH /api/payroll/:year/:month/lock — role guards', () => {
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
       expect(res.body.locked).toBe(true);
+      expect(res.body.accruals).toEqual({ ok: true, pf_rows: 0, gratuity_rows: 0 });
     }
   );
 
@@ -195,6 +196,28 @@ describe('PATCH /api/payroll/:year/:month/lock — lock scope', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.lockedBy).toBe('payroll.officer@asil.com.pk');
+  });
+
+  test('lock still succeeds when PF accrual insert fails → accruals.ok false', async () => {
+    mockUpdateSuccess();
+    mockPool.query.mockResolvedValueOnce({
+      rows: [{ employee_id: 'ASIL-PF-1' }],
+      rowCount: 1,
+    });
+    mockPool.query.mockResolvedValueOnce({
+      rows: [{ id: 'ASIL-PF-1', salary: 48000, contract_name: 'Test', eosb_type: 'Provident Fund' }],
+      rowCount: 1,
+    });
+    mockPool.query.mockRejectedValueOnce(new Error('simulated pf insert failure'));
+
+    const res = await request()
+      .patch(LOCK_PATH)
+      .set('Authorization', `Bearer ${token()}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.accruals).toEqual({ ok: false, error_logged: true });
   });
 
 });

@@ -362,6 +362,20 @@ Per `.agents/sessions/S1B_wafi_stage_to_claims.md`.
 
 **Migration not applied in agent environment** — run `npm run migrate` on staging when `DATABASE_URL` available.
 
+### 2026-07-24 — S1D payroll lock accrual visibility (remediation program)
+Per `.agents/sessions/S1D_lock_accruals.md`. Lock route changes committed with S1C (`ffe7c9d`) in `server.js`.
+
+1. **`PATCH /api/payroll/:year/:month/lock`** — accruals in try/catch; `accruals` object on response; `console.error('[payroll-lock accruals]', err)` on failure.
+2. **`payroll.test.js`** — accruals success shape + failure-while-lock-succeeds.
+
+### 2026-07-24 — S1C portal OTP actionable errors (remediation program)
+Per `.agents/sessions/S1C_portal_otp_409.md`.
+
+1. **`verify-otp`** — 409 codes: `EMPLOYEE_NOT_FOUND`, `EMPLOYEE_INACTIVE`, `CONTACT_MISMATCH`.
+2. **`request-otp`** — 409 `NO_CONTACT_CHANNEL` when no email/phone.
+3. **`GET /api/admin/portal-readiness`** — superadmin readiness report.
+4. **`EmployeePortal.jsx`**, **`api.getPortalReadiness`**, **`portalAuth.test.js`** extended.
+
 ### 2026-07-24 — S1A frontend runtime crash fixes (remediation program)
 Per `.agents/sessions/S1A_frontend_crashes.md`.
 
