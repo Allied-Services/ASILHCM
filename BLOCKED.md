@@ -1,21 +1,18 @@
-# BLOCKED — S0B staging dashboard steps (MD action required)
+# BLOCKED — staging dashboard + integration test DB (MD action required)
 
 _Last updated: 2026-07-24_
 
-Automated agent could not create Neon branches or Render services (no `NEON_API_KEY`, no staging `DATABASE_URL` in shell). Code deliverables (`render.yaml`, `docs/STAGING_SETUP.md`) are committed; infrastructure steps require MD.
+## S0B — Staging infrastructure (MD)
 
-## MD checklist (see `docs/STAGING_SETUP.md` for full detail)
+Automated agent could not create Neon branches or Render services (no `NEON_API_KEY`, no staging `DATABASE_URL` in shell). Code deliverables (`render.yaml`, `docs/STAGING_SETUP.md`) are committed.
 
-1. **Neon:** Create branches `staging` and `ci-test` from `production`. Save connection strings privately.
-2. **Git:** `git push -u origin staging` (if not already on remote).
-3. **Render:** Create `asil-hcm-staging` (web) and `asil-hcm-frontend-staging` (static) per `render.yaml`.
-4. **Seed:** `pg_restore` S0A backup into Neon `staging` branch; verify `SELECT COUNT(*) FROM employees` → 682.
-5. **OAuth:** Add staging URLs to Google OAuth client authorized origins/redirects.
-6. **Verify:** `https://asil-hcm-staging.onrender.com/health` returns OK.
+**MD checklist:** see `docs/STAGING_SETUP.md` — Neon `staging` + `ci-test` branches, push `staging` git branch, Render services, OAuth URLs, `pg_restore` seed, `/health` verify.
 
-## Impact
+## S2A — Integration test execution (MD / dev machine)
 
-S0B code artifacts complete. Sessions S0C+ can proceed locally. Staging E2E verification (S0B checklist items 29–31) blocked until MD completes steps above.
+`npm run test:int` harness is committed but **not executed** in overnight run — `TEST_DATABASE_URL` (Neon `ci-test` branch) not available. Runner refuses URLs without `ci-test` substring.
+
+**Unblock:** Create Neon `ci-test` branch per `docs/STAGING_SETUP.md` §1b; set `$env:TEST_DATABASE_URL` locally; run `cd backend ; npm run test:int`.
 
 ## Recently resolved
 

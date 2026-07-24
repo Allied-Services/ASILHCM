@@ -98,6 +98,14 @@ Active multi-session payroll consolidation. **Current phase:** 0 (ground truth &
 
 **Protocol:** Execute one file from `.agents/sessions/` at a time, in order. Append to Section 10 changelog when done. Work on `staging` branch; merge to `main` only after staging verification. `[MD GATE]` sessions require human sign-off — prepare tools, do not fake approval.
 
+### 2.10 Integration tests (`npm run test:int`) — mandatory gate (S2A)
+
+Second test tier: real Postgres on Neon **`ci-test`** branch only (`TEST_DATABASE_URL` must contain substring `ci-test` — runner refuses otherwise).
+
+- **Before pushing** anything touching `/api/ap/*`, `/api/payroll*`, `payment_*`, `payroll_run*`, or `employee_claims`: run `npm test` AND `npm run test:int` locally.
+- Set `TEST_DATABASE_URL` to the Neon ci-test branch string (never commit). See `docs/STAGING_SETUP.md` §7.
+- Harness: `backend/tests-int/`, config `backend/jest.int.config.js`.
+
 ### 2.7 Background Jobs (`JOBS_RUNNER`) — Ops Note (S0B)
 
 **Current mode:** `JOBS_RUNNER=web` (default). pg-boss scheduled jobs (intake poll, compliance crons) register inside the main Express web process via `backend/mountModules.js`.
@@ -361,6 +369,10 @@ Per `.agents/sessions/S1B_wafi_stage_to_claims.md`.
 3. **Guard** — skips rows already `in_payroll_run`; re-stage is idempotent via ON CONFLICT.
 
 **Migration not applied in agent environment** — run `npm run migrate` on staging when `DATABASE_URL` available.
+
+4. **AGENTS.md §2.10** — procedural gate documented.
+
+**Verification blocked** — no `TEST_DATABASE_URL` (Neon `ci-test` branch) in agent environment. See `BLOCKED.md`.
 
 ### 2026-07-24 — S1D payroll lock accrual visibility (remediation program)
 Per `.agents/sessions/S1D_lock_accruals.md`. Lock route changes committed with S1C (`ffe7c9d`) in `server.js`.
