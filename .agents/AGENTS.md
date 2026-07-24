@@ -116,12 +116,13 @@ Second test tier: real Postgres on Neon **`ci-test`** branch only (`TEST_DATABAS
 
 ---
 
-### 2.3 DDL / Schema Changes — Stage First
-Any database structural change (new table, new column, index, constraint) must be:
-1. Written as a standalone `ALTER TABLE ... IF NOT EXISTS` or `CREATE TABLE ... IF NOT EXISTS` block.
-2. Documented in `database/schema.sql` with a comment marking the migration date.
-3. Presented to the user for review **before** being added to `server.js`'s startup migration block.
-4. Idempotent — running it twice must produce no error and no data corruption.
+### 2.3 DDL / Schema Governance (S3)
+
+1. **Inline `server.js` DDL block is frozen** — never add CREATE TABLE/ALTER there (Phase 9 removes it).
+2. **All new DDL** goes through `backend/migrations/` (node-pg-migrate), idempotent, reviewed before deploy.
+3. **After each migration reaches prod**, regenerate `database/schema.sql` via `scripts/regen_schema.ps1` (`DATABASE_URL` → prod).
+4. **`tests-int`** bootstraps from `database/schema.sql` + pending migrations — a stale `schema.sql` breaks CI locally by design.
+5. **`audit/groundtruth/schema_prod.sql`** is a frozen S0A historical artifact; do not update it.
 
 ### 2.4 No Hardcoded Credentials — Ever
 ```js
@@ -387,6 +388,18 @@ Per `.agents/sessions/S1C_portal_otp_409.md`.
 2. **`request-otp`** — 409 `NO_CONTACT_CHANNEL` when no email/phone.
 3. **`GET /api/admin/portal-readiness`** — superadmin readiness report.
 4. **`EmployeePortal.jsx`**, **`api.getPortalReadiness`**, **`portalAuth.test.js`** extended.
+
+### 2026-07-24 — S3 single schema source of truth (remediation program)
+Per `.agents/sessions/S3_schema_governance.md`.
+
+1. **`database/schema.sql`** — replaced aspirational file with prod snapshot + generated header.
+2. **`scripts/regen_schema.ps1`** — pg_dump schema-only regen wrapper.
+3. **AGENTS.md §2.3** — schema governance rules (frozen server.js DDL, migrations-only, regen after deploy).
+4. **`tests-int/globalSetup.js`** — bootstraps from `database/schema.sql` (S0A `audit/groundtruth/schema_prod.sql` frozen).
+
+**Verification:** `npm run test:int` 4 suites / 22 tests green from cold bootstrap; `git grep employee_master database/` empty.
+
+---
 
 ### 2026-07-24 — S2C World B payroll engine integration tests (remediation program)
 Per `.agents/sessions/S2C_world_b_engine_tests.md`.

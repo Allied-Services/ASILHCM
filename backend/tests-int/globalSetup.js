@@ -70,7 +70,7 @@ module.exports = async () => {
     connectionTimeoutMillis: 30000,
   });
 
-  const schemaFile = path.join(__dirname, '../../audit/groundtruth/schema_prod.sql');
+  const schemaFile = path.join(__dirname, '../../database/schema.sql');
   const psql = process.env.PSQL_BIN || 'C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe';
 
   await pool.query('DROP SCHEMA IF EXISTS public CASCADE');
