@@ -353,6 +353,15 @@ Per `.agents/sessions/S0C_dead_weight_and_docs.md`.
 
 **Not deleted:** `server.js.bak` (did not exist). `scripts/archive/inject_attendance.js` still references deleted `_attendance_routes.js` (archive only).
 
+### 2026-07-24 — S1B Wafi stage-payroll → employee_claims (remediation program)
+Per `.agents/sessions/S1B_wafi_stage_to_claims.md`.
+
+1. **Migration `20260724120000_employee_claims_source.js`** — `source_kind`, `source_session_id`, `source_ref` + partial unique index for idempotent Wafi staging.
+2. **`server.js`** — `stageWafiSessionToEmployeeClaims()` helper; both `stage-payroll` and `verify` routes write `employee_claims` (hours for OT, amounts for expense/medical) instead of dead `payroll_transactions.ot/reimb/opd` columns.
+3. **Guard** — skips rows already `in_payroll_run`; re-stage is idempotent via ON CONFLICT.
+
+**Migration not applied in agent environment** — run `npm run migrate` on staging when `DATABASE_URL` available.
+
 ### 2026-07-24 — S1A frontend runtime crash fixes (remediation program)
 Per `.agents/sessions/S1A_frontend_crashes.md`.
 

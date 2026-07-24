@@ -2604,7 +2604,17 @@ app.post('/api/portal/request-otp', portalOtpLimiter, async (req, res) => {
             return res.status(404).json({ error: 'No active employee found with this phone number or employee code' });
         }
 
-        const result = await persistAndSendPortalOtp(rows[0], { preferSms: !!preferSms });
+        const emp = rows[0];
+        const hasEmail = isValidEmail(String(emp.email || '').trim());
+        const hasPhone = !!normalisePhone(emp.primary_contact || '');
+        if (!hasEmail && !hasPhone) {
+            return res.status(409).json({
+                code: 'NO_CONTACT_CHANNEL',
+                error: 'Contact HR to update your phone/email',
+            });
+        }
+
+        const result = await persistAndSendPortalOtp(emp, { preferSms: !!preferSms });
         if (result.error) return res.status(result.status || 500).json({ error: result.error, detail: result.detail });
 
         const msg = result.channel === 'email'
@@ -7000,6 +7010,106 @@ app.get('/api/wafi-claims/sessions-export', requireAuth, async (req, res) => {
     } catch (err) { console.error('[GET /api/wafi-claims/sessions-export]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
+// ── Wafi → employee_claims staging (S1B) ─────────────────────────────────────
+function wafiOtTierFields(factor, hrs) {
+    const f = parseFloat(factor) || 1;
+    const h = parseFloat(hrs) || 0;
+    if (f >= 3) return { ot1: 0, ot2: 0, ot3: h };
+    if (f >= 2) return { ot1: 0, ot2: h, ot3: 0 };
+    return { ot1: h, ot2: 0, ot3: 0 };
+}
+
+function buildWafiClaimGroups(items) {
+    const groups = new Map();
+    const add = (empId, claimType, claimItem) => {
+        const key = `${empId}|${claimType}`;
+        if (!groups.has(key)) groups.set(key, { employeeId: empId, claimType, claimedItems: [] });
+        groups.get(key).claimedItems.push(claimItem);
+    };
+
+    for (const item of items || []) {
+        const empId = item.employee_id;
+        if (!empId) continue;
+        const prov = {
+            wafi_item_id: item.id,
+            date: item.claim_date || item.date || null,
+            description: item.description || item.notes || item.tab_name || null,
+        };
+
+        if (item.claim_type === 'OT') {
+            const hrs = parseFloat(item.ot_hours) || 0;
+            if (hrs <= 0) continue;
+            add(empId, 'overtime', { ...wafiOtTierFields(item.ot_multiplier_factor, hrs), ...prov });
+        } else if (item.claim_type === 'EXPENSE') {
+            const amount = parseFloat(item.raw_amount) || 0;
+            if (amount <= 0) continue;
+            add(empId, 'expense', { amount, ...prov });
+        } else if (item.claim_type === 'MEDICAL') {
+            const amount = parseFloat(item.raw_amount) || 0;
+            if (amount <= 0) continue;
+            add(empId, 'medical', { amount, ...prov });
+        }
+    }
+    return [...groups.values()];
+}
+
+async function stageWafiSessionToEmployeeClaims(db, { sessionId, sessionRef, month, year, items }) {
+    const groups = buildWafiClaimGroups(items);
+    let upserted = 0;
+    const skipped_locked = [];
+    const typeCounts = { overtime: 0, expense: 0, medical: 0 };
+
+    for (const group of groups) {
+        const { rows: existing } = await db.query(
+            `SELECT id, status FROM employee_claims
+             WHERE source_kind = 'wafi' AND source_session_id = $1 AND employee_id = $2 AND claim_type = $3`,
+            [sessionId, group.employeeId, group.claimType]
+        );
+        if (existing.length && existing[0].status === 'in_payroll_run') {
+            skipped_locked.push({ employee_id: group.employeeId, claim_type: group.claimType });
+            continue;
+        }
+
+        await db.query(
+            `INSERT INTO employee_claims (
+                employee_id, claim_type, period_month, period_year, claimed_items,
+                status, focal_approved_at, source_kind, source_session_id, source_ref, updated_at
+            ) VALUES ($1, $2, $3, $4, $5::jsonb, 'focal_approved', NOW(), 'wafi', $6, $7, NOW())
+            ON CONFLICT (source_kind, source_session_id, employee_id, claim_type)
+            WHERE source_kind IS NOT NULL
+            DO UPDATE SET
+                claimed_items = EXCLUDED.claimed_items,
+                period_month = EXCLUDED.period_month,
+                period_year = EXCLUDED.period_year,
+                updated_at = NOW()
+            WHERE employee_claims.status <> 'in_payroll_run'`,
+            [
+                group.employeeId,
+                group.claimType,
+                parseInt(month, 10),
+                parseInt(year, 10),
+                JSON.stringify(group.claimedItems),
+                sessionId,
+                sessionRef || null,
+            ]
+        );
+        upserted++;
+        typeCounts[group.claimType] = (typeCounts[group.claimType] || 0) + 1;
+    }
+
+    const affectedEmployees = new Set(groups.map(g => g.employeeId)).size;
+    return {
+        upserted,
+        affectedEmployees,
+        skipped_locked,
+        breakdown: {
+            ot: typeCounts.overtime || 0,
+            expense: typeCounts.expense || 0,
+            medical: typeCounts.medical || 0,
+        },
+    };
+}
+
 // POST /api/wafi-claims/sessions/:id/stage-payroll
 app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req, res) => {
     try {
@@ -7025,52 +7135,15 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
             [sessionId]
         );
 
-        const otPushMap    = {}; // employee_id -> ot_payout sum
-        const expPushMap   = {}; // employee_id -> expense sum
-        const medPushMap   = {}; // employee_id -> medical sum
-
-        for (const item of items) {
-            const empId = item.employee_id;
-            if (!empId) continue;
-            const salary     = parseFloat(item.salary) || 0;
-            const hourlyRate = salary / 26 / 8;
-
-            if (item.claim_type === 'OT') {
-                const hrs    = parseFloat(item.ot_hours)            || 0;
-                const factor = parseFloat(item.ot_multiplier_factor) || 1;
-                const payout = hrs * factor * hourlyRate;
-                otPushMap[empId] = (otPushMap[empId] || 0) + payout;
-            } else if (item.claim_type === 'EXPENSE') {
-                const amt = parseFloat(item.raw_amount) || 0;
-                expPushMap[empId] = (expPushMap[empId] || 0) + amt;
-            } else if (item.claim_type === 'MEDICAL') {
-                const amt = parseFloat(item.raw_amount) || 0;
-                medPushMap[empId] = (medPushMap[empId] || 0) + amt;
-            }
-        }
-
-        const affectedEmps = new Set([
-            ...Object.keys(otPushMap),
-            ...Object.keys(expPushMap),
-            ...Object.keys(medPushMap),
-        ]);
-
-        let upserted = 0;
-        for (const empId of affectedEmps) {
-            const otAmt  = parseFloat((otPushMap[empId]  || 0).toFixed(2));
-            const expAmt = parseFloat((expPushMap[empId] || 0).toFixed(2));
-            const medAmt = parseFloat((medPushMap[empId] || 0).toFixed(2));
-
-            await pool.query(`
-                INSERT INTO payroll_transactions (employee_id, month, year, ot, reimb, opd)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (employee_id, month, year) DO UPDATE
-                  SET ot    = payroll_transactions.ot    + EXCLUDED.ot,
-                      reimb = payroll_transactions.reimb + EXCLUDED.reimb,
-                      opd   = payroll_transactions.opd   + EXCLUDED.opd
-            `, [empId, parseInt(month), parseInt(year), otAmt, expAmt, medAmt]);
-            upserted++;
-        }
+        const sessionRef = session.attachment_filename || session.subject || String(sessionId);
+        const stageResult = await stageWafiSessionToEmployeeClaims(pool, {
+            sessionId,
+            sessionRef,
+            month,
+            year,
+            items,
+        });
+        const { upserted, affectedEmployees, skipped_locked, breakdown } = stageResult;
 
         const payrollMonth = new Date(parseInt(year), parseInt(month) - 1, 1);
         await pool.query(
@@ -7125,14 +7198,12 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
 
         res.json({
             ok: true,
-            message: `Staged ${upserted} employees to payroll ${year}-${String(month).padStart(2,'0')}`,
+            message: `Staged ${affectedEmployees} employees (${upserted} claim rows) to payroll ${year}-${String(month).padStart(2,'0')}`,
             upserted,
+            affectedEmployees,
+            skipped_locked,
             draftCreated: !!draftId,
-            breakdown: {
-                ot: Object.keys(otPushMap).length,
-                expense: Object.keys(expPushMap).length,
-                medical: Object.keys(medPushMap).length,
-            },
+            breakdown,
         });
     } catch (err) { console.error('[POST /api/wafi-claims/sessions/:id/stage-payroll]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -7715,39 +7786,19 @@ app.post('/api/wafi-claims/sessions/:id/verify', requireAuth, async (req, res) =
             return res.status(400).json({ error: `Cannot verify session with status ${sess.processing_status}` });
         }
 
-        // Push items to payroll
+        // Push items to employee_claims (World B intake)
         const { rows: items } = await client.query(
             `SELECT * FROM wafi_claims_items WHERE session_id = $1 AND active = TRUE`, [sessionId]
         );
-        const otPushMap = {}, expPushMap = {}, medPushMap = {};
-        for (const item of items) {
-            const empId = item.employee_id;
-            if (!empId) continue;
-            if (item.claim_type === 'OT' && item.ot_payout) {
-                otPushMap[empId] = (otPushMap[empId] || 0) + parseFloat(item.ot_payout);
-            } else if (item.claim_type === 'EXPENSE' && item.raw_amount) {
-                expPushMap[empId] = (expPushMap[empId] || 0) + parseFloat(item.raw_amount);
-            } else if (item.claim_type === 'MEDICAL' && item.raw_amount) {
-                medPushMap[empId] = (medPushMap[empId] || 0) + parseFloat(item.raw_amount);
-            }
-        }
-
-        const affectedEmps = new Set([...Object.keys(otPushMap), ...Object.keys(expPushMap), ...Object.keys(medPushMap)]);
-        let upserted = 0;
-        for (const empId of affectedEmps) {
-            await client.query(`
-                INSERT INTO payroll_transactions (employee_id, month, year, ot, reimb, opd)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (employee_id, month, year) DO UPDATE
-                  SET ot    = payroll_transactions.ot    + EXCLUDED.ot,
-                      reimb = payroll_transactions.reimb + EXCLUDED.reimb,
-                      opd   = payroll_transactions.opd   + EXCLUDED.opd
-            `, [empId, parseInt(month), parseInt(year),
-                parseFloat((otPushMap[empId]  || 0).toFixed(2)),
-                parseFloat((expPushMap[empId] || 0).toFixed(2)),
-                parseFloat((medPushMap[empId] || 0).toFixed(2))]);
-            upserted++;
-        }
+        const sessionRef = sess.attachment_filename || sess.subject || String(sessionId);
+        const stageResult = await stageWafiSessionToEmployeeClaims(client, {
+            sessionId,
+            sessionRef,
+            month,
+            year,
+            items,
+        });
+        const { upserted, affectedEmployees, skipped_locked } = stageResult;
 
         // Determine claim month label (for email)
         const claimMonthLabel = sess.claim_month
@@ -7808,8 +7859,10 @@ app.post('/api/wafi-claims/sessions/:id/verify', requireAuth, async (req, res) =
 
         res.json({
             ok: true,
-            message: `Session ${sessionId} verified. ${upserted} employees staged to ${settlementMonthLabel} payroll.${draftId ? ' Confirmation draft created in Gmail.' : ''}`,
+            message: `Session ${sessionId} verified. ${affectedEmployees} employees staged (${upserted} claim rows) to ${settlementMonthLabel} payroll.${draftId ? ' Confirmation draft created in Gmail.' : ''}`,
             upserted,
+            affectedEmployees,
+            skipped_locked,
             settlementMonth: settlementMonthLabel,
             draftId,
         });
