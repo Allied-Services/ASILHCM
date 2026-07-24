@@ -49,12 +49,18 @@ const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_' + Math.random().toStri
 const ALLOWED_DOMAIN = process.env.ALLOWED_DOMAIN || 'asil.com.pk';
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Resend Email Client ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
-const resend = new Resend(process.env.RESEND_API_KEY || '');
+let resendClient;
+function getResend() {
+    if (!process.env.RESEND_API_KEY) return null;
+    if (!resendClient) resendClient = new Resend(process.env.RESEND_API_KEY);
+    return resendClient;
+}
 const EMAIL_FROM = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
 
 async function sendAppEmail({ to, subject, html }) {
     const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
-    if (!process.env.RESEND_API_KEY || !recipients.length) {
+    const resend = getResend();
+    if (!resend || !recipients.length) {
         return { skipped: true, reason: 'missing_key_or_recipients' };
     }
     try {
@@ -4138,6 +4144,11 @@ app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res
                 .replace('${fmt(wht+eobi+adv+loan)}', fmt(wht+eobi+pfDedEmail+adv+loan));
 
             try {
+                const resend = getResend();
+                if (!resend) {
+                    failed.push({ id: emp.id, name: emp.name, err: 'RESEND_API_KEY not configured' });
+                    continue;
+                }
                 await resend.emails.send({
                     from: EMAIL_FROM,
                     to: emp.email,
@@ -6705,6 +6716,8 @@ app.post('/api/claims/send-approval-emails', requireAuth, async (req, res) => {
 </body></html>`;
 
             try {
+                const resend = getResend();
+                if (!resend) throw new Error('RESEND_API_KEY not configured');
                 await resend.emails.send({
                     from: EMAIL_FROM,
                     to: mgr.email,

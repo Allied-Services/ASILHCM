@@ -37,7 +37,12 @@ const DIGEST_RECIPIENTS = [
     'laiba.mughal@asil.com.pk',
 ];
 
-const resend    = new Resend(process.env.RESEND_API_KEY || '');
+let resendClient;
+function getResend() {
+    if (!process.env.RESEND_API_KEY) return null;
+    if (!resendClient) resendClient = new Resend(process.env.RESEND_API_KEY);
+    return resendClient;
+}
 const openaiKey = process.env.OPENAI_API_KEY || '';
 const openai    = openaiKey ? new OpenAI({ apiKey: openaiKey }) : null;
 
@@ -1791,6 +1796,11 @@ async function sendDailyDigest(pool) {
   </div>
 </div></body></html>`;
 
+        const resend = getResend();
+        if (!resend) {
+            console.log('[Wafi Claims] Daily digest skipped — RESEND_API_KEY not configured');
+            return;
+        }
         await resend.emails.send({
             from: EMAIL_FROM,
             to: DIGEST_RECIPIENTS,

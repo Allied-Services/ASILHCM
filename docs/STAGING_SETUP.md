@@ -69,10 +69,11 @@ Reference: root `render.yaml` (four services documented).
 | `BACKEND_URL` | `https://asil-hcm-staging.onrender.com` |
 | `APP_BASE_URL` | `https://asil-hcm-staging.onrender.com` |
 | `JOBS_RUNNER` | `web` |
+| `EMAILS_ENABLED` | `false` |
 
 **Leave UNSET** (staging must not contact real employees or Xero):
 
-- `RESEND_API_KEY`
+- `RESEND_API_KEY` (optional — email routes skip send when unset; boot no longer requires a placeholder)
 - All `JAZZ_*`
 - All `GMAIL_*` / `CLAIMS_EMAIL_*`
 - All `INTAKE_EMAIL_*`
