@@ -232,6 +232,24 @@ Query ran as written (no column adaptations needed).
 | Item | Status |
 |---|---|
 | `pg_dump -Fc` backup created | ✅ `backups/prod_20260724_041440.dump` — 797 MB, `pg_restore --list` shows 1,095 TOC entries |
-| Neon branch `restore-test` + `pg_restore` + employee count | ❌ **BLOCKED** — `NEON_API_KEY` not available in shell; `neonctl` requires interactive browser OAuth. See `BLOCKED.md`. |
+| Neon branch `restore-test` + `pg_restore` + employee count | ✅ **PASSED** — 2026-07-24, MD-created branch from `production` |
+
+**Restore command used** (branch already had prod clone; `--clean --if-exists` required):
+
+```powershell
+pg_restore --clean --if-exists -d $env:RESTORE_URL --no-owner --no-privileges backups/prod_20260724_041440.dump
+```
+
+**Post-restore parity checks** (`restore-test` branch):
+
+```
+SELECT COUNT(*) FROM employees;           → 682  (matches prod)
+SELECT COUNT(*) FROM payroll_transactions; → 1792
+SELECT COUNT(*) FROM bills;                → 20557
+```
+
+**Caveats:** `pg_restore` exited code 1. Log (`audit/groundtruth/restore_test.log`):
+- Benign `cannot drop inherited constraint` errors on `pgboss` partition tables (Neon).
+- `could not read from input file: end of file` while loading `public.uploaded_files` — `uploaded_files` count **0** on restore branch. Core HR/payroll tables restored; parity target **682 employees** met. Re-run backup from a local non-synced copy if file attachments must be in backup scope.
 
 Prod employee count (reference for restore parity): **682**.

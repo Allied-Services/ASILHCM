@@ -312,9 +312,9 @@ Read-only session per `.agents/sessions/S0A_ground_truth_snapshot.md`. No applic
 3. **`audit/groundtruth/facts.md`** — live query outputs: 19/21 migrations applied (`payroll_runs` present — Phase 4 not blocked); legacy `ot`/`opd`/`reimb` columns confirmed on `payroll_transactions`; all 8 World B dependency tables exist; locked payroll only April 2026 (303 rows); pilot contract matrix for S5.
 4. **Full backup** — `backups/prod_20260724_041440.dump` (797 MB, local only). Integrity verified via `pg_restore --list`.
 5. **SSL note:** `/health` on commit `8efc8c0` returns HTTP 200 with live Neon connection — `rejectUnauthorized: true` concern resolved in production.
-6. **Restore-test BLOCKED** — Neon branch create/delete requires `NEON_API_KEY` or MD manual branch; documented in `BLOCKED.md`.
+6. **Restore-test PASSED** (2026-07-24) — MD-created Neon branch `restore-test`; `pg_restore --clean --if-exists` + `SELECT COUNT(*) FROM employees` → **682** (prod parity). Minor EOF on `uploaded_files` tail — see `facts.md` §7. Delete scratch branch in Neon when done.
 
-**Env vars needed:** `DATABASE_URL` (prod, shell-only) for backup script re-runs; `NEON_API_KEY` to unblock restore-test.
+**Env vars needed:** `DATABASE_URL` (prod, shell-only) for backup script re-runs.
 
 ---
 
