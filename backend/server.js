@@ -914,6 +914,43 @@ app.post('/api/admin/test-claim-notify', requireAuth, requireRole('superadmin', 
     }
 });
 
+// Portal OTP readiness — active employees missing both email and phone (S1C)
+app.get('/api/admin/portal-readiness', requireAuth, requireRole('superadmin'), async (req, res) => {
+    try {
+        const { rows: counts } = await pool.query(`
+            SELECT
+                COUNT(*) FILTER (WHERE active = 'Yes') AS total_active,
+                COUNT(*) FILTER (
+                    WHERE active = 'Yes'
+                      AND COALESCE(NULLIF(TRIM(email), ''), '') = ''
+                      AND COALESCE(NULLIF(regexp_replace(COALESCE(primary_contact,''), '\\D', '', 'g'), ''), '') = ''
+                ) AS missing_contact_count
+            FROM employees
+        `);
+        const { rows: missing_contact } = await pool.query(`
+            SELECT e.id, e.name, e.contract_name,
+                   (COALESCE(NULLIF(TRIM(e.email), ''), '') <> '') AS has_email,
+                   (COALESCE(NULLIF(regexp_replace(COALESCE(e.primary_contact,''), '\\D', '', 'g'), ''), '') <> '') AS has_phone
+            FROM employees e
+            WHERE e.active = 'Yes'
+              AND COALESCE(NULLIF(TRIM(e.email), ''), '') = ''
+              AND COALESCE(NULLIF(regexp_replace(COALESCE(e.primary_contact,''), '\\D', '', 'g'), ''), '') = ''
+            ORDER BY e.name
+            LIMIT 500
+        `);
+        const total_active = parseInt(counts[0]?.total_active, 10) || 0;
+        const missingCount = parseInt(counts[0]?.missing_contact_count, 10) || 0;
+        res.json({
+            total_active,
+            ready: total_active - missingCount,
+            missing_contact,
+        });
+    } catch (err) {
+        console.error('[GET /api/admin/portal-readiness]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 app.post('/api/admin/import-invoices', requireAuth, requireRole('superadmin'), async (req, res) => {
     try {
         res.json(await importHistoricInvoices(pool, {
@@ -2670,22 +2707,35 @@ app.post('/api/portal/verify-otp', async (req, res) => {
         await pool.query('UPDATE portal_otps SET used=TRUE WHERE id=$1', [otpRows[0].id]);
 
         const empId = otpRows[0].employee_id;
-        let empRows;
+        let emp;
         if (empId) {
-            empRows = (await pool.query(
-                `SELECT id, name, designation, client, location FROM employees WHERE id=$1 AND active='Yes'`,
+            const { rows: allRows } = await pool.query(
+                `SELECT id, name, designation, client, location, active FROM employees WHERE id=$1`,
                 [empId]
-            )).rows;
+            );
+            if (!allRows.length) {
+                return res.status(409).json({ code: 'EMPLOYEE_NOT_FOUND', error: 'Employee record not found. Contact HR.' });
+            }
+            if (allRows[0].active !== 'Yes') {
+                return res.status(409).json({ code: 'EMPLOYEE_INACTIVE', error: 'Your employee account is inactive. Contact HR.' });
+            }
+            emp = allRows[0];
         } else {
             const p = otpRows[0].phone;
-            empRows = (await pool.query(
-                `SELECT id, name, designation, client, location FROM employees
-                 WHERE regexp_replace(COALESCE(primary_contact,''),'\\D','','g') = $1 AND active='Yes'`,
+            const { rows: allRows } = await pool.query(
+                `SELECT id, name, designation, client, location, active FROM employees
+                 WHERE regexp_replace(COALESCE(primary_contact,''),'\\D','','g') = $1`,
                 [p]
-            )).rows;
+            );
+            if (!allRows.length) {
+                return res.status(409).json({ code: 'CONTACT_MISMATCH', error: 'No employee matches this contact. Contact HR.' });
+            }
+            const activeRows = allRows.filter(r => r.active === 'Yes');
+            if (!activeRows.length) {
+                return res.status(409).json({ code: 'EMPLOYEE_INACTIVE', error: 'Your employee account is inactive. Contact HR.' });
+            }
+            emp = activeRows[0];
         }
-        if (!empRows.length) return res.status(404).json({ error: 'Employee not found' });
-        const emp = empRows[0];
 
         const token = jwt.sign(
             { employeeId: emp.id, name: emp.name, portal: true },
@@ -3389,7 +3439,9 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
         }
 
         // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Auto-post PF and Gratuity accrual for each newly locked employee Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
+        let accruals = { ok: true, pf_rows: 0, gratuity_rows: 0 };
         if (lockedEmpIds && lockedEmpIds.length > 0) {
+            try {
             // Join contracts to get eosb_type from costs JSON
             // pf_enrolled does NOT exist as a column Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ eosb_type lives in contracts.costs
             const { rows: emps } = await pool.query(
@@ -3418,7 +3470,8 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
                         VALUES ($1,$2,$3,$4,$4)
                         ON CONFLICT (employee_id, month, year)
                         DO UPDATE SET ee_contribution=$4, er_contribution=$4
-                    `, [emp.id, mo, yr, pfContrib]).catch(() => {});
+                    `, [emp.id, mo, yr, pfContrib]);
+                    accruals.pf_rows++;
                 }
                 if (gratuityAccrual > 0) {
                     const prev = await pool.query(
@@ -3431,13 +3484,18 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
                         VALUES ($1,$2,$3,$4,$5)
                         ON CONFLICT (employee_id, month, year)
                         DO UPDATE SET accrual=$4, cumulative=$5
-                    `, [emp.id, mo, yr, gratuityAccrual, prevCum + gratuityAccrual]).catch(() => {});
+                    `, [emp.id, mo, yr, gratuityAccrual, prevCum + gratuityAccrual]);
+                    accruals.gratuity_rows++;
                 }
+            }
+            } catch (accrualErr) {
+                console.error('[payroll-lock accruals]', accrualErr);
+                accruals = { ok: false, error_logged: true };
             }
         }
 
-        logAudit(req, 'payroll_lock', 'payroll_period', `${yr}-${mo}${lockedEmpIds?.length ? ` (${lockedEmpIds.length} employees)` : ''}`);
-        res.json({ ok: true, locked: true, lockedBy: req.user.email, accruals_posted: lockedEmpIds?.length || 0 });
+        logAudit(req, 'payroll_lock', 'payroll_period', `${yr}-${mo}${lockedEmpIds?.length ? ` (${lockedEmpIds.length} employees)` : ''} accruals:${accruals.ok ? 'ok' : 'failed'}`);
+        res.json({ ok: true, locked: true, lockedBy: req.user.email, accruals_posted: lockedEmpIds?.length || 0, accruals });
     } catch (err) { console.error('[PATCH /api/payroll/:year/:month/lock]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 

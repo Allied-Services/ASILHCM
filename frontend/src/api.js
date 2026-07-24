@@ -67,6 +67,7 @@ export const api = {
 
     // ── Users (superadmin) ──────────────────────────────────────────────────────
     getUsers: () => apiFetch('/api/users'),
+    getPortalReadiness: () => apiFetch('/api/admin/portal-readiness'),
     createUser: (data) => apiFetch('/api/users', { method: 'POST', body: JSON.stringify(data) }),
     updateUserRole: (userId, role) => apiFetch(`/api/users/${userId}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
     updateUserPermissions: (userId, permissions) => apiFetch(`/api/users/${userId}/permissions`, { method: 'PATCH', body: JSON.stringify({ permissions }) }),
