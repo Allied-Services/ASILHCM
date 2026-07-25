@@ -458,6 +458,23 @@ Per `.agents/sessions/S4B_disbursement_route_ui.md`. World A AP confirm routes u
 **Env vars needed:** none new.
 
 ---
+
+### 2026-07-25 — S5A Excel-vs-HCM variance report tool (remediation program)
+Per `.agents/sessions/S5A_variance_tool.md`. Read-only; no HTTP route.
+
+**Pilot contract selected:** `CTR-1773048704450` — Facility Management, Wafi Energy Pakistan Pvt Ltd (38 employees). Rationale in `scripts/VARIANCE_INPUT_FORMAT.md` and `audit/pilot/README.md`.
+
+1. **`backend/src/payroll/varianceCompare.js`** — pure comparison core: CSV parse (alias headers), HCM `payroll_run_rows` extract, per-field delta, summary + CSV/MD formatters.
+2. **`scripts/variance_report.js`** — CLI: `--csv --contract --month --year` (DB SELECT) or `--hcm-json` (offline); exit 0 only on zero variance.
+3. **`scripts/VARIANCE_INPUT_FORMAT.md`** — column contract + export procedure.
+4. **`backend/tests/varianceCompare.test.js`** — 7 unit tests including rounding edge case and known-delta fixtures.
+5. **`audit/pilot/`** — pilot README + S5A verification fixtures.
+
+**Verification:** `npm test` **223/223** (+7); fixture runs exit 1 (deltas) / exit 0 (all-zero).
+
+**Env vars needed:** none new. Uses `DATABASE_URL` / `TEST_DATABASE_URL` / `STAGING_DATABASE_URL` for live runs.
+
+---
 Per `.agents/sessions/S1A_frontend_crashes.md`.
 
 1. **`BillingProcurement.jsx`** — `ImportQuotationModal` review stage now uses `clientsList`/`contractsList` props (was undefined `CLIENTS`/`CONTRACTS`/`SITES`).
