@@ -18,11 +18,11 @@ _Last updated: 2026-07-25_
 | Service | URL | Status |
 |---|---|---|
 | `asil-hcm-frontend-staging` | https://asil-hcm-frontend-staging.onrender.com | **Live** |
-| `asil-hcm-staging` | https://asil-hcm-staging.onrender.com | **Live** (`7827f8d`; S5A pending deploy) |
+| `asil-hcm-staging` | https://asil-hcm-staging.onrender.com | **Live** (`be86cff`) |
 
 ## Recently resolved
 
-**S5A (2026-07-25)** — variance tool + pilot selection (`CTR-1773048704450`). Commit pending push.
+**S5A (2026-07-25)** — variance tool + pilot selection (`CTR-1773048704450`, `be86cff`).
 
 **S4B (2026-07-24)** — disbursement route + PayrollRun UI (`7827f8d`).
 
@@ -30,4 +30,4 @@ _Last updated: 2026-07-25_
 
 **Integration tests** — `npm run test:int` **28/28** green (ci-test).
 
-**Git** — `origin/staging` through S4B (`7827f8d`). `main` untouched.
+**Git** — `origin/staging` through S5A (`be86cff`). `main` untouched.
