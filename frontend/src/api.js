@@ -158,6 +158,8 @@ export const api = {
     // ── Bills / Procurement ───────────────────────────────────────────────────
     getBills:          ()          => apiFetch('/api/bills'),
     saveBill:          (bill)      => apiFetch('/api/bills', { method: 'POST', body: JSON.stringify(bill) }),
+    updateBill:        (id, bill)  => apiFetch(`/api/bills/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(bill) }),
+    createBillChallan: (id, payload = {}) => apiFetch(`/api/bills/${encodeURIComponent(id)}/challan`, { method: 'POST', body: JSON.stringify(payload) }),
     updateBillStatus:  (id, status, extra = {}) => apiFetch(`/api/bills/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, ...extra }) }),
     getHitlFlags:      ()          => apiFetch('/api/bills/hitl-flags'),
     getBillApprovalStatus: (billId) => apiFetch(`/api/bill-approval/${encodeURIComponent(billId)}/approval-status`),
@@ -510,6 +512,33 @@ export const api = {
     getPayrollRuns: (contractId, month, year) => apiFetch(`/api/payroll-runs?contractId=${encodeURIComponent(contractId)}&month=${month}&year=${year}`),
     lockPayrollRun: (id) => apiFetch(`/api/payroll-runs/${id}/lock`, { method: 'POST' }),
     invoicePayrollRun: (id) => apiFetch(`/api/payroll-runs/${id}/invoice`, { method: 'POST' }),
+    disbursePayrollRun: async (runId, payload) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const res = await fetch(`${API}/api/payroll-runs/${runId}/disburse`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify(payload),
+        });
+        if (res.status === 401) {
+            localStorage.removeItem('asil_hcm_token');
+            window.location.href = '/?error=session_expired';
+            throw new Error('Session expired. Please sign in again.');
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            const err = new Error(data.error || data.message || `Request failed: ${res.status}`);
+            err.status = res.status;
+            err.code = data.code;
+            err.employees = data.employees;
+            err.batch_id = data.batch_id;
+            err.excluded = data.excluded;
+            throw err;
+        }
+        return data;
+    },
     patchPayrollRunRow: (runId, rowId, data) => apiFetch(`/api/payroll-runs/${runId}/rows/${rowId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     getHolidays: () => apiFetch('/api/holidays'),
     saveHoliday: (data) => apiFetch('/api/holidays', { method: 'POST', body: JSON.stringify(data) }),
