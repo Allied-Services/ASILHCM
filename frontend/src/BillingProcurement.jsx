@@ -69,6 +69,37 @@ const Badge = ({ status }) => {
 const fmt = n => Math.round(parseFloat(n) || 0).toLocaleString('en-PK');
 const Rs = n => `Rs. ${fmt(n)}`;
 
+function parseChallanItems(items) {
+    if (Array.isArray(items)) return items;
+    if (typeof items === 'string') {
+        try { return JSON.parse(items); } catch { return []; }
+    }
+    return [];
+}
+
+function openPrintHtml(html) {
+    const w = window.open('', '_blank', 'noopener,noreferrer');
+    if (w) {
+        w.document.write(html);
+        w.document.close();
+        return;
+    }
+    const frame = document.createElement('iframe');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:none';
+    document.body.appendChild(frame);
+    const doc = frame.contentWindow?.document;
+    if (doc) {
+        doc.open();
+        doc.write(html);
+        doc.close();
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+        setTimeout(() => frame.remove(), 1000);
+    } else {
+        alert('Could not open print window. Please allow popups for this site and try again.');
+    }
+}
+
 // ─── Shared form helpers ──────────────────────────────────────────────────────
 const SI = ({ style, ...props }) => (
     <input {...props} style={{ width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '7px 9px', color: 'var(--text)', fontSize: '0.85rem', outline: 'none', ...style }} />
@@ -216,12 +247,12 @@ function OCRModal({ onSave, onClose, clientsList = [], contractsList = [], vendo
     const saveCurrent = () => {
         if (!cur) return;
         const ex = cur.extracted;
-        const ct = contractsList.find(c => c.id === contractId);
+        const ct = contractsList.find(c => String(c.id) === String(contractId));
         onSave({ id: `BILL-${Date.now()}-${pageIdx}`, type: 'OCR / Katcha', client, contract: ct?.contractName || '', contractId, bu, site, vendor: ex.vendor, date: ex.date, items: ex.items, amount: ex.subtotal, gst: ex.gst, total: ex.grandTotal, purpose, billType, status: 'Draft', note });
     };
 
     const saveAllAndClose = () => {
-        const ct = contractsList.find(c => c.id === contractId);
+        const ct = contractsList.find(c => String(c.id) === String(contractId));
         pages.forEach((pg, i) => {
             const ex = pg.extracted;
             onSave({ id: `BILL-${Date.now()}-${i}`, type: 'OCR / Katcha', client, contract: ct?.contractName || '', contractId, bu, site, vendor: ex.vendor, date: ex.date, items: ex.items, amount: ex.subtotal, gst: ex.gst, total: ex.grandTotal, purpose, billType, status: 'Draft', note });
@@ -230,7 +261,7 @@ function OCRModal({ onSave, onClose, clientsList = [], contractsList = [], vendo
     };
 
     const saveManual = () => {
-        const ct = contractsList.find(c => c.id === contractId);
+        const ct = contractsList.find(c => String(c.id) === String(contractId));
         const amt = parseFloat(manualAmount) || 0;
         onSave({ id: `BILL-${Date.now()}`, type: 'Manual (Katcha)', client, contract: ct?.contractName || '', contractId, bu, site, vendor: manualVendor, date: manualDate, invoiceNo: manualInvoiceNo, items: [{ desc: manualNote || 'Manual entry', qty: 1, unit: amt, total: amt }], amount: amt, gst: 0, total: amt, purpose, billType, status: 'Draft', note: manualNote });
         onClose();
@@ -271,7 +302,7 @@ function OCRModal({ onSave, onClose, clientsList = [], contractsList = [], vendo
                                 <FL label="Contract">
                                     <select value={contractId} onChange={e => setContractId(e.target.value)} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
                                         <option value="">— Select Contract —</option>
-                                        {filteredContracts.map(ct => <option key={ct.id} value={ct.id}>{ct.contractName}</option>)}
+                                        {filteredContracts.map(ct => <option key={ct.id} value={String(ct.id)}>{ct.contractName}</option>)}
                                     </select>
                                 </FL>
                                 <FL label="Purpose"><SS value={purpose} onChange={e => setPurpose(e.target.value)} opts={PURPOSES} /></FL>
@@ -381,7 +412,7 @@ function OCRModal({ onSave, onClose, clientsList = [], contractsList = [], vendo
                                 <FL label="Contract">
                                     <select value={contractId} onChange={e => setContractId(e.target.value)} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
                                         <option value="">— Select Contract —</option>
-                                        {filteredContracts.map(ct => <option key={ct.id} value={ct.id}>{ct.contractName}</option>)}
+                                        {filteredContracts.map(ct => <option key={ct.id} value={String(ct.id)}>{ct.contractName}</option>)}
                                     </select>
                                 </FL>
                                 <FL label="Site / Location"><SI value={site} onChange={e => setSite(e.target.value)} placeholder="e.g. Karachi Office" /></FL>
@@ -412,15 +443,46 @@ function OCRModal({ onSave, onClose, clientsList = [], contractsList = [], vendo
 
 
 // ─── Manual Bill Modal — with line items ──────────────────────────────────────
-function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = [], vendorsList = [] }) {
+function ManualBillModal({ onSave, onClose, initialBill, clientsList = [], contractsList = [], vendorsList = [] }) {
+    const isEdit = !!initialBill;
     const emptyItem = () => ({ desc: '', qty: 1, unit: '', total: 0 });
-    const [form, setForm] = useState({
-        vendorId: '', vendor: '', date: new Date().toISOString().split('T')[0],
-        invoiceNo: '', gstPct: '17', client: '', contractId: '', bu: '', site: '',
-        billType: 'Debit Note / Imprest', purpose: '', note: '', billCategory: 'official', vendorFiler: '',
-        billable: true, periodMonth: new Date().getMonth() + 1, periodYear: new Date().getFullYear(),
-    });
-    const [items, setItems] = useState([emptyItem()]);
+    const buildInitialForm = () => {
+        if (!initialBill) {
+            return {
+                vendorId: '', vendor: '', date: new Date().toISOString().split('T')[0],
+                invoiceNo: '', gstPct: '17', client: '', contractId: '', bu: '', site: '',
+                billType: 'Debit Note / Imprest', purpose: '', note: '', billCategory: 'official', vendorFiler: '',
+                billable: true, periodMonth: new Date().getMonth() + 1, periodYear: new Date().getFullYear(),
+            };
+        }
+        const vendorMatch = vendorsList.find(v => v.name === initialBill.vendor);
+        const gstPct = initialBill.amount > 0
+            ? String(Math.round((initialBill.gst / initialBill.amount) * 100))
+            : '17';
+        return {
+            vendorId: vendorMatch ? String(vendorMatch.id) : '',
+            vendor: initialBill.vendor || '',
+            date: (initialBill.date || '').split('T')[0] || new Date().toISOString().split('T')[0],
+            invoiceNo: initialBill.invoiceNo || '',
+            gstPct,
+            client: initialBill.client || '',
+            contractId: initialBill.contractId ? String(initialBill.contractId) : '',
+            bu: initialBill.bu || '',
+            site: initialBill.site || '',
+            billType: initialBill.billType || 'Debit Note / Imprest',
+            purpose: initialBill.purpose || '',
+            note: initialBill.note || '',
+            billCategory: initialBill.billCategory || 'official',
+            vendorFiler: initialBill.whtAmount > 0
+                ? (initialBill.whtAmount >= initialBill.amount * 0.1 ? 'non-filer' : 'filer')
+                : '',
+            billable: initialBill.billable !== false,
+            periodMonth: initialBill.periodMonth || new Date().getMonth() + 1,
+            periodYear: initialBill.periodYear || new Date().getFullYear(),
+        };
+    };
+    const [form, setForm] = useState(buildInitialForm);
+    const [items, setItems] = useState(() => (initialBill?.items?.length ? initialBill.items : [emptyItem()]));
     const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
     const billTypeDef = BILL_TYPE_DEFS.find(t => t.id === form.billType) || BILL_TYPE_DEFS[0];
     const filteredContracts = contractsList.filter(ct => !form.client || ct.clientName === form.client);
@@ -442,16 +504,23 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
     const grandTotal = subtotal + gstAmount - whtAmount;
 
     const save = () => {
-        const ct = contractsList.find(c => c.id === form.contractId);
+        const ct = contractsList.find(c => String(c.id) === String(form.contractId));
         const resolvedVendor = vendorsList.find(v => v.id === parseInt(form.vendorId))?.name || form.vendor;
-        onSave({ id: `BILL-${Date.now()}`, type: 'Manual', ...form,
+        const payload = {
+            id: isEdit ? initialBill.id : `BILL-${Date.now()}`,
+            type: isEdit ? initialBill.type : 'Manual',
+            ...form,
             vendor: resolvedVendor,
-            contract: ct?.contractName || '', items, amount: subtotal, gst: gstAmount, total: grandTotal, status: 'Draft',
+            contract: ct?.contractName || '',
+            contractId: form.contractId || null,
+            items, amount: subtotal, gst: gstAmount, total: grandTotal,
+            status: isEdit ? initialBill.status : 'Draft',
             billable: billTypeDef.billableLocked ? billTypeDef.billable : form.billable,
             billCategory: form.billCategory || 'official',
             whtAmount,
             gstExempt: form.billCategory === 'unofficial',
-        });
+        };
+        onSave(payload, isEdit);
         onClose();
     };
 
@@ -459,7 +528,7 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
             <div className="modal-box" style={{ maxWidth: '860px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 2rem', borderBottom: '1px solid var(--border)' }}>
-                    <h3 style={{ margin: 0 }}>Manual Bill Entry</h3>
+                    <h3 style={{ margin: 0 }}>{isEdit ? 'Edit Bill' : 'Manual Bill Entry'}</h3>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.4rem' }}>×</button>
                 </div>
                 <div style={{ padding: '1.5rem 2rem', maxHeight: '78vh', overflowY: 'auto' }}>
@@ -516,7 +585,7 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
                             <FL label="Contract">
                                 <select value={form.contractId} onChange={e => set('contractId', e.target.value)} style={{ width:'100%', background:'var(--bg-dark)', border:'1px solid var(--border)', borderRadius:'6px', padding:'7px 9px', color:'var(--text)', fontSize:'0.85rem' }}>
                                     <option value="">— Select Contract —</option>
-                                    {filteredContracts.map(ct => <option key={ct.id} value={ct.id}>{ct.contractName}</option>)}
+                                    {filteredContracts.map(ct => <option key={ct.id} value={String(ct.id)}>{ct.contractName}</option>)}
                                 </select>
                             </FL>
                         )}
@@ -644,7 +713,7 @@ function ManualBillModal({ onSave, onClose, clientsList = [], contractsList = []
                         <button onClick={onClose} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
                         <button onClick={save} disabled={!form.vendor || items.every(it => !it.desc)}
                             style={{ flex: 3, background: form.vendor ? 'var(--primary)' : '#334155', border: 'none', color: 'white', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
-                            Save Bill (Draft)
+                            {isEdit ? 'Save Changes' : 'Save Bill (Draft)'}
                         </button>
                     </div>
                 </div>
@@ -776,7 +845,7 @@ function ImportQuotationModal({ onSave, onClose, clientsList = [], contractsList
 }
 
 // ─── Bill Detail Modal ─────────────────────────────────────────────────
-function BillDetailModal({ bill, onAction, onXero, onClose, isApprover, generateChallan, onCreateInvoice }) {
+function BillDetailModal({ bill, onAction, onXero, onClose, isApprover, generateChallan, onCreateInvoice, onEdit, canEdit }) {
     const flow = {
         'Draft':            ['Submit for Approval'],
         'Pending Approval': ['Approve', 'Reject'],
@@ -880,6 +949,12 @@ function BillDetailModal({ bill, onAction, onXero, onClose, isApprover, generate
 
                     <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                         <button onClick={onClose} style={{ flex: 1, background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>Close</button>
+                        {canEdit && (
+                            <button onClick={() => { onEdit && onEdit(bill); onClose(); }}
+                                style={{ flex: 1, background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.3)', color: 'var(--primary)', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                                <Edit3 size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} /> Edit
+                            </button>
+                        )}
                         <button onClick={() => generateChallan && generateChallan(bill)}
                             style={{ flex: 1, background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.3)', color: '#a78bfa', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
                             📄 Delivery Challan
@@ -905,6 +980,7 @@ export default function BillingProcurement({ user }) {
     const [loading, setLoading] = useState(true);
     const [showOCR, setShowOCR] = useState(false);
     const [showManual, setShowManual] = useState(false);
+    const [editBill, setEditBill] = useState(null);
     const [showQuote, setShowQuote] = useState(false);
     const [detailBill, setDetailBill] = useState(null);
     const [filterType, setFilterType] = useState('All');
@@ -931,7 +1007,7 @@ export default function BillingProcurement({ user }) {
             .catch(err => console.error('Bills load error:', err.message))
             .finally(() => setLoading(false));
         api.getClients().then(d => setClientsList(d.clients || [])).catch(() => {});
-        api.getContracts().then(d => setContractsList(d.contracts || [])).catch(() => {});
+        api.getContracts().then(d => setContractsList(Array.isArray(d) ? d : (d.contracts || []))).catch(() => {});
         api.getVendors().then(d => setVendorsList(d.vendors || [])).catch(() => {});
     }, []);
 
@@ -943,11 +1019,23 @@ export default function BillingProcurement({ user }) {
     );
     const totals = filtered.reduce((a, b) => ({ total: a.total + b.total, gst: a.gst + b.gst }), { total: 0, gst: 0 });
 
-    const addBill = async b => {
+    const addBill = async (b, isUpdate = false) => {
         try {
-            const { bill } = await api.saveBill(b);
-            setBills(p => [bill, ...p]);
-        } catch (err) { alert('Failed to save bill: ' + err.message); }
+            if (isUpdate) {
+                const { bill } = await api.updateBill(b.id, b);
+                setBills(p => p.map(x => x.id === bill.id ? bill : x));
+                if (detailBill?.id === bill.id) setDetailBill(bill);
+            } else {
+                const { bill } = await api.saveBill(b);
+                setBills(p => [bill, ...p]);
+            }
+        } catch (err) { alert((isUpdate ? 'Failed to update bill: ' : 'Failed to save bill: ') + err.message); }
+    };
+
+    const canEditBill = (bill) => {
+        if (!bill || bill.status === 'Paid' || bill.status === 'Approved') return false;
+        if (!['Draft', 'Pending Approval', 'Pending'].includes(bill.status)) return false;
+        return user?.role === 'superadmin' || bill.createdBy === user?.email;
     };
 
     const doAction = async (id, action) => {
@@ -992,17 +1080,9 @@ export default function BillingProcurement({ user }) {
         const delivDate = window.prompt('Delivery date (YYYY-MM-DD):', new Date().toISOString().split('T')[0]);
         if (!delivDate) return;
         try {
-            const token = localStorage.getItem('asil_hcm_token');
-            const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
-            const r = await fetch(`${API}/api/bills/${bill.id}/challan`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ delivery_date: delivDate }),
-            });
-            const data = await r.json();
-            if (!r.ok) throw new Error(data.error);
+            const data = await api.createBillChallan(bill.id, { delivery_date: delivDate });
             const ch = data.challan;
-            // Open print window
+            const challanItems = parseChallanItems(ch.items);
             const html = `<!DOCTYPE html><html><head><title>Delivery Challan ${ch.challan_no}</title>
 <style>body{font-family:Arial,sans-serif;padding:30px;max-width:700px;margin:0 auto}
 h1{color:#1e293b}table{width:100%;border-collapse:collapse}td,th{border:1px solid #cbd5e1;padding:8px 10px}th{background:#f1f5f9}@media print{button{display:none}}</style></head>
@@ -1015,17 +1095,15 @@ h1{color:#1e293b}table{width:100%;border-collapse:collapse}td,th{border:1px soli
 <tr><td><strong>Contract</strong></td><td>${ch.contract || '—'}</td><td><strong>Site</strong></td><td>${ch.site || '—'}</td></tr></table>
 <h3>Items</h3>
 <table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead><tbody>
-${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PKR ${(it.unit||0).toLocaleString()}</td><td>PKR ${(it.total||0).toLocaleString()}</td></tr>`).join('')}
-</tbody><tfoot><tr><td colspan="3" style="text-align:right"><strong>Grand Total</strong></td><td><strong>PKR ${(ch.total||0).toLocaleString()}</strong></td></tr></tfoot></table>
+${challanItems.map(it => `<tr><td>${it.desc || ''}</td><td>${it.qty || 1}</td><td>PKR ${(it.unit || 0).toLocaleString()}</td><td>PKR ${(it.total || 0).toLocaleString()}</td></tr>`).join('')}
+</tbody><tfoot><tr><td colspan="3" style="text-align:right"><strong>Grand Total</strong></td><td><strong>PKR ${(ch.total || 0).toLocaleString()}</strong></td></tr></tfoot></table>
 <div style="margin-top:60px;display:grid;grid-template-columns:1fr 1fr;gap:40px">
   <div style="border-top:1px solid #000;padding-top:8px">Prepared By</div>
   <div style="border-top:1px solid #000;padding-top:8px">Received By &amp; Signature</div>
 </div>
 <button onclick="window.print()" style="margin-top:20px;padding:10px 24px;background:#1e40af;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ Print Challan</button>
 </body></html>`;
-            const w = window.open('', '_blank');
-            w.document.write(html);
-            w.document.close();
+            openPrintHtml(html);
         } catch (e) { alert('Challan error: ' + e.message); }
     };
 
@@ -1244,6 +1322,12 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
                                                     style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>
                                                     <Eye size={12} /> View
                                                 </button>
+                                                {canEditBill(b) && (
+                                                    <button onClick={() => setEditBill(b)}
+                                                        style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.25)', color: 'var(--primary)', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>
+                                                        <Edit3 size={12} /> Edit
+                                                    </button>
+                                                )}
                                                 {/* Quick Approve for finance_approver on pending bills */}
                                                 {isFinanceApprover && ['Pending Approval','Pending','Draft'].includes(b.status) && (
                                                     <button onClick={() => doQuickApprove(b)}
@@ -1261,7 +1345,7 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
                                                         🔓 Unlock
                                                     </button>
                                                 )}
-                                                {(isSuperAdmin || (b.created_by === user?.email && ['Draft','Pending Approval','Pending'].includes(b.status))) && !isPaid && (
+                                                {(isSuperAdmin || (b.createdBy === user?.email && ['Draft','Pending Approval','Pending'].includes(b.status))) && !isPaid && (
                                                     <button onClick={() => deleteBill(b)} title="Delete"
                                                         style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', padding: '5px 7px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem' }}>🗑</button>
                                                 )}
@@ -1370,8 +1454,9 @@ ${(ch.items||[]).map(it=>`<tr><td>${it.desc||''}</td><td>${it.qty||1}</td><td>PK
 
             {showOCR    && <OCRModal    onSave={addBill} onClose={() => setShowOCR(false)}    clientsList={clientsList} contractsList={contractsList} vendorsList={vendorsList} />}
             {showManual && <ManualBillModal onSave={addBill} onClose={() => setShowManual(false)} clientsList={clientsList} contractsList={contractsList} vendorsList={vendorsList} />}
+            {editBill && <ManualBillModal initialBill={editBill} onSave={addBill} onClose={() => setEditBill(null)} clientsList={clientsList} contractsList={contractsList} vendorsList={vendorsList} />}
             {showQuote  && <ImportQuotationModal onSave={addBill} onClose={() => setShowQuote(false)} clientsList={clientsList} contractsList={contractsList} />}
-            {detailBill && <BillDetailModal bill={detailBill} onAction={doAction} onXero={doAction} isApprover={['finance_approver','procurement_approver','superadmin'].includes(user?.role)} onClose={() => setDetailBill(null)} generateChallan={generateChallan} onCreateInvoice={createInvoiceFromBill} />}
+            {detailBill && <BillDetailModal bill={detailBill} onAction={doAction} onXero={doAction} isApprover={['finance_approver','procurement_approver','superadmin'].includes(user?.role)} onClose={() => setDetailBill(null)} generateChallan={generateChallan} onCreateInvoice={createInvoiceFromBill} onEdit={setEditBill} canEdit={canEditBill(detailBill)} />}
 
             {/* Create Invoice success toast */}
             {invCreated && (

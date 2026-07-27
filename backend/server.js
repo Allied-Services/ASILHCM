@@ -1310,20 +1310,25 @@ pool.query(`
 });
 
 
+const billFromDb = (r) => ({
+    id: r.id, type: r.type, vendor: r.vendor, date: r.date,
+    client: r.client, contract: r.contract, contractId: r.contract_id,
+    bu: r.bu, site: r.site,
+    billType: r.bill_type, purpose: r.purpose, note: r.note,
+    invoiceNo: r.invoice_no,
+    items: r.items || [], amount: parseFloat(r.amount) || 0,
+    gst: parseFloat(r.gst) || 0, total: parseFloat(r.total) || 0,
+    status: r.status || 'Draft', createdBy: r.created_by, billable: r.billable,
+    billCategory: r.bill_category || 'official',
+    whtAmount: parseFloat(r.wht_amount) || 0, gstExempt: r.gst_exempt || false,
+    paymentMethod: r.payment_method, paymentAccount: r.payment_account,
+    createdAt: r.created_at,
+});
+
 app.get('/api/bills', requireAuth, async (req, res) => {
     try {
         const { rows } = await pool.query('SELECT * FROM bills ORDER BY created_at DESC');
-        res.json(rows.map(r => ({
-            id: r.id, type: r.type, vendor: r.vendor, date: r.date,
-            client: r.client, contract: r.contract, contractId: r.contract_id,
-            bu: r.bu, site: r.site,
-            billType: r.bill_type, purpose: r.purpose, note: r.note,
-            invoiceNo: r.invoice_no,
-            items: r.items || [], amount: parseFloat(r.amount) || 0,
-            gst: parseFloat(r.gst) || 0, total: parseFloat(r.total) || 0,
-            status: r.status || 'Draft', createdBy: r.created_by, billCategory: r.bill_category || 'official', whtAmount: parseFloat(r.wht_amount) || 0, gstExempt: r.gst_exempt || false, paymentMethod: r.payment_method, paymentAccount: r.payment_account,
-            createdAt: r.created_at,
-        })));
+        res.json(rows.map(billFromDb));
     } catch (err) { console.error('[GET /api/bills]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
@@ -1414,17 +1419,17 @@ app.put('/api/bills/:id', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Bills can only be edited by the maker before approval.' });
         }
         const { rows } = await pool.query(
-            `UPDATE bills SET vendor=$1, date=$2, client=$3, contract=$4, bu=$5, site=$6,
-             bill_type=$7, purpose=$8, note=$9, invoice_no=$10, items=$11,
-             amount=$12, gst=$13, total=$14, billable=$15, bill_category=$16,
-             wht_amount=$17, gst_exempt=$18, updated_at=NOW() WHERE id=$19 RETURNING *`,
-            [b.vendor, b.date, b.client, b.contract, b.bu, b.site,
+            `UPDATE bills SET vendor=$1, date=$2, client=$3, contract=$4, contract_id=$5, bu=$6, site=$7,
+             bill_type=$8, purpose=$9, note=$10, invoice_no=$11, items=$12,
+             amount=$13, gst=$14, total=$15, billable=$16, bill_category=$17,
+             wht_amount=$18, gst_exempt=$19, updated_at=NOW() WHERE id=$20 RETURNING *`,
+            [b.vendor, b.date, b.client, b.contract, b.contractId || null, b.bu, b.site,
              b.billType, b.purpose, b.note, b.invoiceNo,
              JSON.stringify(b.items || []), b.amount || 0, b.gst || 0, b.total || 0,
              b.billable !== false, b.billCategory || 'official', b.whtAmount || 0, b.gstExempt || false,
              req.params.id]
         );
-        res.json({ ok: true, bill: rows[0] });
+        res.json({ ok: true, bill: billFromDb(rows[0]) });
     } catch (err) { console.error('[PUT /bills/:id]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 

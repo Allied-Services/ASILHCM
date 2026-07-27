@@ -159,6 +159,8 @@ export const api = {
     // ── Bills / Procurement ───────────────────────────────────────────────────
     getBills:          ()          => apiFetch('/api/bills'),
     saveBill:          (bill)      => apiFetch('/api/bills', { method: 'POST', body: JSON.stringify(bill) }),
+    updateBill:        (id, bill)  => apiFetch(`/api/bills/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(bill) }),
+    createBillChallan: (id, payload = {}) => apiFetch(`/api/bills/${encodeURIComponent(id)}/challan`, { method: 'POST', body: JSON.stringify(payload) }),
     updateBillStatus:  (id, status, extra = {}) => apiFetch(`/api/bills/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, ...extra }) }),
     getHitlFlags:      ()          => apiFetch('/api/bills/hitl-flags'),
     getBillApprovalStatus: (billId) => apiFetch(`/api/bill-approval/${encodeURIComponent(billId)}/approval-status`),
