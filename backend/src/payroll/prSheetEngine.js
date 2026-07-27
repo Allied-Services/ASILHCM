@@ -104,7 +104,7 @@ function computePrSheetRow(input, policy = {}) {
     const sessi = calculateSESSI(gross);
     const pfDeduction = Number(input.pfDeduction || 0);
     const totalDeductions = wht + pfDeduction + eobi.employeeShare;
-    const netPay = gross - totalDeductions;
+    const netPay = Math.round(gross - totalDeductions);
 
     const bonusMonths = policy.bonus_accrual_months || 12;
     const gratuityMonths = policy.gratuity_accrual_months || 12;

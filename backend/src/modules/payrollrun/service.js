@@ -312,7 +312,8 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
 
         // 15-column monthly hub overrides (Model A present days + OT) take precedence
         const { rows: overrideRows } = await pool.query(
-            `SELECT present_days, ot2_hours, ot3_hours, opd, expense, arrears,
+            `SELECT present_days, working_days, pf_deduction, income_tax, salary_override,
+                    ot1_hours, ot2_hours, ot3_hours, opd, expense, arrears,
                     special_allowance, fuel_mobile, other_deduction
              FROM monthly_attendance_overrides
              WHERE employee_id = $1 AND period_month = $2 AND period_year = $3`,
@@ -320,11 +321,16 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         ).catch(() => ({ rows: [] }));
         const ov = overrideRows[0];
         let presentDaysForModelA = null;
+        let useExcelProRata = false;
+        let overrideWorkingDays = null;
         if (ov) {
             if (ov.present_days != null) {
                 presentDaysForModelA = Number(ov.present_days);
                 paidDays = presentDaysForModelA;
+                useExcelProRata = true;
             }
+            if (ov.working_days != null) overrideWorkingDays = Number(ov.working_days);
+            if (ov.ot1_hours != null) ot1 = Number(ov.ot1_hours) || 0;
             if (ov.ot2_hours != null) ot2 = Number(ov.ot2_hours) || 0;
             if (ov.ot3_hours != null) ot3 = Number(ov.ot3_hours) || 0;
         }
@@ -350,6 +356,8 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             if (ov.special_allowance != null) inputs.specialAllowance = Number(ov.special_allowance) || 0;
             if (ov.fuel_mobile != null) inputs.fuelMobile = Number(ov.fuel_mobile) || 0;
             if (ov.other_deduction != null) inputs.otherDeduction = Number(ov.other_deduction) || 0;
+            if (ov.pf_deduction != null) inputs.pfDeduction = Number(ov.pf_deduction) || 0;
+            if (ov.income_tax != null) inputs.wht = Number(ov.income_tax);
         }
 
         if (!policy.ot_allowed) {
@@ -372,27 +380,34 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         const salesTaxRate = policy.sales_tax_exempt
             ? 0
             : Number(policy.sales_tax_rate != null ? policy.sales_tax_rate : 0.18);
-        let computed = computePrSheetRow({
-            newSalary: Number(emp.salary || 0),
+        const effectiveWorkingDays = overrideWorkingDays ?? workingDays;
+        const effectiveSalary = (ov && ov.salary_override != null && Number(ov.salary_override) > 0)
+            ? Number(ov.salary_override)
+            : Number(emp.salary || 0);
+        const computeInput = {
+            newSalary: effectiveSalary,
             paidDays,
-            workingDays,
-            // Model A: Expected = calendar working days (Sundays/holidays already excluded from expected)
-            presentDays: presentDaysForModelA != null ? presentDaysForModelA : paidDays,
-            expectedDays: workingDays,
-            modelA: true,
+            workingDays: effectiveWorkingDays,
             ot1,
             ot2,
             ot3,
             salesTaxRate,
             ...inputs,
-        }, policy);
+        };
+        if (!useExcelProRata) {
+            // Model A: Expected = calendar working days (Sundays/holidays already excluded from expected)
+            computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
+            computeInput.expectedDays = workingDays;
+            computeInput.modelA = true;
+        }
+        let computed = computePrSheetRow(computeInput, policy);
 
         const designation = (emp.designation || '').toLowerCase().trim();
         const rateCard = designation ? rateCardMap.get(designation) : null;
         computed = applyBillingAmount(computed, {
             billRate: rateCard?.bill_rate,
             paidDays,
-            workingDays,
+            workingDays: effectiveWorkingDays,
             ot1,
             ot2,
             ot3,
@@ -412,7 +427,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             employee_id: emp.id,
             employee_name: emp.name,
             paid_days: paidDays,
-            working_days: workingDays,
+            working_days: effectiveWorkingDays,
             ot1_hours: ot1,
             ot2_hours: ot2,
             ot3_hours: ot3,
