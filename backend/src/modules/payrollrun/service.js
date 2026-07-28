@@ -1,6 +1,6 @@
 'use strict';
 
-const { computePrSheetRow } = require('../../payroll/prSheetEngine');
+const { computePrSheetRow, computeMedicalCoverage } = require('../../payroll/prSheetEngine');
 const { getPolicy } = require('../constraints/service');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { provinceSalesTaxRate } = require('../../core/regionTax');
@@ -239,6 +239,13 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
     const policy = await getPolicy(pool, contractId);
     if (!policy) return { ok: false, code: 'NO_POLICY', message: 'No contract policy configured.' };
 
+    const { rows: contractRows } = await pool.query(
+        `SELECT costs FROM contracts WHERE id = $1`,
+        [contractId]
+    );
+    const contractCosts = parseJsonField(contractRows[0]?.costs, {});
+    const lifeInsurance = Number(contractCosts.life_insurance || 150);
+
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
     const endDate = new Date(year, month, 0);
     const endStr = endDate.toISOString().slice(0, 10);
@@ -260,8 +267,13 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             : computeWorkingDays(year, month, holidayDateSet));
 
     const { rows: employees } = await pool.query(
-        `SELECT id, name, salary, doj, designation FROM employees WHERE contract_id = $1 OR contract_name = $1`,
-        [contractId]
+        `SELECT id, name, salary, doj, designation, spouse_name, child1_name, child2_name
+         FROM employees e
+         WHERE (e.contract_id = $1 OR e.contract_name = $1)
+           AND (e.active IS NULL OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
+                OR e.active::text = 'Yes')
+           AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($3, $2, 1))`,
+        [contractId, month, year]
     );
 
     const rateCards = await listRateCards(pool, contractId);
@@ -384,6 +396,8 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             ot2,
             ot3,
             salesTaxRate,
+            lifeInsurance,
+            medicalCoverage: computeMedicalCoverage(emp, contractCosts),
             ...inputs,
         }, policy);
 

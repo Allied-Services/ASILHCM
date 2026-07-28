@@ -1,6 +1,6 @@
 'use strict';
 
-const { calculateMonthlyIncomeTax, calculateEOBI, calculateSESSI } = require('../../taxEngine');
+const { calculateMonthlyIncomeTax, calculateEOBI } = require('../../taxEngine');
 
 /**
  * Model A (30-day calendar basis):
@@ -29,6 +29,24 @@ function computeModelABasis({ presentDays, expectedDays, calendarBasis = 30 }) {
         modelAPaidDays,
         paidFactor: basis ? modelAPaidDays / basis : 1,
     };
+}
+
+function isFamilyName(name) {
+    const s = name == null ? '' : String(name).trim();
+    if (!s || s === '0') return false;
+    return true; // includes placeholder "Name Missing" until real names are captured
+}
+
+/** Monthly medical coverage billed on payroll cost (self + spouse + up to 2 children). */
+function computeMedicalCoverage(emp, costs = {}) {
+    const medEE = Number(costs.medical_ee || 0);
+    const medSP = Number(costs.medical_sp || 0);
+    const medCh = Number(costs.medical_child || 0);
+    const hasSpouse = isFamilyName(emp.spouse_name || emp.spouseName);
+    const numChildren = [emp.child1_name || emp.child1Name, emp.child2_name || emp.child2Name]
+        .filter(isFamilyName).length;
+    const coveredChildren = Math.min(numChildren, 2);
+    return medEE + (hasSpouse ? medSP : 0) + coveredChildren * medCh;
 }
 
 function computeOtRates(salary, policy = {}) {
@@ -101,7 +119,8 @@ function computePrSheetRow(input, policy = {}) {
         ? Number(input.wht)
         : calculateMonthlyIncomeTax(gross, opd, expense);
     const eobi = calculateEOBI();
-    const sessi = calculateSESSI(gross);
+    // SESSI: flat Rs. 2,400 (6% × Rs. 40,000 min wage) when contractual salary < 45,000.
+    const sessiEr = salary < 45000 ? 2400 : 0;
     const pfDeduction = Number(input.pfDeduction || 0);
     const totalDeductions = wht + pfDeduction + eobi.employeeShare;
     const netPay = gross - totalDeductions;
@@ -111,12 +130,12 @@ function computePrSheetRow(input, policy = {}) {
     const bonusAccrual = Math.round(salary / bonusMonths);
     const gratuityAccrual = Math.round(salary / gratuityMonths);
     const eobiEr = eobi.employerShare;
-    const sessiEr = sessi;
     const lifeInsurance = Number(input.lifeInsurance || 150);
     const medicalCoverage = Number(input.medicalCoverage || 0);
     const eduCess = policy.edu_cess_enabled ? Math.round(gross * 0.0833) : 0;
 
-    const totalPayrollCost = gross + eduCess + sessiEr + eobiEr + bonusAccrual + gratuityAccrual + lifeInsurance + medicalCoverage;
+    // Medical insurance is billed on a separate client invoice — not part of payroll disbursement (net pay).
+    const totalPayrollCost = gross + eduCess + sessiEr + eobiEr + bonusAccrual + gratuityAccrual + lifeInsurance;
     const scPct = Number(policy.service_charge_pct ?? 0.18);
     const serviceCharges = Math.round(totalPayrollCost * scPct);
     const stRate = Number(input.salesTaxRate ?? 0.18);
@@ -156,4 +175,10 @@ function computePrSheetRow(input, policy = {}) {
     };
 }
 
-module.exports = { computePrSheetRow, computeModelABasis, computeOtRates };
+module.exports = {
+    computePrSheetRow,
+    computeModelABasis,
+    computeOtRates,
+    computeMedicalCoverage,
+    isFamilyName,
+};

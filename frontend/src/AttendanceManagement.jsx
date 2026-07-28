@@ -155,38 +155,85 @@ function DailyMarking({user}) {
   );
 }
 
+// ── Helpers (shared by Monthly Report + Team Admin) ───────────────────────────
+const uniq = arr => [...new Set(arr.filter(Boolean))].sort();
+const Sel = ({ label, value, onChange, options, placeholder='All' }) => (
+  <div>
+    <div style={{fontSize:'0.74rem',color:'var(--text-muted)',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>{label}</div>
+    <select value={value} onChange={e=>onChange(e.target.value)}
+      style={{width:'100%',background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:'7px',padding:'8px 10px',color:'var(--text)',fontSize:'0.88rem',boxSizing:'border-box'}}>
+      <option value="">{placeholder}</option>
+      {options.map(o=><option key={o} value={o}>{o}</option>)}
+    </select>
+  </div>
+);
+
 // ── Monthly Report Hub (15-column export/import + rollups) ────────────────────
 function MonthlyReport({user}) {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth()+1);
   const [year, setYear]   = useState(now.getFullYear());
-  const [client, setClient] = useState('');
+  const [fClient, setFClient] = useState('');
+  const [fContract, setFContract] = useState('');
+  const [fLocation, setFLocation] = useState('');
+  const [fEmpId, setFEmpId] = useState('');
+  const [fName, setFName] = useState('');
+  const [filterOpts, setFilterOpts] = useState({ clients: [], contracts: [], locations: [] });
   const [data, setData]   = useState(null);
   const [rollups, setRollups] = useState(null);
   const [loading, setLoading] = useState(false);
   const [importText, setImportText] = useState('');
   const [importResult, setImportResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [adjEmpId, setAdjEmpId] = useState('');
+  const [adjPresent, setAdjPresent] = useState('');
+  const [adjOtherDed, setAdjOtherDed] = useState('');
+  const [adjMsg, setAdjMsg] = useState('');
+  const [rowEdits, setRowEdits] = useState({});
+  const [rowSaving, setRowSaving] = useState(null);
+
+  const queryParams = () => ({
+    month, year,
+    ...(fClient ? { client: fClient } : {}),
+    ...(fContract ? { contract: fContract } : {}),
+    ...(fLocation ? { location: fLocation } : {}),
+    ...(fEmpId.trim() ? { employeeId: fEmpId.trim() } : {}),
+    ...(fName.trim() ? { name: fName.trim() } : {}),
+  });
 
   const load = useCallback(() => {
     setLoading(true);
+    const q = queryParams();
     Promise.all([
-      api.getMonthlyReport({month, year, ...(client?{client}:{})}),
-      api.getMonthlyHubRollups({month, year, ...(client?{client}:{})}).catch(() => null),
+      api.getMonthlyHubList(q),
+      api.getMonthlyHubRollups({ month, year, ...(fClient ? { client: fClient } : {}) }).catch(() => null),
     ])
-      .then(([d, r]) => { setData(d); setRollups(r); })
+      .then(([d, r]) => {
+        setData(d);
+        if (d.filterOptions) setFilterOpts(d.filterOptions);
+        setRollups(r);
+        setRowEdits({});
+      })
       .catch(e=>alert(e.message))
       .finally(()=>setLoading(false));
-  }, [month, year, client]);
+  }, [month, year, fClient, fContract, fLocation, fEmpId, fName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(()=>{ load(); }, [load]);
+
+  const contractOpts = uniq(filterOpts.contracts.filter(c => !fClient || true));
+  const locationOpts = uniq(filterOpts.locations);
+
+  const resetBelow = (level) => {
+    if (level <= 1) setFContract('');
+    if (level <= 2) setFLocation('');
+  };
 
   const pctColor = p => p==null?'var(--text-muted)' : p>=95?'#22c55e' : p>=80?'#f59e0b' : '#ef4444';
 
   const exportHub = async () => {
     setBusy(true);
     try {
-      await api.exportMonthlyHub({ month, year, ...(client ? { client } : {}) });
+      await api.exportMonthlyHub({ month, year, ...(fClient ? { client: fClient } : {}) });
     } catch (e) {
       alert(e.message || 'Export failed');
     }
@@ -204,6 +251,51 @@ function MonthlyReport({user}) {
       alert(e.message || 'Import failed');
     }
     setBusy(false);
+  };
+
+  const saveEmployeeOverride = async (employeeId, presentDays, otherDeduction) => {
+    if (!employeeId) return alert('Employee ID required.');
+    setBusy(true);
+    setAdjMsg('');
+    try {
+      const payload = { employeeId, month, year };
+      if (presentDays !== '' && presentDays != null) payload.presentDays = Number(presentDays);
+      if (otherDeduction !== '' && otherDeduction != null) payload.otherDeduction = Number(otherDeduction);
+      const r = await api.saveMonthlyHubOverride(payload);
+      setAdjMsg(`Saved ${r.employeeName || r.employeeId}: present ${r.presentDays ?? '—'}, other deduction ${r.otherDeduction ?? 0}`);
+      load();
+    } catch (e) {
+      alert(e.message || 'Save failed');
+    }
+    setBusy(false);
+  };
+
+  const saveQuickOverride = () => saveEmployeeOverride(adjEmpId.trim(), adjPresent, adjOtherDed);
+
+  const getRowEdit = (r) => {
+    const stored = rowEdits[r.employee_id];
+    if (stored) return stored;
+    return {
+      present: r.present ?? '',
+      otherDeduction: r.other_deduction ?? '',
+    };
+  };
+
+  const setRowEdit = (r, field, val) => {
+    setRowEdits(prev => ({
+      ...prev,
+      [r.employee_id]: { ...getRowEdit(r), [field]: val },
+    }));
+  };
+
+  const saveRowOverride = async (r) => {
+    const edit = getRowEdit(r);
+    setRowSaving(r.employee_id);
+    try {
+      await saveEmployeeOverride(r.employee_id, edit.present, edit.otherDeduction);
+    } finally {
+      setRowSaving(null);
+    }
   };
 
   const RollupCard = ({ title, rows }) => (
@@ -235,9 +327,38 @@ function MonthlyReport({user}) {
           </div>
         ))}
         <div>
-          <div style={{fontSize:'0.75rem',color:'var(--text-muted)',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>Client Filter</div>
-          <input value={client} onChange={e=>setClient(e.target.value)} placeholder="All clients"
-            style={{background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:'8px',padding:'7px 12px',color:'var(--text)',fontSize:'0.88rem',width:'180px'}}/>
+          <div style={{fontSize:'0.75rem',color:'var(--text-muted)',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>Client</div>
+          <select value={fClient} onChange={e=>{ setFClient(e.target.value); resetBelow(1); }}
+            style={{background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:'8px',padding:'7px 12px',color:'var(--text)',fontSize:'0.88rem',minWidth:'160px'}}>
+            <option value="">All clients</option>
+            {filterOpts.clients.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{fontSize:'0.75rem',color:'var(--text-muted)',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>Contract</div>
+          <select value={fContract} onChange={e=>{ setFContract(e.target.value); resetBelow(2); }}
+            style={{background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:'8px',padding:'7px 12px',color:'var(--text)',fontSize:'0.88rem',minWidth:'160px'}}>
+            <option value="">All contracts</option>
+            {contractOpts.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{fontSize:'0.75rem',color:'var(--text-muted)',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>Location</div>
+          <select value={fLocation} onChange={e=>setFLocation(e.target.value)}
+            style={{background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:'8px',padding:'7px 12px',color:'var(--text)',fontSize:'0.88rem',minWidth:'140px'}}>
+            <option value="">All locations</option>
+            {locationOpts.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{fontSize:'0.75rem',color:'var(--text-muted)',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>Employee ID</div>
+          <input value={fEmpId} onChange={e=>setFEmpId(e.target.value)} placeholder="ASIL/SPL-419/21"
+            style={{background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:'8px',padding:'7px 12px',color:'var(--text)',fontSize:'0.88rem',width:'150px'}}/>
+        </div>
+        <div>
+          <div style={{fontSize:'0.75rem',color:'var(--text-muted)',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>Name</div>
+          <input value={fName} onChange={e=>setFName(e.target.value)} placeholder="Search name"
+            style={{background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:'8px',padding:'7px 12px',color:'var(--text)',fontSize:'0.88rem',width:'140px'}}/>
         </div>
         <div style={{flex:1}}/>
         <button type="button" disabled={busy} onClick={exportHub}
@@ -260,6 +381,34 @@ function MonthlyReport({user}) {
         {importResult && <pre style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.75rem' }}>{JSON.stringify(importResult, null, 2)}</pre>}
       </Card>
 
+      <Card>
+        <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>Single employee adjustment</h3>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+          Set <strong>Present Days</strong> for one employee (leave days = working days − present).
+          Use <strong>Other Deduction</strong> for one-off payroll deductions. You can also edit directly in the table below.
+          Recompute the payroll run after saving.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>ASIL Employee Code</div>
+            <input value={adjEmpId} onChange={e => setAdjEmpId(e.target.value)} placeholder="ASIL/SPL-419/21"
+              style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', color: 'var(--text)', width: 200 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Present Days</div>
+            <input type="number" min="0" max="31" value={adjPresent} onChange={e => setAdjPresent(e.target.value)} placeholder="e.g. 27"
+              style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', color: 'var(--text)', width: 100 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Other Deduction (Rs.)</div>
+            <input type="number" min="0" value={adjOtherDed} onChange={e => setAdjOtherDed(e.target.value)} placeholder="optional"
+              style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', color: 'var(--text)', width: 120 }} />
+          </div>
+          <button type="button" disabled={busy} onClick={saveQuickOverride} className="btn-primary">Save override</button>
+        </div>
+        {adjMsg && <div style={{ marginTop: '0.75rem', fontSize: '0.84rem', color: '#22c55e' }}>{adjMsg}</div>}
+      </Card>
+
       {loading && <div style={{padding:'3rem',textAlign:'center',color:'var(--text-muted)'}}>Loading report...</div>}
 
       {data && !loading && (<>
@@ -272,7 +421,7 @@ function MonthlyReport({user}) {
             const avg = rows.reduce((a,r)=>a+(r.attendance_pct||0),0)/rows.length;
             return Math.round(avg)+'%';
           })()} color="#22c55e"/>
-          <Kpi label="Total Deductions" value={'Rs. '+fmt(data.employees?.reduce((a,r)=>a+(r.salary_deduction||0),0)||0)} color="#ef4444"/>
+          <Kpi label="Total Deductions" value={'Rs. '+fmt(data.employees?.reduce((a,r)=>a+(r.other_deduction||0),0)||0)} color="#ef4444"/>
         </div>
 
         {rollups && (
@@ -285,41 +434,65 @@ function MonthlyReport({user}) {
         )}
 
         <Card style={{padding:0,overflow:'hidden'}}>
+          <div style={{padding:'0.75rem 1rem',borderBottom:'1px solid var(--border)',fontSize:'0.8rem',color:'var(--text-muted)'}}>
+            {data.employees?.length || 0} employee{(data.employees?.length||0)!==1?'s':''} shown
+            {fClient||fContract||fLocation||fEmpId||fName ? ' (filtered)' : ''}
+            · Edit <strong>Present</strong> or <strong>Other Ded.</strong> inline, then click Save on that row
+          </div>
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.84rem'}}>
               <thead>
                 <tr style={{background:'var(--bg-dark)',borderBottom:'1px solid var(--border)'}}>
-                  {['Employee','Client/Site','Days','Present','Absent','Half','Leave','Att%','Deduction'].map(h=>(
-                    <th key={h} style={{padding:'0.75rem 1rem',textAlign:'left',color:'var(--text-muted)',fontWeight:600,fontSize:'0.72rem',textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
+                  {['Employee','Client/Contract/Site','Days','Present','Absent','Half','Leave','Att%','Other Ded.',''].map(h=>(
+                    <th key={h||'act'} style={{padding:'0.75rem 1rem',textAlign:'left',color:'var(--text-muted)',fontWeight:600,fontSize:'0.72rem',textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {(data.employees||[]).map(r=>(
-                  <tr key={r.employee_id} style={{borderBottom:'1px solid var(--border)'}}>
+                {(data.employees||[]).map(r=>{
+                  const edit = getRowEdit(r);
+                  const dirty = edit.present !== '' && Number(edit.present) !== Number(r.present)
+                    || edit.otherDeduction !== '' && Number(edit.otherDeduction) !== Number(r.other_deduction);
+                  return (
+                  <tr key={r.employee_id} style={{borderBottom:'1px solid var(--border)',background:r.has_override?'rgba(56,189,248,0.04)':'transparent'}}>
                     <td style={{padding:'0.75rem 1rem'}}>
                       <div style={{fontWeight:600}}>{r.name}</div>
                       <div style={{color:'var(--text-muted)',fontSize:'0.76rem',fontFamily:'monospace'}}>{r.employee_id}</div>
                     </td>
                     <td style={{padding:'0.75rem 1rem',color:'var(--text-muted)',fontSize:'0.82rem'}}>
                       <div>{r.client||'—'}</div>
+                      <div style={{fontSize:'0.76rem'}}>{r.contract||''}</div>
                       <div style={{fontSize:'0.76rem'}}>{r.site||''}</div>
                     </td>
                     <td style={{padding:'0.75rem 1rem',textAlign:'center'}}>{r.working_days}</td>
-                    <td style={{padding:'0.75rem 1rem',textAlign:'center',color:'#22c55e',fontWeight:700}}>{r.present||0}</td>
+                    <td style={{padding:'0.5rem 0.75rem',textAlign:'center'}}>
+                      <input type="number" min="0" max="31" value={edit.present}
+                        onChange={e=>setRowEdit(r,'present',e.target.value)}
+                        style={{width:52,textAlign:'center',background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 6px',color:'#22c55e',fontWeight:700}}/>
+                    </td>
                     <td style={{padding:'0.75rem 1rem',textAlign:'center',color:'#ef4444',fontWeight:700}}>{r.absent||0}</td>
                     <td style={{padding:'0.75rem 1rem',textAlign:'center',color:'#f59e0b'}}>{r.half_day||0}</td>
-                    <td style={{padding:'0.75rem 1rem',textAlign:'center',color:'#38bdf8'}}>{r.on_leave||0}</td>
+                    <td style={{padding:'0.75rem 1rem',textAlign:'center',color:'#38bdf8',fontWeight:700}}>{r.on_leave||0}</td>
                     <td style={{padding:'0.75rem 1rem',textAlign:'center'}}>
                       <span style={{fontWeight:700,color:pctColor(r.attendance_pct)}}>
                         {r.attendance_pct!=null?r.attendance_pct+'%':'—'}
                       </span>
                     </td>
-                    <td style={{padding:'0.75rem 1rem',color:r.salary_deduction>0?'#ef4444':'var(--text-muted)',fontWeight:r.salary_deduction>0?700:400}}>
-                      {r.salary_deduction>0?'Rs. '+fmt(r.salary_deduction):'—'}
+                    <td style={{padding:'0.5rem 0.75rem'}}>
+                      <input type="number" min="0" value={edit.otherDeduction}
+                        onChange={e=>setRowEdit(r,'otherDeduction',e.target.value)}
+                        placeholder="0"
+                        style={{width:80,background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 6px',color:r.other_deduction>0?'#ef4444':'var(--text)',fontWeight:r.other_deduction>0?700:400}}/>
+                    </td>
+                    <td style={{padding:'0.5rem 0.75rem'}}>
+                      <button type="button" disabled={busy||rowSaving===r.employee_id}
+                        onClick={()=>saveRowOverride(r)}
+                        style={{background:dirty?'var(--primary)':'var(--bg-dark)',border:`1px solid ${dirty?'var(--primary)':'var(--border)'}`,color:dirty?'#fff':'var(--text-muted)',padding:'4px 10px',borderRadius:6,cursor:'pointer',fontSize:'0.78rem',fontWeight:600,whiteSpace:'nowrap'}}>
+                        {rowSaving===r.employee_id?'…':'Save'}
+                      </button>
                     </td>
                   </tr>
-                ))}
+                );})}
               </tbody>
             </table>
           </div>
@@ -329,19 +502,6 @@ function MonthlyReport({user}) {
   );
 }
 
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const uniq = arr => [...new Set(arr.filter(Boolean))].sort();
-const Sel = ({ label, value, onChange, options, placeholder='All' }) => (
-  <div>
-    <div style={{fontSize:'0.74rem',color:'var(--text-muted)',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>{label}</div>
-    <select value={value} onChange={e=>onChange(e.target.value)}
-      style={{width:'100%',background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:'7px',padding:'8px 10px',color:'var(--text)',fontSize:'0.88rem',boxSizing:'border-box'}}>
-      <option value="">{placeholder}</option>
-      {options.map(o=><option key={o} value={o}>{o}</option>)}
-    </select>
-  </div>
-);
 
 // ── Team Admin (HR/Admin) ─────────────────────────────────────────────────────
 function TeamAdmin({user}) {
@@ -616,11 +776,13 @@ export default function AttendanceManagement({ user }) {
 
   const canIntake = isAdmin || hasAttPerm('mark_attendance', ['operations']);
 
+  const canMonthly = isAdmin || user?.role === 'payroll_initiator' || hasAttPerm('mark_attendance', ['operations']);
+
   const TABS = [
     ...(canMark ? [{ key:'mark', label:'📋 Daily Marking' }] : []),
     ...(canIntake ? [{ key:'intake', label:'📥 CSV Intake & Alerts' }] : []),
     ...(isLeaveDesk ? [{ key:'leave', label:'🏖 Leave Desk' }] : []),
-    ...(isAdmin ? [{ key:'monthly', label:'📊 Monthly Report' }] : []),
+    ...(canMonthly ? [{ key:'monthly', label:'📊 Monthly Report' }] : []),
     ...(canTeamSetup ? [{ key:'teams', label:'👥 Team Setup' }] : []),
   ];
 

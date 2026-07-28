@@ -189,6 +189,45 @@ describe('Pillar 7 — Pakistan tax deductions', () => {
         expect(calculateSESSI(40001)).toBe(0);
     });
 
+    test('SESSI is flat Rs. 2,400 when contractual salary is below 45,000', () => {
+        const row = computePrSheetRow({
+            newSalary: 44356,
+            paidDays: 30,
+            workingDays: 30,
+            ot2: 16,
+            ot3: 0,
+        }, POLICY);
+        expect(row.gross).toBeGreaterThan(40000);
+        expect(row.sessiEmployer).toBe(2400);
+    });
+
+    test('SESSI exempt when contractual salary is 45000 or above', () => {
+        const row = computePrSheetRow({
+            newSalary: 45158,
+            paidDays: 30,
+            workingDays: 30,
+        }, POLICY);
+        expect(row.sessiEmployer).toBe(0);
+    });
+
+    test('medical coverage is tracked separately and excluded from total payroll cost', () => {
+        const row = computePrSheetRow({
+            newSalary: 50000,
+            paidDays: 30,
+            workingDays: 30,
+            medicalCoverage: 3159,
+            lifeInsurance: 150,
+        }, POLICY);
+        expect(row.medicalCoverage).toBe(3159);
+        const withoutMed = computePrSheetRow({
+            newSalary: 50000,
+            paidDays: 30,
+            workingDays: 30,
+            lifeInsurance: 150,
+        }, POLICY);
+        expect(row.totalPayrollCost).toBe(withoutMed.totalPayrollCost);
+    });
+
     test('engine WHT matches taxEngine with OPD/expense exclusions', () => {
         const row = computePrSheetRow({
             newSalary: 100000,

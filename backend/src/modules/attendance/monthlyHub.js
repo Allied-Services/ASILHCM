@@ -14,6 +14,15 @@ function csvEscape(v) {
     return s;
 }
 
+/** Mon–Fri count in month (matches legacy monthly report). */
+function calendarWorkingDays(month, year) {
+    const daysInMonth = new Date(year, month, 0).getDate();
+    return Array.from({ length: daysInMonth }, (_, i) => {
+        const d = new Date(year, month - 1, i + 1);
+        return d.getDay() !== 0 && d.getDay() !== 6;
+    }).filter(Boolean).length;
+}
+
 /**
  * Active, non-resigned employees for period — 15 master columns.
  */
@@ -207,9 +216,229 @@ async function getMonthlyHubRollups(pool, { month, year, client }) {
     };
 }
 
+/**
+ * Single-employee monthly hub override (present days, other deduction, etc.).
+ * Blank/null fields leave existing override values unchanged.
+ */
+async function upsertMonthlyHubOverride(pool, {
+    employeeId,
+    month,
+    year,
+    presentDays,
+    otherDeduction,
+    ot2Hours,
+    ot3Hours,
+    opd,
+    expense,
+    arrears,
+    specialAllowance,
+    fuelMobile,
+    updatedBy,
+}) {
+    const id = String(employeeId || '').trim();
+    if (!id) {
+        const err = new Error('employeeId is required');
+        err.code = 'VALIDATION';
+        throw err;
+    }
+    const { rows: emp } = await pool.query(`SELECT id, name FROM employees WHERE id = $1`, [id]);
+    if (!emp.length) {
+        const err = new Error(`Employee not found: ${id}`);
+        err.code = 'NOT_FOUND';
+        throw err;
+    }
+
+    const { rows: existingRows } = await pool.query(
+        `SELECT * FROM monthly_attendance_overrides
+         WHERE employee_id = $1 AND period_month = $2 AND period_year = $3`,
+        [id, month, year]
+    );
+    const ex = existingRows[0];
+    const pick = (val, fallback) => (val != null && val !== '' ? Number(val) : fallback);
+    const merged = {
+        presentDays: pick(presentDays, ex?.present_days ?? null),
+        ot2: pick(ot2Hours, ex?.ot2_hours ?? 0),
+        ot3: pick(ot3Hours, ex?.ot3_hours ?? 0),
+        opd: pick(opd, ex?.opd ?? 0),
+        expense: pick(expense, ex?.expense ?? 0),
+        arrears: pick(arrears, ex?.arrears ?? 0),
+        specialAllowance: pick(specialAllowance, ex?.special_allowance ?? 0),
+        fuelMobile: pick(fuelMobile, ex?.fuel_mobile ?? 0),
+        otherDeduction: pick(otherDeduction, ex?.other_deduction ?? 0),
+    };
+
+    await pool.query(
+        `INSERT INTO monthly_attendance_overrides
+            (employee_id, period_month, period_year, present_days, ot2_hours, ot3_hours,
+             opd, expense, arrears, special_allowance, fuel_mobile, other_deduction, updated_by, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())
+         ON CONFLICT (employee_id, period_month, period_year) DO UPDATE SET
+           present_days = COALESCE(EXCLUDED.present_days, monthly_attendance_overrides.present_days),
+           ot2_hours = COALESCE(EXCLUDED.ot2_hours, monthly_attendance_overrides.ot2_hours),
+           ot3_hours = COALESCE(EXCLUDED.ot3_hours, monthly_attendance_overrides.ot3_hours),
+           opd = COALESCE(EXCLUDED.opd, monthly_attendance_overrides.opd),
+           expense = COALESCE(EXCLUDED.expense, monthly_attendance_overrides.expense),
+           arrears = COALESCE(EXCLUDED.arrears, monthly_attendance_overrides.arrears),
+           special_allowance = COALESCE(EXCLUDED.special_allowance, monthly_attendance_overrides.special_allowance),
+           fuel_mobile = COALESCE(EXCLUDED.fuel_mobile, monthly_attendance_overrides.fuel_mobile),
+           other_deduction = COALESCE(EXCLUDED.other_deduction, monthly_attendance_overrides.other_deduction),
+           updated_by = EXCLUDED.updated_by,
+           updated_at = NOW()`,
+        [
+            id, month, year,
+            merged.presentDays, merged.ot2, merged.ot3,
+            merged.opd, merged.expense, merged.arrears,
+            merged.specialAllowance, merged.fuelMobile, merged.otherDeduction,
+            updatedBy || null,
+        ]
+    );
+
+    return {
+        ok: true,
+        employeeId: id,
+        employeeName: emp[0].name,
+        month,
+        year,
+        ...merged,
+    };
+}
+
+/**
+ * Monthly hub rows for Attendance Management UI — merges daily records + overrides.
+ */
+async function getMonthlyHubList(pool, {
+    month,
+    year,
+    client,
+    contract,
+    location,
+    employeeId,
+    name,
+}) {
+    const workingDays = calendarWorkingDays(month, year);
+    const params = [month, year];
+    let filters = '';
+
+    if (client) {
+        params.push(client);
+        filters += ` AND e.client = $${params.length}`;
+    }
+    if (contract) {
+        params.push(contract);
+        filters += ` AND e.contract_name = $${params.length}`;
+    }
+    if (location) {
+        params.push(location);
+        filters += ` AND e.location = $${params.length}`;
+    }
+    if (employeeId) {
+        params.push(`%${String(employeeId).trim()}%`);
+        filters += ` AND e.id ILIKE $${params.length}`;
+    }
+    if (name) {
+        params.push(`%${String(name).trim()}%`);
+        filters += ` AND e.name ILIKE $${params.length}`;
+    }
+
+    const activeWhere = `(e.active IS NULL OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
+        OR e.active::text = 'Yes')
+        AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($2, $1, 1))`;
+
+    const { rows } = await pool.query(
+        `SELECT e.id AS employee_id, e.name, e.client, e.contract_name, e.location AS site,
+                o.present_days, o.other_deduction, o.updated_at AS override_updated_at,
+                COALESCE((
+                    SELECT COUNT(*)::int FROM attendance_records ar
+                    WHERE ar.employee_id = e.id
+                      AND EXTRACT(MONTH FROM ar.date) = $1
+                      AND EXTRACT(YEAR FROM ar.date) = $2
+                      AND ar.status IN ('present','ot','leave','half_day')
+                ), 0) AS att_present,
+                COALESCE((
+                    SELECT COUNT(*)::int FROM attendance_records ar
+                    WHERE ar.employee_id = e.id
+                      AND EXTRACT(MONTH FROM ar.date) = $1
+                      AND EXTRACT(YEAR FROM ar.date) = $2
+                      AND ar.status IN ('absent','unexcused')
+                ), 0) AS att_absent,
+                COALESCE((
+                    SELECT COUNT(*)::int FROM attendance_records ar
+                    WHERE ar.employee_id = e.id
+                      AND EXTRACT(MONTH FROM ar.date) = $1
+                      AND EXTRACT(YEAR FROM ar.date) = $2
+                      AND ar.status = 'half_day'
+                ), 0) AS att_half,
+                COALESCE((
+                    SELECT COUNT(*)::int FROM attendance_records ar
+                    WHERE ar.employee_id = e.id
+                      AND EXTRACT(MONTH FROM ar.date) = $1
+                      AND EXTRACT(YEAR FROM ar.date) = $2
+                      AND ar.status = 'leave'
+                ), 0) AS att_leave
+         FROM employees e
+         LEFT JOIN monthly_attendance_overrides o
+           ON o.employee_id = e.id AND o.period_month = $1 AND o.period_year = $2
+         WHERE ${activeWhere}
+           ${filters}
+         ORDER BY e.client, e.contract_name, e.name`,
+        params
+    );
+
+    const employees = rows.map((r) => {
+        const attPresent = parseInt(r.att_present, 10) || 0;
+        const hasOverride = r.present_days != null;
+        const present = hasOverride ? Number(r.present_days) : attPresent;
+        const onLeave = hasOverride
+            ? Math.max(0, workingDays - present)
+            : (parseInt(r.att_leave, 10) || 0);
+        const absent = hasOverride ? 0 : (parseInt(r.att_absent, 10) || 0);
+        const halfDay = hasOverride ? 0 : (parseInt(r.att_half, 10) || 0);
+        const effPres = present + halfDay * 0.5;
+        const pct = workingDays > 0 ? Math.round((effPres / workingDays) * 100) : null;
+        return {
+            employee_id: r.employee_id,
+            name: r.name,
+            client: r.client,
+            contract: r.contract_name,
+            site: r.site,
+            working_days: workingDays,
+            present,
+            absent,
+            half_day: halfDay,
+            on_leave: onLeave,
+            attendance_pct: pct,
+            other_deduction: Number(r.other_deduction) || 0,
+            has_override: hasOverride || (Number(r.other_deduction) || 0) > 0,
+            override_updated_at: r.override_updated_at,
+        };
+    });
+
+    const { rows: optRows } = await pool.query(
+        `SELECT DISTINCT e.client, e.contract_name, e.location
+         FROM employees e
+         WHERE ${activeWhere}
+         ORDER BY e.client, e.contract_name, e.location`,
+        [month, year]
+    );
+    const clients = [...new Set(optRows.map((r) => r.client).filter(Boolean))].sort();
+    const contracts = [...new Set(optRows.map((r) => r.contract_name).filter(Boolean))].sort();
+    const locations = [...new Set(optRows.map((r) => r.location).filter(Boolean))].sort();
+
+    return {
+        month,
+        year,
+        working_days: workingDays,
+        employees,
+        filterOptions: { clients, contracts, locations },
+    };
+}
+
 module.exports = {
     exportMonthlyHubCsv,
     importMonthlyHubCsv,
     getMonthlyHubRollups,
+    getMonthlyHubList,
+    upsertMonthlyHubOverride,
     MONTHLY_HUB_COLUMNS,
+    calendarWorkingDays,
 };
