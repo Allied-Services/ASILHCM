@@ -4,11 +4,11 @@
  * Authenticated Fixed Value staging API smoke (no Google OAuth UI).
  *
  * Required env:
- *   JWT_SECRET          â€” must match Render asil-hcm-staging JWT_SECRET
+ *   JWT_SECRET          — must match Render asil-hcm-staging JWT_SECRET
  * Optional:
- *   STAGING_BASE_URL    â€” default https://asil-hcm-staging.onrender.com
- *   STAGING_DATABASE_URL / DATABASE_URL â€” used only to pick a real superadmin email if present
- *   SMOKE_EMAIL / SMOKE_USER_ID â€” override JWT subject
+ *   STAGING_BASE_URL    — default https://asil-hcm-staging.onrender.com
+ *   STAGING_DATABASE_URL / DATABASE_URL — used only to pick a real superadmin email if present
+ *   SMOKE_EMAIL / SMOKE_USER_ID — override JWT subject
  *
  * Usage (PowerShell):
  *   $env:JWT_SECRET="..."
@@ -143,12 +143,12 @@ async function main() {
   const contractId = (pso && (pso.id || pso.contract_id)) || 'CTR-PSO-NORTH-ZONE';
   if (!result('GET /api/fixed-value/contracts', contracts.status === 200, 'status=' + contracts.status + ' count=' + contractList.length)) failed++;
 
-  // 2) service orders â€” expect 12
+  // 2) service orders — expect 12
   const sos = await httpJson(base, 'GET', `/api/fixed-value/service-orders?contractId=${encodeURIComponent(contractId)}`, token);
   const soList = Array.isArray(sos.json) ? sos.json : (sos.json && sos.json.serviceOrders) || (sos.json && sos.json.rows) || [];
   if (!result('GET /api/fixed-value/service-orders', sos.status === 200 && soList.length === 12, 'status=' + sos.status + ' count=' + soList.length + ' expected=12')) failed++;
 
-  // 3) invoice compute Tarujabba March 2026 â€” expect grand 2479745
+  // 3) invoice compute Tarujabba March 2026 — expect grand 2479745
   const inv = await httpJson(base, 'POST', '/api/fixed-value/service-orders/SO-PSO-TARUJABBA/invoice/compute', token, { month: 3, year: 2026 });
   const grand = inv.json && (inv.json.grandTotal != null ? inv.json.grandTotal : inv.json.grand_total);
   if (!result('POST .../SO-PSO-TARUJABBA/invoice/compute', inv.status === 200 && Number(grand) === 2479745, 'status=' + inv.status + ' grandTotal=' + grand + ' expected=2479745')) failed++;
