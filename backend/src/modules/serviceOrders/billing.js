@@ -101,16 +101,19 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year }) {
 
     const lines = so.lines || [];
     const grossLines = lines.map(l => {
-        const qty = l.quantity != null ? Number(l.quantity) : 1;
+        // SO seed JSON often stores quantity=12 (contract months) with monthly `rate`.
+        // A period invoice always stamps one month = rate (not rate * contractMonths).
         const rate = Number(l.rate || 0);
+        const billQty = 1;
         return {
             lineId: l.id,
             description: l.name,
-            quantity: qty,
+            quantity: billQty,
             rate,
-            amount: round2(rate * qty),
+            amount: round2(rate * billQty),
             isManpowerDependent: l.is_manpower_dependent,
             roles: l.roles || [],
+            contractQuantity: l.quantity != null ? Number(l.quantity) : null,
         };
     });
     const gross = round2(grossLines.reduce((s, l) => s + l.amount, 0));

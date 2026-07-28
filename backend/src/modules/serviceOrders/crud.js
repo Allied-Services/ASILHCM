@@ -117,9 +117,11 @@ async function replaceLines(db, serviceOrderId, lines) {
         throw err;
     }
 
-    const ownsTx = typeof db.connect === 'function';
-    const client = ownsTx ? await db.connect() : db;
-    const startedHere = ownsTx;
+    // Pool has .connect but no .release; a pooled Client has .release.
+    // Do not call .connect() on an already-connected Client (seed tx path).
+    const isPool = typeof db.connect === 'function' && typeof db.release !== 'function';
+    const client = isPool ? await db.connect() : db;
+    const startedHere = isPool;
     try {
         if (startedHere) await client.query('BEGIN');
         await client.query(`DELETE FROM service_order_lines WHERE service_order_id = $1`, [serviceOrderId]);

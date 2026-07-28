@@ -44,7 +44,7 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
         <td>${l.description || l.name || ''}</td>
         <td class="num">${l.quantity ?? 1}</td>
         <td class="num">${fmt(l.rate ?? l.amount)}</td>
-        <td class="num">${fmt(l.amount ?? (Number(l.rate || 0) * Number(l.quantity || 1)))}</td>
+        <td class="num">${fmt(l.amount ?? Number(l.rate || 0))}</td>
       </tr>`).join('');
 
     const deductionRows = (data.deductions || []).map(d => `

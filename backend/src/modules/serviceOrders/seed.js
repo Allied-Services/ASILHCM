@@ -110,6 +110,7 @@ async function seedPsoNorthZone(pool, { actor } = {}) {
                 taxRate: site.taxRate,
                 hasEquipment: site.hasEquipment,
                 equipmentRequired: site.equipmentRequired || [],
+                contractMonths: site.lineItems?.[0]?.quantity || 12,
             };
             if (FOCAL_SITES.has(site.id)) {
                 meta.focalEnabled = true;
@@ -131,41 +132,60 @@ async function seedPsoNorthZone(pool, { actor } = {}) {
             await replaceLines(client, soId, site.lineItems.map((l, idx) => ({
                 line_number: String(idx + 1),
                 name: l.name,
+                // Bill monthly: keep contract months in meta, store qty=1 + monthly rate on the line.
                 unit: l.unit || 'MON',
-                quantity: l.quantity != null ? l.quantity : 1,
+                quantity: 1,
                 rate: l.rate,
-                total_amount: l.totalAmount ?? l.rate,
+                total_amount: l.rate,
                 is_manpower_dependent: !!l.isManpowerDependent,
                 roles: l.roles || [],
             })));
         }
 
-        const cnicList = workers.map(w => w.cnic).filter(Boolean);
-        if (cnicList.length) {
-            await client.query(
-                `DELETE FROM employees
-                 WHERE id LIKE $1
-                    OR (
-                      cnic = ANY($2::text[])
-                      AND (
-                        client ILIKE '%PSO%'
-                        OR contract_name ILIKE '%Conservancy%'
-                        OR contract_name ILIKE '%PSO%'
-                        OR contract_id = $3
-                      )
-                    )`,
-                [`${EMP_ID_PREFIX}%`, cnicList, PSO_CONTRACT_ID]
-            );
-        } else {
-            await client.query(`DELETE FROM employees WHERE id LIKE $1`, [`${EMP_ID_PREFIX}%`]);
-        }
+        // Staging often has a prod-restored ASIL/PSO-* roster with payroll FKs.
+        // Never hard-delete those; upsert by CNIC (unique) or by our NZ id prefix.
+        await client.query(
+            `DELETE FROM employees e
+             WHERE e.id LIKE $1
+               AND NOT EXISTS (SELECT 1 FROM payroll_transactions pt WHERE pt.employee_id = e.id)
+               AND NOT EXISTS (SELECT 1 FROM payment_ledger pl WHERE pl.employee_id = e.id)`,
+            [`${EMP_ID_PREFIX}%`]
+        );
 
         let empSeq = 1;
         for (const w of workers) {
-            const empId = `${EMP_ID_PREFIX}${padEmpNum(empSeq)}`;
-            empSeq += 1;
             const salary = Number(w.basicSalary || 0) + Number(w.allowance || 0);
             const site = sites.find(s => s.id === w.siteId);
+            const bankName = w.bankCode ? `Bank ${w.bankCode}` : null;
+            const eobiNo = w.eobi != null ? String(w.eobi) : '400';
+            const sessiNo = w.socialSecurity != null ? String(w.socialSecurity) : '400';
+            const location = site?.name || w.siteId;
+            const province = siteProvince(w.siteId);
+
+            if (w.cnic) {
+                const existing = await client.query(
+                    `SELECT id FROM employees WHERE cnic = $1 LIMIT 1`,
+                    [w.cnic]
+                );
+                if (existing.rows[0]) {
+                    await client.query(
+                        `UPDATE employees SET
+                           name = $2, designation = $3, client = $4, contract_id = $5, contract_name = $6,
+                           location = $7, site = $8, province = $9, salary = $10, active = 'Yes',
+                           bank_account = $11, bank_name = $12, eobi_no = $13, sessi_no = $14, dept = 'Conservancy'
+                         WHERE id = $1`,
+                        [
+                            existing.rows[0].id, w.name, w.designation, PSO_CLIENT_NAME, PSO_CONTRACT_ID,
+                            PSO_CONTRACT_NAME, location, w.siteId, province, salary,
+                            w.bankAccount || null, bankName, eobiNo, sessiNo,
+                        ]
+                    );
+                    continue;
+                }
+            }
+
+            const empId = `${EMP_ID_PREFIX}${padEmpNum(empSeq)}`;
+            empSeq += 1;
             await client.query(
                 `INSERT INTO employees
                  (id, name, cnic, designation, client, contract_id, contract_name, location, site, province,
@@ -175,28 +195,20 @@ async function seedPsoNorthZone(pool, { actor } = {}) {
                    name = EXCLUDED.name,
                    cnic = EXCLUDED.cnic,
                    designation = EXCLUDED.designation,
+                   client = EXCLUDED.client,
+                   contract_id = EXCLUDED.contract_id,
+                   contract_name = EXCLUDED.contract_name,
                    location = EXCLUDED.location,
                    site = EXCLUDED.site,
                    province = EXCLUDED.province,
                    salary = EXCLUDED.salary,
                    bank_account = EXCLUDED.bank_account,
+                   bank_name = EXCLUDED.bank_name,
                    active = 'Yes'`,
                 [
-                    empId,
-                    w.name,
-                    w.cnic,
-                    w.designation,
-                    PSO_CLIENT_NAME,
-                    PSO_CONTRACT_ID,
-                    PSO_CONTRACT_NAME,
-                    site?.name || w.siteId,
-                    w.siteId,
-                    siteProvince(w.siteId),
-                    salary,
-                    w.bankAccount || null,
-                    w.bankCode ? `Bank ${w.bankCode}` : null,
-                    w.eobi != null ? String(w.eobi) : '400',
-                    w.socialSecurity != null ? String(w.socialSecurity) : '400',
+                    empId, w.name, w.cnic || null, w.designation, PSO_CLIENT_NAME, PSO_CONTRACT_ID,
+                    PSO_CONTRACT_NAME, location, w.siteId, province, salary,
+                    w.bankAccount || null, bankName, eobiNo, sessiNo,
                 ]
             );
         }
