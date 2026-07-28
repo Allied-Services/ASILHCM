@@ -5,7 +5,6 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { Pool } = require(path.join(__dirname, '../backend/node_modules/pg'));
 
 function loadEnv() {
     const candidates = [
@@ -33,6 +32,23 @@ async function main() {
         console.error('DATABASE_URL missing — script ready but not executed.');
         console.error('Run migration first: cd backend && npm run migrate');
         console.error('Or seed via POST /api/fixed-value/seed-pso on staging as superadmin.');
+        process.exit(1);
+    }
+
+    const pgPaths = [
+        path.join(__dirname, '../backend/node_modules/pg'),
+        path.join(__dirname, '../node_modules/pg'),
+        'pg',
+    ];
+    let Pool;
+    for (const p of pgPaths) {
+        try {
+            Pool = require(p).Pool;
+            break;
+        } catch { /* try next */ }
+    }
+    if (!Pool) {
+        console.error('pg module not found — run npm ci in backend/');
         process.exit(1);
     }
 
