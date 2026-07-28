@@ -260,7 +260,9 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             : computeWorkingDays(year, month, holidayDateSet));
 
     const { rows: employees } = await pool.query(
-        `SELECT id, name, salary, doj, designation FROM employees WHERE contract_id = $1 OR contract_name = $1`,
+        `SELECT id, name, salary, doj, designation FROM employees
+         WHERE (contract_id = $1 OR contract_name = $1)
+           AND COALESCE(active, 'Yes') = 'Yes'`,
         [contractId]
     );
 
@@ -312,7 +314,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
 
         // 15-column monthly hub overrides (Model A present days + OT) take precedence
         const { rows: overrideRows } = await pool.query(
-            `SELECT present_days, working_days, pf_deduction, income_tax, salary_override,
+            `SELECT present_days, working_days, pf_deduction, income_tax, salary_override, eobi_employee,
                     ot1_hours, ot2_hours, ot3_hours, opd, expense, arrears,
                     special_allowance, fuel_mobile, other_deduction
              FROM monthly_attendance_overrides
@@ -321,13 +323,11 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         ).catch(() => ({ rows: [] }));
         const ov = overrideRows[0];
         let presentDaysForModelA = null;
-        let useExcelProRata = false;
         let overrideWorkingDays = null;
         if (ov) {
             if (ov.present_days != null) {
                 presentDaysForModelA = Number(ov.present_days);
                 paidDays = presentDaysForModelA;
-                useExcelProRata = true;
             }
             if (ov.working_days != null) overrideWorkingDays = Number(ov.working_days);
             if (ov.ot1_hours != null) ot1 = Number(ov.ot1_hours) || 0;
@@ -358,6 +358,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             if (ov.other_deduction != null) inputs.otherDeduction = Number(ov.other_deduction) || 0;
             if (ov.pf_deduction != null) inputs.pfDeduction = Number(ov.pf_deduction) || 0;
             if (ov.income_tax != null) inputs.wht = Number(ov.income_tax);
+            if (ov.eobi_employee != null) inputs.eobiEmployee = Number(ov.eobi_employee);
         }
 
         if (!policy.ot_allowed) {
@@ -394,12 +395,10 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             salesTaxRate,
             ...inputs,
         };
-        if (!useExcelProRata) {
-            // Model A: Expected = calendar working days (Sundays/holidays already excluded from expected)
-            computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
-            computeInput.expectedDays = workingDays;
-            computeInput.modelA = true;
-        }
+        // Model A (30-day calendar basis) — override present/expected when seeded from Excel
+        computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
+        computeInput.expectedDays = overrideWorkingDays ?? workingDays;
+        computeInput.modelA = true;
         let computed = computePrSheetRow(computeInput, policy);
 
         const designation = (emp.designation || '').toLowerCase().trim();

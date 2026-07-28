@@ -83,6 +83,42 @@ describe('Pillar 1 — OT 1X', () => {
         expect(result.opd).toBe(1500);
     });
 
+    test('PSO OT divisor 30×8 @1× — Excel Abdul Mateen fixture (67.5 hrs × 60,000/240)', () => {
+        const psoPolicy = { ...POLICY, ot_divisor_days: 30, ot_divisor_hours: 8 };
+        const row = computePrSheetRow({
+            newSalary: 60000,
+            paidDays: 30,
+            workingDays: 30,
+            ot1: 67.5,
+        }, psoPolicy);
+        expect(row.overtimeAmount).toBe(16875);
+    });
+
+    test('component rounding — integer gross and net (Excel parity)', () => {
+        const row = computePrSheetRow({
+            newSalary: 45991,
+            paidDays: 30,
+            workingDays: 30,
+            ot2: 9,
+            wht: 1600,
+            pfDeduction: 1667,
+        }, POLICY);
+        expect(Number.isInteger(row.gross)).toBe(true);
+        expect(Number.isInteger(row.netPay)).toBe(true);
+        expect(row.netPay).toBe(row.gross - row.wht - row.pfDeduction - row.eobiEmployee);
+    });
+
+    test('EOBI override — PSO labor row with eobi=0', () => {
+        const row = computePrSheetRow({
+            newSalary: 50000,
+            paidDays: 30,
+            workingDays: 30,
+            eobiEmployee: 0,
+        }, POLICY);
+        expect(row.eobiEmployee).toBe(0);
+        expect(row.netPay).toBe(row.gross - row.wht);
+    });
+
     test('rate-card billing OT includes 1×', () => {
         const computed = { totalCost: 100000 };
         applyBillingAmount(computed, {
@@ -147,7 +183,7 @@ describe('Pillar 4 — Medical Reimbursements', () => {
         }, POLICY);
         expect(row.gross).toBe(50000 + 5000);
         // Taxable monthly = gross - opd - expense = 50000
-        expect(row.wht).toBe(calculateMonthlyIncomeTax(55000, 5000, 0));
+        expect(row.wht).toBe(Math.round(calculateMonthlyIncomeTax(55000, 5000, 0)));
     });
 });
 

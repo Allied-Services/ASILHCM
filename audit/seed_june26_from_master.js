@@ -70,6 +70,7 @@ const JUNE = {
   GROSS: 30,
   INCOME_TAX: 31,
   PF: 32,
+  EOBI: 33,
 };
 
 // PSO Operational PR June-26 — same column layout as June-26 (no month filter)
@@ -89,6 +90,7 @@ const PSO = {
   INCOME_TAX: 31,
   PF: 32,
   NET_PAY: 35,
+  EOBI: 33,
 };
 
 const stats = {
@@ -185,12 +187,14 @@ function parseJune26Overrides(wb) {
   if (!ws) throw new Error('Sheet "June-26" not found');
   const range = XLSX.utils.decode_range(ws['!ref']);
   const rows = [];
-  for (let r = 3; r <= Math.min(512, range.e.r); r += 1) {
+  // Rows 4–519 (indices 3–518). Rows 514–519 are PSO conservancy tail — no month/year in sheet.
+  const JUNE_DATA_END = 518;
+  for (let r = 3; r <= Math.min(JUNE_DATA_END, range.e.r); r += 1) {
     const rawId = String(cellVal(ws, r, JUNE.EMPLOYEE_ID) || '').trim();
     if (!rawId || !/^ASIL/i.test(rawId)) continue;
     const m = num(cellVal(ws, r, JUNE.MONTH));
     const y = num(cellVal(ws, r, JUNE.YEAR));
-    if (m !== TARGET_MONTH || y !== TARGET_YEAR) continue;
+    if (r <= 512 && (m !== TARGET_MONTH || y !== TARGET_YEAR)) continue;
 
     const workingDays = num(cellVal(ws, r, JUNE.WORKING_DAYS));
     const paidDays = num(cellVal(ws, r, JUNE.PAID_DAYS));
@@ -205,6 +209,7 @@ function parseJune26Overrides(wb) {
     const newSalary = num(cellVal(ws, r, JUNE.NEW_SALARY));
     const pfDeduction = num(cellVal(ws, r, JUNE.PF));
     const incomeTax = num(cellVal(ws, r, JUNE.INCOME_TAX));
+    const eobiEmployee = num(cellVal(ws, r, JUNE.EOBI));
     const isPsoOt1x = /^ASIL\/PSO-/i.test(rawId);
 
     rows.push({
@@ -220,8 +225,9 @@ function parseJune26Overrides(wb) {
       special_allowance: specialAllowance,
       fuel_mobile: fuelMobile,
       other_deduction: otherDeduction,
-      pf_deduction: pfDeduction,
+      pf_deduction: pfDeduction > 0 ? Math.round(pfDeduction) : 0,
       income_tax: incomeTax,
+      eobi_employee: eobiEmployee,
       salary_override: newSalary > 0 ? newSalary : null,
       new_salary: newSalary > 0 ? newSalary : null,
       source: 'june26_seed',
@@ -262,25 +268,115 @@ function parsePsoOperationalOverrides(wb) {
       special_allowance: num(cellVal(ws, r, PSO.SPECIAL_ALLOWANCE)),
       fuel_mobile: num(cellVal(ws, r, PSO.FUEL_MOBILE)),
       other_deduction: num(cellVal(ws, r, PSO.OTHER_DEDUCTION)),
-      pf_deduction: pfDeduction,
+      pf_deduction: pfDeduction > 0 ? Math.round(pfDeduction) : 0,
       income_tax: incomeTax,
-      new_salary: null,
+      eobi_employee: num(cellVal(ws, r, PSO.EOBI)),
+      gross: gross > 0 ? gross : null,
       source: 'pso_ops_june26_seed',
     });
   }
-  return rows;
+  return aggregatePsoOverrideRows(rows);
 }
 
 function mergeOverrideRows(juneRows, psoRows) {
   const map = new Map();
   for (const row of juneRows) map.set(row.employee_id, { ...row });
-  // PSO operational sheet overrides June-26 for employees only on PSO sheet
+  // PSO operational sheet overrides June-26 for coded PSO employees (paid days, OT, PF).
+  // Only copy defined PSO fields — never clobber June new_salary / salary_override with null.
   for (const row of psoRows) {
-    if (!map.has(row.employee_id)) {
-      map.set(row.employee_id, row);
+    const existing = map.get(row.employee_id) || {};
+    const fromJune = map.has(row.employee_id);
+    const merged = { ...existing };
+    for (const [key, val] of Object.entries(row)) {
+      if (val === null || val === undefined) continue;
+      // June-26 working_days wins when the employee is on both sheets (PSO ops uses different basis).
+      if (fromJune && key === 'working_days') continue;
+      merged[key] = val;
+    }
+    merged.source = 'pso_ops_june26_seed';
+    map.set(row.employee_id, merged);
+  }
+  return [...map.values()];
+}
+
+const PSO_DUPLICATE_ARREARS_IDS = new Set(['ASIL/PSO-329/25'].map((id) => id.toUpperCase()));
+
+function aggregatePsoOverrideRows(rows) {
+  const sumFields = [
+    'ot1_hours', 'ot2_hours', 'ot3_hours', 'opd', 'expense',
+    'special_allowance', 'fuel_mobile', 'other_deduction',
+    'pf_deduction', 'income_tax', 'eobi_employee',
+  ];
+  const map = new Map();
+  for (const row of rows) {
+    const id = row.employee_id;
+    if (!map.has(id)) {
+      map.set(id, { ...row, arrears: row.arrears || 0 });
+      continue;
+    }
+    const agg = map.get(id);
+    if (PSO_DUPLICATE_ARREARS_IDS.has(id) && row.gross > 0) {
+      agg.arrears = (agg.arrears || 0) + row.gross;
+    }
+    for (const f of sumFields) {
+      if (row[f] != null) agg[f] = (agg[f] || 0) + row[f];
     }
   }
   return [...map.values()];
+}
+
+const PSO_CONTRACT_IDS = [
+  CONTRACTS.PSO_OPS.id,
+  CONTRACTS.PSO_JAN.id,
+  CONTRACTS.PSO_CON_PUNJAB.id,
+  CONTRACTS.PSO_CON_KPK.id,
+  CONTRACTS.PSO_CON_GB.id,
+];
+
+const GHOST_EMPLOYEE_IDS = [
+  'ASIL/SPL-360/21',
+  'ASIL/SPL-46/21',
+  'ASIL/SPL-408/21',
+  'ASIL/SPL-388/21',
+  'ASIL/PSO-018/25',
+  'ASIL/PSO-030/25',
+  'ASILFM/SPL/22/142',
+  'ASILFM/SPL/22/141',
+  'ASILFM/SPL/22/81',
+  'ASILFM/SPL/22/125',
+  'ASILFM/SPL/22/40',
+  'ASIL/PSO-180/25',
+  'ASIL/PSO-192/25',
+  'ASIL/PSO-386/25',
+  'ASIL/PSO-298/25',
+].map(normalizeId);
+
+async function seedPsoOtDivisors(pool, dryRun) {
+  if (!dryRun) {
+    await pool.query(
+      `UPDATE contract_policies
+       SET ot_divisor_days = 30, ot_divisor_hours = 8
+       WHERE contract_id = ANY($1::text[])`,
+      [PSO_CONTRACT_IDS],
+    );
+  }
+  return { contracts: PSO_CONTRACT_IDS, ot_divisor_days: 30, ot_divisor_hours: 8 };
+}
+
+async function deactivateGhostEmployees(pool, dryRun) {
+  let count = 0;
+  for (const id of GHOST_EMPLOYEE_IDS) {
+    if (!dryRun) {
+      const { rowCount } = await pool.query(
+        `UPDATE employees SET active = 'No' WHERE id = $1 AND active = 'Yes'`,
+        [id],
+      );
+      count += rowCount;
+    } else {
+      count += 1;
+    }
+  }
+  return { deactivated: count, ids: GHOST_EMPLOYEE_IDS };
 }
 
 async function seedContractPolicies(pool, dryRun) {
@@ -422,8 +518,8 @@ async function upsertOverrides(pool, overrideRows, dryRun) {
            employee_id, period_month, period_year, present_days, working_days,
            ot1_hours, ot2_hours, ot3_hours, opd, expense, arrears,
            special_allowance, fuel_mobile, other_deduction,
-           pf_deduction, income_tax, salary_override, source, updated_by
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'seed_script')
+           pf_deduction, income_tax, salary_override, eobi_employee, source, updated_by
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'seed_script')
          ON CONFLICT (employee_id, period_month, period_year) DO UPDATE SET
            present_days = EXCLUDED.present_days,
            working_days = EXCLUDED.working_days,
@@ -439,6 +535,7 @@ async function upsertOverrides(pool, overrideRows, dryRun) {
            pf_deduction = EXCLUDED.pf_deduction,
            income_tax = EXCLUDED.income_tax,
            salary_override = EXCLUDED.salary_override,
+           eobi_employee = EXCLUDED.eobi_employee,
            source = EXCLUDED.source,
            updated_by = EXCLUDED.updated_by,
            updated_at = NOW()`,
@@ -446,7 +543,7 @@ async function upsertOverrides(pool, overrideRows, dryRun) {
           row.employee_id, TARGET_MONTH, TARGET_YEAR, row.present_days, row.working_days,
           row.ot1_hours || 0, row.ot2_hours, row.ot3_hours, row.opd, row.expense, row.arrears,
           row.special_allowance, row.fuel_mobile, row.other_deduction,
-          row.pf_deduction || 0, row.income_tax, row.salary_override,
+          row.pf_deduction || 0, row.income_tax, row.salary_override, row.eobi_employee,
           row.source || 'june26_seed',
         ],
       );
@@ -487,6 +584,8 @@ async function main() {
     if (!dryRun) await client.query('BEGIN');
 
     const policyResults = await seedContractPolicies(client, dryRun);
+    const psoDivisor = await seedPsoOtDivisors(client, dryRun);
+    const ghostResult = await deactivateGhostEmployees(client, dryRun);
     const sampleUpdates = await updateEmployees(client, masterMap, juneSalaryMap, dryRun);
     const overrideCount = await upsertOverrides(client, overrideRows, dryRun);
 
@@ -498,6 +597,8 @@ async function main() {
       june26OverrideRows: overrideRows.length,
       stats,
       policyChoices: policyResults,
+      psoOtDivisors: psoDivisor,
+      ghostEmployees: ghostResult,
       sampleEmployeeUpdates: sampleUpdates,
       contractMapping: {
         WafiBPO: CONTRACTS.BPO.id,

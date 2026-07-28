@@ -61,12 +61,15 @@ function cellVal(ws, row, col) {
   return cell.v;
 }
 
-function parseSheet(ws, { netCol, sessiCol, dataStartRow, dataEndRow, month = TARGET_MONTH, year = TARGET_YEAR, skipMonthFilter = false }) {
+const JUNE_DATA_END = 518; // Excel rows 4–519 (indices 3–518)
+
+function parseSheet(ws, { netCol, sessiCol, dataStartRow, dataEndRow, month = TARGET_MONTH, year = TARGET_YEAR, skipMonthFilter = false, skipMonthFilterFromRow = null }) {
   const rows = [];
   for (let r = dataStartRow; r <= dataEndRow; r += 1) {
     const eid = String(cellVal(ws, r, COL.ASIL_CODE) || '').trim();
     if (!eid || !/^ASIL/i.test(eid)) continue;
-    if (!skipMonthFilter) {
+    const useMonthFilter = !skipMonthFilter && !(skipMonthFilterFromRow != null && r >= skipMonthFilterFromRow);
+    if (useMonthFilter) {
       const m = num(cellVal(ws, r, COL.MONTH));
       const y = num(cellVal(ws, r, COL.YEAR));
       if (m !== month || y !== year) continue;
@@ -92,6 +95,24 @@ function parseSheet(ws, { netCol, sessiCol, dataStartRow, dataEndRow, month = TA
     });
   }
   return rows;
+}
+
+/** Sum numeric fields when the same employee_id appears more than once (e.g. PSO-329/25 duplicate). */
+function aggregateSheetRows(rows) {
+  const sumFields = ['paid_days', 'gross', 'income_tax', 'eobi', 'sessi_or_pessi', 'pf', 'advances', 'other_deductions', 'net_pay'];
+  const map = new Map();
+  for (const r of rows) {
+    const id = r.employee_id;
+    if (!map.has(id)) {
+      map.set(id, { ...r });
+      continue;
+    }
+    const agg = map.get(id);
+    for (const f of sumFields) {
+      agg[f] = roundRupee((agg[f] || 0) + (r[f] || 0));
+    }
+  }
+  return [...map.values()];
 }
 
 function parseMasterData(wb) {
@@ -243,20 +264,21 @@ async function main() {
   const juneRange = XLSX.utils.decode_range(juneWs['!ref']);
   const psoRange = XLSX.utils.decode_range(psoWs['!ref']);
 
-  const juneRows = parseSheet(juneWs, {
+  const juneRows = aggregateSheetRows(parseSheet(juneWs, {
     netCol: COL.NET_PAY_JUNE,
     sessiCol: 37, // AL
     dataStartRow: 3,  // row 4
-    dataEndRow: Math.min(512, juneRange.e.r), // row 513
-  });
+    dataEndRow: Math.min(JUNE_DATA_END, juneRange.e.r), // row 519
+    skipMonthFilterFromRow: 513, // rows 514–519: conservancy tail, no month col
+  }));
 
-  const psoRows = parseSheet(psoWs, {
+  const psoRows = aggregateSheetRows(parseSheet(psoWs, {
     netCol: COL.NEED_TO_PAY_PSO,
     sessiCol: 39, // AN on PSO sheet
     dataStartRow: 3,  // row 4
     dataEndRow: Math.min(168, psoRange.e.r), // row 169
     skipMonthFilter: true, // sheet Month# col shows 4 (April) but sheet is June operational PR
-  });
+  }));
 
   const masterData = parseMasterData(wb);
 
@@ -265,7 +287,7 @@ async function main() {
     file: XLSX_PATH,
     sheets: {
       'June-26': {
-        dataRows: `${4}-${Math.min(513, juneRange.e.r + 1)}`,
+        dataRows: `${4}-${Math.min(519, juneRange.e.r + 1)}`,
         employeesParsed: juneRows.length,
         netColumn: 'AJ (Net Pay for the Month)',
         columnMap: {

@@ -94,15 +94,19 @@ function computePrSheetRow(input, policy = {}) {
         rates.hourlyBase * (1 * ot1 + 2 * ot2 + 3 * ot3)
     );
 
-    const gross = salaryForDays + overtimeAmount + opd + expense + arrears + previousDues
-        + specialAllowance + fuelMobile - otherDeduction;
+    const gross = Math.round(
+        salaryForDays + overtimeAmount + opd + expense + arrears + previousDues
+        + specialAllowance + fuelMobile - otherDeduction,
+    );
 
     const wht = input.wht != null
-        ? Number(input.wht)
-        : calculateMonthlyIncomeTax(gross, opd, expense);
-    const eobi = calculateEOBI();
+        ? Math.round(Number(input.wht))
+        : Math.round(calculateMonthlyIncomeTax(gross, opd, expense));
+    const eobi = input.eobiEmployee != null
+        ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI().employerShare }
+        : calculateEOBI();
     const sessi = calculateSESSI(gross);
-    const pfDeduction = Number(input.pfDeduction || 0);
+    const pfDeduction = Math.round(Number(input.pfDeduction || 0));
     const totalDeductions = wht + pfDeduction + eobi.employeeShare;
     const netPay = Math.round(gross - totalDeductions);
 

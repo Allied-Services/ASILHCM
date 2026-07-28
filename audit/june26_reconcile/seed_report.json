@@ -1,0 +1,82 @@
+{
+  "mode": "executed",
+  "masterDataEmployees": 1014,
+  "june26OverrideRows": 666,
+  "stats": {
+    "employeesUpdated": 1,
+    "salariesFixed": 0,
+    "contractsAssigned": 0,
+    "policiesInserted": 0,
+    "overridesUpserted": 664,
+    "skipped": 678
+  },
+  "policyChoices": [
+    {
+      "contractId": "CTR-1773046722553",
+      "action": "exists"
+    },
+    {
+      "contractId": "CTR-1773048523696",
+      "action": "exists"
+    },
+    {
+      "contractId": "CTR-1773054204870",
+      "action": "exists"
+    },
+    {
+      "contractId": "CTR-1773054335402",
+      "action": "exists"
+    }
+  ],
+  "psoOtDivisors": {
+    "contracts": [
+      "CTR-1778149976025",
+      "CTR-1773053337970",
+      "CTR-1773054060255",
+      "CTR-1773054204870",
+      "CTR-1773054335402"
+    ],
+    "ot_divisor_days": 30,
+    "ot_divisor_hours": 8
+  },
+  "ghostEmployees": {
+    "deactivated": 1,
+    "ids": [
+      "ASIL/SPL-360/21",
+      "ASIL/SPL-46/21",
+      "ASIL/SPL-408/21",
+      "ASIL/SPL-388/21",
+      "ASIL/PSO-018/25",
+      "ASIL/PSO-030/25",
+      "ASILFM/SPL/22/142",
+      "ASILFM/SPL/22/141",
+      "ASILFM/SPL/22/81",
+      "ASILFM/SPL/22/125",
+      "ASILFM/SPL/22/40",
+      "ASIL/PSO-180/25",
+      "ASIL/PSO-192/25",
+      "ASIL/PSO-386/25",
+      "ASIL/PSO-298/25"
+    ]
+  },
+  "sampleEmployeeUpdates": [
+    {
+      "id": "ASIL/PSO-386/25",
+      "patch": {
+        "active": "Yes"
+      }
+    }
+  ],
+  "contractMapping": {
+    "WafiBPO": "CTR-1773046722553",
+    "WafiFM+Trading&Supply": "CTR-1773048523696",
+    "WafiFM+other": "CTR-1773048704450",
+    "PSOFM+Conservancy+Punjab": "CTR-1773054060255",
+    "PSOFM+Conservancy+KPK": "CTR-1773054204870",
+    "PSOFM+Conservancy+Gilgit": "CTR-1773054335402",
+    "PSOFM+OpsHandling/CORO": "CTR-1778149976025",
+    "PSOFM+Janitorial": "CTR-1773053337970"
+  },
+  "policyTemplate": "CTR-1773048704450",
+  "generatedAt": "2026-07-28T12:43:51.648Z"
+}
