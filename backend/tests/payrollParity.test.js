@@ -83,6 +83,98 @@ describe('Pillar 1 — OT 1X', () => {
         expect(result.opd).toBe(1500);
     });
 
+    test('PSO OT divisor 30×8 @1× — Excel Abdul Mateen fixture (67.5 hrs × 60,000/240)', () => {
+        const psoPolicy = { ...POLICY, ot_divisor_days: 30, ot_divisor_hours: 8 };
+        const row = computePrSheetRow({
+            newSalary: 60000,
+            paidDays: 30,
+            workingDays: 30,
+            ot1: 67.5,
+        }, psoPolicy);
+        expect(row.overtimeAmount).toBe(16875);
+    });
+
+    test('component rounding — integer gross and net (Excel parity)', () => {
+        const row = computePrSheetRow({
+            newSalary: 45991,
+            paidDays: 30,
+            workingDays: 30,
+            ot2: 9,
+            wht: 1600,
+            pfDeduction: 1667,
+        }, POLICY);
+        expect(Number.isInteger(row.gross)).toBe(true);
+        expect(Number.isInteger(row.netPay)).toBe(true);
+        expect(row.netPay).toBe(row.gross - row.wht - row.pfDeduction - row.eobiEmployee);
+    });
+
+    test('fractional PF override — Excel Fayaz fixture (1666.67 PF + 42.56 WHT)', () => {
+        const row = computePrSheetRow({
+            newSalary: 40000,
+            paidDays: 28,
+            workingDays: 28,
+            salaryForDays: 54256,
+            wht: 42.56,
+            pfDeduction: 1666.67,
+            eobiEmployee: 400,
+        }, POLICY);
+        expect(row.gross).toBe(54256);
+        expect(row.netPay).toBe(52147);
+    });
+
+    test('fractional PF override — Excel SPL/22/97 fixture (2864.67 PF + 187.52 WHT)', () => {
+        const row = computePrSheetRow({
+            newSalary: 68752,
+            paidDays: 30,
+            workingDays: 30,
+            salaryForDays: 68752,
+            wht: 187.52,
+            pfDeduction: 2864.67,
+            eobiEmployee: 400,
+        }, POLICY);
+        expect(row.gross).toBe(68752);
+        expect(row.netPay).toBe(65300);
+    });
+
+    test('EOBI override — PSO labor row with eobi=0', () => {
+        const row = computePrSheetRow({
+            newSalary: 50000,
+            paidDays: 30,
+            workingDays: 30,
+            eobiEmployee: 0,
+        }, POLICY);
+        expect(row.eobiEmployee).toBe(0);
+        expect(row.netPay).toBe(row.gross - row.wht);
+    });
+
+    test('other deduction reduces net pay, not gross (Excel AE/AD parity)', () => {
+        const row = computePrSheetRow({
+            newSalary: 47000,
+            presentDays: 27,
+            expectedDays: 30,
+            modelA: true,
+            salaryForDays: 42300,
+            otherDeduction: 26633,
+            eobiEmployee: 400,
+        }, POLICY);
+        expect(row.gross).toBe(42300);
+        expect(row.netPay).toBe(42300 - 26633 - 400);
+    });
+
+    test('Excel component overrides — salaryForDays + overtimeAmount', () => {
+        const row = computePrSheetRow({
+            newSalary: 40000,
+            presentDays: 30,
+            expectedDays: 30,
+            modelA: true,
+            salaryForDays: 40000,
+            overtimeAmount: 19904,
+            ot1: 103.5,
+        }, POLICY);
+        expect(row.gross).toBe(59904);
+        expect(row.overtimeAmount).toBe(19904);
+    });
+
     test('rate-card billing OT includes 1×', () => {
         const computed = { totalCost: 100000 };
         applyBillingAmount(computed, {
@@ -147,7 +239,7 @@ describe('Pillar 4 — Medical Reimbursements', () => {
         }, POLICY);
         expect(row.gross).toBe(50000 + 5000);
         // Taxable monthly = gross - opd - expense = 50000
-        expect(row.wht).toBe(calculateMonthlyIncomeTax(55000, 5000, 0));
+        expect(row.wht).toBe(Math.round(calculateMonthlyIncomeTax(55000, 5000, 0)));
     });
 });
 

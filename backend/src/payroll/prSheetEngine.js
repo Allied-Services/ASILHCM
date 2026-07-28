@@ -102,28 +102,44 @@ function computePrSheetRow(input, policy = {}) {
         });
         workingDays = 30;
         paidDays = modelA.modelAPaidDays;
-        salaryForDays = Math.round(salary * modelA.paidFactor);
+        salaryForDays = input.salaryForDays != null
+            ? Math.round(Number(input.salaryForDays))
+            : Math.round(salary * modelA.paidFactor);
     } else {
-        salaryForDays = workingDays ? Math.round(salary * paidDays / workingDays) : salary;
+        salaryForDays = input.salaryForDays != null
+            ? Math.round(Number(input.salaryForDays))
+            : (workingDays ? Math.round(salary * paidDays / workingDays) : salary);
     }
 
     const rates = computeOtRates(salary, policy);
-    const overtimeAmount = Math.round(
-        rates.hourlyBase * (1 * ot1 + 2 * ot2 + 3 * ot3)
+    const overtimeAmount = input.overtimeAmount != null
+        ? Math.round(Number(input.overtimeAmount))
+        : Math.round(
+            rates.hourlyBase * (1 * ot1 + 2 * ot2 + 3 * ot3)
+        );
+
+    const grossComponents = Math.round(
+        salaryForDays + overtimeAmount + opd + expense + arrears + previousDues
+        + specialAllowance + fuelMobile,
     );
+    const gross = grossComponents;
 
-    const gross = salaryForDays + overtimeAmount + opd + expense + arrears + previousDues
-        + specialAllowance + fuelMobile - otherDeduction;
-
-    const wht = input.wht != null
+    const whtExact = input.wht != null
         ? Number(input.wht)
         : calculateMonthlyIncomeTax(gross, opd, expense);
-    const eobi = calculateEOBI();
+    const wht = Math.round(whtExact);
+    const eobi = input.eobiEmployee != null
+        ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI().employerShare }
+        : calculateEOBI();
     // SESSI: flat Rs. 2,400 (6% × Rs. 40,000 min wage) when contractual salary < 45,000.
     const sessiEr = salary < 45000 ? 2400 : 0;
-    const pfDeduction = Number(input.pfDeduction || 0);
-    const totalDeductions = wht + pfDeduction + eobi.employeeShare;
-    const netPay = gross - totalDeductions;
+    const hasPfOverride = input.pfDeduction != null;
+    const pfDeductionExact = hasPfOverride ? Number(input.pfDeduction) : 0;
+    const pfDeduction = hasPfOverride ? Math.round(pfDeductionExact) : 0;
+    const pfForNet = hasPfOverride ? pfDeductionExact : pfDeduction;
+    const whtForNet = input.wht != null ? whtExact : wht;
+    const totalDeductions = wht + pfDeduction + eobi.employeeShare + Math.round(otherDeduction);
+    const netPay = Math.round(gross - whtForNet - pfForNet - eobi.employeeShare - otherDeduction);
 
     const bonusMonths = policy.bonus_accrual_months || 12;
     const gratuityMonths = policy.gratuity_accrual_months || 12;
