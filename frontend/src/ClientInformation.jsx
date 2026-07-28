@@ -209,29 +209,48 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
 
                     {/* Bonus policy */}
                     <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '10px', padding: '1rem', marginBottom: '1rem' }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#f59e0b', marginBottom: '0.75rem' }}>Annual Bonus Policy</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
-                            <FRow label="Bonus = X months of Gross Salary">
-                                <FInput type="number" value={c.costs.bonus_months ?? 1} onChange={e => set('costs.bonus_months', parseFloat(e.target.value) || 0)} ph="1" />
-                            </FRow>
-                            <FRow label="Min. service months for full bonus (0 = always pro-rata)">
-                                <FInput type="number" value={c.costs.bonus_min_months ?? 12} onChange={e => set('costs.bonus_min_months', parseFloat(e.target.value) || 0)} ph="12" />
-                            </FRow>
-                            <FRow label="📅 Disbursement Month (bonus payout month)">
-                                <select
-                                    value={c.costs.bonus_disbursement_month ?? 4}
-                                    onChange={e => set('costs.bonus_disbursement_month', parseInt(e.target.value) || 4)}
-                                    style={{ background: 'var(--bg-dark)', border: '1px solid #f59e0b', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%' }}>
-                                    {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, i) => (
-                                        <option key={i+1} value={i+1}>{m}</option>
-                                    ))}
-                                </select>
-                            </FRow>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#f59e0b' }}>Annual Bonus Policy</div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.82rem', color: (c.costs.bonus_months ?? 1) === 0 ? '#ef4444' : 'var(--text-muted)' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={(c.costs.bonus_months ?? 1) === 0}
+                                    onChange={e => set('costs.bonus_months', e.target.checked ? 0 : 1)}
+                                    style={{ accentColor: '#f59e0b', width: '16px', height: '16px' }}
+                                />
+                                No Bonus Applicable
+                            </label>
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                            Bonus is accrued monthly and <strong>disbursed in the selected month</strong>. Employees who joined before the disbursement month in the same year receive the full bonus if they meet the minimum service months; otherwise, it's pro-rated by months served since joining.<br />
-                            <span style={{ color: '#f59e0b' }}>Example: April disbursement — employee joined Aug 2025 → receives 9/12 of 1×gross (Aug–Apr).</span>
-                        </div>
+                        {(c.costs.bonus_months ?? 1) === 0 ? (
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>
+                                This contract has <strong style={{ color: '#ef4444' }}>no annual bonus</strong>. No bonus accrual or disbursement will be calculated for employees on this contract.
+                            </div>
+                        ) : (
+                            <>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                                    <FRow label="Bonus = X months of Gross Salary">
+                                        <FInput type="number" min="0" step="0.5" value={c.costs.bonus_months ?? 1} onChange={e => set('costs.bonus_months', parseFloat(e.target.value) || 0)} ph="1" />
+                                    </FRow>
+                                    <FRow label="Min. service months for full bonus (0 = always pro-rata)">
+                                        <FInput type="number" value={c.costs.bonus_min_months ?? 12} onChange={e => set('costs.bonus_min_months', parseFloat(e.target.value) || 0)} ph="12" />
+                                    </FRow>
+                                    <FRow label="📅 Disbursement Month (bonus payout month)">
+                                        <select
+                                            value={c.costs.bonus_disbursement_month ?? 4}
+                                            onChange={e => set('costs.bonus_disbursement_month', parseInt(e.target.value) || 4)}
+                                            style={{ background: 'var(--bg-dark)', border: '1px solid #f59e0b', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%' }}>
+                                            {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, i) => (
+                                                <option key={i+1} value={i+1}>{m}</option>
+                                            ))}
+                                        </select>
+                                    </FRow>
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                                    Bonus is accrued monthly and <strong>disbursed in the selected month</strong>. Employees who joined before the disbursement month in the same year receive the full bonus if they meet the minimum service months; otherwise, it's pro-rated by months served since joining.<br />
+                                    <span style={{ color: '#f59e0b' }}>Example: April disbursement — employee joined Aug 2025 → receives 9/12 of 1×gross (Aug–Apr).</span>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* Overhead Per Employee */}
@@ -1091,13 +1110,14 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                                             const disbMo = ct.costs?.bonus_disbursement_month;
                                             const disbLabel = disbMo ? MONTH_NAMES[parseInt(disbMo)-1] : 'April (default)';
                                             const bonusMo = ct.costs?.bonus_months ?? 0;
+                                            const bonusLabel = bonusMo === 0 ? 'Not applicable' : bonusMo + (bonusMo === 1 ? ' month' : ' months') + ' gross';
                                             return [
                                                 ['WHT', ct.financials?.wht_pct + '%'],
                                                 ['Sales Tax', 'Province-based (auto)'],
                                                 ['Service Charges / Margin', ct.financials?.service_charges_pct + '%'],
                                                 ['EOSB Type', ct.costs?.eosb_type || 'None'],
-                                                ['Annual Bonus', bonusMo + (bonusMo === 1 ? ' month' : ' months') + ' gross'],
-                                                ['📅 Bonus Disbursement', disbLabel],
+                                                ['Annual Bonus', bonusLabel],
+                                                ['📅 Bonus Disbursement', bonusMo === 0 ? '—' : disbLabel],
                                             ].map(([l, v]) => (
                                                 <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', padding: '3px 0' }}>
                                                     <span style={{ color: 'var(--text-muted)' }}>{l}</span>

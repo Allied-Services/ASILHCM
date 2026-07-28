@@ -83,7 +83,9 @@ function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
                         {calc.medCh1 > 0 && <R label="Medical — Child 1" value={calc.medCh1} />}
                         {calc.medCh2 > 0 && <R label="Medical — Child 2" value={calc.medCh2} />}
                         {(emp.pf_enrolled || calc.pfER > 0) && <R label="PF Employer Match (Gross ÷ 24)" formula={`Gross ÷ 24 ≈ 4.17%`} value={calc.pfER} />}
-                        <R label={`Bonus Accrual (${cfg.bonus_months ?? 0} month${cfg.bonus_months !== 1 ? 's' : ''}/yr)`} formula={`${cfg.bonus_months ?? 0} × Gross ÷ 12`} value={calc.bonusAccrual} muted={!calc.bonusAccrual} />
+                        {(cfg.bonus_months ?? 0) === 0
+                            ? <R label="Bonus Accrual" formula="No bonus applicable for this contract" value={0} muted />
+                            : <R label={`Bonus Accrual (${cfg.bonus_months ?? 0} month${cfg.bonus_months !== 1 ? 's' : ''}/yr)`} formula={`${cfg.bonus_months ?? 0} × Gross ÷ 12`} value={calc.bonusAccrual} muted={!calc.bonusAccrual} />}
                         {calc.bonusAmount > 0 && <R label="Bonus (Cash — this month)" value={calc.bonusAmount} />}
                         <R label={`Overhead (Fixed — Rs.${cfg.overhead_per_employee || 0}/head)`} formula="Fixed per-head charge from contract" value={calc.overhead} muted={!calc.overhead} />
                         <D label="Total Payroll Cost" value={calc.totalPayrollCost} color="#a78bfa" />

@@ -2025,7 +2025,6 @@ const migrateContractCostDefaults = async () => {
             UPDATE contracts
             SET costs = jsonb_set(COALESCE(costs, '{}')::jsonb, '{bonus_months}', '1'::jsonb, true)
             WHERE (costs->>'bonus_months') IS NULL
-               OR (costs->>'bonus_months')::numeric = 0
         `);
         if (r1.rowCount > 0) console.log(`[migration] Set bonus_months=1 for ${r1.rowCount} legacy contract(s)`);
 
