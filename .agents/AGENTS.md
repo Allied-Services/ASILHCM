@@ -15,6 +15,16 @@ You are the **Principal Autonomous Software Engineer** on an Enterprise HCM & Pa
 
 ---
 
+## SECTION 0 — ACTIVE REMEDIATION PROGRAM (2026-07-24) — READ THIS FIRST
+
+A full-codebase audit (2026-07-24, Claude Fable 5) established that ASIL HCM contains **two disconnected payroll systems** — legacy browser-computed payroll (`PayrollSheet.jsx` → `payroll_transactions`, owns the only payment path) and the July-2026 server-side engine (`backend/src/modules/payrollrun/`, Excel-parity-validated, owns no payment path) — and that this split is why payroll has never run a single month. A phased consolidation program is now the governing plan:
+
+- **Master plan:** `.agents/REMEDIATION_PLAN.md` — read it before any non-trivial work.
+- **Execution protocol:** work happens as discrete sessions defined in `.agents/sessions/S*.md`, executed in ID order, one file per session, each with its own verification checklist. Do not free-lance work that a session file covers.
+- **Until the program says otherwise:** World A (legacy payroll) must keep working — ~500 people are paid through it; the blueprints named above are scheduled for deletion in session S0C (after which `ARCHITECTURE.md` replaces them); the staging-lane rules in the session files supersede the "no staging environment" line above once S0B completes.
+
+---
+
 ## SECTION 1A — `backend/server.js` Route Map (orientation only, verify before relying on it)
 
 `server.js` is ~8,600 lines with no internal navigation. Approximate line ranges by path prefix (generated 2026-07-18 via grep — re-run if this drifts, don't trust blindly on a stale checkout):
@@ -475,6 +485,8 @@ Per `.agents/sessions/S5A_variance_tool.md`. Read-only; no HTTP route.
 **Env vars needed:** none new. Uses `DATABASE_URL` / `TEST_DATABASE_URL` / `STAGING_DATABASE_URL` for live runs.
 
 ---
+
+### 2026-07-24 — S1A frontend crashes (remediation program)
 Per `.agents/sessions/S1A_frontend_crashes.md`.
 
 1. **`BillingProcurement.jsx`** — `ImportQuotationModal` review stage now uses `clientsList`/`contractsList` props (was undefined `CLIENTS`/`CONTRACTS`/`SITES`).

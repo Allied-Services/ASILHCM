@@ -1,0 +1,745 @@
+# Payroll variance summary
+
+**Contract:** ALL — June-26 Net Pay
+**Period:** 2026-06
+**Generated:** 2026-07-28T18:35:04.699Z
+
+## Totals
+- Rows compared: 516
+- Rows with all-field delta = 0: 203
+- Unmatched Excel rows: 0
+- Unmatched HCM rows: 153
+- Total net delta (Excel − HCM): -35779.32
+
+## Per-field non-zero delta counts
+- paid_days: 3
+- gross: 17
+- income_tax: 28
+- eobi: 0
+- sessi_or_pessi: 98
+- pf: 111
+- advances: 0
+- other_deductions: 0
+- net_pay: 156
+
+## Max |delta|
+- Employee: ASIL/SPL-399/21
+- Field: gross
+- Delta: 20000
+
+## Unmatched in HCM only
+- ASIL/SPL-360/21 Mehrim Zahoor
+- ASIL/SPL-46/21 Farman Ullah
+- ASIL/SPL-408/21 Kashif Yazdani
+- ASIL/SPL-388/21 Shahzad Gul
+- ASIL/PSO-332/25 Munawar
+- ASIL/PSO-261/25 Faraz Awan
+- ASIL/PSO-262/25 Syed Haroon
+- ASIL/PSO-259/25 Adnan Safdar
+- ASIL/PSO-263/25 Akbar Khan
+- ASIL/PSO-257/25 Sarfaraz
+- ASIL/PSO-256/25 Shahid
+- ASIL/PSO-264/25 Ameer Rahman
+- ASIL/PSO-329/25 Muhammad Zeeshan
+- ASIL/PSO-269/25 Syed Naveed Shah
+- ASIL/PSO-270/25 Waqar Hussain
+- ASIL/PSO-274/25 Mohammad Waqas
+- ASIL/PSO-275/25 Zahir Mohammad
+- ASIL/PSO-271/25 Amir Iqbal
+- ASIL/PSO-268/25 Attaullah
+- ASIL/PSO-265/25 Aqeel Ahmed
+- ASIL/PSO-280/25 Gul Saeed
+- ASIL/PSO-279/25 Ahmed Wali
+- ASIL/PSO-273/25 Bakht Zamin
+- ASIL/PSO-277/25 Muhammad Asif
+- ASIL/PSO-266/25 Saeed Khan
+- ASIL/PSO-272/25 Noor Zamin
+- ASIL/PSO-287/25 Zia Ur Rehman
+- ASIL/PSO-284/25 Abid Ali
+- ASIL/PSO-330/25 Aqib Pervaiz
+- ASIL/PSO-386/25 Ali Muhammad
+- ASIL/PSO-286/25 Shujat Hussain
+- ASIL/PSO-282/25 Mohammad Faisal
+- ASIL/PSO-288/25 Obaid Ur Rehman
+- ASIL/PSO-285/25 Danish Khan
+- ASIL/PSO-290/25 Gul Akbar
+- ASIL/PSO-283/25 Riaz Khan
+- ASIL/PSO-289/25 Shah Fahad
+- ASIL/PSO-293/25 Muhammad Saleem
+- ASIL/PSO-267/25 Mohammad Bilal
+- ASIL/PSO-254/25 Abdul Mateen
+- ASIL/PSO-292/25 Ahsan
+- ASIL/PSO-291/25 Faisal
+- ASIL/PSO-362/25 Wahab Abbas
+- ASIL/PSO-296/25 Wajid Khan
+- ASIL/PSO-294/25 Mohammad Yousuf
+- ASIL/PSO-295/25 Hassan Ali
+- ASIL/PSO-384/25 Ameer Hussain
+- ASIL/PSO-331/25 Khawar
+- ASIL/PSO-333/25 Abidullah
+- ASIL/PSO-334/25 Imran Ali
+- ASIL/PSO-335/25 Kashif Sadiq
+- ASIL/PSO-302/25 Zahid Khan 
+- ASIL/PSO-308/25 Naveed Ahmed
+- ASIL/PSO-336/25 Kashif Abbasi
+- ASIL/PSO-317/25 Anees Ahmed
+- ASIL/PSO-315/25 Ashar Ahmed Siddiqui
+- ASIL/PSO-342/25 Muhammad Aslam Shakoor
+- ASIL/PSO-343/25 Mehtab Ali
+- ASIL/PSO-344/25 Muneer Ahmed
+- ASIL/PSO-345/25 Waseem Raza
+- ASIL/PSO-346/25 Shaikh Muhammad Aizaz Uddin
+- ASIL/PSO-347/25 Sharjeel Bhadur Khan (L)
+- ASIL/PSO-321/25 Wahid Bux
+- ASIL/PSO-325/25 Abrar
+- ASIL/PSO-348/25 Dilshad
+- ASIL/PSO-349/25 Muhammad Azeem Khan
+- ASIL/PSO-351/25 Shafi
+- ASIL/PSO-352/25 Ahmed
+- ASIL/PSO-355/25 Shakir Ali Abbasi (L)
+- ASIL/PSO-360/25 Islam Uddin
+- ASIL/PSO-364/25 Naseem Gull
+- ASIL/PSO-365/25 Muhammad Rashid
+- ASIL/PSO-366/25 Adil Hussain
+- ASIL/PSO-367/25 Muhammad Farhan
+- ASIL/PSO-368/25 Muhammad Ali (Baloch)
+- ASIL/PSO-369/25 Owais
+- ASIL/PSO-370/25 Muhammad Noshad
+- ASIL/PSO-371/25 Khushi Muhammad (L)
+- ASIL/PSO-378/25 Abdul Manan (EP)
+- ASIL/PSO-380/25 Asif
+- ASIL/PSO-382/25 Abdul Hai
+- ASIL/PSO-383/25 Abdul Raheem
+- ASIL/PSO-385/25 Usman Malik (EP)
+- ASIL/PSO-260/25 Wali Ur Rehman
+- ASIL/PSO-255/25 Muhammad Shakil
+- ASIL/PSO-258/25 Mohammad Islam
+- ASIL/PSO-276/25 Rizwan Ullah
+- ASIL/PSO-281/25 Amir Khan
+- ASIL/PSO-299/25 Zeeshan
+- ASIL/PSO-213/25 Muhamamd Latif Bukhari
+- ASIL/PSO-212/25 Imran Zafar
+- ASIL/PSO-297/25 Mohammad Zubair
+- ASIL/PSO-214/25 Muahmmad Rashid
+- ASIL/PSO-210/25 Muhammad Rafique
+- ASIL/PSO-211/25 Muhammad Yaseen
+- ASIL/PSO-215/25 Arbaz Khan
+- ASIL/PSO-216/25 Niaz Ahmed
+- ASIL/PSO-217/25 Saddam Hussain 
+- ASIL/PSO-225/25 Shah Rukh Khan
+- ASIL/PSO-228/25 Jan Muhammad
+- ASIL/PSO-235/25 Abdullah 
+- ASIL/PSO-222/25 Azmat Ali
+- ASIL/PSO-221/25 Habib Ullah
+- ASIL/PSO-230/25 Hidayat Ullah
+- ASIL/PSO-231/25 Kareem Bux
+- ASIL/PSO-226/25 Khalid
+- ASIL/PSO-227/25 Mehrab
+- ASIL/PSO-223/25 Molvi Mehmood Ullah
+- ASIL/PSO-224/25 Muhammad Ali
+- ASIL/PSO-220/25 Muhammad Asghar
+- ASIL/PSO-218/25 Shahid Ahmed Baloch 
+- ASIL/PSO-239/25 Muhammad Sohail 
+- ASIL/PSO-232/25 Abdul Sattar
+- ASIL/PSO-237/25 Adil Iqbal 
+- ASIL/PSO-229/25 Ali Hassan
+- ASIL/PSO-240/25 Murad Ali 
+- ASIL/PSO-238/25 Nazeer Ahmed
+- ASIL/PSO-236/25 Shaharyar 
+- ASIL/PSO-241/25 Kamran
+- ASIL/PSO-233/25 Mevo
+- ASIL/PSO-242/25 Arshad
+- ASIL/PSO-244/25 Haroon Baloch
+- ASIL/PSO-246/25 Jahan Zaib 
+- ASIL/PSO-245/25 Muhammad Ikram 
+- ASIL/PSO-243/25 Muhammad Moin
+- ASIL/PSO-247/25 Muhammad Nisar 
+- ASIL/PSO-234/25 Hafeez Ahmed 
+- ASIL/PSO-248/25 Muhammad Younus
+- ASIL/PSO-249/25 Noor Hussain
+- ASIL/PSO-250/25 Asghar Ali Baloch 
+- ASIL/PSO-253/25 Kamran 
+- ASIL/PSO-251/25 Muhammad Nasir
+- ASIL/PSO-300/25 Muhammad Ramzan 
+- ASIL/PSO-305/25 Adeel Ur Rehman 
+- ASIL/PSO-304/25 Faqir Muhammad 
+- ASIL/PSO-301/25 Kifayatullah 
+- ASIL/PSO-307/25 Mubashir Ali 
+- ASIL/PSO-306/25 Muhammad Toufique
+- ASIL/PSO-303/25 Riaz Baloch 
+- ASIL/PSO-309/25 Wazeer Ali
+- ASIL/PSO-311/25 Owais Ahmed Siddiqui
+- ASIL/PSO-312/25 Shahadat Wali Khan
+- ASIL/PSO-313/25 Shaikh Hussain
+- ASIL/PSO-314/25 Imran Ahmed Siddiqui
+- ASIL/PSO-316/25 Muhammad Owais Khan
+- ASIL/PSO-324/25 Liaquat Ali
+- ASIL/PSO-323/25 Muhammad Naeem Panhwar
+- ASIL/PSO-319/25 Muhammad Yousaf (L)
+- ASIL/PSO-322/25 Aftab Ali
+- ASIL/PSO-326/25 Ahmed Ali
+- ASIL/PSO-320/25 Sharjeel Ahmed
+- ASIL/PSO-327/25 Muhammad Rafiq
+- ASIL/PSO-328/25 Waqas Khan
+
+**Gate:** FAIL (variance present)
+
+---
+
+# Payroll variance summary
+
+**Contract:** PSO — Need to Pay
+**Period:** 2026-06
+**Generated:** 2026-07-28T18:35:04.699Z
+
+## Totals
+- Rows compared: 148
+- Rows with all-field delta = 0: 10
+- Unmatched Excel rows: 2
+- Unmatched HCM rows: 521
+- Total net delta (Excel − HCM): -5
+
+## Per-field non-zero delta counts
+- paid_days: 9
+- gross: 0
+- income_tax: 53
+- eobi: 0
+- sessi_or_pessi: 87
+- pf: 114
+- advances: 0
+- other_deductions: 0
+- net_pay: 5
+
+## Max |delta|
+- Employee: ASIL/PSO-256/25
+- Field: sessi_or_pessi
+- Delta: 2400
+
+## Unmatched in Excel only
+- ASIL/PSO-379/25 Mateen (EP)
+- ASIL/PSO-389/25 Ahmed
+
+## Unmatched in HCM only
+- ASIL/SPL-197/21 Nisar Ahmed
+- ASIL/SPL-177/21 Muhammad Sharif
+- ASIL/SPL-325/21 Waqar Ahmed
+- ASIL/SPL-93/21 Anwar_Ul-Haq Shah
+- ASIL/SPL-227/21 Naeem Afzal
+- ASIL/SPL-244/21 Younus Khan
+- ASIL/SPL-137/21 Naveed Ahmed
+- ASIL/SPL-336/21 Muhammad Farooq
+- ASIL/SPL-275/21 Abdul Rehman
+- ASIL/SPL-381/21 Mulazim Hussain
+- ASIL/SPL-390/21 Ahmad Faraz
+- ASIL/SPL-394/21 Ammad Ahmed
+- ASIL/SPL-82/21 Arsalan
+- ASIL/SPL-43/21 Khalid Hussain
+- ASIL/SPL-236/21 Muhammad Naeem Iqbal
+- ASIL/SPL-51/21 Muhammad Tariq
+- ASIL/SPL-205/21 Muhammad Usman
+- ASIL/SPL-69/21 Kanwar Muhammad Azhar
+- ASIL/SPL-178/21 Mushtaq Ahmed
+- ASIL/SPL-130/21 Adnan Khan
+- ASIL/SPL-156/21 Akhtar Ali
+- ASIL/SPL-111/21 Murad Hussain
+- ASIL/SPL-218/21 Ghaffar Ali
+- ASIL/SPL-48/21 Habib-Ul-Haq
+- ASIL/SPL-86/21 Imran Munir
+- ASIL/SPL-241/21 Mola Bux
+- ASIL/SPL-91/21 Muhammad Anees
+- ASIL/SPL-214/21 Faizullah
+- ASIL/SPL-229/21 Muhammad Faizan Sarmad
+- ASIL/SPL-36/21 Muhammad Ikram Shireen
+- ASIL/SPL-180/21 Abdul Rasheed
+- ASIL/SPL-138/21 Muhammad Waseem
+- ASIL/SPL-213/21 Kamran Ahmed
+- ASIL/SPL-235/21 Talib Hussain
+- ASIL/SPL-209/21 Zubair Sagheer
+- ASIL/SPL-230/21 Kifayatullah
+- ASIL/SPL-233/21 Badal Khan
+- ASIL/SPL-208/21 Bilal Sagheer
+- ASIL/SPL-231/21 Kamil Khan
+- ASIL/SPL-234/21 M. Sajjan
+- ASIL/SPL-146/21 Muhammad Akmal Khan
+- ASIL/SPL-223/21 Muhmmad Irfan Ayub
+- ASIL/SPL-211/21 Rehmat Ullah
+- ASIL/SPL-5/21 Salman Khan
+- ASIL/SPL-201/21 Zeeshan Baig
+- ASIL/SPL-202/21 Nouman Ali
+- ASIL/SPL-139/21 Mohammad Anees
+- ASIL/SPL-122/21 Imran Khan
+- ASIL/SPL-173/21 Aurangzeb
+- ASIL/SPL-107/21 Rashid Bashir
+- ASIL/SPL-148/21 Ali Abbas Khan
+- ASIL/SPL-121/21 Iftikhar Hussain
+- ASIL/SPL-200/21 Iftikhar Muhammad
+- ASIL/SPL-136/21 Jawed Israr
+- ASIL/SPL-80/21 Kashif Ameer
+- ASIL/SPL-132/21 Muhammad Ali
+- ASIL/SPL-50/21 Muhammad Nabeel
+- ASIL/SPL-116/21 Shoaib Sultan Tanoli
+- ASIL/SPL-85/21 Muhammad Awais
+- ASIL/SPL-174/21 Ahmad Hussain
+- ASIL/SPL-206/21 Nasir Abbas
+- ASIL/SPL-169/21 Abid Hussain
+- ASIL/SPL-154/21 Adnan Ali
+- ASIL/SPL-158/21 Amjad Masih
+- ASIL/SPL-176/21 Dilshad Nazir
+- ASIL/SPL-77/21 Hassan Raza Khan
+- ASIL/SPL-155/21 Ibrar Hussain
+- ASIL/SPL-157/21 Muhammad Hanif
+- ASIL/SPL-88/21 Muhammad Nadeem
+- ASIL/SPL-140/21 Muhammad Shahbaz
+- ASIL/SPL-89/21 Muhammad Sohail
+- ASIL/SPL-161/21 Muhammad Tayyab
+- ASIL/SPL-255/21 Munawar Hussain
+- ASIL/SPL-274/21 Syed Maqsood Hussain Shah
+- ASIL/SPL-119/21 Tanveer Ejaz
+- ASIL/SPL-125/21 Waleed Ahmed Khan
+- ASIL/SPL-101/21 Yameen
+- ASIL/SPL-27/21 Ansar Ali
+- ASIL/SPL-129/21 Haseen Uddin
+- ASIL/SPL-103/21 Ali Mustapha
+- ASIL/SPL-143/21 Abdul Saleem
+- ASIL/SPL-131/21 Khalil Ahmed
+- ASIL/SPL-8/21 Haseeb Ullah Khan
+- ASIL/SPL-23/21 Ayaz Ahmed
+- ASIL/SPL-64/21 Muhammad Ahsan
+- ASIL/SPL-151/21 Muhammad Waseem
+- ASIL/SPL-24/21 Muneer Ahmed
+- ASIL/SPL-254/21 Sana ullah
+- ASIL/SPL-54/21 Syed Hafeez Shah
+- ASIL/SPL-187/21 Shahzad Shakil
+- ASIL/SPL-34/21 Imran Samad
+- ASIL/SPL-72/21 Abdul Rehman
+- ASIL/SPL-238/21 Soomar
+- ASIL/SPL-149/21 Kifayatullah
+- ASIL/SPL-240/21 Altaf Hussain
+- ASIL/SPL-75/21 Fayaz Ahmed
+- ASIL/SPL-243/21 Ghulam Hussain
+- ASIL/SPL-115/21 Ghulam Mohiuddin Qadri
+- ASIL/SPL-96/21 Hafeezullah Soomro
+- ASIL/SPL-239/21 Mansab Ali
+- ASIL/SPL-10/21 Muhammad Burhan Baig
+- ASIL/SPL-242/21 Safeer Ahmed
+- ASIL/SPL-17/21 Seroug Rana
+- ASIL/SPL-288/21 Talib Hussain
+- ASIL/SPL-319/21 Muhammad Umer Usmani
+- ASIL/SPL-291/21 Nadeem Ahmed
+- ASIL/SPL-326/21 Sonia Khan
+- ASIL/SPL-41/21 Allah Dad Khan
+- ASIL/SPL-289/21 Amjad Akram
+- ASIL/SPL-39/21 Chaman Shahzad
+- ASIL/SPL-318/21 Hamid Hussain
+- ASIL/SPL-304/21 Muhammad Asif Arain
+- ASIL/SPL-341/21 Muhammad Baber
+- ASIL/SPL-410/21 Muhammad Hamza Arif
+- ASIL/SPL-283/21 Muhammad Iqbal
+- ASIL/SPL-295/21 Muhammad Mozammil
+- ASIL/SPL-340/21 Muhammad Umer
+- ASIL/SPL-333/21 Shahbaz Hussain
+- ASIL/SPL-320/21 Shayan Shahrukh Butt
+- ASIL/SPL-28/21 Sultan Ahmed
+- ASIL/SPL-350/21 Zubair Ansar
+- ASIL/SPL-352/21 Abdullah Tahmeed
+- ASIL/SPL-345/21 Muhammad Ahsan Khan
+- ASIL/SPL-365/21 Shahper Hussain
+- ASIL/SPL-366/21 Iman Akbar
+- ASIL/SPL-364/21 Jasir Salahuddin
+- ASIL/SPL-378/21 Muhammad Asif
+- ASIL/SPL-358/21 Muhammad Imran
+- ASIL/SPL-367/21 Muhammad Rizwan
+- ASIL/SPL-15/21 Nasir Irfan
+- ASIL/SPL-361/21 Rafae Kayani
+- ASIL/SPL-374/21 Saqib Ali
+- ASIL/SPL-380/21 Arshad Naveed
+- ASIL/SPL-386/21 Muhammad Ayaz Khan
+- ASIL/SPL-94/21 Muzammal Hussain
+- ASIL/SPL-379/21 Rao Muhammad Zubair
+- ASIL/SPL-19/21 Aamir Ali
+- ASIL/SPL-248/21 Mir Alam Khan
+- ASIL/SPL-382/21 Muhammad Faheem Rahat
+- ASIL/SPL-412/21 Ali Sheikh
+- ASIL/SPL-383/21 Muhammad Shahrukh
+- ASIL/SPL-217/21 Naeem Ahmed
+- ASIL/SPL-152/21 Asim Ali
+- ASIL/SPL-368/21 Syed Ahmed Iftikhar
+- ASIL/SPL-331/21 Ahmer Hyder
+- ASIL/SPL-31/21 Hafiz Muhammad Arshad
+- ASIL/SPL-29/21 Muhammad Ismail Hans
+- ASIL/SPL-83/21 Syed Fasahat Hasnain Abidi
+- ASIL/SPL-147/21 Syed Farooq Ur Rehman
+- ASIL/SPL-418/21 Shahzad Masih
+- ASIL/SPL-67/21 Akhtar Ali
+- ASIL/SPL-351/21 M.Toqeer Haider
+- ASIL/SPL-183/21 Imran Ahmed Qureshi
+- ASIL/SPL-329/21 Zubair Ahmed
+- ASIL/SPL-391/21 Sami Ullah
+- ASIL/SPL-276/21 Muhammad Irshad
+- ASIL/SPL-280/21 Muhammad Javed Rajput
+- ASIL/SPL-278/21 Muhammad Mustafa
+- ASIL/SPL-306/21 Muhammad Nauman Amin
+- ASIL/SPL-328/21 Muhammad Yasir
+- ASIL/SPL-287/21 Mumtaz Hussain
+- ASIL/SPL-371/21 Ahmad Raza
+- ASIL/SPL-286/21 Munir Ahmed
+- ASIL/SPL-360/21 Mehrim Zahoor
+- ASIL/SPL-385/21 Rehana Mansha
+- ASIL/SPL-282/21 Sadiq Ali
+- ASIL/SPL-62/21 Syed Adnan Hussain
+- ASIL/SPL-210/21 Waseem Ahmed
+- ASIL/SPL-354/21 Mohsin Mahmood
+- ASIL/SPL-281/21 Muhammad Akram
+- ASIL/SPL-168/21 Ahsan Ul Haq
+- ASIL/SPL-222/21 Muhammad Asif
+- ASIL/SPL-97/21 Muhammad Faisal Ayaz
+- ASIL/SPL-363/21 Muhammad Shahid
+- ASIL/SPL-118/21 Muhammad Saqib Khan
+- ASIL/SPL-195/21 Syed Muhammad Shiraz Hussain
+- ASIL/SPL-355/21 Ubaid Ahmed
+- ASIL/SPL-47/21 Subhan Ud Din
+- ASIL/SPL-57/21 Kenneth Eric
+- ASIL/SPL-245/21 Muhammad Ali
+- ASIL/SPL-194/21 Asghar Ali Khan
+- ASIL/SPL-373/21 Faraz Ahmad
+- ASIL/SPL-220/21 Hussan Dad
+- ASIL/SPL-46/21 Farman Ullah
+- ASIL/SPL-25/21 Abdul Hafeez
+- ASIL/SPL-113/21 Nabeel Khan
+- ASIL/SPL-216/21 Muhammad Khalil
+- ASIL/SPL-232/21 Ghulam Sarwar
+- ASIL/SPL-402/21 Arsalan Salim
+- ASIL/SPL-106/21 Sharjeel Khan
+- ASIL/SPL-408/21 Kashif Yazdani
+- ASIL/SPL-409/21 Numair Ahmed Qureshi
+- ASIL/SPL-416/21 Syed Jahanzeb Raza
+- ASIL/SPL-63/21 Syed Mudasar Mumtaz Shah
+- ASIL/SPL-413/21 Muhammad Zain Bin Ahsan
+- ASIL/SPL-414/21 Muhammad Abdullah Baig
+- ASIL/SPL-411/21 Muhammad Safyan
+- ASIL/SPL-415/21 Saqlain Qadir
+- ASIL/SPL-153/21 Syed Aarfeen Zaidi
+- ASIL/SPL-165/21 Habib Ali
+- ASIL/SPL-104/21 Ulfat Khan
+- ASIL/SPL-37/21 Wilayat Ali
+- ASIL/SPL-117/21 Adnan Hussain
+- ASIL/SPL-294/21 Rana Faheem Younis
+- ASIL/SPL-347/21 Muhammad Faheem
+- ASIL/SPL-388/21 Shahzad Gul
+- ASIL/SPL-53/21 Mazhar Mustafa
+- ASIL/SPL-277/21 M Jahangir Khan
+- ASIL/SPL-406/21 Adnan Saleem
+- ASIL/SPL-419/21 Abdul Saboor Mufti
+- ASIL/SPL-420/21 Rafae Kayani
+- ASIL/SPL-349/21 Waqas Ahmed
+- ASIL/SPL-144/21 Muhammad Mussaddiq Shaikh
+- ASIL/SPL-384/21 Shahid Irshad
+- ASIL/SPL-393/21 Moiz
+- ASIL/SPL-403/21 Usman Ali
+- ASIL/SPL-407/21 Zeeshan Idrees
+- ASIL/SPL-397/21 Fahad Ahmed
+- ASIL/SPL-399/21 Fahad Saeed
+- ASIL/SPL-392/21 Imam Ali Gardezi
+- ASIL/SPL-404/21 Muhammad Usman
+- ASIL/SPL-400/21 Muhammad Mohsin Rasheed
+- ASIL/SPL-417/21 Syed Haris Ali
+- ASIL/PSO-052/25 Ati Ullah
+- ASIL/PSO-054/25 Abdul Bari
+- ASIL/PSO-048/25 Sardar Alam
+- ASIL/PSO-051/25 Abdul Hai
+- ASIL/PSO-049/25 Zafar Iqbal
+- ASIL/PSO-050/25 Khan Muhammad
+- ASIL/PSO-053/25 Naseer Ud Din
+- ASIL/PSO-047/25 Sharafat Din
+- ASIL/PSO-375/25 Muhammad Masood
+- ASIL/PSO-388/25 Muhammad Riaz
+- ASIL/PSO-024/25 Ghulam Mustafa
+- ASIL/PSO-023/25 Anees-ur-Rehman
+- ASIL/PSO-028/25 Gul Muhammad
+- ASIL/PSO-007/25 Ganga Ram
+- ASIL/PSO-008/25 Nasir Ali
+- ASIL/PSO-004/25 Khuda Bakhsh
+- ASIL/PSO-003/25 Saddam Baloch
+- ASIL/PSO-020/25 Asif Khan
+- ASIL/PSO-012/25 Kamran Baloch
+- ASIL/PSO-013/25 Muhammad
+- ASIL/PSO-006/25 Muhammad Farooq
+- ASIL/PSO-014/25 Muhammad Ramzan Solangi
+- ASIL/PSO-021/25 Noor Rehman
+- ASIL/PSO-011/25 Rajesh Mohan
+- ASIL/PSO-025/25 Sher Alam
+- ASIL/PSO-022/25 Umer Saeed
+- ASIL/PSO-026/25 Yousuf Khan
+- ASIL/PSO-015/25 Akbar
+- ASIL/PSO-009/25 Babar Ali
+- ASIL/PSO-029/25 Muhammad Farhan Meer
+- ASIL/PSO-001/25 Shahid Baloch
+- ASIL/PSO-010/25 Zulfiqar Khan
+- ASIL/PSO-016/25 Abdul Akram
+- ASIL/PSO-019/25 Fayaz
+- ASIL/PSO-027/25 Dharmoo
+- ASIL/PSO-005/25 Nabeel Ahmed
+- ASIL/PSO-002/25 Rahim Bux
+- ASIL/PSO-017/25 Hameed Baloch
+- ASILFM/SPL/22/151 Syed Munir Ali Shah Bukhari
+- ASILFM/SPL/22/70 Ashok Kumar
+- ASILFM/SPL/22/95 Hayat Rauf
+- ASILFM/SPL/22/73 Juma Khan
+- ASILFM/SPL/22/76 Kamran
+- ASILFM/SPL/22/84 Muhammad Yaseen
+- ASILFM/SPL/22/152 Nasir Ali
+- ASILFM/SPL/22/145 Saddam
+- ASILFM/SPL/22/80 Shamraiz Khan
+- ASILFM/SPL/22/92 Zain Ul Hadi
+- ASILFM/SPL/22/150 Abdul Kareem Shah
+- ASILFM/SPL/22/148 Muhammad Hammad
+- ASILFM/SPL/22/147 Owais Rehman
+- ASILFM/SPL/22/105 Safeer Ahmed
+- ASILFM/SPL/22/154 Muhammad Tahir
+- ASILFM/SPL/22/155 Safeer
+- ASILFM/SPL/22/94 Ahmed
+- ASILFM/SPL/22/72 Haroon Rasheed
+- ASILFM/SPL/22/97 Muhammad Waseem Khan
+- ASILFM/SPL/22/128 Nawab Zada
+- ASILFM/SPL/22/79 Nisar
+- ASILFM/SPL/22/103 Shehryar
+- ASILFM/SPL/22/78 Abdul Razzaq
+- ASILFM/SPL/22/77 Abdullah
+- ASILFM/SPL/22/83 Muhammad Ibrahim
+- ASILFM/SPL/22/161 Shehzad Ahmed
+- ASILFM/SPL/22/164 Dinesh
+- ASILFM/SPL/22/165 Govinda
+- ASILFM/SPL/22/166 Shehzad
+- ASILFM/SPL/22/160 Zain
+- ASILFM/SPL/22/163 Shaharyar
+- ASILFM/SPL/22/53 Abid Ullah
+- ASILFM/SPL/22/1 Muhammad Naveed
+- ASILFM/SPL/22/24 Zikeriya
+- ASILFM/SPL/22/43 Daniyal Masih
+- ASILFM/SPL/22/127 Daniyal Nazir
+- ASILFM/SPL/22/44 Muhammad Irfan
+- ASILFM/SPL/22/11 Ameer Bux
+- ASILFM/SPL/22/153 Asif
+- ASILFM/SPL/22/115 Asim Ahsan
+- ASILFM/SPL/22/124 Muhammad Zeeshan
+- ASILFM/SPL/22/36 Nadem Masih
+- ASILFM/SPL/22/21 Waris Maseeh
+- ASILFM/SPL/22/157 Adil Khan
+- ASILFM/SPL/22/138 Babar
+- ASILFM/SPL/22/17 Fazal Amin
+- ASILFM/SPL/22/158 Imran Masih
+- ASILFM/SPL/22/19 Kifayat Ullah
+- ASILFM/SPL/22/156 Muhammad Khurram
+- ASILFM/SPL/22/159 Rishi
+- ASILFM/SPL/22/18 Shahras Khan
+- ASILFM/SPL/22/25 Mazhar Abbas
+- ASILFM/SPL/22/30 Muhammad Yameen
+- ASILFM/SPL/22/35 Rafaqat
+- ASILFM/SPL/22/27 Raja Ghulam Hussain
+- ASILFM/SPL/22/23 Amjad Shaikh
+- ASILFM/SPL/22/49 Kishore Kumar
+- ASILFM/SPL/22/48 Muhammad Adnan
+- ASILFM/SPL/22/51 Muhammad Faizan
+- ASILFM/SPL/22/32 Muhammad Usman
+- ASILFM/SPL/22/42 Naeem Khan
+- ASILFM/SPL/22/38 Naqqash Bahadur
+- ASILFM/SPL/22/55 Riaz Hussain
+- ASILFM/SPL/22/52 Shakeel Masih
+- ASILFM/SPL/22/46 Sohail Masih
+- ASILFM/SPL/22/114 Sohail Qamar
+- ASILFM/SPL/22/28 Abdul Majeed
+- ASILFM/SPL/22/4 Azmat
+- ASILFM/SPL/22/8 Inderias Masih
+- ASILFM/SPL/22/118 Nazim
+- ASILFM/SPL/22/6 Rokas Masih
+- ASILFM/SPL/22/112 Sarfaraz
+- ASILFM/SPL/22/13 Darshan Kumar
+- ASILFM/SPL/22/106 Allah Rakha
+- ASILFM/SPL/22/3 Ashraf Masih
+- ASILFM/SPL/22/9 Dharmo Mal
+- ASILFM/SPL/22/10 Krishan Lal
+- ASILFM/SPL/22/111 Mehrooz Zahid
+- ASILFM/SPL/22/12 Mukhtiyar Ahmed
+- ASILFM/SPL/22/39 Javed Masih
+- ASILFM/SPL/22/122 Stephen
+- ASILFM/SPL/22/5 Allah Rakha Masih
+- ASILFM/SPL/22/16 Saeed Mehmood
+- ASILFM/SPL/22/162 Ravi
+- ASIL/PSO-031/25 Ameer Ud Din
+- ASIL/PSO-033/25 Faiz Ul Hussain
+- ASIL/PSO-034/25 Shoaib Gul
+- ASIL/PSO-036/25 Sifatullah Shah
+- ASIL/PSO-039/25 Barkatullah Shah
+- ASIL/PSO-043/25 Waheed ud din
+- ASIL/PSO-038/25 Saad Ullah
+- ASIL/PSO-046/25 Noor Zaman Khan
+- ASIL/PSO-041/25 Safdar Ali
+- ASIL/PSO-040/25 Qudrat Ullah Khan
+- ASIL/PSO-179/25 Kashif Ali
+- ASIL/PSO-095/25 Asfandyar khan
+- ASIL/PSO-096/25 M lbrahim
+- ASIL/PSO-097/25 M Riaz
+- ASIL/PSO-098/25 M adnan
+- ASIL/PSO-099/25 Wajahat Hussain
+- ASIL/PSO-101/25 M lbrahim
+- ASIL/PSO-102/25 Sulaiman Ahmad
+- ASIL/PSO-103/25 Fazli Rabi
+- ASIL/PSO-104/25 Aziz ullah
+- ASIL/PSO-105/25 Abbas Ali
+- ASIL/PSO-107/25 Gul zada
+- ASIL/PSO-108/25 Muhammad Tahir
+- ASIL/PSO-109/25 Mir Agha khan
+- ASIL/PSO-110/25 Abdullah
+- ASIL/PSO-111/25 Sabir Rahman
+- ASIL/PSO-112/25 Ikram-ud-Din
+- ASIL/PSO-091/25 Sadaqat khan
+- ASIL/PSO-092/25 Abdul Wahid
+- ASIL/PSO-094/25 M Sadiq
+- ASIL/PSO-122/25 Anwar ali
+- ASIL/PSO-123/25 sardar khan
+- ASIL/PSO-124/25 Ubaidullah
+- ASIL/PSO-117/25 Noman khan
+- ASIL/PSO-118/25 Riaz ullah
+- ASIL/PSO-121/25 Nazeef Ullah
+- ASIL/PSO-164/25 Mubark Ali
+- ASIL/PSO-165/25 M Adil
+- ASIL/PSO-037/25 Noor-ul-Abideen
+- ASIL/PSO-084/25 Abdur Rauf Khan
+- ASIL/PSO-085/25 Jawadullah
+- ASIL/PSO-087/25 Nizamuddin
+- ASIL/PSO-113/25 Nasir khan
+- ASIL/PSO-114/25 Inamullah yaqoob
+- ASIL/PSO-088/25 Muhammad Jahanzeb
+- ASIL/PSO-089/25 Muhammad Asif
+- ASIL/PSO-120/25 M Zakaria
+- ASIL/PSO-169/25 Riffat Hayat
+- ASIL/PSO-374/25 Yasir Hussain
+- ASIL/PSO-377/25 Sher Shah
+- ASIL/PSO-387/25 Younus Ali Shah
+- ASIL/PSO-035/25 Habib ur Rehman
+- ASIL/PSO-042/25 Ashrafullah
+- ASIL/PSO-044/25 Zia Ullah
+- ASIL/PSO-045/25 Abdur Rehman
+- ASIL/PSO-166/25 Kashif Hammed
+- ASIL/PSO-177/25 Anas khan
+- ASIL/PSO-086/25 Ameer Hamza Khan
+- ASIL/PSO-090/25 Ahsan Ullah
+- ASIL/PSO-093/25 M kashif
+- ASIL/PSO-100/25 lnam ullah
+- ASIL/PSO-106/25 Behzad Ameen
+- ASIL/PSO-115/25 Subhan ullah
+- ASIL/PSO-116/25 Aziz ullah
+- ASIL/PSO-181/25 jamal khan
+- ASIL/PSO-171/25 Waseem Akram
+- ASIL/PSO-167/25 M jamail Nawaz
+- ASIL/PSO-174/25 Muhammad Shafiq
+- ASIL/PSO-176/25 Jawad ahmed khan
+- ASIL/PSO-178/25 Amjad Ur rahman
+- ASIL/PSO-168/25 Muhammad Shafiq
+- ASIL/PSO-170/25 Uzair Ahmed
+- ASIL/PSO-172/25 Awais Ahmad
+- ASIL/PSO-173/25 Umar khattab
+- ASIL/PSO-182/25 waqar Ahmed
+- ASIL/PSO-183/25 Tanveer Ahmad
+- ASIL/PSO-032/25 Shakil Ahmed
+- ASIL/PSO-175/25 Nouman Ali
+- ASIL/PSO-185/25 Mansoor Ali
+- ASIL/PSO-184/25 Akbar khan
+- ASIL/PSO-071/25 M Younas
+- ASIL/PSO-069/25 Yasir Iqbal
+- ASIL/PSO-057/25 Saddam Hussain
+- ASIL/PSO-064/25 Sheraz Ahmad
+- ASIL/PSO-065/25 Asghar Ali
+- ASIL/PSO-059/25 Sakhawat Iqbal
+- ASIL/PSO-083/25 Rafaqat Masih
+- ASIL/PSO-077/25 Sajid Mehmood
+- ASIL/PSO-078/25 Munawar hussain
+- ASIL/PSO-080/25 Stephen Maseeh
+- ASIL/PSO-075/25 Zawar Hussain
+- ASIL/PSO-066/25 M.Munir
+- ASIL/PSO-067/25 Qaisar Shehzad
+- ASIL/PSO-068/25 Zubair Ali
+- ASIL/PSO-070/25 M.Ansar
+- ASIL/PSO-073/25 Usman Haider
+- ASIL/PSO-079/25 Muhammad Ahmad Raza
+- ASIL/PSO-061/25 Zahoor Elahi
+- ASIL/PSO-076/25 Ashfaq Ahmed
+- ASIL/PSO-072/25 Muhammad Zaheer
+- ASIL/PSO-058/25 Hammad Ali
+- ASIL/PSO-060/25 Akeel Aslam
+- ASIL/PSO-056/25 M Rasab
+- ASIL/PSO-082/25 Naveed Bhatti
+- ASIL/PSO-127/25 Sheraz Ahmed
+- ASIL/PSO-128/25 Rizwan Ali
+- ASIL/PSO-129/25 Imran Akhtar
+- ASIL/PSO-130/25 Sher Ali
+- ASIL/PSO-131/25 Gul Malang
+- ASIL/PSO-132/25 Asad Gul
+- ASIL/PSO-133/25 Anayat Ur Rehman
+- ASIL/PSO-134/25 Mansoor Ahmed
+- ASIL/PSO-135/25 Wajid Hussain
+- ASIL/PSO-136/25 Khawar Ali
+- ASIL/PSO-119/25 Mujahid Khan
+- ASIL/PSO-145/25 Khawar Hussain
+- ASIL/PSO-146/25 Junaid Bashir
+- ASIL/PSO-147/25 Abid Ali
+- ASIL/PSO-149/25 Bilal Ahmed
+- ASIL/PSO-150/25 Muhammad Hayat
+- ASIL/PSO-151/25 Raja Tehmeed Riaz
+- ASIL/PSO-152/25 M .Bilal Hafeez
+- ASIL/PSO-154/25 Adeel Ahmed
+- ASIL/PSO-155/25 Nafees Ahmed
+- ASIL/PSO-156/25 Ghulam Hassan
+- ASIL/PSO-140/25 Arif Masih
+- ASIL/PSO-141/25 Arslan
+- ASIL/PSO-142/25 Ishtiaq Ahmed
+- ASIL/PSO-143/25 Muzamal Abbas
+- ASIL/PSO-144/25 Fazal Karim
+- ASIL/PSO-193/25 Waqas Masih
+- ASIL/PSO-188/25 Ijaz Ahmed
+- ASIL/PSO-189/25 Amir Abbas
+- ASIL/PSO-190/25 Qaiser Abbas
+- ASIL/PSO-191/25 Faheem Abbas
+- ASIL/PSO-062/25 Shabaz Hussain
+- ASIL/PSO-158/25 Allah Ditta
+- ASIL/PSO-159/25 Mohammad Shoaib
+- ASIL/PSO-160/25 Mueed Gul
+- ASIL/PSO-161/25 Muhammad Ilyas
+- ASIL/PSO-162/25 Muhammad Hasnain
+- ASIL/PSO-163/25 Hammad Rehman
+- ASIL/PSO-157/25 Muhammad Majid
+- ASIL/PSO-138/25 Sagar Masih
+- ASIL/PSO-186/25 Muhammad Shafique
+- ASIL/PSO-125/25 Muhammad Aamir
+- ASIL/PSO-137/25 Ubaid ur Rehman
+- ASIL/PSO-373/25 Tayyab Ali
+- ASIL/PSO-372/25 Muhmmad Atif
+- ASIL/PSO-376/25 Muhammad Rehman
+- ASIL/PSO-081/25 Chand Maseeh
+- ASIL/PSO-074/25 Atif Hussain
+- ASIL/PSO-063/25 Umar Sajjad
+- ASIL/PSO-139/25 Almas
+- ASIL/PSO-148/25 Khizar Hayat Khan
+- ASIL/PSO-153/25 Raja Sikander Mansoor
+- ASIL/PSO-126/25 Atta ur Rehman
+- ASIL/PSO-187/25 Syed Javed Hussain Shah
+- ASIL/PSO-055/25 Nabeel Hussain
+- ASIL/PSO-194/25 Sajid Mehmood
+- ASIL/PSO-199/25 jahangeer Hussain
+- ASIL/PSO-195/25 Atif Lodhi
+- ASIL/PSO-196/25 Shakeel Abbas
+- ASIL/PSO-197/25 Wasfe Alam
+- ASIL/PSO-198/25 Muhmmad Sheraz
+- ASIL/PSO-202/25 Muhammad Adnan
+- ASIL/PSO-201/25 Nasir Ali
+- ASIL/PSO-203/25 Ashfaq Hussain
+- ASIL/PSO-204/25 Muhammad Saleem
+- ASIL/PSO-205/25 Javed Masih
+- ASIL/PSO-206/25 Muhammad Shahzed
+- ASIL/PSO-207/25 Baksheish Ahmed
+- ASIL/PSO-208/25 Muhammad Asif
+- ASIL/PSO-209/25 Muneeb Ahmed
+- ASIL/PSO-200/25 Umer daraz
+- ASIL/PSO-386/25 Ali Muhammad
+
+**Gate:** FAIL (variance present)
