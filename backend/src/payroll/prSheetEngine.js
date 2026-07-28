@@ -114,10 +114,13 @@ function computePrSheetRow(input, policy = {}) {
         ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI().employerShare }
         : calculateEOBI();
     const sessi = calculateSESSI(gross);
-    const pfDeduction = Math.round(Number(input.pfDeduction || 0));
+    const hasPfOverride = input.pfDeduction != null;
+    const pfDeductionExact = hasPfOverride ? Number(input.pfDeduction) : 0;
+    const pfDeduction = hasPfOverride ? Math.round(pfDeductionExact) : 0;
+    const pfForNet = hasPfOverride ? pfDeductionExact : pfDeduction;
     const whtForNet = input.wht != null ? whtExact : wht;
     const totalDeductions = wht + pfDeduction + eobi.employeeShare + Math.round(otherDeduction);
-    const netPay = Math.round(gross - whtForNet - pfDeduction - eobi.employeeShare - otherDeduction);
+    const netPay = Math.round(gross - whtForNet - pfForNet - eobi.employeeShare - otherDeduction);
 
     const bonusMonths = policy.bonus_accrual_months || 12;
     const gratuityMonths = policy.gratuity_accrual_months || 12;

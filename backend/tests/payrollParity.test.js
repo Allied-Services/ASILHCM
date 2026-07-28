@@ -108,6 +108,34 @@ describe('Pillar 1 — OT 1X', () => {
         expect(row.netPay).toBe(row.gross - row.wht - row.pfDeduction - row.eobiEmployee);
     });
 
+    test('fractional PF override — Excel Fayaz fixture (1666.67 PF + 42.56 WHT)', () => {
+        const row = computePrSheetRow({
+            newSalary: 40000,
+            paidDays: 28,
+            workingDays: 28,
+            salaryForDays: 54256,
+            wht: 42.56,
+            pfDeduction: 1666.67,
+            eobiEmployee: 400,
+        }, POLICY);
+        expect(row.gross).toBe(54256);
+        expect(row.netPay).toBe(52147);
+    });
+
+    test('fractional PF override — Excel SPL/22/97 fixture (2864.67 PF + 187.52 WHT)', () => {
+        const row = computePrSheetRow({
+            newSalary: 68752,
+            paidDays: 30,
+            workingDays: 30,
+            salaryForDays: 68752,
+            wht: 187.52,
+            pfDeduction: 2864.67,
+            eobiEmployee: 400,
+        }, POLICY);
+        expect(row.gross).toBe(68752);
+        expect(row.netPay).toBe(65300);
+    });
+
     test('EOBI override — PSO labor row with eobi=0', () => {
         const row = computePrSheetRow({
             newSalary: 50000,

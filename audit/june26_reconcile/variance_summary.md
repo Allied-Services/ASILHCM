@@ -2,32 +2,36 @@
 
 **Contract:** ALL — June-26 Net Pay
 **Period:** 2026-06
-**Generated:** 2026-07-28T16:02:00.294Z
+**Generated:** 2026-07-28T18:35:04.699Z
 
 ## Totals
 - Rows compared: 516
-- Rows with all-field delta = 0: 207
+- Rows with all-field delta = 0: 203
 - Unmatched Excel rows: 0
-- Unmatched HCM rows: 149
-- Total net delta (Excel − HCM): 2
+- Unmatched HCM rows: 153
+- Total net delta (Excel − HCM): -35779.32
 
 ## Per-field non-zero delta counts
-- paid_days: 0
-- gross: 0
-- income_tax: 162
+- paid_days: 3
+- gross: 17
+- income_tax: 28
 - eobi: 0
 - sessi_or_pessi: 98
 - pf: 111
 - advances: 0
 - other_deductions: 0
-- net_pay: 2
+- net_pay: 156
 
 ## Max |delta|
-- Employee: ASIL/SPL-208/21
-- Field: sessi_or_pessi
-- Delta: 2400
+- Employee: ASIL/SPL-399/21
+- Field: gross
+- Delta: 20000
 
 ## Unmatched in HCM only
+- ASIL/SPL-360/21 Mehrim Zahoor
+- ASIL/SPL-46/21 Farman Ullah
+- ASIL/SPL-408/21 Kashif Yazdani
+- ASIL/SPL-388/21 Shahzad Gul
 - ASIL/PSO-332/25 Munawar
 - ASIL/PSO-261/25 Faraz Awan
 - ASIL/PSO-262/25 Syed Haroon
@@ -50,10 +54,10 @@
 - ASIL/PSO-277/25 Muhammad Asif
 - ASIL/PSO-266/25 Saeed Khan
 - ASIL/PSO-272/25 Noor Zamin
-- ASIL/PSO-386/25 Ali Muhammad
 - ASIL/PSO-287/25 Zia Ur Rehman
 - ASIL/PSO-284/25 Abid Ali
 - ASIL/PSO-330/25 Aqib Pervaiz
+- ASIL/PSO-386/25 Ali Muhammad
 - ASIL/PSO-286/25 Shujat Hussain
 - ASIL/PSO-282/25 Mohammad Faisal
 - ASIL/PSO-288/25 Obaid Ur Rehman
@@ -186,14 +190,14 @@
 
 **Contract:** PSO — Need to Pay
 **Period:** 2026-06
-**Generated:** 2026-07-28T16:02:00.295Z
+**Generated:** 2026-07-28T18:35:04.699Z
 
 ## Totals
 - Rows compared: 148
 - Rows with all-field delta = 0: 10
 - Unmatched Excel rows: 2
-- Unmatched HCM rows: 517
-- Total net delta (Excel − HCM): 0
+- Unmatched HCM rows: 521
+- Total net delta (Excel − HCM): -5
 
 ## Per-field non-zero delta counts
 - paid_days: 9
@@ -204,7 +208,7 @@
 - pf: 114
 - advances: 0
 - other_deductions: 0
-- net_pay: 8
+- net_pay: 5
 
 ## Max |delta|
 - Employee: ASIL/PSO-256/25
@@ -216,6 +220,229 @@
 - ASIL/PSO-389/25 Ahmed
 
 ## Unmatched in HCM only
+- ASIL/SPL-197/21 Nisar Ahmed
+- ASIL/SPL-177/21 Muhammad Sharif
+- ASIL/SPL-325/21 Waqar Ahmed
+- ASIL/SPL-93/21 Anwar_Ul-Haq Shah
+- ASIL/SPL-227/21 Naeem Afzal
+- ASIL/SPL-244/21 Younus Khan
+- ASIL/SPL-137/21 Naveed Ahmed
+- ASIL/SPL-336/21 Muhammad Farooq
+- ASIL/SPL-275/21 Abdul Rehman
+- ASIL/SPL-381/21 Mulazim Hussain
+- ASIL/SPL-390/21 Ahmad Faraz
+- ASIL/SPL-394/21 Ammad Ahmed
+- ASIL/SPL-82/21 Arsalan
+- ASIL/SPL-43/21 Khalid Hussain
+- ASIL/SPL-236/21 Muhammad Naeem Iqbal
+- ASIL/SPL-51/21 Muhammad Tariq
+- ASIL/SPL-205/21 Muhammad Usman
+- ASIL/SPL-69/21 Kanwar Muhammad Azhar
+- ASIL/SPL-178/21 Mushtaq Ahmed
+- ASIL/SPL-130/21 Adnan Khan
+- ASIL/SPL-156/21 Akhtar Ali
+- ASIL/SPL-111/21 Murad Hussain
+- ASIL/SPL-218/21 Ghaffar Ali
+- ASIL/SPL-48/21 Habib-Ul-Haq
+- ASIL/SPL-86/21 Imran Munir
+- ASIL/SPL-241/21 Mola Bux
+- ASIL/SPL-91/21 Muhammad Anees
+- ASIL/SPL-214/21 Faizullah
+- ASIL/SPL-229/21 Muhammad Faizan Sarmad
+- ASIL/SPL-36/21 Muhammad Ikram Shireen
+- ASIL/SPL-180/21 Abdul Rasheed
+- ASIL/SPL-138/21 Muhammad Waseem
+- ASIL/SPL-213/21 Kamran Ahmed
+- ASIL/SPL-235/21 Talib Hussain
+- ASIL/SPL-209/21 Zubair Sagheer
+- ASIL/SPL-230/21 Kifayatullah
+- ASIL/SPL-233/21 Badal Khan
+- ASIL/SPL-208/21 Bilal Sagheer
+- ASIL/SPL-231/21 Kamil Khan
+- ASIL/SPL-234/21 M. Sajjan
+- ASIL/SPL-146/21 Muhammad Akmal Khan
+- ASIL/SPL-223/21 Muhmmad Irfan Ayub
+- ASIL/SPL-211/21 Rehmat Ullah
+- ASIL/SPL-5/21 Salman Khan
+- ASIL/SPL-201/21 Zeeshan Baig
+- ASIL/SPL-202/21 Nouman Ali
+- ASIL/SPL-139/21 Mohammad Anees
+- ASIL/SPL-122/21 Imran Khan
+- ASIL/SPL-173/21 Aurangzeb
+- ASIL/SPL-107/21 Rashid Bashir
+- ASIL/SPL-148/21 Ali Abbas Khan
+- ASIL/SPL-121/21 Iftikhar Hussain
+- ASIL/SPL-200/21 Iftikhar Muhammad
+- ASIL/SPL-136/21 Jawed Israr
+- ASIL/SPL-80/21 Kashif Ameer
+- ASIL/SPL-132/21 Muhammad Ali
+- ASIL/SPL-50/21 Muhammad Nabeel
+- ASIL/SPL-116/21 Shoaib Sultan Tanoli
+- ASIL/SPL-85/21 Muhammad Awais
+- ASIL/SPL-174/21 Ahmad Hussain
+- ASIL/SPL-206/21 Nasir Abbas
+- ASIL/SPL-169/21 Abid Hussain
+- ASIL/SPL-154/21 Adnan Ali
+- ASIL/SPL-158/21 Amjad Masih
+- ASIL/SPL-176/21 Dilshad Nazir
+- ASIL/SPL-77/21 Hassan Raza Khan
+- ASIL/SPL-155/21 Ibrar Hussain
+- ASIL/SPL-157/21 Muhammad Hanif
+- ASIL/SPL-88/21 Muhammad Nadeem
+- ASIL/SPL-140/21 Muhammad Shahbaz
+- ASIL/SPL-89/21 Muhammad Sohail
+- ASIL/SPL-161/21 Muhammad Tayyab
+- ASIL/SPL-255/21 Munawar Hussain
+- ASIL/SPL-274/21 Syed Maqsood Hussain Shah
+- ASIL/SPL-119/21 Tanveer Ejaz
+- ASIL/SPL-125/21 Waleed Ahmed Khan
+- ASIL/SPL-101/21 Yameen
+- ASIL/SPL-27/21 Ansar Ali
+- ASIL/SPL-129/21 Haseen Uddin
+- ASIL/SPL-103/21 Ali Mustapha
+- ASIL/SPL-143/21 Abdul Saleem
+- ASIL/SPL-131/21 Khalil Ahmed
+- ASIL/SPL-8/21 Haseeb Ullah Khan
+- ASIL/SPL-23/21 Ayaz Ahmed
+- ASIL/SPL-64/21 Muhammad Ahsan
+- ASIL/SPL-151/21 Muhammad Waseem
+- ASIL/SPL-24/21 Muneer Ahmed
+- ASIL/SPL-254/21 Sana ullah
+- ASIL/SPL-54/21 Syed Hafeez Shah
+- ASIL/SPL-187/21 Shahzad Shakil
+- ASIL/SPL-34/21 Imran Samad
+- ASIL/SPL-72/21 Abdul Rehman
+- ASIL/SPL-238/21 Soomar
+- ASIL/SPL-149/21 Kifayatullah
+- ASIL/SPL-240/21 Altaf Hussain
+- ASIL/SPL-75/21 Fayaz Ahmed
+- ASIL/SPL-243/21 Ghulam Hussain
+- ASIL/SPL-115/21 Ghulam Mohiuddin Qadri
+- ASIL/SPL-96/21 Hafeezullah Soomro
+- ASIL/SPL-239/21 Mansab Ali
+- ASIL/SPL-10/21 Muhammad Burhan Baig
+- ASIL/SPL-242/21 Safeer Ahmed
+- ASIL/SPL-17/21 Seroug Rana
+- ASIL/SPL-288/21 Talib Hussain
+- ASIL/SPL-319/21 Muhammad Umer Usmani
+- ASIL/SPL-291/21 Nadeem Ahmed
+- ASIL/SPL-326/21 Sonia Khan
+- ASIL/SPL-41/21 Allah Dad Khan
+- ASIL/SPL-289/21 Amjad Akram
+- ASIL/SPL-39/21 Chaman Shahzad
+- ASIL/SPL-318/21 Hamid Hussain
+- ASIL/SPL-304/21 Muhammad Asif Arain
+- ASIL/SPL-341/21 Muhammad Baber
+- ASIL/SPL-410/21 Muhammad Hamza Arif
+- ASIL/SPL-283/21 Muhammad Iqbal
+- ASIL/SPL-295/21 Muhammad Mozammil
+- ASIL/SPL-340/21 Muhammad Umer
+- ASIL/SPL-333/21 Shahbaz Hussain
+- ASIL/SPL-320/21 Shayan Shahrukh Butt
+- ASIL/SPL-28/21 Sultan Ahmed
+- ASIL/SPL-350/21 Zubair Ansar
+- ASIL/SPL-352/21 Abdullah Tahmeed
+- ASIL/SPL-345/21 Muhammad Ahsan Khan
+- ASIL/SPL-365/21 Shahper Hussain
+- ASIL/SPL-366/21 Iman Akbar
+- ASIL/SPL-364/21 Jasir Salahuddin
+- ASIL/SPL-378/21 Muhammad Asif
+- ASIL/SPL-358/21 Muhammad Imran
+- ASIL/SPL-367/21 Muhammad Rizwan
+- ASIL/SPL-15/21 Nasir Irfan
+- ASIL/SPL-361/21 Rafae Kayani
+- ASIL/SPL-374/21 Saqib Ali
+- ASIL/SPL-380/21 Arshad Naveed
+- ASIL/SPL-386/21 Muhammad Ayaz Khan
+- ASIL/SPL-94/21 Muzammal Hussain
+- ASIL/SPL-379/21 Rao Muhammad Zubair
+- ASIL/SPL-19/21 Aamir Ali
+- ASIL/SPL-248/21 Mir Alam Khan
+- ASIL/SPL-382/21 Muhammad Faheem Rahat
+- ASIL/SPL-412/21 Ali Sheikh
+- ASIL/SPL-383/21 Muhammad Shahrukh
+- ASIL/SPL-217/21 Naeem Ahmed
+- ASIL/SPL-152/21 Asim Ali
+- ASIL/SPL-368/21 Syed Ahmed Iftikhar
+- ASIL/SPL-331/21 Ahmer Hyder
+- ASIL/SPL-31/21 Hafiz Muhammad Arshad
+- ASIL/SPL-29/21 Muhammad Ismail Hans
+- ASIL/SPL-83/21 Syed Fasahat Hasnain Abidi
+- ASIL/SPL-147/21 Syed Farooq Ur Rehman
+- ASIL/SPL-418/21 Shahzad Masih
+- ASIL/SPL-67/21 Akhtar Ali
+- ASIL/SPL-351/21 M.Toqeer Haider
+- ASIL/SPL-183/21 Imran Ahmed Qureshi
+- ASIL/SPL-329/21 Zubair Ahmed
+- ASIL/SPL-391/21 Sami Ullah
+- ASIL/SPL-276/21 Muhammad Irshad
+- ASIL/SPL-280/21 Muhammad Javed Rajput
+- ASIL/SPL-278/21 Muhammad Mustafa
+- ASIL/SPL-306/21 Muhammad Nauman Amin
+- ASIL/SPL-328/21 Muhammad Yasir
+- ASIL/SPL-287/21 Mumtaz Hussain
+- ASIL/SPL-371/21 Ahmad Raza
+- ASIL/SPL-286/21 Munir Ahmed
+- ASIL/SPL-360/21 Mehrim Zahoor
+- ASIL/SPL-385/21 Rehana Mansha
+- ASIL/SPL-282/21 Sadiq Ali
+- ASIL/SPL-62/21 Syed Adnan Hussain
+- ASIL/SPL-210/21 Waseem Ahmed
+- ASIL/SPL-354/21 Mohsin Mahmood
+- ASIL/SPL-281/21 Muhammad Akram
+- ASIL/SPL-168/21 Ahsan Ul Haq
+- ASIL/SPL-222/21 Muhammad Asif
+- ASIL/SPL-97/21 Muhammad Faisal Ayaz
+- ASIL/SPL-363/21 Muhammad Shahid
+- ASIL/SPL-118/21 Muhammad Saqib Khan
+- ASIL/SPL-195/21 Syed Muhammad Shiraz Hussain
+- ASIL/SPL-355/21 Ubaid Ahmed
+- ASIL/SPL-47/21 Subhan Ud Din
+- ASIL/SPL-57/21 Kenneth Eric
+- ASIL/SPL-245/21 Muhammad Ali
+- ASIL/SPL-194/21 Asghar Ali Khan
+- ASIL/SPL-373/21 Faraz Ahmad
+- ASIL/SPL-220/21 Hussan Dad
+- ASIL/SPL-46/21 Farman Ullah
+- ASIL/SPL-25/21 Abdul Hafeez
+- ASIL/SPL-113/21 Nabeel Khan
+- ASIL/SPL-216/21 Muhammad Khalil
+- ASIL/SPL-232/21 Ghulam Sarwar
+- ASIL/SPL-402/21 Arsalan Salim
+- ASIL/SPL-106/21 Sharjeel Khan
+- ASIL/SPL-408/21 Kashif Yazdani
+- ASIL/SPL-409/21 Numair Ahmed Qureshi
+- ASIL/SPL-416/21 Syed Jahanzeb Raza
+- ASIL/SPL-63/21 Syed Mudasar Mumtaz Shah
+- ASIL/SPL-413/21 Muhammad Zain Bin Ahsan
+- ASIL/SPL-414/21 Muhammad Abdullah Baig
+- ASIL/SPL-411/21 Muhammad Safyan
+- ASIL/SPL-415/21 Saqlain Qadir
+- ASIL/SPL-153/21 Syed Aarfeen Zaidi
+- ASIL/SPL-165/21 Habib Ali
+- ASIL/SPL-104/21 Ulfat Khan
+- ASIL/SPL-37/21 Wilayat Ali
+- ASIL/SPL-117/21 Adnan Hussain
+- ASIL/SPL-294/21 Rana Faheem Younis
+- ASIL/SPL-347/21 Muhammad Faheem
+- ASIL/SPL-388/21 Shahzad Gul
+- ASIL/SPL-53/21 Mazhar Mustafa
+- ASIL/SPL-277/21 M Jahangir Khan
+- ASIL/SPL-406/21 Adnan Saleem
+- ASIL/SPL-419/21 Abdul Saboor Mufti
+- ASIL/SPL-420/21 Rafae Kayani
+- ASIL/SPL-349/21 Waqas Ahmed
+- ASIL/SPL-144/21 Muhammad Mussaddiq Shaikh
+- ASIL/SPL-384/21 Shahid Irshad
+- ASIL/SPL-393/21 Moiz
+- ASIL/SPL-403/21 Usman Ali
+- ASIL/SPL-407/21 Zeeshan Idrees
+- ASIL/SPL-397/21 Fahad Ahmed
+- ASIL/SPL-399/21 Fahad Saeed
+- ASIL/SPL-392/21 Imam Ali Gardezi
+- ASIL/SPL-404/21 Muhammad Usman
+- ASIL/SPL-400/21 Muhammad Mohsin Rasheed
+- ASIL/SPL-417/21 Syed Haris Ali
 - ASIL/PSO-052/25 Ati Ullah
 - ASIL/PSO-054/25 Abdul Bari
 - ASIL/PSO-048/25 Sardar Alam
@@ -514,224 +741,5 @@
 - ASIL/PSO-209/25 Muneeb Ahmed
 - ASIL/PSO-200/25 Umer daraz
 - ASIL/PSO-386/25 Ali Muhammad
-- ASIL/SPL-409/21 Numair Ahmed Qureshi
-- ASIL/SPL-416/21 Syed Jahanzeb Raza
-- ASIL/SPL-63/21 Syed Mudasar Mumtaz Shah
-- ASIL/SPL-413/21 Muhammad Zain Bin Ahsan
-- ASIL/SPL-414/21 Muhammad Abdullah Baig
-- ASIL/SPL-411/21 Muhammad Safyan
-- ASIL/SPL-197/21 Nisar Ahmed
-- ASIL/SPL-177/21 Muhammad Sharif
-- ASIL/SPL-325/21 Waqar Ahmed
-- ASIL/SPL-93/21 Anwar_Ul-Haq Shah
-- ASIL/SPL-227/21 Naeem Afzal
-- ASIL/SPL-244/21 Younus Khan
-- ASIL/SPL-137/21 Naveed Ahmed
-- ASIL/SPL-336/21 Muhammad Farooq
-- ASIL/SPL-275/21 Abdul Rehman
-- ASIL/SPL-381/21 Mulazim Hussain
-- ASIL/SPL-390/21 Ahmad Faraz
-- ASIL/SPL-394/21 Ammad Ahmed
-- ASIL/SPL-82/21 Arsalan
-- ASIL/SPL-43/21 Khalid Hussain
-- ASIL/SPL-236/21 Muhammad Naeem Iqbal
-- ASIL/SPL-51/21 Muhammad Tariq
-- ASIL/SPL-205/21 Muhammad Usman
-- ASIL/SPL-69/21 Kanwar Muhammad Azhar
-- ASIL/SPL-178/21 Mushtaq Ahmed
-- ASIL/SPL-130/21 Adnan Khan
-- ASIL/SPL-156/21 Akhtar Ali
-- ASIL/SPL-111/21 Murad Hussain
-- ASIL/SPL-218/21 Ghaffar Ali
-- ASIL/SPL-48/21 Habib-Ul-Haq
-- ASIL/SPL-86/21 Imran Munir
-- ASIL/SPL-241/21 Mola Bux
-- ASIL/SPL-91/21 Muhammad Anees
-- ASIL/SPL-214/21 Faizullah
-- ASIL/SPL-229/21 Muhammad Faizan Sarmad
-- ASIL/SPL-36/21 Muhammad Ikram Shireen
-- ASIL/SPL-180/21 Abdul Rasheed
-- ASIL/SPL-138/21 Muhammad Waseem
-- ASIL/SPL-213/21 Kamran Ahmed
-- ASIL/SPL-235/21 Talib Hussain
-- ASIL/SPL-209/21 Zubair Sagheer
-- ASIL/SPL-230/21 Kifayatullah
-- ASIL/SPL-233/21 Badal Khan
-- ASIL/SPL-208/21 Bilal Sagheer
-- ASIL/SPL-231/21 Kamil Khan
-- ASIL/SPL-234/21 M. Sajjan
-- ASIL/SPL-146/21 Muhammad Akmal Khan
-- ASIL/SPL-223/21 Muhmmad Irfan Ayub
-- ASIL/SPL-211/21 Rehmat Ullah
-- ASIL/SPL-5/21 Salman Khan
-- ASIL/SPL-201/21 Zeeshan Baig
-- ASIL/SPL-202/21 Nouman Ali
-- ASIL/SPL-139/21 Mohammad Anees
-- ASIL/SPL-122/21 Imran Khan
-- ASIL/SPL-173/21 Aurangzeb
-- ASIL/SPL-107/21 Rashid Bashir
-- ASIL/SPL-148/21 Ali Abbas Khan
-- ASIL/SPL-121/21 Iftikhar Hussain
-- ASIL/SPL-200/21 Iftikhar Muhammad
-- ASIL/SPL-136/21 Jawed Israr
-- ASIL/SPL-80/21 Kashif Ameer
-- ASIL/SPL-132/21 Muhammad Ali
-- ASIL/SPL-50/21 Muhammad Nabeel
-- ASIL/SPL-116/21 Shoaib Sultan Tanoli
-- ASIL/SPL-85/21 Muhammad Awais
-- ASIL/SPL-174/21 Ahmad Hussain
-- ASIL/SPL-206/21 Nasir Abbas
-- ASIL/SPL-169/21 Abid Hussain
-- ASIL/SPL-154/21 Adnan Ali
-- ASIL/SPL-158/21 Amjad Masih
-- ASIL/SPL-176/21 Dilshad Nazir
-- ASIL/SPL-77/21 Hassan Raza Khan
-- ASIL/SPL-155/21 Ibrar Hussain
-- ASIL/SPL-157/21 Muhammad Hanif
-- ASIL/SPL-88/21 Muhammad Nadeem
-- ASIL/SPL-140/21 Muhammad Shahbaz
-- ASIL/SPL-89/21 Muhammad Sohail
-- ASIL/SPL-161/21 Muhammad Tayyab
-- ASIL/SPL-255/21 Munawar Hussain
-- ASIL/SPL-274/21 Syed Maqsood Hussain Shah
-- ASIL/SPL-119/21 Tanveer Ejaz
-- ASIL/SPL-125/21 Waleed Ahmed Khan
-- ASIL/SPL-101/21 Yameen
-- ASIL/SPL-27/21 Ansar Ali
-- ASIL/SPL-129/21 Haseen Uddin
-- ASIL/SPL-103/21 Ali Mustapha
-- ASIL/SPL-143/21 Abdul Saleem
-- ASIL/SPL-131/21 Khalil Ahmed
-- ASIL/SPL-8/21 Haseeb Ullah Khan
-- ASIL/SPL-23/21 Ayaz Ahmed
-- ASIL/SPL-64/21 Muhammad Ahsan
-- ASIL/SPL-151/21 Muhammad Waseem
-- ASIL/SPL-24/21 Muneer Ahmed
-- ASIL/SPL-254/21 Sana ullah
-- ASIL/SPL-54/21 Syed Hafeez Shah
-- ASIL/SPL-187/21 Shahzad Shakil
-- ASIL/SPL-34/21 Imran Samad
-- ASIL/SPL-72/21 Abdul Rehman
-- ASIL/SPL-238/21 Soomar
-- ASIL/SPL-149/21 Kifayatullah
-- ASIL/SPL-240/21 Altaf Hussain
-- ASIL/SPL-75/21 Fayaz Ahmed
-- ASIL/SPL-243/21 Ghulam Hussain
-- ASIL/SPL-115/21 Ghulam Mohiuddin Qadri
-- ASIL/SPL-96/21 Hafeezullah Soomro
-- ASIL/SPL-239/21 Mansab Ali
-- ASIL/SPL-10/21 Muhammad Burhan Baig
-- ASIL/SPL-242/21 Safeer Ahmed
-- ASIL/SPL-17/21 Seroug Rana
-- ASIL/SPL-288/21 Talib Hussain
-- ASIL/SPL-319/21 Muhammad Umer Usmani
-- ASIL/SPL-291/21 Nadeem Ahmed
-- ASIL/SPL-326/21 Sonia Khan
-- ASIL/SPL-41/21 Allah Dad Khan
-- ASIL/SPL-289/21 Amjad Akram
-- ASIL/SPL-39/21 Chaman Shahzad
-- ASIL/SPL-318/21 Hamid Hussain
-- ASIL/SPL-304/21 Muhammad Asif Arain
-- ASIL/SPL-341/21 Muhammad Baber
-- ASIL/SPL-410/21 Muhammad Hamza Arif
-- ASIL/SPL-283/21 Muhammad Iqbal
-- ASIL/SPL-295/21 Muhammad Mozammil
-- ASIL/SPL-340/21 Muhammad Umer
-- ASIL/SPL-333/21 Shahbaz Hussain
-- ASIL/SPL-320/21 Shayan Shahrukh Butt
-- ASIL/SPL-28/21 Sultan Ahmed
-- ASIL/SPL-350/21 Zubair Ansar
-- ASIL/SPL-352/21 Abdullah Tahmeed
-- ASIL/SPL-345/21 Muhammad Ahsan Khan
-- ASIL/SPL-365/21 Shahper Hussain
-- ASIL/SPL-366/21 Iman Akbar
-- ASIL/SPL-364/21 Jasir Salahuddin
-- ASIL/SPL-378/21 Muhammad Asif
-- ASIL/SPL-358/21 Muhammad Imran
-- ASIL/SPL-367/21 Muhammad Rizwan
-- ASIL/SPL-15/21 Nasir Irfan
-- ASIL/SPL-361/21 Rafae Kayani
-- ASIL/SPL-374/21 Saqib Ali
-- ASIL/SPL-380/21 Arshad Naveed
-- ASIL/SPL-386/21 Muhammad Ayaz Khan
-- ASIL/SPL-94/21 Muzammal Hussain
-- ASIL/SPL-379/21 Rao Muhammad Zubair
-- ASIL/SPL-19/21 Aamir Ali
-- ASIL/SPL-248/21 Mir Alam Khan
-- ASIL/SPL-382/21 Muhammad Faheem Rahat
-- ASIL/SPL-412/21 Ali Sheikh
-- ASIL/SPL-383/21 Muhammad Shahrukh
-- ASIL/SPL-217/21 Naeem Ahmed
-- ASIL/SPL-152/21 Asim Ali
-- ASIL/SPL-368/21 Syed Ahmed Iftikhar
-- ASIL/SPL-331/21 Ahmer Hyder
-- ASIL/SPL-31/21 Hafiz Muhammad Arshad
-- ASIL/SPL-29/21 Muhammad Ismail Hans
-- ASIL/SPL-83/21 Syed Fasahat Hasnain Abidi
-- ASIL/SPL-147/21 Syed Farooq Ur Rehman
-- ASIL/SPL-418/21 Shahzad Masih
-- ASIL/SPL-67/21 Akhtar Ali
-- ASIL/SPL-351/21 M.Toqeer Haider
-- ASIL/SPL-183/21 Imran Ahmed Qureshi
-- ASIL/SPL-329/21 Zubair Ahmed
-- ASIL/SPL-391/21 Sami Ullah
-- ASIL/SPL-276/21 Muhammad Irshad
-- ASIL/SPL-280/21 Muhammad Javed Rajput
-- ASIL/SPL-278/21 Muhammad Mustafa
-- ASIL/SPL-306/21 Muhammad Nauman Amin
-- ASIL/SPL-328/21 Muhammad Yasir
-- ASIL/SPL-287/21 Mumtaz Hussain
-- ASIL/SPL-371/21 Ahmad Raza
-- ASIL/SPL-286/21 Munir Ahmed
-- ASIL/SPL-385/21 Rehana Mansha
-- ASIL/SPL-282/21 Sadiq Ali
-- ASIL/SPL-62/21 Syed Adnan Hussain
-- ASIL/SPL-210/21 Waseem Ahmed
-- ASIL/SPL-354/21 Mohsin Mahmood
-- ASIL/SPL-281/21 Muhammad Akram
-- ASIL/SPL-168/21 Ahsan Ul Haq
-- ASIL/SPL-222/21 Muhammad Asif
-- ASIL/SPL-97/21 Muhammad Faisal Ayaz
-- ASIL/SPL-363/21 Muhammad Shahid
-- ASIL/SPL-118/21 Muhammad Saqib Khan
-- ASIL/SPL-195/21 Syed Muhammad Shiraz Hussain
-- ASIL/SPL-355/21 Ubaid Ahmed
-- ASIL/SPL-47/21 Subhan Ud Din
-- ASIL/SPL-57/21 Kenneth Eric
-- ASIL/SPL-245/21 Muhammad Ali
-- ASIL/SPL-194/21 Asghar Ali Khan
-- ASIL/SPL-373/21 Faraz Ahmad
-- ASIL/SPL-220/21 Hussan Dad
-- ASIL/SPL-25/21 Abdul Hafeez
-- ASIL/SPL-113/21 Nabeel Khan
-- ASIL/SPL-216/21 Muhammad Khalil
-- ASIL/SPL-232/21 Ghulam Sarwar
-- ASIL/SPL-402/21 Arsalan Salim
-- ASIL/SPL-106/21 Sharjeel Khan
-- ASIL/SPL-415/21 Saqlain Qadir
-- ASIL/SPL-153/21 Syed Aarfeen Zaidi
-- ASIL/SPL-165/21 Habib Ali
-- ASIL/SPL-104/21 Ulfat Khan
-- ASIL/SPL-37/21 Wilayat Ali
-- ASIL/SPL-117/21 Adnan Hussain
-- ASIL/SPL-294/21 Rana Faheem Younis
-- ASIL/SPL-347/21 Muhammad Faheem
-- ASIL/SPL-53/21 Mazhar Mustafa
-- ASIL/SPL-277/21 M Jahangir Khan
-- ASIL/SPL-406/21 Adnan Saleem
-- ASIL/SPL-419/21 Abdul Saboor Mufti
-- ASIL/SPL-420/21 Rafae Kayani
-- ASIL/SPL-349/21 Waqas Ahmed
-- ASIL/SPL-144/21 Muhammad Mussaddiq Shaikh
-- ASIL/SPL-384/21 Shahid Irshad
-- ASIL/SPL-393/21 Moiz
-- ASIL/SPL-403/21 Usman Ali
-- ASIL/SPL-407/21 Zeeshan Idrees
-- ASIL/SPL-397/21 Fahad Ahmed
-- ASIL/SPL-399/21 Fahad Saeed
-- ASIL/SPL-392/21 Imam Ali Gardezi
-- ASIL/SPL-404/21 Muhammad Usman
-- ASIL/SPL-400/21 Muhammad Mohsin Rasheed
-- ASIL/SPL-417/21 Syed Haris Ali
 
 **Gate:** FAIL (variance present)
