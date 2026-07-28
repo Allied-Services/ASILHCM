@@ -315,6 +315,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         // 15-column monthly hub overrides (Model A present days + OT) take precedence
         const { rows: overrideRows } = await pool.query(
             `SELECT present_days, working_days, pf_deduction, income_tax, salary_override, eobi_employee,
+                    salary_for_days, overtime_amount,
                     ot1_hours, ot2_hours, ot3_hours, opd, expense, arrears,
                     special_allowance, fuel_mobile, other_deduction
              FROM monthly_attendance_overrides
@@ -359,6 +360,8 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             if (ov.pf_deduction != null) inputs.pfDeduction = Number(ov.pf_deduction) || 0;
             if (ov.income_tax != null) inputs.wht = Number(ov.income_tax);
             if (ov.eobi_employee != null) inputs.eobiEmployee = Number(ov.eobi_employee);
+            if (ov.salary_for_days != null) inputs.salaryForDays = Number(ov.salary_for_days);
+            if (ov.overtime_amount != null) inputs.overtimeAmount = Number(ov.overtime_amount);
         }
 
         if (!policy.ot_allowed) {

@@ -84,31 +84,40 @@ function computePrSheetRow(input, policy = {}) {
         });
         workingDays = 30;
         paidDays = modelA.modelAPaidDays;
-        salaryForDays = Math.round(salary * modelA.paidFactor);
+        salaryForDays = input.salaryForDays != null
+            ? Math.round(Number(input.salaryForDays))
+            : Math.round(salary * modelA.paidFactor);
     } else {
-        salaryForDays = workingDays ? Math.round(salary * paidDays / workingDays) : salary;
+        salaryForDays = input.salaryForDays != null
+            ? Math.round(Number(input.salaryForDays))
+            : (workingDays ? Math.round(salary * paidDays / workingDays) : salary);
     }
 
     const rates = computeOtRates(salary, policy);
-    const overtimeAmount = Math.round(
-        rates.hourlyBase * (1 * ot1 + 2 * ot2 + 3 * ot3)
-    );
+    const overtimeAmount = input.overtimeAmount != null
+        ? Math.round(Number(input.overtimeAmount))
+        : Math.round(
+            rates.hourlyBase * (1 * ot1 + 2 * ot2 + 3 * ot3)
+        );
 
-    const gross = Math.round(
+    const grossComponents = Math.round(
         salaryForDays + overtimeAmount + opd + expense + arrears + previousDues
-        + specialAllowance + fuelMobile - otherDeduction,
+        + specialAllowance + fuelMobile,
     );
+    const gross = grossComponents;
 
-    const wht = input.wht != null
-        ? Math.round(Number(input.wht))
-        : Math.round(calculateMonthlyIncomeTax(gross, opd, expense));
+    const whtExact = input.wht != null
+        ? Number(input.wht)
+        : calculateMonthlyIncomeTax(gross, opd, expense);
+    const wht = Math.round(whtExact);
     const eobi = input.eobiEmployee != null
         ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI().employerShare }
         : calculateEOBI();
     const sessi = calculateSESSI(gross);
     const pfDeduction = Math.round(Number(input.pfDeduction || 0));
-    const totalDeductions = wht + pfDeduction + eobi.employeeShare;
-    const netPay = Math.round(gross - totalDeductions);
+    const whtForNet = input.wht != null ? whtExact : wht;
+    const totalDeductions = wht + pfDeduction + eobi.employeeShare + Math.round(otherDeduction);
+    const netPay = Math.round(gross - whtForNet - pfDeduction - eobi.employeeShare - otherDeduction);
 
     const bonusMonths = policy.bonus_accrual_months || 12;
     const gratuityMonths = policy.gratuity_accrual_months || 12;

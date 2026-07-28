@@ -2,30 +2,30 @@
 
 **Contract:** ALL — June-26 Net Pay
 **Period:** 2026-06
-**Generated:** 2026-07-28T12:53:32.951Z
+**Generated:** 2026-07-28T16:02:00.294Z
 
 ## Totals
 - Rows compared: 516
-- Rows with all-field delta = 0: 156
+- Rows with all-field delta = 0: 207
 - Unmatched Excel rows: 0
 - Unmatched HCM rows: 149
-- Total net delta (Excel − HCM): 15491
+- Total net delta (Excel − HCM): 2
 
 ## Per-field non-zero delta counts
 - paid_days: 0
-- gross: 84
+- gross: 0
 - income_tax: 162
 - eobi: 0
-- sessi_or_pessi: 116
+- sessi_or_pessi: 98
 - pf: 111
 - advances: 0
 - other_deductions: 0
-- net_pay: 28
+- net_pay: 2
 
 ## Max |delta|
-- Employee: ASIL/PSO-097/25
-- Field: gross
-- Delta: 26633
+- Employee: ASIL/SPL-208/21
+- Field: sessi_or_pessi
+- Delta: 2400
 
 ## Unmatched in HCM only
 - ASIL/PSO-332/25 Munawar
@@ -38,7 +38,6 @@
 - ASIL/PSO-264/25 Ameer Rahman
 - ASIL/PSO-329/25 Muhammad Zeeshan
 - ASIL/PSO-269/25 Syed Naveed Shah
-- ASIL/PSO-386/25 Ali Muhammad
 - ASIL/PSO-270/25 Waqar Hussain
 - ASIL/PSO-274/25 Mohammad Waqas
 - ASIL/PSO-275/25 Zahir Mohammad
@@ -51,6 +50,7 @@
 - ASIL/PSO-277/25 Muhammad Asif
 - ASIL/PSO-266/25 Saeed Khan
 - ASIL/PSO-272/25 Noor Zamin
+- ASIL/PSO-386/25 Ali Muhammad
 - ASIL/PSO-287/25 Zia Ur Rehman
 - ASIL/PSO-284/25 Abid Ali
 - ASIL/PSO-330/25 Aqib Pervaiz
@@ -186,30 +186,30 @@
 
 **Contract:** PSO — Need to Pay
 **Period:** 2026-06
-**Generated:** 2026-07-28T12:53:32.951Z
+**Generated:** 2026-07-28T16:02:00.295Z
 
 ## Totals
 - Rows compared: 148
 - Rows with all-field delta = 0: 10
 - Unmatched Excel rows: 2
 - Unmatched HCM rows: 517
-- Total net delta (Excel − HCM): 14040
+- Total net delta (Excel − HCM): 0
 
 ## Per-field non-zero delta counts
 - paid_days: 9
-- gross: 17
+- gross: 0
 - income_tax: 53
 - eobi: 0
 - sessi_or_pessi: 87
 - pf: 114
 - advances: 0
 - other_deductions: 0
-- net_pay: 22
+- net_pay: 8
 
 ## Max |delta|
-- Employee: ASIL/PSO-384/25
-- Field: gross
-- Delta: 13333
+- Employee: ASIL/PSO-256/25
+- Field: sessi_or_pessi
+- Delta: 2400
 
 ## Unmatched in Excel only
 - ASIL/PSO-379/25 Mateen (EP)
@@ -514,6 +514,12 @@
 - ASIL/PSO-209/25 Muneeb Ahmed
 - ASIL/PSO-200/25 Umer daraz
 - ASIL/PSO-386/25 Ali Muhammad
+- ASIL/SPL-409/21 Numair Ahmed Qureshi
+- ASIL/SPL-416/21 Syed Jahanzeb Raza
+- ASIL/SPL-63/21 Syed Mudasar Mumtaz Shah
+- ASIL/SPL-413/21 Muhammad Zain Bin Ahsan
+- ASIL/SPL-414/21 Muhammad Abdullah Baig
+- ASIL/SPL-411/21 Muhammad Safyan
 - ASIL/SPL-197/21 Nisar Ahmed
 - ASIL/SPL-177/21 Muhammad Sharif
 - ASIL/SPL-325/21 Waqar Ahmed
@@ -702,12 +708,6 @@
 - ASIL/SPL-232/21 Ghulam Sarwar
 - ASIL/SPL-402/21 Arsalan Salim
 - ASIL/SPL-106/21 Sharjeel Khan
-- ASIL/SPL-409/21 Numair Ahmed Qureshi
-- ASIL/SPL-416/21 Syed Jahanzeb Raza
-- ASIL/SPL-63/21 Syed Mudasar Mumtaz Shah
-- ASIL/SPL-413/21 Muhammad Zain Bin Ahsan
-- ASIL/SPL-414/21 Muhammad Abdullah Baig
-- ASIL/SPL-411/21 Muhammad Safyan
 - ASIL/SPL-415/21 Saqlain Qadir
 - ASIL/SPL-153/21 Syed Aarfeen Zaidi
 - ASIL/SPL-165/21 Habib Ali

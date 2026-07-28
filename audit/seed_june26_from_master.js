@@ -59,8 +59,10 @@ const JUNE = {
   NEW_SALARY: 17,
   WORKING_DAYS: 18,
   PAID_DAYS: 19,
+  SALARY_FOR_DAYS: 20,
   OT2: 21,
   OT3: 22,
+  OVERTIME_AMOUNT: 23,
   OPD: 24,
   EXPENSE: 25,
   ARREARS: 26,
@@ -78,8 +80,10 @@ const PSO = {
   EMPLOYEE_ID: 1,
   WORKING_DAYS: 18,
   PAID_DAYS: 19,
+  SALARY_FOR_DAYS: 20,
   OT2: 21,
   OT3: 22,
+  OVERTIME_AMOUNT: 23,
   OPD: 24,
   EXPENSE: 25,
   ARREARS: 26,
@@ -200,6 +204,8 @@ function parseJune26Overrides(wb) {
     const paidDays = num(cellVal(ws, r, JUNE.PAID_DAYS));
     const ot2 = num(cellVal(ws, r, JUNE.OT2));
     const ot3 = num(cellVal(ws, r, JUNE.OT3));
+    const salaryForDays = num(cellVal(ws, r, JUNE.SALARY_FOR_DAYS));
+    const overtimeAmount = num(cellVal(ws, r, JUNE.OVERTIME_AMOUNT));
     const opd = num(cellVal(ws, r, JUNE.OPD));
     const expense = num(cellVal(ws, r, JUNE.EXPENSE));
     const arrears = num(cellVal(ws, r, JUNE.ARREARS));
@@ -219,6 +225,8 @@ function parseJune26Overrides(wb) {
       ot1_hours: isPsoOt1x ? ot2 : 0,
       ot2_hours: isPsoOt1x ? 0 : ot2,
       ot3_hours: ot3,
+      salary_for_days: salaryForDays > 0 ? salaryForDays : null,
+      overtime_amount: overtimeAmount > 0 ? overtimeAmount : null,
       opd,
       expense,
       arrears,
@@ -254,6 +262,8 @@ function parsePsoOperationalOverrides(wb) {
     const incomeTax = num(cellVal(ws, r, PSO.INCOME_TAX));
     const ot2Raw = num(cellVal(ws, r, PSO.OT2));
     const ot3Raw = num(cellVal(ws, r, PSO.OT3));
+    const salaryForDays = num(cellVal(ws, r, PSO.SALARY_FOR_DAYS));
+    const overtimeAmount = num(cellVal(ws, r, PSO.OVERTIME_AMOUNT));
 
     rows.push({
       employee_id: normalizeId(rawId),
@@ -262,6 +272,8 @@ function parsePsoOperationalOverrides(wb) {
       ot1_hours: ot2Raw,
       ot2_hours: 0,
       ot3_hours: ot3Raw,
+      salary_for_days: salaryForDays > 0 ? salaryForDays : null,
+      overtime_amount: overtimeAmount > 0 ? overtimeAmount : null,
       opd: num(cellVal(ws, r, PSO.OPD)),
       expense: num(cellVal(ws, r, PSO.EXPENSE)),
       arrears: num(cellVal(ws, r, PSO.ARREARS)),
@@ -284,15 +296,8 @@ function mergeOverrideRows(juneRows, psoRows) {
   // PSO operational sheet overrides June-26 for coded PSO employees (paid days, OT, PF).
   // Only copy defined PSO fields — never clobber June new_salary / salary_override with null.
   for (const row of psoRows) {
-    const existing = map.get(row.employee_id) || {};
-    const fromJune = map.has(row.employee_id);
-    const merged = { ...existing };
-    for (const [key, val] of Object.entries(row)) {
-      if (val === null || val === undefined) continue;
-      // June-26 working_days wins when the employee is on both sheets (PSO ops uses different basis).
-      if (fromJune && key === 'working_days') continue;
-      merged[key] = val;
-    }
+    if (map.has(row.employee_id)) continue; // June-26 is authoritative for main-sheet employees
+    const merged = { ...row };
     merged.source = 'pso_ops_june26_seed';
     map.set(row.employee_id, merged);
   }
@@ -518,8 +523,9 @@ async function upsertOverrides(pool, overrideRows, dryRun) {
            employee_id, period_month, period_year, present_days, working_days,
            ot1_hours, ot2_hours, ot3_hours, opd, expense, arrears,
            special_allowance, fuel_mobile, other_deduction,
-           pf_deduction, income_tax, salary_override, eobi_employee, source, updated_by
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'seed_script')
+           pf_deduction, income_tax, salary_override, salary_for_days, overtime_amount,
+           eobi_employee, source, updated_by
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,'seed_script')
          ON CONFLICT (employee_id, period_month, period_year) DO UPDATE SET
            present_days = EXCLUDED.present_days,
            working_days = EXCLUDED.working_days,
@@ -535,6 +541,8 @@ async function upsertOverrides(pool, overrideRows, dryRun) {
            pf_deduction = EXCLUDED.pf_deduction,
            income_tax = EXCLUDED.income_tax,
            salary_override = EXCLUDED.salary_override,
+           salary_for_days = EXCLUDED.salary_for_days,
+           overtime_amount = EXCLUDED.overtime_amount,
            eobi_employee = EXCLUDED.eobi_employee,
            source = EXCLUDED.source,
            updated_by = EXCLUDED.updated_by,
@@ -543,7 +551,8 @@ async function upsertOverrides(pool, overrideRows, dryRun) {
           row.employee_id, TARGET_MONTH, TARGET_YEAR, row.present_days, row.working_days,
           row.ot1_hours || 0, row.ot2_hours, row.ot3_hours, row.opd, row.expense, row.arrears,
           row.special_allowance, row.fuel_mobile, row.other_deduction,
-          row.pf_deduction || 0, row.income_tax, row.salary_override, row.eobi_employee,
+          row.pf_deduction || 0, row.income_tax, row.salary_override,
+          row.salary_for_days, row.overtime_amount, row.eobi_employee,
           row.source || 'june26_seed',
         ],
       );

@@ -119,6 +119,34 @@ describe('Pillar 1 — OT 1X', () => {
         expect(row.netPay).toBe(row.gross - row.wht);
     });
 
+    test('other deduction reduces net pay, not gross (Excel AE/AD parity)', () => {
+        const row = computePrSheetRow({
+            newSalary: 47000,
+            presentDays: 27,
+            expectedDays: 30,
+            modelA: true,
+            salaryForDays: 42300,
+            otherDeduction: 26633,
+            eobiEmployee: 400,
+        }, POLICY);
+        expect(row.gross).toBe(42300);
+        expect(row.netPay).toBe(42300 - 26633 - 400);
+    });
+
+    test('Excel component overrides — salaryForDays + overtimeAmount', () => {
+        const row = computePrSheetRow({
+            newSalary: 40000,
+            presentDays: 30,
+            expectedDays: 30,
+            modelA: true,
+            salaryForDays: 40000,
+            overtimeAmount: 19904,
+            ot1: 103.5,
+        }, POLICY);
+        expect(row.gross).toBe(59904);
+        expect(row.overtimeAmount).toBe(19904);
+    });
+
     test('rate-card billing OT includes 1×', () => {
         const computed = { totalCost: 100000 };
         applyBillingAmount(computed, {
