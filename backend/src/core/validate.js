@@ -16,7 +16,16 @@ function parseBody(schema, body) {
 function handleRouteError(res, routeName, err) {
     console.error(`[${routeName}]`, err);
     if (err.status === 400) {
-        return res.status(400).json({ error: err.message });
+        return res.status(400).json({ error: err.message, code: err.code });
+    }
+    if (err.status === 404) {
+        return res.status(404).json({ error: err.message || 'Not found', code: err.code });
+    }
+    if (err.status === 409) {
+        return res.status(409).json({ error: err.message, code: err.code, ...(err.details || {}) });
+    }
+    if (err.status === 422) {
+        return res.status(422).json({ error: err.message, code: err.code, ...(err.details || {}) });
     }
     return res.status(500).json({ error: 'Internal server error' });
 }

@@ -18,6 +18,7 @@ const { registerBillApprovalRoutes } = require('./src/modules/billApproval/route
 const { registerXeroBillImportRoutes } = require('./src/modules/xeroBillImport/routes');
 const { registerLeaveRoutes } = require('./src/modules/leave/routes');
 const { registerOrgMasterRoutes } = require('./src/modules/org/orgMasters');
+const { registerServiceOrderRoutes } = require('./src/modules/serviceOrders/routes');
 const { runMigrations } = require('./src/core/runMigrations');
 const { initJobs, registerWorkers, scheduleJob } = require('./src/core/jobs');
 const { pollIntakeMailbox } = require('./src/intake/imapWatcher');
@@ -47,6 +48,7 @@ function mountRestructureModules(app, deps) {
     registerBillApprovalRoutes(app, deps);
     registerLeaveRoutes(app, deps);
     registerOrgMasterRoutes(app, deps);
+    registerServiceOrderRoutes(app, deps);
 }
 
 let migrationStatus = 'ok';

@@ -617,4 +617,53 @@ export const api = {
     markBillsPaid: (data) => apiFetch('/api/ap/bills/mark-paid', { method: 'POST', body: JSON.stringify(data) }),
 
     assignClaim: (id, employeeId) => apiFetch(`/api/claims/${id}`, { method: 'PATCH', body: JSON.stringify({ employeeId }) }),
+
+    // ── Fixed Value / Conservancy (PSO service orders) ─────────────────────────
+    getFixedValueContracts: () => apiFetch('/api/fixed-value/contracts'),
+    getFixedValueServiceOrders: (contractId) => apiFetch(`/api/fixed-value/service-orders?contractId=${encodeURIComponent(contractId)}`),
+    getFixedValueServiceOrder: (id) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}`),
+    upsertFixedValueServiceOrder: (id, data) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+    replaceFixedValueLines: (id, lines) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/lines`, { method: 'PUT', body: JSON.stringify({ lines }) }),
+    getFixedValueDeductions: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/deductions?month=${month}&year=${year}`),
+    addFixedValueDeduction: (id, data) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/deductions`, { method: 'POST', body: JSON.stringify(data) }),
+    uploadFixedValueAttendance: async (id, month, year, file) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('month', String(month));
+        fd.append('year', String(year));
+        const res = await fetch(`${API}/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/upload`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: fd,
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `Upload failed (${res.status})`);
+        }
+        return res.json();
+    },
+    pullFixedValueDriveAttendance: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/drive`, { method: 'POST', body: JSON.stringify({ month, year }) }),
+    getFixedValueDriveStatus: (id) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/drive/status`),
+    applyFixedValueAttendance: (id, month, year, rows) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/apply`, { method: 'POST', body: JSON.stringify({ month, year, rows }) }),
+    computeFixedValueInvoice: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/invoice/compute`, { method: 'POST', body: JSON.stringify({ month, year }) }),
+    persistFixedValueInvoice: (id, month, year, poNumber) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/invoice/persist`, { method: 'POST', body: JSON.stringify({ month, year, poNumber }) }),
+    getFixedValueRegistry: (contractId, month, year, siteCode) => {
+        const q = new URLSearchParams({ contractId, month: String(month), year: String(year) });
+        if (siteCode) q.set('siteCode', siteCode);
+        return apiFetch(`/api/fixed-value/registry?${q}`);
+    },
+    openFixedValueInvoicePrint: async (invoiceId, format = 'invoice') => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const res = await fetch(`${API}/api/fixed-value/invoices/${invoiceId}/print?format=${encodeURIComponent(format)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error(`Print failed (${res.status})`);
+        const html = await res.text();
+        const w = window.open('', '_blank');
+        if (w) { w.document.write(html); w.document.close(); }
+        return { ok: true };
+    },
+    sendFixedValueFocalEmail: (id, month, year, payload = {}) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/focals/email`, { method: 'POST', body: JSON.stringify({ month, year, ...payload }) }),
+    seedPsoNorthZone: () => apiFetch('/api/fixed-value/seed-pso', { method: 'POST', body: '{}' }),
 };

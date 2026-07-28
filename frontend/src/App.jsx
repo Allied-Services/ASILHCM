@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail, Inbox, Wrench, Briefcase, ClipboardList, CheckSquare, TrendingUp } from 'lucide-react';
+import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail, Inbox, Wrench, Briefcase, ClipboardList, CheckSquare, TrendingUp, MapPin } from 'lucide-react';
 import EmailClaimsListener from './EmailClaimsListener';
 import WafiClaimsDashboard from './WafiClaimsDashboard';
 import Dashboard from './Dashboard';
@@ -33,6 +33,7 @@ import ComplianceLedger from './features/compliance/ComplianceLedger';
 import PayrollRun from './features/payroll/PayrollRun';
 import ARDashboard from './features/ar/ARDashboard';
 import AuditLogViewer from './features/audit/AuditLogViewer';
+import FixedValueContracts from './features/fixedValue/FixedValueContracts';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -40,22 +41,22 @@ const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','bill_verification','compliance','ar'],
+    superadmin:           ['dashboard','employee','payroll','payroll_run','fixed_value','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','bill_verification','compliance','ar'],
     supervisor:           ['attendance','maintenance'],
-    operations:           ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
-    operations_supervisor:['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
-    operations_team:      ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops'],
+    operations:           ['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
+    operations_supervisor:['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
+    operations_team:      ['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops'],
     procurement_proposer: ['billing','vendor','inventory','bill_verification','ap'],
     procurement_approver: ['billing','vendor','inventory','bill_verification'],
     procurement_manager:  ['billing','vendor','inventory','ap','maintenance','bill_verification'],
     procurement:          ['billing','vendor','inventory','ap','bill_verification'],
-    finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
-    finance_approver:     ['payroll','payroll_run','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal','contract_ops','compliance','bizdev','ar'],
-    finance_manager:      ['payroll','payroll_run','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','compliance','ar'],
+    finance_proposer:     ['billing','invoices','fixed_value','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
+    finance_approver:     ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal','contract_ops','compliance','bizdev','ar'],
+    finance_manager:      ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','compliance','ar'],
     ap_team:              ['ap','billing','payroll_run'],
-    ar_team:              ['invoices','po_tracking','billing','compliance'],
-    payroll_initiator:    ['payroll','payroll_run','employee','claims_queue','claims_portal'],
-    payroll:              ['payroll','payroll_run','employee','claims_queue','claims_portal'],
+    ar_team:              ['invoices','fixed_value','po_tracking','billing','compliance'],
+    payroll_initiator:    ['payroll','payroll_run','fixed_value','employee','claims_queue','claims_portal'],
+    payroll:              ['payroll','payroll_run','fixed_value','employee','claims_queue','claims_portal'],
     bizdev:               ['bizdev','client','contract_ops'],
     pending:              [],
 };
@@ -205,6 +206,7 @@ function App() {
     { key: 'employee',  label: 'Employee Information',   icon: <Users size={20} /> },
     { key: 'payroll',   label: 'Payroll Sheet',          icon: <Calculator size={20} /> },
     { key: 'payroll_run', label: 'Payroll Run',        icon: <Calculator size={20} /> },
+    { key: 'fixed_value', label: 'Fixed Value / PSO',  icon: <MapPin size={20} /> },
     { key: 'documents', label: 'Document Generator',     icon: <FilePlus size={20} /> },
     { key: 'billing',   label: 'Bills & Procurement',    icon: <Receipt size={20} /> },
     { key: 'invoices',    label: 'Invoices (AR)',          icon: <FileText size={20} /> },
@@ -293,6 +295,7 @@ function App() {
           {effectiveTab === 'employee'   && <EmployeeInformation user={user} />}
           {effectiveTab === 'payroll'    && <PayrollSheet user={user} />}
           {effectiveTab === 'payroll_run' && <PayrollRun user={user} />}
+          {effectiveTab === 'fixed_value' && <FixedValueContracts user={user} />}
           {effectiveTab === 'documents'  && <DocumentGenerator />}
           {effectiveTab === 'billing'    && <BillingProcurement user={user} />}
           {effectiveTab === 'invoices'    && <InvoiceSection user={user} />}

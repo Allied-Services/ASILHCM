@@ -623,6 +623,16 @@ async function generateInvoiceFromRun(pool, { runId, generatedBy }) {
     const contract = contractRows[0];
     if (!contract) throw new Error('Contract not found');
 
+    const policyEarly = await getPolicy(pool, contract.id);
+    const { isSoBillingModel, PSO_SERVICE_TYPE } = require('../serviceOrders/sitesMeta');
+    const svcType = String(contract.service_type || '').trim();
+    if (isSoBillingModel(policyEarly?.billing_model) || svcType === PSO_SERVICE_TYPE || /fixed value/i.test(svcType)) {
+        const err = new Error('Use Fixed Value service-order invoicing for this contract');
+        err.status = 409;
+        err.code = 'USE_SO_INVOICE';
+        throw err;
+    }
+
     const { rows: prRows } = await pool.query(`SELECT computed FROM payroll_run_rows WHERE run_id = $1`, [runId]);
     let subtotal = 0;
     let serviceCharges = 0;

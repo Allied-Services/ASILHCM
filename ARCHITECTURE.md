@@ -65,6 +65,32 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 
 ---
 
+## Fixed Value / Conservancy (PSO service orders)
+
+Module: `backend/src/modules/serviceOrders/` — mounted at `/api/fixed-value/*`.
+
+| Item | Detail |
+|---|---|
+| Contract (staging seed) | `CTR-PSO-NORTH-ZONE` — PSO North Zone Operations |
+| Service order IDs | `SO-PSO-{SITE_CODE}` (e.g. `SO-PSO-TARUJABBA`) |
+| Employee IDs (seed) | `ASIL-PSO-NZ-NNN` (staging-safe prefix) |
+| Billing model | `service_order_deduction` on `contract_policies` |
+| Monthly qty default | `1` per service order line |
+| Absence deduction | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` |
+| Attendance ingest | Excel sheet `"{MonthName} {year}"` or Google Drive folder `DRIVE_ATTENDANCE_FOLDER_ID` |
+
+**Tax rule (critical):** Stamped invoice grand = net taxable + provincial ST only. Income WHT (policy default 15%) and ~20% ST withholding appear in the receivable section only — they do **not** reduce stamped grand. Persisted to `client_invoices`: `subtotal=net`, `sales_tax=PST`, `grand_total=net+PST`, `wht=incomeWht`, breakdown in `notes` JSON.
+
+**Tarujabba verification:** Monthly line rates sum to **2,156,300**; KPK ST 15% = **323,445**; stamped grand **2,479,745**.
+
+**Payroll run guard:** `generateInvoiceFromRun` returns **409 `USE_SO_INVOICE`** for Fixed Value / Conservancy contracts — use `/api/fixed-value/service-orders/:id/invoice/*` instead.
+
+**Routes (summary):** contracts, service-orders CRUD/lines, deductions, attendance upload/drive/apply, invoice compute/persist, registry, print (`/invoices/:id/print?format=`), seed (`POST /seed-pso`), focal email.
+
+**Seed:** `node scripts/seed_pso_north_zone.js` (requires `DATABASE_URL`) or `POST /api/fixed-value/seed-pso` (superadmin).
+
+---
+
 ## Further reading
 
 - `.agents/REMEDIATION_PLAN.md` — session order, milestones, MD gates

@@ -9,6 +9,7 @@ const SERVICE_TYPES = [
     'Hard Services',
     'Procurement (Fixed Supply)',
     'Manpower Services',
+    'Fixed Value / Conservancy',
     'Facilities Management',
     'BPO / Back Office',
     'Imprest',
