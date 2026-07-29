@@ -317,12 +317,6 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             [emp.id, startDate, endStr]
         );
 
-        if (!att.length) warnings.push({ employeeId: emp.id, code: 'NO_ATTENDANCE', message: `${emp.name}: no attendance — defaulting present days to ${workingDays}` });
-
-        let paidDays = derivePaidDays(att, workingDays, policy.attendance_input_mode);
-        let { ot1, ot2, ot3 } = deriveOtHours(att, holidayDateSet);
-
-        // 15-column monthly hub overrides (Model A present days + OT) take precedence
         const { rows: overrideRows } = await pool.query(
             `SELECT present_days, working_days, pf_deduction, income_tax, salary_override, eobi_employee,
                     salary_for_days, overtime_amount,
@@ -338,9 +332,34 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         if (ov) {
             if (ov.present_days != null) {
                 presentDaysForModelA = Number(ov.present_days);
-                paidDays = presentDaysForModelA;
             }
             if (ov.working_days != null) overrideWorkingDays = Number(ov.working_days);
+        }
+
+        if (!att.length) {
+            if (presentDaysForModelA != null) {
+                warnings.push({
+                    employeeId: emp.id,
+                    code: 'NO_DAILY_ATTENDANCE',
+                    message: `${emp.name}: no daily attendance — using monthly override (${presentDaysForModelA} present days)`,
+                });
+            } else {
+                warnings.push({
+                    employeeId: emp.id,
+                    code: 'NO_ATTENDANCE',
+                    message: `${emp.name}: no daily attendance — defaulting present days to ${workingDays}`,
+                });
+            }
+        }
+
+        let paidDays = derivePaidDays(att, workingDays, policy.attendance_input_mode);
+        let { ot1, ot2, ot3 } = deriveOtHours(att, holidayDateSet);
+
+        // 15-column monthly hub overrides (Model A present days + OT) take precedence
+        if (ov) {
+            if (presentDaysForModelA != null) {
+                paidDays = presentDaysForModelA;
+            }
             if (ov.ot1_hours != null) ot1 = Number(ov.ot1_hours) || 0;
             if (ov.ot2_hours != null) ot2 = Number(ov.ot2_hours) || 0;
             if (ov.ot3_hours != null) ot3 = Number(ov.ot3_hours) || 0;
