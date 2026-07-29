@@ -71,6 +71,20 @@ export default function LoginScreen({ error }) {
                         ⛔ Access restricted to <strong>@asil.com.pk</strong> accounts only.
                     </div>
                 )}
+                {error === 'server_slow' && (
+                    <div style={{
+                        background: 'rgba(245,158,11,0.1)',
+                        border: '1px solid rgba(245,158,11,0.35)',
+                        borderRadius: '10px',
+                        padding: '12px 16px',
+                        marginBottom: '24px',
+                        color: '#fcd34d',
+                        fontSize: '0.85rem',
+                        lineHeight: 1.45,
+                    }}>
+                        Server slow to wake — try Sign in again in a minute.
+                    </div>
+                )}
 
                 {/* Google Sign-In Button */}
                 <a

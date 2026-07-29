@@ -36,6 +36,8 @@ import AuditLogViewer from './features/audit/AuditLogViewer';
 import FixedValueContracts from './features/fixedValue/FixedValueContracts';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+/** Hard ceiling for JWT bootstrap — never leave the loading spinner past this. */
+const AUTH_BOOTSTRAP_MS = 14000;
 
 // ── Role-based nav access ─────────────────────────────────────────────────────
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
@@ -116,24 +118,79 @@ function App() {
     // Magic-link / public portals must not treat ?token= as staff Google JWT
     if (isPublicMagicPath(window.location.pathname, window.location.search)) {
       setAuthReady(true);
-      return;
+      return undefined;
     }
 
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
     const urlError = params.get('error');
 
-    if (urlError) { setAuthError(urlError); setAuthReady(true); window.history.replaceState({}, '', '/'); return; }
+    if (urlError) { setAuthError(urlError); setAuthReady(true); window.history.replaceState({}, '', '/'); return undefined; }
 
     if (urlToken) { localStorage.setItem('asil_hcm_token', urlToken); window.history.replaceState({}, '', '/'); }
 
     const token = urlToken || localStorage.getItem('asil_hcm_token');
-    if (!token) { setAuthReady(true); return; }
+    if (!token) { setAuthReady(true); return undefined; }
 
-    fetch(`${API}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => { setUser(data.user); setAuthReady(true); })
-      .catch(() => { localStorage.removeItem('asil_hcm_token'); setAuthReady(true); });
+    let cancelled = false;
+    const controller = new AbortController();
+    const hardTimer = setTimeout(() => controller.abort(), AUTH_BOOTSTRAP_MS);
+
+    const finish = (nextUser, nextError) => {
+      if (cancelled) return;
+      if (nextUser) setUser(nextUser);
+      if (nextError) setAuthError(nextError);
+      setAuthSlow(false);
+      setAuthReady(true);
+    };
+
+    const fetchMe = () => fetch(`${API}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+
+    (async () => {
+      try {
+        const r = await fetchMe();
+        if (r.ok) {
+          const data = await r.json();
+          finish(data.user, null);
+          return;
+        }
+        // Invalid/expired JWT — clear and show login (no slow-wake message)
+        localStorage.removeItem('asil_hcm_token');
+        finish(null, null);
+        return;
+      } catch {
+        // Timeout or network — probe /health once (helps wake Render), then retry /auth/me if time remains
+      }
+
+      if (cancelled || controller.signal.aborted) {
+        finish(null, 'server_slow');
+        return;
+      }
+
+      try {
+        await fetch(`${API}/health`, { signal: controller.signal });
+        const r2 = await fetchMe();
+        if (r2.ok) {
+          const data = await r2.json();
+          finish(data.user, null);
+          return;
+        }
+        localStorage.removeItem('asil_hcm_token');
+        finish(null, null);
+      } catch {
+        // Keep JWT so a later refresh can succeed once the dyno is awake
+        finish(null, 'server_slow');
+      }
+    })().finally(() => clearTimeout(hardTimer));
+
+    return () => {
+      cancelled = true;
+      clearTimeout(hardTimer);
+      controller.abort();
+    };
   }, []);
 
   useEffect(() => {
