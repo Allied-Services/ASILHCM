@@ -1,78 +1,81 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    MapPin, Upload, CloudDownload, Calculator, FileText, List, Shield,
-    Mail, Database, RefreshCw, AlertCircle, CheckCircle, Download, ExternalLink,
+    MapPin, Upload, CloudDownload, Calculator, FileText, Shield,
+    Mail, Database, RefreshCw, AlertCircle, CheckCircle, Download,
+    ExternalLink, Layers, Play,
 } from 'lucide-react';
 import { api } from '../../api';
+import './FixedValueOps.css';
 
 const ALL_SITES = '__ALL__';
 const fmt = (n) => (n == null || Number.isNaN(n)) ? '—' : Math.round(Number(n)).toLocaleString();
-const inputStyle = { background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', color: 'var(--text)' };
-const thStyle = { textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', fontSize: '0.75rem', color: 'var(--text-muted)' };
-const tdStyle = { padding: '7px 6px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' };
-const tdNum = { ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+const pct = (n) => (n == null || Number.isNaN(n)) ? '—' : `${(Number(n) * 100).toFixed(0)}%`;
 
 function rowSiteCode(r) {
     return String(r.site || '').trim().toUpperCase();
 }
 
-/** Prefer explicit sheet/override absent; only derive WD − present when absent is unknown. */
+/** Sheet/override absent is authoritative; never invent from WD − present when known. */
+function presentDays(r) {
+    const p = r.inputs?.present_days ?? r.inputs?.presentDays ?? r.paid_days;
+    return p == null || p === '' ? null : Number(p);
+}
 function absentDays(r) {
     const explicit = r.inputs?.absent_days ?? r.inputs?.absentDays;
-    if (explicit != null && explicit !== '') {
-        return Math.max(0, Number(explicit) || 0);
-    }
+    if (explicit != null && explicit !== '') return Math.max(0, Number(explicit) || 0);
     if (r.computed?.modelA?.absentSource === 'explicit' && r.computed?.modelA?.absentDays != null) {
         return Math.max(0, Number(r.computed.modelA.absentDays) || 0);
     }
-    const present = Number(r.paid_days);
-    const working = Number(r.working_days);
-    if (Number.isNaN(present) || Number.isNaN(working)) return null;
-    return Math.max(0, working - present);
+    return null;
 }
-const PRINT_FORMATS = [
-    { key: 'invoice', label: 'Proforma' },
-    { key: 'invoice_letterhead', label: 'Proforma (Letterhead)' },
-    { key: 'sales_tax', label: 'Sales Tax' },
-    { key: 'sales_tax_letterhead', label: 'Sales Tax (Letterhead)' },
-];
 
-const TABS = [
-    { key: 'orders', label: 'Orders', icon: List },
+const STEPS = [
+    { key: 'period', label: 'Period & Contract', icon: Layers },
     { key: 'attendance', label: 'Attendance', icon: Upload },
     { key: 'payroll', label: 'Payroll', icon: Calculator },
     { key: 'invoice', label: 'Invoice', icon: FileText },
-    { key: 'registry', label: 'Registry', icon: Database },
-    { key: 'compliance', label: 'Compliance', icon: Shield },
-    { key: 'focals', label: 'Focals / Email', icon: Mail },
+    { key: 'compliance', label: 'Statutory', icon: Shield },
+    { key: 'export', label: 'Export & Push', icon: Download },
+];
+
+const PRINT_FORMATS = [
+    { key: 'invoice', label: 'Proforma' },
+    { key: 'invoice_letterhead', label: 'Proforma (LH)' },
+    { key: 'sales_tax', label: 'Sales Tax' },
+    { key: 'sales_tax_letterhead', label: 'Sales Tax (LH)' },
 ];
 
 export default function FixedValueContracts({ user }) {
     const now = new Date();
-    const [month, setMonth] = useState(now.getMonth() + 1);
-    const [year, setYear] = useState(now.getFullYear());
+    const [month, setMonth] = useState(7);
+    const [year, setYear] = useState(2026);
     const [contracts, setContracts] = useState([]);
     const [contractId, setContractId] = useState('');
     const [orders, setOrders] = useState([]);
-    const [siteCode, setSiteCode] = useState('');
-    const [activeTab, setActiveTab] = useState('orders');
+    const [siteCode, setSiteCode] = useState(ALL_SITES);
+    const [step, setStep] = useState('period');
     const [loading, setLoading] = useState(false);
     const [msg, setMsg] = useState('');
     const [error, setError] = useState('');
 
+    const [attStatus, setAttStatus] = useState([]);
+    const [attProgress, setAttProgress] = useState(null);
+    const [bulkAttResults, setBulkAttResults] = useState([]);
     const [parsedRows, setParsedRows] = useState([]);
     const [deductions, setDeductions] = useState([]);
-    const [invoicePreview, setInvoicePreview] = useState(null);
-    const [persistedInvoice, setPersistedInvoice] = useState(null);
-    const [registry, setRegistry] = useState([]);
+
     const [payrollRun, setPayrollRun] = useState(null);
     const [payrollRows, setPayrollRows] = useState([]);
     const [payrollWarnings, setPayrollWarnings] = useState([]);
-    const [complianceRows, setComplianceRows] = useState([]);
-    const [driveStatus, setDriveStatus] = useState(null);
+
+    const [invoicePack, setInvoicePack] = useState(null);
+    const [registry, setRegistry] = useState([]);
+
+    const canWrite = ['superadmin', 'operations', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
+        .includes(user?.role);
 
     const selectedOrder = useMemo(
-        () => orders.find(o => o.site_code === siteCode) || (siteCode === ALL_SITES ? null : orders[0]) || orders[0] || null,
+        () => orders.find(o => o.site_code === siteCode) || null,
         [orders, siteCode]
     );
 
@@ -83,27 +86,56 @@ export default function FixedValueContracts({ user }) {
         const nameNeedle = String(order?.name || '').toLowerCase();
         const bySite = payrollRows.filter(r => rowSiteCode(r) === want);
         if (bySite.length) return bySite;
-        // Fallback: match employee.location to service-order name when site code absent
         if (nameNeedle) {
-            const byLoc = payrollRows.filter(r => {
+            return payrollRows.filter(r => {
                 const loc = String(r.location || '').toLowerCase();
                 return loc.includes(nameNeedle) || loc.includes(want.toLowerCase());
             });
-            if (byLoc.length) return byLoc;
         }
         return bySite;
     }, [payrollRows, siteCode, orders]);
 
-    const payrollTotals = useMemo(() => filteredPayrollRows.reduce((acc, r) => {
-        const c = r.computed || {};
-        acc.net += Number(c.netPay || 0);
-        acc.gross += Number(c.gross || 0);
-        acc.wages += Number(c.salaryForDays || 0);
-        acc.eobi += Number(c.eobiEmployee || 0);
-        acc.tax += Number(c.wht || 0);
-        acc.life += Number(c.lifeInsurance || 0);
-        return acc;
-    }, { net: 0, gross: 0, wages: 0, eobi: 0, tax: 0, life: 0 }), [filteredPayrollRows]);
+    const payrollBySite = useMemo(() => {
+        const map = new Map();
+        for (const r of payrollRows) {
+            const site = rowSiteCode(r) || 'UNKNOWN';
+            if (!map.has(site)) {
+                map.set(site, { site, headcount: 0, wages: 0, eobi: 0, sessi: 0, tax: 0, life: 0, net: 0, gross: 0 });
+            }
+            const s = map.get(site);
+            const c = r.computed || {};
+            s.headcount += 1;
+            s.wages += Number(c.salaryForDays || 0);
+            s.eobi += Number(c.eobiEmployee || 0);
+            s.sessi += Number(c.sessiEmployer || 0);
+            s.tax += Number(c.wht || 0);
+            s.life += Number(c.lifeInsurance || 0);
+            s.net += Number(c.netPay || 0);
+            s.gross += Number(c.gross || 0);
+        }
+        return [...map.values()].sort((a, b) => a.site.localeCompare(b.site));
+    }, [payrollRows]);
+
+    const payrollTotals = useMemo(() => payrollBySite.reduce((a, s) => ({
+        headcount: a.headcount + s.headcount,
+        wages: a.wages + s.wages,
+        eobi: a.eobi + s.eobi,
+        sessi: a.sessi + s.sessi,
+        tax: a.tax + s.tax,
+        life: a.life + s.life,
+        net: a.net + s.net,
+        gross: a.gross + s.gross,
+    }), { headcount: 0, wages: 0, eobi: 0, sessi: 0, tax: 0, life: 0, net: 0, gross: 0 }), [payrollBySite]);
+
+    const attDoneCount = attStatus.filter(s => s.status === 'done').length;
+    const stepStatus = useMemo(() => ({
+        period: contractId ? 'done' : 'not_started',
+        attendance: attDoneCount === 0 ? 'not_started' : (attDoneCount >= orders.length && orders.length ? 'done' : 'ready'),
+        payroll: payrollRows.length ? 'done' : (attDoneCount ? 'ready' : 'not_started'),
+        invoice: invoicePack?.sites?.length ? 'done' : (attDoneCount ? 'ready' : 'not_started'),
+        compliance: payrollRows.length ? 'ready' : 'not_started',
+        export: (payrollRows.length || invoicePack?.sites?.length) ? 'ready' : 'not_started',
+    }), [contractId, attDoneCount, orders.length, payrollRows.length, invoicePack]);
 
     const loadContracts = useCallback(async () => {
         const rows = await api.getFixedValueContracts();
@@ -114,25 +146,14 @@ export default function FixedValueContracts({ user }) {
     const loadOrders = useCallback(async () => {
         if (!contractId) return;
         const rows = await api.getFixedValueServiceOrders(contractId);
-        const list = Array.isArray(rows) ? rows : [];
-        setOrders(list);
-        if ((!siteCode || (siteCode !== ALL_SITES && !list.some(o => o.site_code === siteCode))) && list.length) {
-            setSiteCode(list[0].site_code);
-        }
-    }, [contractId, siteCode]);
+        setOrders(Array.isArray(rows) ? rows : []);
+    }, [contractId]);
 
-    const loadDeductions = useCallback(async () => {
-        if (!selectedOrder?.id) return;
-        const rows = await api.getFixedValueDeductions(selectedOrder.id, month, year);
-        setDeductions(Array.isArray(rows) ? rows : []);
-    }, [selectedOrder?.id, month, year]);
-
-    const loadRegistry = useCallback(async () => {
+    const loadAttStatus = useCallback(async () => {
         if (!contractId) return;
-        const siteArg = siteCode && siteCode !== ALL_SITES ? siteCode : undefined;
-        const rows = await api.getFixedValueRegistry(contractId, month, year, siteArg);
-        setRegistry(Array.isArray(rows) ? rows : []);
-    }, [contractId, month, year, siteCode]);
+        const rows = await api.getFixedValueAttendanceStatus(contractId, month, year);
+        setAttStatus(Array.isArray(rows) ? rows : []);
+    }, [contractId, month, year]);
 
     const loadPayrollRun = useCallback(async () => {
         if (!contractId) {
@@ -145,13 +166,31 @@ export default function FixedValueContracts({ user }) {
         setPayrollRows(Array.isArray(data.rows) ? data.rows : []);
     }, [contractId, month, year]);
 
+    const loadRegistry = useCallback(async () => {
+        if (!contractId) return;
+        const siteArg = siteCode && siteCode !== ALL_SITES ? siteCode : undefined;
+        const rows = await api.getFixedValueRegistry(contractId, month, year, siteArg);
+        setRegistry(Array.isArray(rows) ? rows : []);
+    }, [contractId, month, year, siteCode]);
+
+    const loadDeductions = useCallback(async () => {
+        if (!selectedOrder?.id) { setDeductions([]); return; }
+        const rows = await api.getFixedValueDeductions(selectedOrder.id, month, year);
+        setDeductions(Array.isArray(rows) ? rows : []);
+    }, [selectedOrder?.id, month, year]);
+
     useEffect(() => { loadContracts().catch(e => setError(e.message)); }, [loadContracts]);
     useEffect(() => { loadOrders().catch(() => {}); }, [loadOrders]);
-    useEffect(() => { loadDeductions().catch(() => {}); }, [loadDeductions]);
+    useEffect(() => { loadAttStatus().catch(() => {}); }, [loadAttStatus]);
     useEffect(() => {
-        if (activeTab !== 'payroll') return;
-        loadPayrollRun().catch(() => {});
-    }, [activeTab, loadPayrollRun]);
+        if (step === 'payroll' || step === 'compliance' || step === 'export') {
+            loadPayrollRun().catch(() => {});
+        }
+    }, [step, loadPayrollRun]);
+    useEffect(() => {
+        if (step === 'invoice' || step === 'export') loadRegistry().catch(() => {});
+    }, [step, loadRegistry]);
+    useEffect(() => { loadDeductions().catch(() => {}); }, [loadDeductions]);
 
     const runAction = async (fn, okMsg) => {
         setError('');
@@ -161,11 +200,77 @@ export default function FixedValueContracts({ user }) {
             await fn();
             if (okMsg) setMsg(okMsg);
         } catch (e) {
-            setError(e.message);
+            setError(e.message || 'Request failed');
         } finally {
             setLoading(false);
         }
     };
+
+    /** Progressive bulk: Drive-pull + apply each site with live progress. */
+    const handleBulkAttendance = () => runAction(async () => {
+        if (!orders.length) throw new Error('No service orders for this contract');
+        const results = [];
+        setAttProgress({ done: 0, total: orders.length, current: '' });
+        for (let i = 0; i < orders.length; i++) {
+            const so = orders[i];
+            setAttProgress({ done: i, total: orders.length, current: so.site_code });
+            try {
+                const pulled = await api.pullFixedValueDriveAttendance(so.id, month, year);
+                if (!pulled.ok) {
+                    results.push({
+                        siteCode: so.site_code, ok: false, pullOk: false,
+                        code: pulled.code, fileName: pulled.fileName, overrides: 0, deductions: 0,
+                    });
+                    continue;
+                }
+                const summary = await api.applyFixedValueAttendance(so.id, month, year, pulled.parse?.rows || []);
+                results.push({
+                    siteCode: so.site_code, ok: true, pullOk: true,
+                    fileName: pulled.fileName,
+                    overrides: summary.overrides || 0,
+                    deductions: summary.deductions || 0,
+                    skipped: summary.skipped?.length || 0,
+                    errors: summary.errors?.length || 0,
+                });
+            } catch (e) {
+                results.push({ siteCode: so.site_code, ok: false, message: e.message });
+            }
+        }
+        setAttProgress({ done: orders.length, total: orders.length, current: '' });
+        setBulkAttResults(results);
+        await loadAttStatus();
+        const okN = results.filter(r => r.ok).length;
+        setMsg(`Attendance applied for ${okN}/${orders.length} sites`);
+    });
+
+    const handleComputePayroll = () => runAction(async () => {
+        const result = await api.computePayrollRun(contractId, month, year);
+        if (result.ok === false) {
+            setMsg(result.message || result.code || 'Compute failed');
+            return;
+        }
+        setPayrollRun(result.run || null);
+        setPayrollRows(Array.isArray(result.rows) ? result.rows : []);
+        setPayrollWarnings(Array.isArray(result.warnings) ? result.warnings : []);
+        await loadPayrollRun();
+        setMsg(`Payroll computed — ${result.headcount ?? result.rows?.length ?? 0} employees (all sites)`);
+        setStep('payroll');
+    });
+
+    const handleComputeInvoicesAll = () => runAction(async () => {
+        const pack = await api.computeFixedValueInvoicesAll(contractId, month, year);
+        setInvoicePack(pack);
+        setMsg(`Invoice preview for ${pack.sites?.length || 0} sites`);
+        setStep('invoice');
+    });
+
+    const handlePersistInvoicesAll = () => runAction(async () => {
+        const result = await api.persistFixedValueInvoicesAll(contractId, month, year);
+        const pack = await api.computeFixedValueInvoicesAll(contractId, month, year);
+        setInvoicePack(pack);
+        await loadRegistry();
+        setMsg(`Stamped ${result.count} site invoices`);
+    });
 
     const handleUpload = async (e) => {
         const file = e.target.files?.[0];
@@ -179,426 +284,499 @@ export default function FixedValueContracts({ user }) {
         e.target.value = '';
     };
 
-    const handleDrivePull = () => runAction(async () => {
-        const pulled = await api.pullFixedValueDriveAttendance(selectedOrder.id, month, year);
-        if (!pulled.ok) throw new Error(pulled.code || 'Drive pull failed');
-        setParsedRows(pulled.parse?.rows || []);
-        setMsg(`Pulled ${pulled.fileName}`);
-    });
-
-    const handleApplyAttendance = () => runAction(async () => {
+    const handleApplySite = () => runAction(async () => {
         const summary = await api.applyFixedValueAttendance(selectedOrder.id, month, year, parsedRows);
-        setMsg(`Applied ${summary.overrides} overrides, ${summary.deductions} absence deductions`);
+        setMsg(`Applied ${summary.overrides} overrides, ${summary.deductions} deductions`);
         await loadDeductions();
+        await loadAttStatus();
     });
 
-    const handleComputeInvoice = () => runAction(async () => {
-        const preview = await api.computeFixedValueInvoice(selectedOrder.id, month, year);
-        setInvoicePreview(preview);
-        setMsg('Invoice preview computed');
-    });
-
-    const handlePersistInvoice = () => runAction(async () => {
-        const result = await api.persistFixedValueInvoice(selectedOrder.id, month, year);
-        setPersistedInvoice(result.invoice);
-        setInvoicePreview(result.computed);
-        setMsg(`Invoice ${result.invoice.invoice_number} persisted`);
-        await loadRegistry();
-    });
-
-    const handleComputePayroll = () => runAction(async () => {
-        const result = await api.computePayrollRun(contractId, month, year);
-        if (result.ok === false) {
-            setMsg(result.message || result.code || 'Compute failed');
-            return;
+    const downloadBlob = async (promise, fallbackName) => {
+        setLoading(true);
+        setError('');
+        try {
+            await promise;
+            setMsg(`Downloaded ${fallbackName}`);
+        } catch (e) {
+            setError(e.message || 'Download failed');
+        } finally {
+            setLoading(false);
         }
-        setPayrollRun(result.run || null);
-        setPayrollRows(Array.isArray(result.rows) ? result.rows : []);
-        setPayrollWarnings(Array.isArray(result.warnings) ? result.warnings : []);
-        // Refetch so rows include site/designation from GET join
-        await loadPayrollRun();
-        const siteLabel = siteCode && siteCode !== ALL_SITES ? siteCode : 'all sites';
-        setMsg(`Payroll run computed (${result.headcount ?? result.rows?.length ?? 0} employees) — showing ${siteLabel}. Attendance apply writes monthly overrides used by this compute.`);
-    });
-
-    const exportPayrollCsv = () => {
-        const headers = [
-            'Staff code', 'Name', 'Site', 'Location', 'Designation',
-            'Present', 'Absent', 'Working days', 'Basic', 'Wages earned',
-            'EOBI', 'Tax', 'Life insurance', 'Gross', 'Net', 'Source',
-        ];
-        const lines = [headers.join(',')];
-        const esc = (v) => {
-            const s = v == null ? '' : String(v);
-            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-        };
-        for (const r of filteredPayrollRows) {
-            const c = r.computed || {};
-            lines.push([
-                r.employee_id, r.employee_name, r.site, r.location, r.designation,
-                r.paid_days, absentDays(r), r.working_days,
-                r.basic_salary ?? c.newSalary, c.salaryForDays,
-                c.eobiEmployee, c.wht, c.lifeInsurance, c.gross, c.netPay,
-                r.source,
-            ].map(esc).join(','));
-        }
-        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        const sitePart = siteCode && siteCode !== ALL_SITES ? siteCode : 'ALL';
-        a.download = `fv-payroll-${contractId}-${year}-${String(month).padStart(2, '0')}-${sitePart}.csv`;
-        a.click();
-        URL.revokeObjectURL(a.href);
     };
 
-    const handleLoadCompliance = () => runAction(async () => {
-        const rows = await api.getComplianceLedger(month, year);
-        setComplianceRows(Array.isArray(rows) ? rows : []);
-        setMsg('Compliance ledger loaded');
-    });
-
-    const handleSeed = () => runAction(async () => {
-        const result = await api.seedPsoNorthZone();
-        setMsg(`Seeded ${result.sites} sites, ${result.workers} workers (Tarujabba check: ${result.tarujabbaCheck?.pass ? 'PASS' : 'FAIL'})`);
-        await loadContracts();
-        await loadOrders();
-    });
-
-    const handleDriveStatus = () => runAction(async () => {
-        const status = await api.getFixedValueDriveStatus(selectedOrder.id);
-        setDriveStatus(status);
-    });
-
-    const handleFocalEmail = () => runAction(async () => {
-        const result = await api.sendFixedValueFocalEmail(selectedOrder.id, month, year);
-        setMsg(result.send?.skipped ? `Email skipped (${result.send.reason})` : 'Focal email sent');
-    });
+    const chipClass = (st) => (st === 'done' ? 'done' : st === 'ready' ? 'ready' : loading && stepStatus[step] === st ? 'busy' : '');
 
     return (
-        <div className="module-page">
-            <div className="module-header" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                <MapPin size={24} color="var(--accent)" />
+        <div className="fv-ops">
+            <div className="fv-ops-header">
                 <div>
-                    <h2 style={{ margin: 0 }}>Fixed Value / Conservancy</h2>
-                    <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem' }}>PSO service orders — attendance deductions & invoicing</p>
+                    <h2>Fixed Value / Conservancy</h2>
+                    <p>Stepped monthly ops — attendance → payroll (absent-driven) → invoices → exports. Staging workflow.</p>
                 </div>
-                {user?.role === 'superadmin' && (
-                    <button type="button" className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={handleSeed} disabled={loading}>
-                        <Database size={16} /> Seed PSO North Zone
-                    </button>
-                )}
-            </div>
-
-            <div className="fv-chrome" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, padding: 12, background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.8rem' }}>
-                    Month
-                    <input type="number" min={1} max={12} value={month} onChange={e => setMonth(parseInt(e.target.value, 10))} style={{ ...inputStyle, width: 72 }} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.8rem' }}>
-                    Year
-                    <input type="number" value={year} onChange={e => setYear(parseInt(e.target.value, 10))} style={{ ...inputStyle, width: 88 }} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.8rem', minWidth: 220 }}>
-                    Contract
-                    <select value={contractId} onChange={e => setContractId(e.target.value)} style={inputStyle}>
-                        <option value="">Select contract</option>
+                <div className="fv-ops-period">
+                    <select value={contractId} onChange={e => setContractId(e.target.value)}>
                         {contracts.map(c => <option key={c.id} value={c.id}>{c.contract_name || c.id}</option>)}
                     </select>
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.8rem', minWidth: 200 }}>
-                    Site
-                    <select value={siteCode} onChange={e => setSiteCode(e.target.value)} style={inputStyle}>
-                        <option value={ALL_SITES}>All sites</option>
-                        {orders.map(o => <option key={o.id} value={o.site_code}>{o.name || o.site_code}</option>)}
+                    <select value={month} onChange={e => setMonth(Number(e.target.value))}>
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                            <option key={m} value={m}>{new Date(2000, m - 1, 1).toLocaleString('en', { month: 'long' })}</option>
+                        ))}
                     </select>
-                </label>
-                <button type="button" className="btn-secondary" onClick={() => { loadOrders(); loadDeductions(); loadRegistry(); if (activeTab === 'payroll') loadPayrollRun(); }} disabled={loading}>
-                    <RefreshCw size={16} /> Refresh
-                </button>
+                    <input type="number" value={year} onChange={e => setYear(Number(e.target.value))} style={{ width: 90 }} />
+                    <div className="fv-site-bar">
+                        <MapPin size={14} />
+                        <select value={siteCode} onChange={e => setSiteCode(e.target.value)}>
+                            <option value={ALL_SITES}>All sites (contract rollup)</option>
+                            {orders.map(o => <option key={o.id} value={o.site_code}>{o.name} ({o.site_code})</option>)}
+                        </select>
+                    </div>
+                </div>
             </div>
 
-            {(msg || error) && (
-                <div style={{ marginBottom: 12, padding: 10, borderRadius: 8, background: error ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)', color: error ? '#fca5a5' : '#86efac', display: 'flex', gap: 8, alignItems: 'center' }}>
-                    {error ? <AlertCircle size={16} /> : <CheckCircle size={16} />}
-                    {error || msg}
-                </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-                {TABS.map(t => {
-                    const Icon = t.icon;
+            <div className="fv-stepper">
+                {STEPS.map((s, idx) => {
+                    const Icon = s.icon;
+                    const st = stepStatus[s.key];
                     return (
-                        <button key={t.key} type="button" onClick={() => setActiveTab(t.key)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: activeTab === t.key ? 'var(--accent)' : 'var(--bg-card)', color: activeTab === t.key ? '#fff' : 'var(--text)', cursor: 'pointer' }}>
-                            <Icon size={16} /> {t.label}
+                        <button
+                            key={s.key}
+                            type="button"
+                            className={`fv-step${step === s.key ? ' active' : ''}`}
+                            onClick={() => setStep(s.key)}
+                        >
+                            <span className="fv-step-no">Step {idx + 1}</span>
+                            <span className="fv-step-title"><Icon size={14} style={{ marginRight: 4, verticalAlign: -2 }} />{s.label}</span>
+                            <span className={`fv-chip ${chipClass(st)}`}>
+                                {st === 'done' ? 'Done' : st === 'ready' ? 'Ready' : 'Not started'}
+                            </span>
                         </button>
                     );
                 })}
             </div>
 
-            {activeTab === 'orders' && selectedOrder && (
-                <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }}>
-                    <h3>{selectedOrder.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({selectedOrder.site_code})</span></h3>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>SO ID: {selectedOrder.id} · Total value: {fmt(selectedOrder.total_value)}/mo</p>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                        <thead>
-                            <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                                <th style={{ textAlign: 'left', padding: 8 }}>Line</th>
-                                <th style={{ textAlign: 'right', padding: 8 }}>Rate</th>
-                                <th style={{ textAlign: 'right', padding: 8 }}>Qty</th>
-                                <th style={{ textAlign: 'center', padding: 8 }}>Manpower</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {(selectedOrder.lines || []).map(l => (
-                                <tr key={l.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                    <td style={{ padding: 8 }}>{l.name}</td>
-                                    <td style={{ padding: 8, textAlign: 'right' }}>{fmt(l.rate)}</td>
-                                    <td style={{ padding: 8, textAlign: 'right' }}>{l.quantity ?? 1}</td>
-                                    <td style={{ padding: 8, textAlign: 'center' }}>{l.is_manpower_dependent ? 'Yes' : 'No'}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+            {error && <div className="fv-alert error"><AlertCircle size={16} />{error}</div>}
+            {msg && <div className="fv-alert ok"><CheckCircle size={16} />{msg}</div>}
+
+            {step === 'period' && (
+                <div className="fv-panel">
+                    <h3>1 · Period & contract</h3>
+                    <p className="fv-lead">
+                        Select the billing month and Fixed Value contract. Site filter narrows drill-downs;
+                        contract-level CTAs (bulk attendance, entire payroll, all-site invoices) always cover every depot.
+                    </p>
+                    <div className="fv-kpi-grid">
+                        <div className="fv-kpi"><div className="label">Contract</div><div className="value" style={{ fontSize: '0.85rem' }}>{contractId || '—'}</div></div>
+                        <div className="fv-kpi"><div className="label">Sites</div><div className="value">{orders.length}</div></div>
+                        <div className="fv-kpi"><div className="label">Period</div><div className="value">{month}/{year}</div></div>
+                        <div className="fv-kpi"><div className="label">Attendance done</div><div className="value">{attDoneCount}/{orders.length || 0}</div></div>
+                    </div>
+                    <div className="fv-actions">
+                        <button type="button" className="btn-primary" disabled={!contractId} onClick={() => setStep('attendance')}>
+                            Continue to Attendance <Play size={14} />
+                        </button>
+                        {user?.role === 'superadmin' && (
+                            <button type="button" className="btn-secondary" disabled={loading} onClick={() => runAction(() => api.seedPsoNorthZone(), 'PSO seed complete')}>
+                                Seed PSO North Zone
+                            </button>
+                        )}
+                    </div>
+                    <div className="fv-table-wrap">
+                        <table className="fv-table">
+                            <thead><tr><th>Site</th><th>SO ID</th><th>Lines</th><th>Attendance</th></tr></thead>
+                            <tbody>
+                                {orders.map(o => {
+                                    const st = attStatus.find(a => a.siteCode === o.site_code);
+                                    return (
+                                        <tr key={o.id}>
+                                            <td>{o.name}</td>
+                                            <td>{o.id}</td>
+                                            <td className="num">{(o.lines || []).length}</td>
+                                            <td>{st?.status === 'done' ? `Done (${st.overrideCount} overrides)` : 'Not started'}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 
-            {activeTab === 'attendance' && selectedOrder && (
-                <div style={{ display: 'grid', gap: 16 }}>
-                    <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }}>
-                        <h3 style={{ marginTop: 0 }}>Upload or pull attendance</h3>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {step === 'attendance' && (
+                <div className="fv-panel">
+                    <h3>2 · Attendance</h3>
+                    <p className="fv-lead">
+                        Primary CTA pulls every depot sheet from Drive and applies present/absent into
+                        <code> monthly_attendance_overrides</code> + absence deductions. Per-site upload remains secondary.
+                    </p>
+                    <div className="fv-actions">
+                        <button type="button" className="btn-primary" disabled={loading || !canWrite || !orders.length} onClick={handleBulkAttendance}>
+                            <CloudDownload size={16} /> Compute ALL attendance ({orders.length} sites)
+                        </button>
+                        <button type="button" className="btn-secondary" disabled={loading} onClick={() => runAction(loadAttStatus, 'Status refreshed')}>
+                            <RefreshCw size={16} /> Refresh status
+                        </button>
+                    </div>
+                    {attProgress && (
+                        <div>
+                            <div className="fv-progress"><span style={{ width: `${(attProgress.done / Math.max(attProgress.total, 1)) * 100}%` }} /></div>
+                            <p className="fv-lead" style={{ marginTop: 6 }}>
+                                {attProgress.done}/{attProgress.total}{attProgress.current ? ` — ${attProgress.current}` : ''}
+                            </p>
+                        </div>
+                    )}
+                    {(bulkAttResults.length > 0 || attStatus.length > 0) && (
+                        <div className="fv-table-wrap">
+                            <table className="fv-table">
+                                <thead>
+                                    <tr>
+                                        <th>Site</th><th>Status</th><th className="num">Overrides</th>
+                                        <th className="num">Deductions</th><th>File / note</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(bulkAttResults.length ? bulkAttResults : attStatus.map(a => ({
+                                        siteCode: a.siteCode,
+                                        ok: a.status === 'done',
+                                        overrides: a.overrideCount,
+                                        deductions: a.deductionCount,
+                                        fileName: '',
+                                    }))).map(r => (
+                                        <tr key={r.siteCode}>
+                                            <td>{r.siteCode}</td>
+                                            <td>{r.ok ? 'OK' : (r.code || r.message || 'Pending')}</td>
+                                            <td className="num">{r.overrides ?? '—'}</td>
+                                            <td className="num">{r.deductions ?? '—'}</td>
+                                            <td>{r.fileName || '—'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    <div className="fv-later">
+                        <strong>Secondary — single site</strong>
+                        {siteCode === ALL_SITES
+                            ? ' Choose a site in the filter to upload/apply one Excel sheet.'
+                            : ` Working on ${selectedOrder?.name || siteCode}.`}
+                    </div>
+                    {selectedOrder && siteCode !== ALL_SITES && (
+                        <div className="fv-actions">
                             <label className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                                 <Upload size={16} /> Upload Excel
                                 <input type="file" accept=".xlsx,.xls" hidden onChange={handleUpload} />
                             </label>
-                            <button type="button" className="btn-secondary" onClick={handleDrivePull} disabled={loading}><CloudDownload size={16} /> Pull from Drive</button>
-                            <button type="button" className="btn-secondary" onClick={handleDriveStatus} disabled={loading}>Drive status</button>
-                            <button type="button" className="btn-primary" onClick={handleApplyAttendance} disabled={loading || !parsedRows.length}>Apply to ledger</button>
+                            <button type="button" className="btn-secondary" disabled={loading || !parsedRows.length} onClick={handleApplySite}>
+                                Apply to ledger
+                            </button>
+                            <span className="fv-lead">Parsed rows: {parsedRows.length} · Deductions: {deductions.length}</span>
                         </div>
-                        {driveStatus && (
-                            <pre style={{ marginTop: 12, fontSize: '0.75rem', overflow: 'auto', maxHeight: 120 }}>{JSON.stringify(driveStatus, null, 2)}</pre>
-                        )}
-                    </div>
+                    )}
                     {parsedRows.length > 0 && (
-                        <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16, overflow: 'auto' }}>
-                            <h4>Parsed rows ({parsedRows.length})</h4>
-                            <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
-                                <thead><tr><th>Code</th><th>Name</th><th>Designation</th><th>Present</th><th>Absent</th></tr></thead>
+                        <div className="fv-table-wrap">
+                            <table className="fv-table">
+                                <thead><tr><th>Code</th><th>Name</th><th>Designation</th><th className="num">Present</th><th className="num">Absent</th></tr></thead>
                                 <tbody>
-                                    {parsedRows.slice(0, 50).map((r, i) => (
-                                        <tr key={i}><td>{r.empCode}</td><td>{r.name}</td><td>{r.designation}</td><td>{r.presentDays}</td><td>{r.absentDays}</td></tr>
+                                    {parsedRows.slice(0, 40).map((r, i) => (
+                                        <tr key={i}><td>{r.empCode}</td><td>{r.name}</td><td>{r.designation}</td><td className="num">{r.presentDays}</td><td className="num">{r.absentDays}</td></tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
                     )}
-                    <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }}>
-                        <h4>Deductions ({deductions.length})</h4>
-                        {deductions.length === 0 ? <p style={{ color: 'var(--text-muted)' }}>No deductions for this period.</p> : (
-                            <table style={{ width: '100%', fontSize: '0.8rem' }}>
-                                <thead><tr><th>Employee</th><th>Type</th><th>Days</th><th>Amount</th></tr></thead>
-                                <tbody>
-                                    {deductions.map(d => (
-                                        <tr key={d.id}><td>{d.employee_name || d.employee_id}</td><td>{d.type}</td><td>{d.days_absent}</td><td>{fmt(d.amount)}</td></tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )}
+                    <div className="fv-actions">
+                        <button type="button" className="btn-primary" disabled={!attDoneCount} onClick={() => setStep('payroll')}>
+                            Continue to Payroll
+                        </button>
                     </div>
                 </div>
             )}
 
-            {activeTab === 'payroll' && (
-                <div style={{ display: 'grid', gap: 16 }}>
-                    <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }}>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 0 }}>
-                            World B payroll for this contract. Site attendance (Apply to ledger) writes <code>monthly_attendance_overrides</code>;
-                            Compute uses those present days for wages. Invoice remains on the service-order path.
-                        </p>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-                            <button type="button" className="btn-primary" onClick={handleComputePayroll} disabled={loading || !contractId}>
-                                <Calculator size={16} /> Compute payroll run
-                            </button>
-                            <button type="button" className="btn-secondary" onClick={() => runAction(loadPayrollRun, 'Payroll run loaded')} disabled={loading || !contractId}>
-                                <RefreshCw size={16} /> Reload run
-                            </button>
-                            {filteredPayrollRows.length > 0 && (
-                                <button type="button" className="btn-secondary" onClick={exportPayrollCsv} disabled={loading}>
-                                    <Download size={16} /> Export CSV
-                                </button>
-                            )}
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                <ExternalLink size={14} /> Lock / invoice / disburse: sidebar → Payroll Run
-                            </span>
-                        </div>
+            {step === 'payroll' && (
+                <div className="fv-panel">
+                    <h3>3 · Payroll (absent-driven)</h3>
+                    <p className="fv-lead">
+                        World B compute for the whole contract. Wages use Conservancy Model A:
+                        <strong> paid factor = (30 − sheet absent) / 30</strong>. Present is shown from the sheet for audit; Absent must match attendance exactly.
+                    </p>
+                    <div className="fv-actions">
+                        <button type="button" className="btn-primary" disabled={loading || !contractId || !canWrite} onClick={handleComputePayroll}>
+                            <Calculator size={16} /> Compute entire payroll
+                        </button>
+                        <button type="button" className="btn-secondary" disabled={loading || !contractId} onClick={() => runAction(loadPayrollRun, 'Payroll reloaded')}>
+                            <RefreshCw size={16} /> Reload
+                        </button>
+                        <button type="button" className="btn-secondary" disabled={loading || !payrollRows.length}
+                            onClick={() => downloadBlob(api.downloadFixedValuePayrollExcel(contractId, month, year), 'payroll.xlsx')}>
+                            <Download size={16} /> Excel
+                        </button>
+                        <span className="fv-lead" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <ExternalLink size={14} /> Lock / disburse: sidebar → Payroll Run
+                        </span>
                     </div>
 
                     {payrollRun && (
-                        <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 12, marginBottom: 12 }}>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Run ID</div><strong>{payrollRun.id}</strong></div>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Status</div><strong>{payrollRun.status}</strong></div>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Period</div><strong>{payrollRun.period_month}/{payrollRun.period_year}</strong></div>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Rows (filtered)</div><strong>{filteredPayrollRows.length}</strong><span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}> / {payrollRows.length} contract</span></div>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Sum net</div><strong>PKR {fmt(payrollTotals.net)}</strong></div>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Sum wages</div><strong>PKR {fmt(payrollTotals.wages)}</strong></div>
-                            </div>
-                            {siteCode && siteCode !== ALL_SITES && (
-                                <p style={{ margin: '0 0 12px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                    Filtered to site <strong style={{ color: 'var(--text)' }}>{selectedOrder?.name || siteCode}</strong> ({siteCode}).
-                                    Choose “All sites” in the Site filter to see the full contract run.
-                                </p>
-                            )}
-                            {filteredPayrollRows.length === 0 ? (
-                                <p style={{ color: 'var(--text-muted)', margin: 0 }}>
-                                    {payrollRows.length === 0
-                                        ? 'No payroll rows yet — compute a run for this contract/period.'
-                                        : `No employees match site ${siteCode}. Try All sites or confirm employees.site is set (PSO seed uses site codes like SIHALA).`}
-                                </p>
-                            ) : (
-                                <div style={{ overflow: 'auto', maxHeight: '60vh' }}>
-                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                                        <thead>
-                                            <tr>
-                                                <th style={thStyle}>Staff code</th>
-                                                <th style={thStyle}>Name</th>
-                                                {(siteCode === ALL_SITES || !siteCode) && <th style={thStyle}>Site</th>}
-                                                <th style={thStyle}>Designation</th>
-                                                <th style={{ ...thStyle, textAlign: 'right' }}>Present</th>
-                                                <th style={{ ...thStyle, textAlign: 'right' }}>Absent</th>
-                                                <th style={{ ...thStyle, textAlign: 'right' }}>Basic</th>
-                                                <th style={{ ...thStyle, textAlign: 'right' }}>Wages</th>
-                                                <th style={{ ...thStyle, textAlign: 'right' }}>EOBI</th>
-                                                <th style={{ ...thStyle, textAlign: 'right' }}>Tax</th>
-                                                <th style={{ ...thStyle, textAlign: 'right' }}>Life ins.</th>
-                                                <th style={{ ...thStyle, textAlign: 'right' }}>Net</th>
-                                                <th style={thStyle}>Source</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {filteredPayrollRows.map(r => {
-                                                const c = r.computed || {};
-                                                return (
-                                                    <tr key={r.id || r.employee_id}>
-                                                        <td style={tdStyle}>{r.employee_id}</td>
-                                                        <td style={tdStyle}>{r.employee_name || '—'}</td>
-                                                        {(siteCode === ALL_SITES || !siteCode) && (
-                                                            <td style={tdStyle}>{r.site || r.location || '—'}</td>
-                                                        )}
-                                                        <td style={tdStyle}>{r.designation || '—'}</td>
-                                                        <td style={tdNum}>{r.paid_days ?? '—'}</td>
-                                                        <td style={tdNum}>{absentDays(r) ?? '—'}</td>
-                                                        <td style={tdNum}>{fmt(r.basic_salary)}</td>
-                                                        <td style={tdNum}>{fmt(c.salaryForDays)}</td>
-                                                        <td style={tdNum}>{fmt(c.eobiEmployee)}</td>
-                                                        <td style={tdNum}>{fmt(c.wht)}</td>
-                                                        <td style={tdNum}>{fmt(c.lifeInsurance)}</td>
-                                                        <td style={tdNum}>{fmt(c.netPay)}</td>
-                                                        <td style={tdStyle}>{r.source || '—'}</td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                        <tfoot>
-                                            <tr style={{ fontWeight: 600 }}>
-                                                <td style={tdStyle} colSpan={(siteCode === ALL_SITES || !siteCode) ? 7 : 6}>Totals ({filteredPayrollRows.length})</td>
-                                                <td style={tdNum}>{fmt(payrollTotals.wages)}</td>
-                                                <td style={tdNum}>{fmt(payrollTotals.eobi)}</td>
-                                                <td style={tdNum}>{fmt(payrollTotals.tax)}</td>
-                                                <td style={tdNum}>{fmt(payrollTotals.life)}</td>
-                                                <td style={tdNum}>{fmt(payrollTotals.net)}</td>
-                                                <td style={tdStyle} />
-                                            </tr>
-                                        </tfoot>
-                                    </table>
-                                </div>
-                            )}
+                        <div className="fv-kpi-grid">
+                            <div className="fv-kpi"><div className="label">Run</div><div className="value">{payrollRun.id}</div></div>
+                            <div className="fv-kpi"><div className="label">Status</div><div className="value">{payrollRun.status}</div></div>
+                            <div className="fv-kpi"><div className="label">Headcount</div><div className="value">{payrollTotals.headcount}</div></div>
+                            <div className="fv-kpi"><div className="label">Wages</div><div className="value">{fmt(payrollTotals.wages)}</div></div>
+                            <div className="fv-kpi"><div className="label">EOBI EE</div><div className="value">{fmt(payrollTotals.eobi)}</div></div>
+                            <div className="fv-kpi"><div className="label">SESSI ER</div><div className="value">{fmt(payrollTotals.sessi)}</div></div>
+                            <div className="fv-kpi"><div className="label">Tax</div><div className="value">{fmt(payrollTotals.tax)}</div></div>
+                            <div className="fv-kpi"><div className="label">Net</div><div className="value">{fmt(payrollTotals.net)}</div></div>
                         </div>
                     )}
 
-                    {!payrollRun && (
-                        <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16, color: 'var(--text-muted)' }}>
-                            No World B run for this contract/period yet. Upload &amp; apply site attendance, then Compute payroll run.
-                        </div>
-                    )}
-
-                    {payrollWarnings.length > 0 && (
-                        <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16, color: 'var(--warning, #fbbf24)' }}>
-                            <strong>Compute warnings</strong> ({payrollWarnings.length})
-                            <ul style={{ margin: '8px 0 0', paddingLeft: 18, maxHeight: 160, overflow: 'auto', fontSize: '0.8rem' }}>
-                                {payrollWarnings.slice(0, 40).map((w, i) => (
-                                    <li key={i}>{w.message || w.code}</li>
+                    <h4 style={{ margin: 0 }}>By site</h4>
+                    <div className="fv-table-wrap">
+                        <table className="fv-table">
+                            <thead>
+                                <tr>
+                                    <th>Site</th><th className="num">HC</th><th className="num">Wages</th>
+                                    <th className="num">EOBI</th><th className="num">SESSI</th>
+                                    <th className="num">Tax</th><th className="num">Life</th><th className="num">Net</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {payrollBySite.map(s => (
+                                    <tr key={s.site} style={siteCode === s.site ? { background: 'rgba(91,141,239,0.08)' } : undefined}>
+                                        <td>
+                                            <button type="button" className="btn-secondary" style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                                                onClick={() => setSiteCode(s.site)}>{s.site}</button>
+                                        </td>
+                                        <td className="num">{s.headcount}</td>
+                                        <td className="num">{fmt(s.wages)}</td>
+                                        <td className="num">{fmt(s.eobi)}</td>
+                                        <td className="num">{fmt(s.sessi)}</td>
+                                        <td className="num">{fmt(s.tax)}</td>
+                                        <td className="num">{fmt(s.life)}</td>
+                                        <td className="num">{fmt(s.net)}</td>
+                                    </tr>
                                 ))}
-                            </ul>
-                        </div>
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td>Contract total</td>
+                                    <td className="num">{payrollTotals.headcount}</td>
+                                    <td className="num">{fmt(payrollTotals.wages)}</td>
+                                    <td className="num">{fmt(payrollTotals.eobi)}</td>
+                                    <td className="num">{fmt(payrollTotals.sessi)}</td>
+                                    <td className="num">{fmt(payrollTotals.tax)}</td>
+                                    <td className="num">{fmt(payrollTotals.life)}</td>
+                                    <td className="num">{fmt(payrollTotals.net)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <h4 style={{ margin: 0 }}>
+                        Detail {siteCode !== ALL_SITES ? `· ${siteCode}` : '· all sites'} ({filteredPayrollRows.length})
+                    </h4>
+                    <div className="fv-table-wrap">
+                        <table className="fv-table">
+                            <thead>
+                                <tr>
+                                    <th>Code</th><th>Name</th>
+                                    {(siteCode === ALL_SITES) && <th>Site</th>}
+                                    <th>Designation</th>
+                                    <th className="num">Present</th><th className="num">Absent</th>
+                                    <th className="num">Basic</th><th className="num">Wages</th>
+                                    <th className="num">EOBI</th><th className="num">Tax</th><th className="num">Net</th>
+                                    <th>Source</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredPayrollRows.map(r => {
+                                    const c = r.computed || {};
+                                    return (
+                                        <tr key={r.id || r.employee_id}>
+                                            <td>{r.employee_id}</td>
+                                            <td>{r.employee_name || '—'}</td>
+                                            {siteCode === ALL_SITES && <td>{r.site || '—'}</td>}
+                                            <td>{r.designation || '—'}</td>
+                                            <td className="num">{presentDays(r) ?? '—'}</td>
+                                            <td className="num">{absentDays(r) ?? '—'}</td>
+                                            <td className="num">{fmt(r.basic_salary)}</td>
+                                            <td className="num">{fmt(c.salaryForDays)}</td>
+                                            <td className="num">{fmt(c.eobiEmployee)}</td>
+                                            <td className="num">{fmt(c.wht)}</td>
+                                            <td className="num">{fmt(c.netPay)}</td>
+                                            <td>{r.source || '—'}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                    {payrollWarnings.length > 0 && (
+                        <p className="fv-lead">{payrollWarnings.length} compute warnings (see server logs / full run).</p>
                     )}
                 </div>
             )}
 
-            {activeTab === 'invoice' && selectedOrder && (
-                <div style={{ display: 'grid', gap: 16 }}>
-                    <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                            <button type="button" className="btn-secondary" onClick={handleComputeInvoice} disabled={loading}>Preview</button>
-                            <button type="button" className="btn-primary" onClick={handlePersistInvoice} disabled={loading}>Persist to AR</button>
+            {step === 'invoice' && (
+                <div className="fv-panel">
+                    <h3>4 · Invoice</h3>
+                    <p className="fv-lead">
+                        Conservancy SO methodology: gross line rates − absence shortage (resourceRate/30 × days absent)
+                        + provincial ST. Income WHT &amp; 20% ST withholding are receivable-only — stamped grand is not reduced.
+                        Rates aligned to Wafi portal (Punjab 16%, Sindh/KPK/Balochistan 15%).
+                    </p>
+                    <div className="fv-actions">
+                        <button type="button" className="btn-primary" disabled={loading || !contractId} onClick={handleComputeInvoicesAll}>
+                            <FileText size={16} /> Preview all-site invoices
+                        </button>
+                        <button type="button" className="btn-secondary" disabled={loading || !canWrite || !invoicePack}
+                            onClick={handlePersistInvoicesAll}>
+                            Stamp all sites
+                        </button>
+                        <button type="button" className="btn-secondary" disabled={loading || !contractId}
+                            onClick={() => downloadBlob(api.downloadFixedValueInvoicesExcel(contractId, month, year), 'invoices.xlsx')}>
+                            <Download size={16} /> Invoice Excel
+                        </button>
+                        {selectedOrder && siteCode !== ALL_SITES && (
+                            <button type="button" className="btn-secondary" disabled={loading} onClick={() => runAction(async () => {
+                                const preview = await api.computeFixedValueInvoice(selectedOrder.id, month, year);
+                                setInvoicePack({
+                                    sites: [preview],
+                                    totals: {
+                                        sites: 1,
+                                        gross: preview.gross,
+                                        shortage: preview.totalDeductions,
+                                        salesTax: preview.provincialSt,
+                                        grandTotal: preview.grandTotal,
+                                        netReceivable: preview.netReceivable,
+                                    },
+                                });
+                            }, 'Site invoice previewed')}>
+                                Preview this site only
+                            </button>
+                        )}
+                    </div>
+
+                    {invoicePack?.totals && (
+                        <div className="fv-kpi-grid">
+                            <div className="fv-kpi"><div className="label">Gross</div><div className="value">{fmt(invoicePack.totals.gross)}</div></div>
+                            <div className="fv-kpi"><div className="label">Shortage</div><div className="value">{fmt(invoicePack.totals.shortage)}</div></div>
+                            <div className="fv-kpi"><div className="label">Sales tax</div><div className="value">{fmt(invoicePack.totals.salesTax)}</div></div>
+                            <div className="fv-kpi"><div className="label">Stamped grand</div><div className="value">{fmt(invoicePack.totals.grandTotal)}</div></div>
+                            <div className="fv-kpi"><div className="label">Net receivable</div><div className="value">{fmt(invoicePack.totals.netReceivable)}</div></div>
                         </div>
-                        {invoicePreview && (
-                            <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Net taxable</div><strong>{fmt(invoicePreview.netTaxable)}</strong></div>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Provincial ST</div><strong>{fmt(invoicePreview.provincialSt)}</strong></div>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Stamped grand</div><strong>{fmt(invoicePreview.grandTotal)}</strong></div>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Income WHT (receivable)</div><strong>{fmt(invoicePreview.incomeWht)}</strong></div>
-                                <div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Net receivable</div><strong>{fmt(invoicePreview.netReceivable)}</strong></div>
-                            </div>
-                        )}
-                        {persistedInvoice && (
-                            <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                {PRINT_FORMATS.map(f => (
-                                    <button key={f.key} type="button" className="btn-secondary" onClick={() => api.openFixedValueInvoicePrint(persistedInvoice.id, f.key)}>
-                                        <FileText size={14} /> {f.label}
-                                    </button>
+                    )}
+
+                    {invoicePack?.sites?.length > 0 && (
+                        <div className="fv-table-wrap">
+                            <table className="fv-table">
+                                <thead>
+                                    <tr>
+                                        <th>Site</th><th>Province</th>
+                                        <th className="num">Gross</th><th className="num">Shortage</th>
+                                        <th className="num">ST</th><th className="num">Rate</th>
+                                        <th className="num">Grand</th><th className="num">Receivable</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {invoicePack.sites.map(s => (
+                                        <tr key={s.siteCode || s.serviceOrderId}>
+                                            <td>{s.siteCode}</td>
+                                            <td>{s.province || '—'}</td>
+                                            <td className="num">{fmt(s.gross)}</td>
+                                            <td className="num">{fmt(s.totalDeductions)}</td>
+                                            <td className="num">{fmt(s.provincialSt)}</td>
+                                            <td className="num">{pct(s.taxRate)}</td>
+                                            <td className="num">{fmt(s.grandTotal)}</td>
+                                            <td className="num">{fmt(s.netReceivable)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    <h4 style={{ margin: 0 }}>Registry <Database size={14} style={{ verticalAlign: -2 }} /></h4>
+                    <div className="fv-table-wrap">
+                        <table className="fv-table">
+                            <thead><tr><th>Invoice #</th><th>Site</th><th className="num">Grand</th><th>Print</th></tr></thead>
+                            <tbody>
+                                {registry.length === 0 ? (
+                                    <tr><td colSpan={4} style={{ color: 'var(--text-muted)' }}>No stamped invoices for this period yet.</td></tr>
+                                ) : registry.map(inv => (
+                                    <tr key={inv.id}>
+                                        <td>{inv.invoice_number}</td>
+                                        <td>{inv.notes?.site_code || inv.site_code || '—'}</td>
+                                        <td className="num">{fmt(inv.grand_total)}</td>
+                                        <td>
+                                            {PRINT_FORMATS.map(f => (
+                                                <button key={f.key} type="button" className="btn-secondary" style={{ marginRight: 4, padding: '2px 6px', fontSize: '0.7rem' }}
+                                                    onClick={() => api.openFixedValueInvoicePrint(inv.id, f.key)}>{f.label}</button>
+                                            ))}
+                                        </td>
+                                    </tr>
                                 ))}
-                            </div>
-                        )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             )}
 
-            {activeTab === 'registry' && (
-                <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }}>
-                    <button type="button" className="btn-secondary" onClick={loadRegistry} disabled={loading}><RefreshCw size={16} /> Load registry</button>
-                    <table style={{ width: '100%', marginTop: 12, fontSize: '0.85rem', borderCollapse: 'collapse' }}>
-                        <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th>Invoice #</th><th>Period</th><th>Subtotal</th><th>ST</th><th>Grand</th><th>Status</th></tr></thead>
-                        <tbody>
-                            {registry.map(r => (
-                                <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                    <td style={{ padding: 8 }}>{r.invoice_number}</td>
-                                    <td style={{ padding: 8 }}>{r.period_month}/{r.period_year}</td>
-                                    <td style={{ padding: 8, textAlign: 'right' }}>{fmt(r.subtotal)}</td>
-                                    <td style={{ padding: 8, textAlign: 'right' }}>{fmt(r.sales_tax)}</td>
-                                    <td style={{ padding: 8, textAlign: 'right' }}>{fmt(r.grand_total)}</td>
-                                    <td style={{ padding: 8 }}>{r.status}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+            {step === 'compliance' && (
+                <div className="fv-panel">
+                    <h3>5 · Statutory / Compliance</h3>
+                    <p className="fv-lead">
+                        Month-level EOBI &amp; SESSI/PESSI totals from the computed payroll run — ready for challan packs.
+                        CPR freeze &amp; provincial sales-tax packs are <strong>Next</strong> on the roadmap.
+                    </p>
+                    <div className="fv-kpi-grid">
+                        <div className="fv-kpi"><div className="label">EOBI (employee)</div><div className="value">{fmt(payrollTotals.eobi)}</div></div>
+                        <div className="fv-kpi"><div className="label">SESSI/PESSI (employer)</div><div className="value">{fmt(payrollTotals.sessi)}</div></div>
+                        <div className="fv-kpi"><div className="label">Income tax (payroll)</div><div className="value">{fmt(payrollTotals.tax)}</div></div>
+                        <div className="fv-kpi"><div className="label">Life insurance</div><div className="value">{fmt(payrollTotals.life)}</div></div>
+                        <div className="fv-kpi"><div className="label">Headcount</div><div className="value">{payrollTotals.headcount}</div></div>
+                    </div>
+                    <div className="fv-later">
+                        <strong>Later:</strong> EOBI/SESSI challan Excel packs · BRA/SRB/KPRA/PRA ST annexures · CPR reference freeze before invoice stamp.
+                    </div>
+                    <div className="fv-actions">
+                        <button type="button" className="btn-secondary" disabled={!payrollRows.length}
+                            onClick={() => downloadBlob(api.downloadFixedValuePayrollExcel(contractId, month, year), 'payroll.xlsx')}>
+                            Export payroll Excel (includes EOBI/SESSI columns)
+                        </button>
+                    </div>
                 </div>
             )}
 
-            {activeTab === 'compliance' && (
-                <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }}>
-                    <button type="button" className="btn-secondary" onClick={handleLoadCompliance} disabled={loading}><Shield size={16} /> Load compliance ledger</button>
-                    {complianceRows.length > 0 && (
-                        <pre style={{ marginTop: 12, fontSize: '0.75rem', overflow: 'auto', maxHeight: 300 }}>{JSON.stringify(complianceRows.slice(0, 20), null, 2)}</pre>
-                    )}
-                </div>
-            )}
-
-            {activeTab === 'focals' && selectedOrder && (
-                <div style={{ background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }}>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Focal email enabled for Morgah, Chakpirana, Sihala sites after seed.</p>
-                    <button type="button" className="btn-primary" onClick={handleFocalEmail} disabled={loading}><Mail size={16} /> Send focal email</button>
+            {step === 'export' && (
+                <div className="fv-panel">
+                    <h3>6 · Export &amp; Push</h3>
+                    <p className="fv-lead">
+                        Working today: pretty Excel for payroll + invoice register, bank-file stub sheet, focal email per site.
+                        One-click Xero push is on the roadmap.
+                    </p>
+                    <div className="fv-actions">
+                        <button type="button" className="btn-primary" disabled={loading || !contractId}
+                            onClick={() => downloadBlob(api.downloadFixedValuePayrollExcel(contractId, month, year), 'FV payroll.xlsx')}>
+                            <Download size={16} /> Payroll Excel
+                        </button>
+                        <button type="button" className="btn-primary" disabled={loading || !contractId}
+                            onClick={() => downloadBlob(api.downloadFixedValueInvoicesExcel(contractId, month, year), 'FV invoices.xlsx')}>
+                            <Download size={16} /> Invoice register Excel
+                        </button>
+                        {selectedOrder && siteCode !== ALL_SITES && (
+                            <button type="button" className="btn-secondary" disabled={loading || !canWrite}
+                                onClick={() => runAction(() => api.sendFixedValueFocalEmail(selectedOrder.id, month, year), 'Focal email queued/sent')}>
+                                <Mail size={16} /> Email focal (this site)
+                            </button>
+                        )}
+                    </div>
+                    <div className="fv-later">
+                        <strong>Bank file:</strong> included as sheet “Bank file (format TBD)” inside the payroll workbook
+                        (Employee ID, Name, Bank, Account, IBAN, Net Pay, Payment Ref).
+                    </div>
+                    <div className="fv-later">
+                        <strong>One-click later:</strong> Fetch Attendance → Build Payroll → Bank File → Invoices → Xero →
+                        EOBI/SESSI challans → Sales tax by authority → email focals.
+                    </div>
                 </div>
             )}
         </div>

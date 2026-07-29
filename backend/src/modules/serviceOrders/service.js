@@ -10,6 +10,8 @@ const attendanceParse = require('./attendanceParse');
 const driveAttendance = require('./driveAttendance');
 const attendanceIngest = require('./attendanceIngest');
 const sitesMeta = require('./sitesMeta');
+const bulkOps = require('./bulkOps');
+const exportsXlsx = require('./exports');
 
 function monthYearLabel(month, year) {
     const m = Number(month);
@@ -58,6 +60,8 @@ module.exports = {
     ...driveAttendance,
     ...attendanceIngest,
     ...sitesMeta,
+    ...bulkOps,
+    ...exportsXlsx,
     seedPsoNorthZone,
     renderInvoiceHtml,
     composeFocalEmail,

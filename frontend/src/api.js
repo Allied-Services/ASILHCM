@@ -647,12 +647,57 @@ export const api = {
     pullFixedValueDriveAttendance: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/drive`, { method: 'POST', body: JSON.stringify({ month, year }) }),
     getFixedValueDriveStatus: (id) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/drive/status`),
     applyFixedValueAttendance: (id, month, year, rows) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/apply`, { method: 'POST', body: JSON.stringify({ month, year, rows }) }),
+    applyFixedValueAttendanceAll: (contractId, month, year, siteCodes) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/attendance/apply-all`,
+        { method: 'POST', body: JSON.stringify({ month, year, siteCodes }) }
+    ),
+    getFixedValueAttendanceStatus: (contractId, month, year) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/attendance/status?month=${month}&year=${year}`
+    ),
     computeFixedValueInvoice: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/invoice/compute`, { method: 'POST', body: JSON.stringify({ month, year }) }),
     persistFixedValueInvoice: (id, month, year, poNumber) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/invoice/persist`, { method: 'POST', body: JSON.stringify({ month, year, poNumber }) }),
+    computeFixedValueInvoicesAll: (contractId, month, year, siteCodes) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/invoices/compute-all`,
+        { method: 'POST', body: JSON.stringify({ month, year, siteCodes }) }
+    ),
+    persistFixedValueInvoicesAll: (contractId, month, year, siteCodes) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/invoices/persist-all`,
+        { method: 'POST', body: JSON.stringify({ month, year, siteCodes }) }
+    ),
     getFixedValueRegistry: (contractId, month, year, siteCode) => {
         const q = new URLSearchParams({ contractId, month: String(month), year: String(year) });
         if (siteCode) q.set('siteCode', siteCode);
         return apiFetch(`/api/fixed-value/registry?${q}`);
+    },
+    downloadFixedValuePayrollExcel: async (contractId, month, year) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const res = await fetch(
+            `${API}/api/fixed-value/contracts/${encodeURIComponent(contractId)}/exports/payroll.xlsx?month=${month}&year=${year}`,
+            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        );
+        if (!res.ok) throw new Error(`Payroll Excel download failed (${res.status})`);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `FV_Payroll_${contractId}_${year}-${String(month).padStart(2, '0')}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        return { ok: true };
+    },
+    downloadFixedValueInvoicesExcel: async (contractId, month, year) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const res = await fetch(
+            `${API}/api/fixed-value/contracts/${encodeURIComponent(contractId)}/exports/invoices.xlsx?month=${month}&year=${year}`,
+            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        );
+        if (!res.ok) throw new Error(`Invoice Excel download failed (${res.status})`);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `FV_Invoices_${contractId}_${year}-${String(month).padStart(2, '0')}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        return { ok: true };
     },
     openFixedValueInvoicePrint: async (invoiceId, format = 'invoice') => {
         const token = localStorage.getItem('asil_hcm_token');

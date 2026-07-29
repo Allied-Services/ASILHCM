@@ -2,7 +2,7 @@
 
 const STATUTORY_DEFAULTS = [
     { match: ['punjab', 'lahore', 'faisalabad', 'rawalpindi', 'multan', 'gujranwala'], rate: 0.16 },
-    { match: ['sindh', 'karachi', 'hyderabad', 'sukkur'], rate: 0.13 },
+    { match: ['sindh', 'karachi', 'hyderabad', 'sukkur'], rate: 0.15 },
     { match: ['kpk', 'khyber', 'peshawar', 'abbottabad', 'kohat'], rate: 0.15 },
     { match: ['balochistan', 'quetta'], rate: 0.15 },
     { match: ['ict', 'federal', 'islamabad'], rate: 0.13 },

@@ -311,19 +311,53 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
     let totalBillable = 0;
     let hasRateCardBilling = false;
 
-    for (const emp of employees) {
-        const { rows: att } = await pool.query(
-            `SELECT date::text AS date, status, hours, ot_hours, ot_rate FROM attendance_records
-             WHERE employee_id = $1 AND date >= $2::date AND date <= $3::date`,
-            [emp.id, startDate, endStr]
+    // Batch-load inputs (avoids N+1 that hung ~500-head FV recomputes)
+    const empIds = employees.map((e) => e.id);
+    const attByEmp = new Map();
+    const ovByEmp = new Map();
+    const dedByEmp = new Map();
+    const claimsByEmp = new Map();
+    if (empIds.length) {
+        const { rows: allAtt } = await pool.query(
+            `SELECT employee_id, date::text AS date, status, hours, ot_hours, ot_rate
+             FROM attendance_records
+             WHERE employee_id = ANY($1::text[]) AND date >= $2::date AND date <= $3::date`,
+            [empIds, startDate, endStr]
         );
-
-        const { rows: overrideRows } = await pool.query(
+        for (const r of allAtt) {
+            if (!attByEmp.has(r.employee_id)) attByEmp.set(r.employee_id, []);
+            attByEmp.get(r.employee_id).push(r);
+        }
+        const { rows: allOv } = await pool.query(
             `SELECT * FROM monthly_attendance_overrides
-             WHERE employee_id = $1 AND period_month = $2 AND period_year = $3`,
-            [emp.id, month, year]
+             WHERE employee_id = ANY($1::text[]) AND period_month = $2 AND period_year = $3`,
+            [empIds, month, year]
         ).catch(() => ({ rows: [] }));
-        const ov = overrideRows[0];
+        for (const r of allOv) ovByEmp.set(r.employee_id, r);
+        const { rows: allDed } = await pool.query(
+            `SELECT DISTINCT ON (employee_id) employee_id, days_absent
+             FROM so_deductions
+             WHERE employee_id = ANY($1::text[]) AND period_month = $2 AND period_year = $3
+               AND type = 'absence' AND source = 'attendance_ledger'
+             ORDER BY employee_id, id DESC`,
+            [empIds, month, year]
+        ).catch(() => ({ rows: [] }));
+        for (const r of allDed) dedByEmp.set(r.employee_id, Number(r.days_absent) || 0);
+        const { rows: allClaims } = await pool.query(
+            `SELECT * FROM employee_claims
+             WHERE employee_id = ANY($1::text[]) AND status = 'focal_approved'
+               AND period_month = $2 AND period_year = $3`,
+            [empIds, month, year]
+        );
+        for (const c of allClaims) {
+            if (!claimsByEmp.has(c.employee_id)) claimsByEmp.set(c.employee_id, []);
+            claimsByEmp.get(c.employee_id).push(c);
+        }
+    }
+
+    for (const emp of employees) {
+        const att = attByEmp.get(emp.id) || [];
+        const ov = ovByEmp.get(emp.id);
         let presentDaysForModelA = null;
         let absentDaysForModelA = null;
         let overrideWorkingDays = null;
@@ -334,25 +368,20 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             if (ov.absent_days != null) {
                 absentDaysForModelA = Number(ov.absent_days);
             } else if (ov.source === 'fv_conservancy_attendance') {
-                // Pre-absent_days column: FV apply wrote so_deductions only when absent > 0
-                const { rows: dedRows } = await pool.query(
-                    `SELECT days_absent FROM so_deductions
-                     WHERE employee_id = $1 AND period_month = $2 AND period_year = $3
-                       AND type = 'absence' AND source = 'attendance_ledger'
-                     ORDER BY id DESC LIMIT 1`,
-                    [emp.id, month, year]
-                ).catch(() => ({ rows: [] }));
-                absentDaysForModelA = dedRows[0] ? Number(dedRows[0].days_absent) || 0 : 0;
+                // Conservancy: wages deduct sheet absences; missing row ⇒ 0 absent
+                absentDaysForModelA = dedByEmp.has(emp.id) ? dedByEmp.get(emp.id) : 0;
             }
             if (ov.working_days != null) overrideWorkingDays = Number(ov.working_days);
         }
 
         if (!att.length) {
-            if (presentDaysForModelA != null) {
+            if (presentDaysForModelA != null || absentDaysForModelA != null) {
                 warnings.push({
                     employeeId: emp.id,
                     code: 'NO_DAILY_ATTENDANCE',
-                    message: `${emp.name}: no daily attendance — using monthly override (${presentDaysForModelA} present days)`,
+                    message: `${emp.name}: no daily attendance — using monthly override`
+                        + (absentDaysForModelA != null ? ` (${absentDaysForModelA} absent days)` : '')
+                        + (presentDaysForModelA != null ? ` / ${presentDaysForModelA} present` : ''),
                 });
             } else {
                 warnings.push({
@@ -366,7 +395,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         let paidDays = derivePaidDays(att, workingDays, policy.attendance_input_mode);
         let { ot1, ot2, ot3 } = deriveOtHours(att, holidayDateSet);
 
-        // 15-column monthly hub overrides (Model A present days + OT) take precedence
+        // Monthly hub / FV overrides take precedence
         if (ov) {
             if (presentDaysForModelA != null) {
                 paidDays = presentDaysForModelA;
@@ -376,12 +405,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             if (ov.ot3_hours != null) ot3 = Number(ov.ot3_hours) || 0;
         }
 
-        const { rows: claimRows } = await pool.query(
-            `SELECT * FROM employee_claims
-             WHERE employee_id = $1 AND status = 'focal_approved'
-               AND period_month = $2 AND period_year = $3`,
-            [emp.id, month, year]
-        );
+        const claimRows = claimsByEmp.get(emp.id) || [];
         const claimAgg = aggregateClaimInputs(claimRows);
         ot1 += claimAgg.ot1;
         ot2 += claimAgg.ot2;
@@ -402,6 +426,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             if (ov.eobi_employee != null) inputs.eobiEmployee = Number(ov.eobi_employee);
             if (ov.salary_for_days != null) inputs.salaryForDays = Number(ov.salary_for_days);
             if (ov.overtime_amount != null) inputs.overtimeAmount = Number(ov.overtime_amount);
+            if (presentDaysForModelA != null) inputs.present_days = presentDaysForModelA;
             if (absentDaysForModelA != null) inputs.absent_days = absentDaysForModelA;
         }
 
@@ -453,10 +478,18 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             bonusDisbursement,
             ...inputs,
         };
-        // Model A (30-day calendar basis) — override present/expected/absent when seeded from Excel
-        computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
-        computeInput.expectedDays = overrideWorkingDays ?? workingDays;
-        if (absentDaysForModelA != null) computeInput.absentDays = absentDaysForModelA;
+        // Model A (30-day calendar basis). Conservancy: wages = base × ((30 − absent) / 30)
+        // using explicit sheet absent — never invent absent from calendar WD − present.
+        if (absentDaysForModelA != null) {
+            computeInput.absentDays = absentDaysForModelA;
+            computeInput.expectedDays = 30;
+            computeInput.presentDays = presentDaysForModelA != null
+                ? presentDaysForModelA
+                : Math.max(0, 30 - absentDaysForModelA);
+        } else {
+            computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
+            computeInput.expectedDays = overrideWorkingDays ?? workingDays;
+        }
         computeInput.modelA = true;
         let computed = computePrSheetRow(computeInput, policy);
 

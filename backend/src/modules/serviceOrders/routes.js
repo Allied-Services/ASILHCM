@@ -22,6 +22,13 @@ const {
     composeFocalEmail,
     sendFocalEmail,
     renderInvoiceHtml,
+    applyAttendanceAllSites,
+    computeInvoicesAllSites,
+    persistInvoicesAllSites,
+    attendanceStatusBySite,
+    buildPayrollWorkbook,
+    buildInvoiceWorkbook,
+    workbookToBuffer,
 } = require('./service');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -242,6 +249,114 @@ function registerServiceOrderRoutes(app, deps) {
             res.json(result);
         } catch (err) {
             handleRouteError(res, 'fixed-value.invoice.persist', err);
+        }
+    });
+
+    app.post('/api/fixed-value/contracts/:contractId/attendance/apply-all', requireAuth, writeRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            if (!month || !year) return res.status(400).json({ error: 'month and year required' });
+            const result = await applyAttendanceAllSites(pool, {
+                contractId: req.params.contractId,
+                month,
+                year,
+                actor: req.user?.email,
+                siteCodes: req.body.siteCodes,
+            });
+            if (logAudit) logAudit(req, 'ATTENDANCE_APPLY_ALL', 'fixed_value_contract', req.params.contractId);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.attendance.applyAll', err);
+        }
+    });
+
+    app.get('/api/fixed-value/contracts/:contractId/attendance/status', requireAuth, readRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.query.month, 10);
+            const year = parseInt(req.query.year, 10);
+            const rows = await attendanceStatusBySite(pool, {
+                contractId: req.params.contractId,
+                month,
+                year,
+            });
+            res.json(rows);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.attendance.status', err);
+        }
+    });
+
+    app.post('/api/fixed-value/contracts/:contractId/invoices/compute-all', requireAuth, readRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            const result = await computeInvoicesAllSites(pool, {
+                contractId: req.params.contractId,
+                month,
+                year,
+                siteCodes: req.body.siteCodes,
+            });
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.invoice.computeAll', err);
+        }
+    });
+
+    app.post('/api/fixed-value/contracts/:contractId/invoices/persist-all', requireAuth, writeRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            const result = await persistInvoicesAllSites(pool, {
+                contractId: req.params.contractId,
+                month,
+                year,
+                generatedBy: req.user?.email,
+                siteCodes: req.body.siteCodes,
+            });
+            if (logAudit) logAudit(req, 'INVOICE_ALL', 'fixed_value_contract', req.params.contractId);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.invoice.persistAll', err);
+        }
+    });
+
+    app.get('/api/fixed-value/contracts/:contractId/exports/payroll.xlsx', requireAuth, readRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.query.month, 10);
+            const year = parseInt(req.query.year, 10);
+            const wb = await buildPayrollWorkbook(pool, {
+                contractId: req.params.contractId,
+                month,
+                year,
+            });
+            const buf = await workbookToBuffer(wb);
+            const filename = `FV_Payroll_${req.params.contractId}_${year}-${String(month).padStart(2, '0')}.xlsx`;
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.send(Buffer.from(buf));
+        } catch (err) {
+            console.error('[GET /api/fixed-value/.../exports/payroll.xlsx]', err);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    app.get('/api/fixed-value/contracts/:contractId/exports/invoices.xlsx', requireAuth, readRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.query.month, 10);
+            const year = parseInt(req.query.year, 10);
+            const wb = await buildInvoiceWorkbook(pool, {
+                contractId: req.params.contractId,
+                month,
+                year,
+            });
+            const buf = await workbookToBuffer(wb);
+            const filename = `FV_Invoices_${req.params.contractId}_${year}-${String(month).padStart(2, '0')}.xlsx`;
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.send(Buffer.from(buf));
+        } catch (err) {
+            console.error('[GET /api/fixed-value/.../exports/invoices.xlsx]', err);
+            res.status(500).json({ error: 'Internal server error' });
         }
     });
 
