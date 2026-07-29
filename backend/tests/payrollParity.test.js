@@ -9,7 +9,7 @@ const {
     calculateSESSI,
     calculateMonthlyIncomeTax,
 } = require('../taxEngine');
-const { computePrSheetRow } = require('../src/payroll/prSheetEngine');
+const { computePrSheetRow, computeBonusDisbursement } = require('../src/payroll/prSheetEngine');
 const {
     computeWorkingDays,
     derivePaidDays,
@@ -340,6 +340,67 @@ describe('Pillar 7 — Pakistan tax deductions', () => {
             expense: 3000,
         }, POLICY);
         expect(row.wht).toBe(calculateMonthlyIncomeTax(row.gross, 2000, 3000));
+    });
+
+    test('bonus disbursed in July when contract bonus_disbursement_month = 7', () => {
+        const bonus = computeBonusDisbursement({
+            salary: 48000,
+            doj: '2020-01-01',
+            month: 7,
+            year: 2026,
+            bonusMonths: 1,
+            bonusMinMonths: 0,
+            disbursementMonth: 7,
+        });
+        expect(bonus).toBe(48000);
+
+        const juneBonus = computeBonusDisbursement({
+            salary: 48000,
+            doj: '2020-01-01',
+            month: 6,
+            year: 2026,
+            bonusMonths: 1,
+            bonusMinMonths: 0,
+            disbursementMonth: 7,
+        });
+        expect(juneBonus).toBe(0);
+    });
+
+    test('bonus pro-rata for mid-year joiner when bonus_min_months = 0', () => {
+        const bonus = computeBonusDisbursement({
+            salary: 48000,
+            doj: '2026-04-01',
+            month: 7,
+            year: 2026,
+            bonusMonths: 1,
+            bonusMinMonths: 0,
+            disbursementMonth: 7,
+        });
+        // Apr–Jul cycle end (Jul 28 anchor) ≈ 3 months served → 48000 * 3/12
+        expect(bonus).toBe(12000);
+    });
+
+    test('bonus disbursement increases net pay but not TPC double-count', () => {
+        const base = computePrSheetRow({
+            newSalary: 48000,
+            paidDays: 30,
+            workingDays: 30,
+            lifeInsurance: 150,
+            contractBonusMonths: 1,
+            bonusDisbursement: 0,
+        }, POLICY);
+        const withBonus = computePrSheetRow({
+            newSalary: 48000,
+            paidDays: 30,
+            workingDays: 30,
+            lifeInsurance: 150,
+            contractBonusMonths: 1,
+            bonusDisbursement: 48000,
+        }, POLICY);
+        expect(withBonus.bonusDisbursed).toBe(48000);
+        expect(withBonus.gross).toBe(base.gross + 48000);
+        expect(withBonus.netPay).toBeGreaterThan(base.netPay);
+        expect(withBonus.totalPayrollCost).toBe(base.totalPayrollCost);
     });
 });
 

@@ -1,6 +1,6 @@
 'use strict';
 
-const { computePrSheetRow, computeMedicalCoverage } = require('../../payroll/prSheetEngine');
+const { computePrSheetRow, computeMedicalCoverage, computeBonusDisbursement } = require('../../payroll/prSheetEngine');
 const { getPolicy } = require('../constraints/service');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { provinceSalesTaxRate } = require('../../core/regionTax');
@@ -417,6 +417,16 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         const effectiveSalary = (ov && ov.salary_override != null && Number(ov.salary_override) > 0)
             ? Number(ov.salary_override)
             : Number(emp.salary || 0);
+        const bonusDisbursement = computeBonusDisbursement({
+            salary: effectiveSalary,
+            doj: emp.doj,
+            month,
+            year,
+            bonusMonths: contractCosts.bonus_months,
+            bonusMinMonths: contractCosts.bonus_min_months,
+            disbursementMonth: contractCosts.bonus_disbursement_month,
+            manualBonusAmount: ov?.bonus_amount,
+        });
         const computeInput = {
             newSalary: effectiveSalary,
             paidDays,
@@ -427,6 +437,8 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             salesTaxRate,
             lifeInsurance,
             medicalCoverage: computeMedicalCoverage(emp, contractCosts),
+            contractBonusMonths: contractCosts.bonus_months,
+            bonusDisbursement,
             ...inputs,
         };
         // Model A (30-day calendar basis) — override present/expected when seeded from Excel
@@ -548,12 +560,14 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
     }
 
     const { rows: rowRows } = await pool.query(
-        `SELECT prr.*, e.salary, e.designation FROM payroll_run_rows prr JOIN employees e ON e.id = prr.employee_id WHERE prr.id = $1 AND prr.run_id = $2`,
+        `SELECT prr.*, e.salary, e.designation, e.doj FROM payroll_run_rows prr JOIN employees e ON e.id = prr.employee_id WHERE prr.id = $1 AND prr.run_id = $2`,
         [rowId, runId]
     );
     if (!rowRows.length) throw new Error('Row not found');
     const row = rowRows[0];
     const policy = await getPolicy(pool, runRows[0].contract_id);
+    const { rows: contractRows } = await pool.query(`SELECT costs FROM contracts WHERE id = $1`, [runRows[0].contract_id]);
+    const contractCosts = parseJsonField(contractRows[0]?.costs, {});
     const prevInputs = parseJsonField(row.inputs, {});
     const inputs = { ...prevInputs, ...patch, overridden_by: overriddenBy, source: 'override' };
     const paidDays = patch.paidDays != null ? Number(patch.paidDays) : Number(row.paid_days);
@@ -563,6 +577,16 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
     const workingDays = patch.workingDays != null
         ? Number(patch.workingDays)
         : Number(row.working_days || policy?.standard_month_days || 30);
+    const bonusDisbursement = computeBonusDisbursement({
+        salary: Number(row.salary || 0),
+        doj: row.doj,
+        month: runRows[0].month,
+        year: runRows[0].year,
+        bonusMonths: contractCosts.bonus_months,
+        bonusMinMonths: contractCosts.bonus_min_months,
+        disbursementMonth: contractCosts.bonus_disbursement_month,
+        manualBonusAmount: patch.bonus_amount ?? prevInputs.bonus_amount,
+    });
     let computed = computePrSheetRow({
         newSalary: Number(row.salary || 0),
         paidDays,
@@ -574,6 +598,8 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
         ot2,
         ot3,
         salesTaxRate: 0.18,
+        contractBonusMonths: contractCosts.bonus_months,
+        bonusDisbursement,
         ...inputs,
     }, policy || {});
 

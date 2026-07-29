@@ -510,7 +510,7 @@ const PayrollRun = ({ user }) => {
                                             </tr>
                                             {expanded === r.id && (
                                                 <tr><td colSpan={13} style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                                                    Salary for days: {fmt(c.salaryForDays)} · OT amt: {fmt(c.overtimeAmount)} · EOBI ER: {fmt(c.eobiEmployer)} · SESSI ER: {fmt(c.sessiEmployer)} · Bonus accrual: {fmt(c.bonusAccrual)} · Gratuity: {fmt(c.gratuityAccrual)} · Edu cess: {fmt(c.eduCess)}
+                                                    Salary for days: {fmt(c.salaryForDays)} · OT amt: {fmt(c.overtimeAmount)} · EOBI ER: {fmt(c.eobiEmployer)} · SESSI ER: {fmt(c.sessiEmployer)} · Bonus: {c.bonusDisbursed > 0 ? fmt(c.bonusDisbursed) : '—'} · Bonus accrual: {fmt(c.bonusAccrual)} · Gratuity: {fmt(c.gratuityAccrual)} · Edu cess: {fmt(c.eduCess)}
                                                     {c.billSource === 'rate_card' && <> · Bill rate: {fmt(c.billAmount)}</>}
                                                 </td></tr>
                                             )}

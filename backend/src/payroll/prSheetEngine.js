@@ -64,6 +64,61 @@ function computeOtRates(salary, policy = {}) {
 }
 
 /**
+ * Annual bonus lump-sum paid in disbursement month (contract costs JSON).
+ * Mirrors frontend payrollUtils.js; bonus_min_months = 0 → always pro-rata.
+ */
+function computeBonusDisbursement({
+    salary,
+    doj,
+    month,
+    year,
+    bonusMonths,
+    bonusMinMonths,
+    disbursementMonth,
+    manualBonusAmount,
+}) {
+    if (manualBonusAmount != null && manualBonusAmount !== '') {
+        return Math.round(Number(manualBonusAmount) || 0);
+    }
+    const bm = Number(bonusMonths || 0);
+    const disbMo = Number(disbursementMonth || 0);
+    const payMonth = Number(month);
+    const payYear = Number(year);
+    if (bm <= 0 || disbMo <= 0 || payMonth !== disbMo) {
+        return 0;
+    }
+    const grossSalary = Number(salary) || 0;
+    let monthsServed = 12;
+    if (doj) {
+        const joinDate = new Date(doj);
+        if (!Number.isNaN(joinDate.getTime())) {
+            const cycleStart = new Date(payYear - 1, disbMo - 1, 1);
+            if (joinDate > cycleStart) {
+                const cycleEnd = new Date(payYear, disbMo - 1, 28);
+                monthsServed = Math.max(
+                    0,
+                    (cycleEnd.getFullYear() - joinDate.getFullYear()) * 12
+                    + (cycleEnd.getMonth() - joinDate.getMonth()),
+                );
+            }
+        }
+    }
+    const minMonths = bonusMinMonths != null ? Number(bonusMinMonths) : 12;
+    if (minMonths === 0) {
+        return monthsServed > 0
+            ? Math.round(bm * grossSalary * Math.min(monthsServed, 12) / 12)
+            : 0;
+    }
+    if (monthsServed >= minMonths) {
+        return Math.round(bm * grossSalary);
+    }
+    if (monthsServed > 0) {
+        return Math.round(bm * grossSalary * monthsServed / 12);
+    }
+    return 0;
+}
+
+/**
  * PR-sheet parity payroll cost engine (Wafi-style headcount contracts).
  * Prefer Model A when presentDays (or modelA:true) is supplied.
  */
@@ -122,7 +177,9 @@ function computePrSheetRow(input, policy = {}) {
         salaryForDays + overtimeAmount + opd + expense + arrears + previousDues
         + specialAllowance + fuelMobile,
     );
-    const gross = grossComponents;
+    const bonusDisbursed = Math.round(Number(input.bonusDisbursement ?? input.bonusDisbursed ?? 0));
+    const grossForTPC = grossComponents;
+    const gross = grossComponents + bonusDisbursed;
 
     const whtExact = input.wht != null
         ? Number(input.wht)
@@ -142,21 +199,26 @@ function computePrSheetRow(input, policy = {}) {
     const netPay = Math.round(gross - whtForNet - pfForNet - eobi.employeeShare - otherDeduction);
 
     // Treat explicit 0 as "disabled" (|| would incorrectly fall through to 12).
-    const bonusMonths = policy.bonus_accrual_months != null
+    const policyBonusDivisor = policy.bonus_accrual_months != null
         ? Number(policy.bonus_accrual_months)
         : 12;
+    const contractBonusMonths = input.contractBonusMonths != null
+        ? Number(input.contractBonusMonths)
+        : null;
     const gratuityMonths = policy.gratuity_accrual_months != null
         ? Number(policy.gratuity_accrual_months)
         : 12;
-    const bonusAccrual = bonusMonths > 0 ? Math.round(salary / bonusMonths) : 0;
+    const bonusAccrual = contractBonusMonths != null
+        ? (contractBonusMonths > 0 ? Math.round(contractBonusMonths * salary / 12) : 0)
+        : (policyBonusDivisor > 0 ? Math.round(salary / policyBonusDivisor) : 0);
     const gratuityAccrual = gratuityMonths > 0 ? Math.round(salary / gratuityMonths) : 0;
     const eobiEr = eobi.employerShare;
     const lifeInsurance = Number(input.lifeInsurance || 150);
     const medicalCoverage = Number(input.medicalCoverage || 0);
-    const eduCess = policy.edu_cess_enabled ? Math.round(gross * 0.0833) : 0;
+    const eduCess = policy.edu_cess_enabled ? Math.round(grossForTPC * 0.0833) : 0;
 
-    // Medical insurance is billed on a separate client invoice — not part of payroll disbursement (net pay).
-    const totalPayrollCost = gross + eduCess + sessiEr + eobiEr + bonusAccrual + gratuityAccrual + lifeInsurance;
+    // Bonus disbursement is in net pay (gross) but excluded from TPC — client provisioned via monthly accrual.
+    const totalPayrollCost = grossForTPC + eduCess + sessiEr + eobiEr + bonusAccrual + gratuityAccrual + lifeInsurance;
     const scPct = Number(policy.service_charge_pct ?? 0.18);
     const serviceCharges = Math.round(totalPayrollCost * scPct);
     const stRate = Number(input.salesTaxRate ?? 0.18);
@@ -184,6 +246,7 @@ function computePrSheetRow(input, policy = {}) {
         sessiEmployer: sessiEr,
         eduCess,
         bonusAccrual,
+        bonusDisbursed,
         gratuityAccrual,
         lifeInsurance,
         medicalCoverage,
@@ -201,5 +264,6 @@ module.exports = {
     computeModelABasis,
     computeOtRates,
     computeMedicalCoverage,
+    computeBonusDisbursement,
     isFamilyName,
 };
