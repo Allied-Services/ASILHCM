@@ -15,6 +15,7 @@ const {
     getMonthlyHubRollups,
     getMonthlyHubList,
     upsertMonthlyHubOverride,
+    clearMonthlyHubOverrides,
 } = require('./monthlyHub');
 const {
     upsertProjectClientFocals,
@@ -145,6 +146,26 @@ function registerAttendanceIntakeRoutes(app, deps) {
         } catch (err) {
             if (err.code === 'NOT_FOUND') return res.status(404).json({ error: 'Employee not found' });
             handleRouteError(res, 'attendance.monthlyHubOverride', err);
+        }
+    });
+
+    app.post('/api/attendance/monthly-hub/clear', requireAuth, requireRole('hr_manager', 'finance_manager', 'superadmin', 'admin', 'operations', 'payroll_initiator'), async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            if (!month || !year) {
+                return res.status(400).json({ error: 'month and year required' });
+            }
+            const result = await clearMonthlyHubOverrides(pool, {
+                month,
+                year,
+                contractId: req.body.contractId || req.body.contract_id || null,
+                client: req.body.client || null,
+                contract: req.body.contract || req.body.contractName || null,
+            });
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'attendance.monthlyHubClear', err);
         }
     });
 

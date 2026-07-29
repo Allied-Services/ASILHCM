@@ -433,12 +433,49 @@ async function getMonthlyHubList(pool, {
     };
 }
 
+/**
+ * Remove monthly hub overrides for a period (optionally scoped to contract/client).
+ */
+async function clearMonthlyHubOverrides(pool, {
+    month,
+    year,
+    contractId,
+    client,
+    contract,
+}) {
+    const params = [month, year];
+    let scope = '';
+    if (contractId) {
+        params.push(contractId);
+        scope += ` AND (e.contract_id = $${params.length} OR e.contract_name = $${params.length})`;
+    }
+    if (client) {
+        params.push(client);
+        scope += ` AND e.client = $${params.length}`;
+    }
+    if (contract) {
+        params.push(contract);
+        scope += ` AND e.contract_name = $${params.length}`;
+    }
+    const { rowCount } = await pool.query(
+        `DELETE FROM monthly_attendance_overrides o
+         USING employees e
+         WHERE o.employee_id = e.id
+           AND o.period_month = $1
+           AND o.period_year = $2
+           ${scope}`,
+        params
+    );
+    return { ok: true, month, year, deleted: rowCount };
+}
+
 module.exports = {
     exportMonthlyHubCsv,
     importMonthlyHubCsv,
     getMonthlyHubRollups,
     getMonthlyHubList,
     upsertMonthlyHubOverride,
+    clearMonthlyHubOverrides,
     MONTHLY_HUB_COLUMNS,
     calendarWorkingDays,
 };

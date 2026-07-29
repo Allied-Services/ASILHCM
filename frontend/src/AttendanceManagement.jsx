@@ -272,6 +272,23 @@ function MonthlyReport({user}) {
 
   const saveQuickOverride = () => saveEmployeeOverride(adjEmpId.trim(), adjPresent, adjOtherDed);
 
+  const clearMonthOverrides = async () => {
+    const label = `${month}/${year}${fContract ? ` · ${fContract}` : fClient ? ` · ${fClient}` : ' (all contracts)'}`;
+    if (!confirm(`Delete ALL monthly attendance overrides for ${label}? This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      const payload = { month, year };
+      if (fContract) payload.contract = fContract;
+      else if (fClient) payload.client = fClient;
+      const r = await api.clearMonthlyHubOverrides(payload);
+      setAdjMsg(`Cleared ${r.deleted} override row(s) for ${month}/${year}`);
+      load();
+    } catch (e) {
+      alert(e.message || 'Clear failed');
+    }
+    setBusy(false);
+  };
+
   const getRowEdit = (r) => {
     const stored = rowEdits[r.employee_id];
     if (stored) return stored;
@@ -364,6 +381,10 @@ function MonthlyReport({user}) {
         <button type="button" disabled={busy} onClick={exportHub}
           style={{background:'rgba(34,197,94,0.12)',border:'1px solid #22c55e',color:'#22c55e',padding:'8px 16px',borderRadius:'8px',fontWeight:600,fontSize:'0.84rem',cursor:'pointer'}}>
           ⬇ Export CSV (15 cols)
+        </button>
+        <button type="button" disabled={busy} onClick={clearMonthOverrides}
+          style={{background:'rgba(239,68,68,0.1)',border:'1px solid #ef4444',color:'#ef4444',padding:'8px 16px',borderRadius:'8px',fontWeight:600,fontSize:'0.84rem',cursor:'pointer'}}>
+          Clear month overrides
         </button>
       </div>
 

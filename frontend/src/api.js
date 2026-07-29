@@ -469,6 +469,7 @@ export const api = {
     },
     importMonthlyHub: (data) => apiFetch('/api/attendance/monthly-hub/import', { method: 'POST', body: JSON.stringify(data) }),
     saveMonthlyHubOverride: (data) => apiFetch('/api/attendance/monthly-hub/override', { method: 'POST', body: JSON.stringify(data) }),
+    clearMonthlyHubOverrides: (data) => apiFetch('/api/attendance/monthly-hub/clear', { method: 'POST', body: JSON.stringify(data) }),
     getMonthlyHubList: (q = {}) => apiFetch('/api/attendance/monthly-hub/list?' + new URLSearchParams(q).toString()),
     getMonthlyHubRollups: (q = {}) => apiFetch('/api/attendance/monthly-hub/rollups?' + new URLSearchParams(q).toString()),
     saveClientFocals: (data) => apiFetch('/api/attendance/client-focals', { method: 'POST', body: JSON.stringify(data) }),
