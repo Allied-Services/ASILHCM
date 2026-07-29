@@ -387,12 +387,6 @@ export default function EmployeeInformation({ user }) {
         setBulkSmsSending(false);
     };
 
-    // F is called as a FUNCTION (not component) to avoid React treating it as a new
-    // component type on each render (which caused focus/cursor loss after every keystroke).
-    // FormField itself is safely defined at module level.
-    const F = (props) => FormField({ ...props, form, setForm });
-
-
     // ── Pending change-request state ─────────────────────────────────────────────────────────────────
     const [mainView, setMainView] = useState('list'); // 'list' | 'requests'
     const [changeRequests, setChangeRequests] = useState([]);
@@ -834,77 +828,77 @@ export default function EmployeeInformation({ user }) {
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                                 {sec === 'Employment' && <>
-                                    <F label="ASIL Employee Code" field="id" opts={{ ph: 'ASIL/SPL-XXX/25' }} />
+                                    <FormField form={form} setForm={setForm} label="ASIL Employee Code" field="id" opts={{ ph: 'ASIL/SPL-XXX/25' }} />
                                     <EmploymentOrgCascade form={form} setForm={setForm} layout="grid" />
-                                    <F label="Designation" field="designation" opts={{ ph: 'e.g. Security Guard', list: [...new Set(emps.map(e => e.designation).filter(Boolean))].sort() }} />
-                                    <F label="Date of Joining" field="doj" type="date" />
-                                    <F label="Last Working Day" field="lastWorkingDay" type="date" opts={{ ph: 'Leave blank if still active' }} />
-                                    <F label="Contract Start Date" field="contractDate" type="date" />
-                                    <F label="Active" field="active" opts={{ sel: ['Yes', 'No'] }} />
+                                    <FormField form={form} setForm={setForm} label="Designation" field="designation" opts={{ ph: 'e.g. Security Guard', list: [...new Set(emps.map(e => e.designation).filter(Boolean))].sort() }} />
+                                    <FormField form={form} setForm={setForm} label="Date of Joining" field="doj" type="date" />
+                                    <FormField form={form} setForm={setForm} label="Last Working Day" field="lastWorkingDay" type="date" opts={{ ph: 'Leave blank if still active' }} />
+                                    <FormField form={form} setForm={setForm} label="Contract Start Date" field="contractDate" type="date" />
+                                    <FormField form={form} setForm={setForm} label="Active" field="active" opts={{ sel: ['Yes', 'No'] }} />
                                 </>}
 
                                 {sec === 'Personal' && <>
-                                    <F label="Employee Full Name *" field="name" opts={{ ph: 'As per CNIC' }} />
-                                    <F label="Father's Name" field="fatherName" opts={{ ph: 'Father name' }} />
-                                    <F label="Mother's Name" field="motherName" opts={{ ph: 'Mother name' }} />
-                                    <F label="Date of Birth" field="dob" type="date" />
-                                    <F label="Place of Birth" field="placeOfBirth" opts={{ ph: 'e.g. Lahore' }} />
-                                    <F label="Gender" field="gender" opts={{ sel: ['Male', 'Female'] }} />
-                                    <F label="Marital Status" field="maritalStatus" opts={{ sel: ['Single', 'Married', 'Divorced', 'Widowed'] }} />
-                                    <F label="Religion" field="religion" opts={{ sel: ['Islam', 'Christianity', 'Hinduism', 'Other'] }} />
+                                    <FormField form={form} setForm={setForm} label="Employee Full Name *" field="name" opts={{ ph: 'As per CNIC' }} />
+                                    <FormField form={form} setForm={setForm} label="Father's Name" field="fatherName" opts={{ ph: 'Father name' }} />
+                                    <FormField form={form} setForm={setForm} label="Mother's Name" field="motherName" opts={{ ph: 'Mother name' }} />
+                                    <FormField form={form} setForm={setForm} label="Date of Birth" field="dob" type="date" />
+                                    <FormField form={form} setForm={setForm} label="Place of Birth" field="placeOfBirth" opts={{ ph: 'e.g. Lahore' }} />
+                                    <FormField form={form} setForm={setForm} label="Gender" field="gender" opts={{ sel: ['Male', 'Female'] }} />
+                                    <FormField form={form} setForm={setForm} label="Marital Status" field="maritalStatus" opts={{ sel: ['Single', 'Married', 'Divorced', 'Widowed'] }} />
+                                    <FormField form={form} setForm={setForm} label="Religion" field="religion" opts={{ sel: ['Islam', 'Christianity', 'Hinduism', 'Other'] }} />
                                 </>}
 
                                 {sec === 'CNIC & Compliance' && <>
-                                    <F label="CNIC Number *" field="cnic" opts={{ ph: 'XXXXX-XXXXXXX-X' }} />
-                                    <F label="CNIC Issue Date" field="cnicIssue" type="date" />
-                                    <F label="CNIC Expiry Date" field="cnicExpiry" type="date" />
-                                    <F label="EOBI Number" field="eobiNo" opts={{ ph: 'EOBI-XXXXXXXX' }} />
+                                    <FormField form={form} setForm={setForm} label="CNIC Number *" field="cnic" opts={{ ph: 'XXXXX-XXXXXXX-X' }} />
+                                    <FormField form={form} setForm={setForm} label="CNIC Issue Date" field="cnicIssue" type="date" />
+                                    <FormField form={form} setForm={setForm} label="CNIC Expiry Date" field="cnicExpiry" type="date" />
+                                    <FormField form={form} setForm={setForm} label="EOBI Number" field="eobiNo" opts={{ ph: 'EOBI-XXXXXXXX' }} />
                                 </>}
 
                                 {sec === 'Contact & Address' && <>
-                                    <F label="Primary Contact" field="primaryContact" opts={{ ph: '03XX-XXXXXXX' }} />
-                                    <F label="Emergency Contact" field="emergencyContact" opts={{ ph: '03XX-XXXXXXX' }} />
-                                    <F label="Email Address" field="email" type="email" opts={{ ph: 'email@example.com' }} />
+                                    <FormField form={form} setForm={setForm} label="Primary Contact" field="primaryContact" opts={{ ph: '03XX-XXXXXXX' }} />
+                                    <FormField form={form} setForm={setForm} label="Emergency Contact" field="emergencyContact" opts={{ ph: '03XX-XXXXXXX' }} />
+                                    <FormField form={form} setForm={setForm} label="Email Address" field="email" type="email" opts={{ ph: 'email@example.com' }} />
                                     <div></div>
-                                    <div style={{ gridColumn: '1/-1' }}><F label="Present Address" field="presentAddress" opts={{ ph: 'Current residential address' }} /></div>
-                                    <div style={{ gridColumn: '1/-1' }}><F label="Permanent Address" field="permanentAddress" opts={{ ph: 'Permanent hometown address' }} /></div>
+                                    <div style={{ gridColumn: '1/-1' }}><FormField form={form} setForm={setForm} label="Present Address" field="presentAddress" opts={{ ph: 'Current residential address' }} /></div>
+                                    <div style={{ gridColumn: '1/-1' }}><FormField form={form} setForm={setForm} label="Permanent Address" field="permanentAddress" opts={{ ph: 'Permanent hometown address' }} /></div>
                                 </>}
 
                                 {sec === 'Salary' && <>
-                                    <F label="Current / Starting Gross Salary (Rs.)" field="salary" type="number" opts={{ ph: 'e.g. 38000' }} />
-                                    <F label="Last Salary After Increment (Rs.)" field="lastSalary" type="number" opts={{ ph: 'Leave blank if no increment yet' }} />
+                                    <FormField form={form} setForm={setForm} label="Current / Starting Gross Salary (Rs.)" field="salary" type="number" opts={{ ph: 'e.g. 38000' }} />
+                                    <FormField form={form} setForm={setForm} label="Last Salary After Increment (Rs.)" field="lastSalary" type="number" opts={{ ph: 'Leave blank if no increment yet' }} />
                                     <div style={{ gridColumn: '1/-1', background: 'var(--bg-dark)', borderRadius: '8px', padding: '1rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
                                         💡 Salary history is automatically tracked. If this employee already had an increment, enter the current salary in "Last Salary After Increment". You can add full increment history from their profile after saving.
                                     </div>
                                 </>}
 
                                 {sec === 'Family' && <>
-                                    <F label="Spouse Name" field="spouseName" opts={{ ph: 'Leave blank if single' }} />
-                                    <F label="Spouse Age" field="spouseAge" opts={{ ph: 'e.g. 28' }} />
-                                    <F label="Spouse CNIC" field="spouseCnic" opts={{ ph: 'XXXXX-XXXXXXX-X' }} />
+                                    <FormField form={form} setForm={setForm} label="Spouse Name" field="spouseName" opts={{ ph: 'Leave blank if single' }} />
+                                    <FormField form={form} setForm={setForm} label="Spouse Age" field="spouseAge" opts={{ ph: 'e.g. 28' }} />
+                                    <FormField form={form} setForm={setForm} label="Spouse CNIC" field="spouseCnic" opts={{ ph: 'XXXXX-XXXXXXX-X' }} />
                                     <div style={{ gridColumn: '1/-1', borderTop: '1px solid var(--border)', paddingTop: '1rem', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Children</div>
-                                    <F label="Child 1 Name" field="child1Name" opts={{ ph: 'Full name' }} />
-                                    <F label="Child 1 Age" field="child1Age" opts={{ ph: 'Age in years' }} />
-                                    <F label="Child 1 CNIC / Bay Form" field="child1Id" opts={{ ph: 'ID or Bay Form number' }} />
-                                    <F label="Child 2 Name" field="child2Name" opts={{ ph: 'Full name' }} />
-                                    <F label="Child 2 Age" field="child2Age" opts={{ ph: 'Age in years' }} />
-                                    <F label="Child 2 CNIC / Bay Form" field="child2Id" opts={{ ph: 'ID or Bay Form number' }} />
+                                    <FormField form={form} setForm={setForm} label="Child 1 Name" field="child1Name" opts={{ ph: 'Full name' }} />
+                                    <FormField form={form} setForm={setForm} label="Child 1 Age" field="child1Age" opts={{ ph: 'Age in years' }} />
+                                    <FormField form={form} setForm={setForm} label="Child 1 CNIC / Bay Form" field="child1Id" opts={{ ph: 'ID or Bay Form number' }} />
+                                    <FormField form={form} setForm={setForm} label="Child 2 Name" field="child2Name" opts={{ ph: 'Full name' }} />
+                                    <FormField form={form} setForm={setForm} label="Child 2 Age" field="child2Age" opts={{ ph: 'Age in years' }} />
+                                    <FormField form={form} setForm={setForm} label="Child 2 CNIC / Bay Form" field="child2Id" opts={{ ph: 'ID or Bay Form number' }} />
                                 </>}
 
                                 {sec === 'Medical' && <>
-                                    <F label="Medical Coverage Type" field="medicalType" opts={{ sel: ['Self', 'Self & Spouse', 'Self & Family (Spouse + 2 Children)', 'None'] }} />
-                                    <F label="Maternity Coverage" field="medicalMaternity" opts={{ sel: ['Yes', 'No'] }} />
-                                    <F label="Total Medical Coverage Amount (Rs.)" field="totalMedicalCoverage" opts={{ ph: 'e.g. 500000' }} />
+                                    <FormField form={form} setForm={setForm} label="Medical Coverage Type" field="medicalType" opts={{ sel: ['Self', 'Self & Spouse', 'Self & Family (Spouse + 2 Children)', 'None'] }} />
+                                    <FormField form={form} setForm={setForm} label="Maternity Coverage" field="medicalMaternity" opts={{ sel: ['Yes', 'No'] }} />
+                                    <FormField form={form} setForm={setForm} label="Total Medical Coverage Amount (Rs.)" field="totalMedicalCoverage" opts={{ ph: 'e.g. 500000' }} />
                                 </>}
 
                                 {sec === 'Banking & NOK' && <>
-                                    <F label="Bank Name" field="bankName" opts={{ ph: 'e.g. HBL' }} />
-                                    <F label="Bank Account / IBAN" field="bankAccount" opts={{ ph: 'Account number or IBAN' }} />
-                                    <F label="Account Title" field="accountTitle" opts={{ ph: 'Name on bank account' }} />
+                                    <FormField form={form} setForm={setForm} label="Bank Name" field="bankName" opts={{ ph: 'e.g. HBL' }} />
+                                    <FormField form={form} setForm={setForm} label="Bank Account / IBAN" field="bankAccount" opts={{ ph: 'Account number or IBAN' }} />
+                                    <FormField form={form} setForm={setForm} label="Account Title" field="accountTitle" opts={{ ph: 'Name on bank account' }} />
                                     <div style={{ gridColumn: '1/-1', borderTop: '1px solid var(--border)', paddingTop: '1rem', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Next of Kin</div>
-                                    <F label="NOK Name" field="nokName" opts={{ ph: 'Next of kin full name' }} />
-                                    <F label="NOK Relation" field="nokRelation" opts={{ ph: 'e.g. Father, Spouse, Brother' }} />
-                                    <F label="NOK Contact" field="nokContact" opts={{ ph: '03XX-XXXXXXX' }} />
+                                    <FormField form={form} setForm={setForm} label="NOK Name" field="nokName" opts={{ ph: 'Next of kin full name' }} />
+                                    <FormField form={form} setForm={setForm} label="NOK Relation" field="nokRelation" opts={{ ph: 'e.g. Father, Spouse, Brother' }} />
+                                    <FormField form={form} setForm={setForm} label="NOK Contact" field="nokContact" opts={{ ph: '03XX-XXXXXXX' }} />
                                 </>}
                             </div>
 
