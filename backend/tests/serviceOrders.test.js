@@ -87,6 +87,8 @@ describe('serviceOrders — drive file match', () => {
     test('matches site code in filename', () => {
         expect(matchFileToSite('Morgah Conservancy June 2026.xlsx', 'MORGAH')).toBe(true);
         expect(matchFileToSite('Tarujabba_Attendance_Mar2026.xlsx', 'TARUJABBA')).toBe(true);
+        expect(matchFileToSite('Tarru_Jabba_Depot_Attendance_Master.xlsx', 'TARUJABBA')).toBe(true);
+        expect(matchFileToSite('Serai_Naurang_Depot_Attendance_Master.xlsx', 'SERAINOURANG')).toBe(true);
         expect(matchFileToSite('Chakpirana Depot.xlsx', 'CHAKPIRANA')).toBe(true);
         expect(matchFileToSite('Random.xlsx', 'KOHAT')).toBe(false);
     });
