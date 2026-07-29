@@ -90,6 +90,30 @@ describe('Model A — 30-day calendar basis', () => {
         expect(row.modelA.absentDays).toBe(0);
     });
 
+    test('explicit sheet absent wins over calendar WD − present (Conservancy)', () => {
+        // July calendar WD often 27; sheet Present 22 / Absent 0 must not become Absent 5
+        const m = computeModelABasis({
+            presentDays: 22,
+            expectedDays: 27,
+            calendarBasis: 30,
+            absentDays: 0,
+        });
+        expect(m.absentDays).toBe(0);
+        expect(m.absentSource).toBe('explicit');
+        expect(m.modelAPaidDays).toBe(30);
+
+        const row = computePrSheetRow({
+            newSalary: 30000,
+            presentDays: 22,
+            expectedDays: 27,
+            absentDays: 3,
+            modelA: true,
+        }, POLICY);
+        expect(row.modelA.absentDays).toBe(3);
+        expect(row.modelA.absentSource).toBe('explicit');
+        expect(row.salaryForDays).toBe(Math.round(30000 * (27 / 30)));
+    });
+
     test('OT 2X / 3X use Base / (26×8) × multiplier', () => {
         const salary = 45991;
         const rates = computeOtRates(salary, POLICY);

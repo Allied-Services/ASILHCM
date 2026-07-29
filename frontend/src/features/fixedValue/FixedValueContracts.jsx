@@ -16,7 +16,15 @@ function rowSiteCode(r) {
     return String(r.site || '').trim().toUpperCase();
 }
 
+/** Prefer explicit sheet/override absent; only derive WD − present when absent is unknown. */
 function absentDays(r) {
+    const explicit = r.inputs?.absent_days ?? r.inputs?.absentDays;
+    if (explicit != null && explicit !== '') {
+        return Math.max(0, Number(explicit) || 0);
+    }
+    if (r.computed?.modelA?.absentSource === 'explicit' && r.computed?.modelA?.absentDays != null) {
+        return Math.max(0, Number(r.computed.modelA.absentDays) || 0);
+    }
     const present = Number(r.paid_days);
     const working = Number(r.working_days);
     if (Number.isNaN(present) || Number.isNaN(working)) return null;

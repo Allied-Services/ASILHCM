@@ -319,20 +319,30 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         );
 
         const { rows: overrideRows } = await pool.query(
-            `SELECT present_days, working_days, pf_deduction, income_tax, salary_override, eobi_employee,
-                    salary_for_days, overtime_amount,
-                    ot1_hours, ot2_hours, ot3_hours, opd, expense, arrears,
-                    special_allowance, fuel_mobile, other_deduction
-             FROM monthly_attendance_overrides
+            `SELECT * FROM monthly_attendance_overrides
              WHERE employee_id = $1 AND period_month = $2 AND period_year = $3`,
             [emp.id, month, year]
         ).catch(() => ({ rows: [] }));
         const ov = overrideRows[0];
         let presentDaysForModelA = null;
+        let absentDaysForModelA = null;
         let overrideWorkingDays = null;
         if (ov) {
             if (ov.present_days != null) {
                 presentDaysForModelA = Number(ov.present_days);
+            }
+            if (ov.absent_days != null) {
+                absentDaysForModelA = Number(ov.absent_days);
+            } else if (ov.source === 'fv_conservancy_attendance') {
+                // Pre-absent_days column: FV apply wrote so_deductions only when absent > 0
+                const { rows: dedRows } = await pool.query(
+                    `SELECT days_absent FROM so_deductions
+                     WHERE employee_id = $1 AND period_month = $2 AND period_year = $3
+                       AND type = 'absence' AND source = 'attendance_ledger'
+                     ORDER BY id DESC LIMIT 1`,
+                    [emp.id, month, year]
+                ).catch(() => ({ rows: [] }));
+                absentDaysForModelA = dedRows[0] ? Number(dedRows[0].days_absent) || 0 : 0;
             }
             if (ov.working_days != null) overrideWorkingDays = Number(ov.working_days);
         }
@@ -392,6 +402,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             if (ov.eobi_employee != null) inputs.eobiEmployee = Number(ov.eobi_employee);
             if (ov.salary_for_days != null) inputs.salaryForDays = Number(ov.salary_for_days);
             if (ov.overtime_amount != null) inputs.overtimeAmount = Number(ov.overtime_amount);
+            if (absentDaysForModelA != null) inputs.absent_days = absentDaysForModelA;
         }
 
         if (!policy.ot_allowed) {
@@ -442,9 +453,10 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             bonusDisbursement,
             ...inputs,
         };
-        // Model A (30-day calendar basis) — override present/expected when seeded from Excel
+        // Model A (30-day calendar basis) — override present/expected/absent when seeded from Excel
         computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
         computeInput.expectedDays = overrideWorkingDays ?? workingDays;
+        if (absentDaysForModelA != null) computeInput.absentDays = absentDaysForModelA;
         computeInput.modelA = true;
         let computed = computePrSheetRow(computeInput, policy);
 

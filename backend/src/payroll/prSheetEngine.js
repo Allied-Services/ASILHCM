@@ -4,22 +4,26 @@ const { calculateMonthlyIncomeTax, calculateEOBI } = require('../../taxEngine');
 
 /**
  * Model A (30-day calendar basis):
- *   Absent Days (A) = Expected Days − Present Days
+ *   Absent Days (A) = explicit sheet absent when provided, else Expected − Present
  *   Basic payout   = Base Salary × ((30 − A) / 30)
  * Sundays/holidays are paid rest — only unexcused absences reduce Present Days.
+ * Conservancy sheets carry Total Absent explicitly; do not invent A from calendar WD − present.
  *
  * OT (labor-law divisor):
  *   OT 2X rate = (Base / (26 × 8)) × 2
  *   OT 3X rate = (Base / (26 × 8)) × 3
  */
-function computeModelABasis({ presentDays, expectedDays, calendarBasis = 30 }) {
+function computeModelABasis({ presentDays, expectedDays, calendarBasis = 30, absentDays: absentOverride } = {}) {
     const basis = Number(calendarBasis) || 30;
     const expected = Number(expectedDays != null ? expectedDays : basis);
     const present = presentDays == null || presentDays === ''
         ? expected
         : Number(presentDays);
     const safePresent = Number.isFinite(present) ? present : expected;
-    const absentDays = Math.max(0, expected - safePresent);
+    const hasExplicitAbsent = absentOverride != null && absentOverride !== '';
+    const absentDays = hasExplicitAbsent
+        ? Math.max(0, Number(absentOverride) || 0)
+        : Math.max(0, expected - safePresent);
     const modelAPaidDays = basis - absentDays;
     return {
         calendarBasis: basis,
@@ -28,6 +32,7 @@ function computeModelABasis({ presentDays, expectedDays, calendarBasis = 30 }) {
         absentDays,
         modelAPaidDays,
         paidFactor: basis ? modelAPaidDays / basis : 1,
+        absentSource: hasExplicitAbsent ? 'explicit' : 'derived',
     };
 }
 
@@ -154,6 +159,7 @@ function computePrSheetRow(input, policy = {}) {
             presentDays: input.presentDays ?? input.present_days ?? paidDays,
             expectedDays: expected,
             calendarBasis: 30,
+            absentDays: input.absentDays ?? input.absent_days,
         });
         workingDays = 30;
         paidDays = modelA.modelAPaidDays;

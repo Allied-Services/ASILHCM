@@ -147,18 +147,32 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
                 continue;
             }
 
+            const presentDays = Number(row.presentDays) || 0;
+            const absentDays = Number(row.absentDays) || 0;
+            const expectedDays = Number(row.expectedDays) || 0;
+
             await client.query(
                 `INSERT INTO monthly_attendance_overrides
-                 (employee_id, period_month, period_year, present_days, source, updated_by, updated_at)
-                 VALUES ($1,$2,$3,$4,'fv_conservancy_attendance',$5,NOW())
+                 (employee_id, period_month, period_year, present_days, absent_days, working_days,
+                  source, updated_by, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,'fv_conservancy_attendance',$7,NOW())
                  ON CONFLICT (employee_id, period_month, period_year)
-                 DO UPDATE SET present_days = EXCLUDED.present_days, source = EXCLUDED.source,
+                 DO UPDATE SET present_days = EXCLUDED.present_days,
+                               absent_days = EXCLUDED.absent_days,
+                               working_days = COALESCE(EXCLUDED.working_days, monthly_attendance_overrides.working_days),
+                               source = EXCLUDED.source,
                                updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-                [employeeId, month, year, Number(row.presentDays) || 0, actor || null]
+                [
+                    employeeId,
+                    month,
+                    year,
+                    presentDays,
+                    absentDays,
+                    expectedDays > 0 ? expectedDays : null,
+                    actor || null,
+                ]
             );
             summary.overrides += 1;
-
-            const absentDays = Number(row.absentDays) || 0;
             if (absentDays <= 0) continue;
 
             const match = findLineForDesignation(lines, row.designation);
