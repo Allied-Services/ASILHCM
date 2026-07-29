@@ -6,7 +6,7 @@ import {
   Lock, Unlock, Save, X, LayoutDashboard, FileText,
   Calculator, FilePlus, Receipt, CreditCard, Building,
   Truck, Package, ScanLine, Settings, UserPlus, Info,
-  Mail, Inbox, Wrench, ClipboardList,
+  Mail, Inbox, Wrench, ClipboardList, MapPin,
 } from 'lucide-react';
 import { api } from './api';
 
@@ -52,6 +52,11 @@ const MODULES = [
     key: 'payroll', label: 'Payroll Sheet', navKey: 'payroll',
     icon: <Calculator size={16} />,
     subPerms: ['view', 'edit', 'lock', 'export'],
+  },
+  {
+    key: 'fixed_value', label: 'Fixed Value / PSO', navKey: 'fixed_value',
+    icon: <MapPin size={16} />,
+    subPerms: ['view', 'edit'],
   },
   {
     key: 'documents', label: 'Document Generator', navKey: 'documents',
@@ -137,21 +142,21 @@ const MODULES = [
 
 // ─── Default permissions per role (must cover every ROLE_META key) ────────────
 const ROLE_NAV_SET = {
-  superadmin:            ['dashboard','employee','payroll','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','claims_portal'],
-  operations:            ['employee','documents','client','attendance','maintenance','claims_portal'],
-  operations_supervisor: ['employee','documents','client','attendance','maintenance','claims_portal'],
-  operations_team:       ['employee','documents','client','attendance','maintenance','claims_portal'],
+  superadmin:            ['dashboard','employee','payroll','fixed_value','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','claims_portal'],
+  operations:            ['employee','documents','client','fixed_value','attendance','maintenance','claims_portal'],
+  operations_supervisor: ['employee','documents','client','fixed_value','attendance','maintenance','claims_portal'],
+  operations_team:       ['employee','documents','client','fixed_value','attendance','maintenance','claims_portal'],
   procurement_proposer:  ['billing','vendor','inventory'],
   procurement_approver:  ['billing','vendor','inventory'],
   procurement_manager:   ['billing','vendor','inventory','ap','maintenance'],
   procurement:           ['billing','vendor','inventory','ap'],
-  finance_proposer:      ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance'],
-  finance_approver:      ['payroll','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal'],
-  finance_manager:       ['payroll','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','claims_portal'],
-  ap_team:               ['ap','billing'],
-  ar_team:               ['invoices','po_tracking','billing'],
-  payroll_initiator:     ['payroll','employee','claims_portal'],
-  payroll:               ['payroll','employee','claims_portal'],
+  finance_proposer:      ['billing','invoices','fixed_value','po_tracking','employee','ap','vendor','inventory','annexure','maintenance'],
+  finance_approver:      ['payroll','billing','invoices','fixed_value','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal'],
+  finance_manager:       ['payroll','billing','invoices','fixed_value','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','claims_portal'],
+  ap_team:               ['ap','billing','fixed_value'],
+  ar_team:               ['invoices','fixed_value','po_tracking','billing'],
+  payroll_initiator:     ['payroll','fixed_value','employee','claims_portal'],
+  payroll:               ['payroll','fixed_value','employee','claims_portal'],
   bizdev:                ['client'],
   supervisor:            ['attendance','maintenance'],
   pending:               [],

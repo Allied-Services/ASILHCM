@@ -53,7 +53,7 @@ const ROLE_NAV = {
     finance_proposer:     ['billing','invoices','fixed_value','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
     finance_approver:     ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal','contract_ops','compliance','bizdev','ar'],
     finance_manager:      ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','compliance','ar'],
-    ap_team:              ['ap','billing','payroll_run'],
+    ap_team:              ['ap','billing','payroll_run','fixed_value'],
     ar_team:              ['invoices','fixed_value','po_tracking','billing','compliance'],
     payroll_initiator:    ['payroll','payroll_run','fixed_value','employee','claims_queue','claims_portal'],
     payroll:              ['payroll','payroll_run','fixed_value','employee','claims_queue','claims_portal'],
@@ -159,12 +159,12 @@ function App() {
   const roleBadge = ROLE_BADGE[role] || ROLE_BADGE.pending;
 
   // Compute allowed tabs:
-  // 1. SuperAdmin -> always full access (no custom perms can restrict this)
+  // 1. SuperAdmin -> always ROLE_NAV.superadmin (keeps new tabs like fixed_value in sync)
   // 2. User has saved custom permissions (from User Management panel) -> use those
   // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
-    allowedTabs = ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','bill_verification','compliance','ar'];
+    allowedTabs = ROLE_NAV.superadmin;
   } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
     // Saved custom permissions: show all modules where access === true
     allowedTabs = Object.entries(user.permissions)
