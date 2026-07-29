@@ -29,6 +29,28 @@ function absentDays(r) {
     return null;
 }
 
+/** Employee take-home fields — prefer computed, fall back to inputs for pre-patch rows. */
+function rowArrears(r) {
+    const c = r.computed || {};
+    const v = c.arrears ?? r.inputs?.arrears ?? r.inputs?.Arrears;
+    return Number(v || 0);
+}
+function rowDeductions(r) {
+    const c = r.computed || {};
+    const v = c.otherDeduction ?? r.inputs?.otherDeduction ?? r.inputs?.other_deduction;
+    return Number(v || 0);
+}
+function rowBonus(r) {
+    return Number((r.computed || {}).bonusDisbursed || 0);
+}
+function rowOt(r) {
+    return Number((r.computed || {}).overtimeAmount || 0);
+}
+
+const IS_STAGING = /staging/i.test(import.meta.env.VITE_API_URL || '')
+    || (typeof window !== 'undefined' && /staging/i.test(window.location.hostname));
+const COLD_START_MSG = 'Staging server waking up (Render free tier) — usually 1–2 minutes…';
+
 const STEPS = [
     { key: 'period', label: 'Period & Contract', icon: Layers },
     { key: 'attendance', label: 'Attendance', icon: Upload },
@@ -55,6 +77,7 @@ export default function FixedValueContracts({ user }) {
     const [siteCode, setSiteCode] = useState(ALL_SITES);
     const [step, setStep] = useState('period');
     const [loading, setLoading] = useState(false);
+    const [slowLoad, setSlowLoad] = useState(false);
     const [msg, setMsg] = useState('');
     const [error, setError] = useState('');
 
@@ -100,32 +123,49 @@ export default function FixedValueContracts({ user }) {
         for (const r of payrollRows) {
             const site = rowSiteCode(r) || 'UNKNOWN';
             if (!map.has(site)) {
-                map.set(site, { site, headcount: 0, wages: 0, eobi: 0, sessi: 0, tax: 0, life: 0, net: 0, gross: 0 });
+                map.set(site, {
+                    site, headcount: 0, wages: 0, arrears: 0, deductions: 0,
+                    bonus: 0, ot: 0, eobi: 0, tax: 0, net: 0,
+                    sessi: 0, life: 0, gross: 0,
+                });
             }
             const s = map.get(site);
             const c = r.computed || {};
             s.headcount += 1;
             s.wages += Number(c.salaryForDays || 0);
+            s.arrears += rowArrears(r);
+            s.deductions += rowDeductions(r);
+            s.bonus += rowBonus(r);
+            s.ot += rowOt(r);
             s.eobi += Number(c.eobiEmployee || 0);
-            s.sessi += Number(c.sessiEmployer || 0);
             s.tax += Number(c.wht || 0);
-            s.life += Number(c.lifeInsurance || 0);
             s.net += Number(c.netPay || 0);
+            // Employer costs — for Statutory step only
+            s.sessi += Number(c.sessiEmployer || 0);
+            s.life += Number(c.lifeInsurance || 0);
             s.gross += Number(c.gross || 0);
         }
         return [...map.values()].sort((a, b) => a.site.localeCompare(b.site));
     }, [payrollRows]);
 
+    const emptyTotals = {
+        headcount: 0, wages: 0, arrears: 0, deductions: 0, bonus: 0, ot: 0,
+        eobi: 0, tax: 0, net: 0, sessi: 0, life: 0, gross: 0,
+    };
     const payrollTotals = useMemo(() => payrollBySite.reduce((a, s) => ({
         headcount: a.headcount + s.headcount,
         wages: a.wages + s.wages,
+        arrears: a.arrears + s.arrears,
+        deductions: a.deductions + s.deductions,
+        bonus: a.bonus + s.bonus,
+        ot: a.ot + s.ot,
         eobi: a.eobi + s.eobi,
-        sessi: a.sessi + s.sessi,
         tax: a.tax + s.tax,
-        life: a.life + s.life,
         net: a.net + s.net,
+        sessi: a.sessi + s.sessi,
+        life: a.life + s.life,
         gross: a.gross + s.gross,
-    }), { headcount: 0, wages: 0, eobi: 0, sessi: 0, tax: 0, life: 0, net: 0, gross: 0 }), [payrollBySite]);
+    }), emptyTotals), [payrollBySite]);
 
     const attDoneCount = attStatus.filter(s => s.status === 'done').length;
     const stepStatus = useMemo(() => ({
@@ -191,6 +231,11 @@ export default function FixedValueContracts({ user }) {
         if (step === 'invoice' || step === 'export') loadRegistry().catch(() => {});
     }, [step, loadRegistry]);
     useEffect(() => { loadDeductions().catch(() => {}); }, [loadDeductions]);
+    useEffect(() => {
+        if (!loading) { setSlowLoad(false); return undefined; }
+        const t = setTimeout(() => setSlowLoad(true), 4000);
+        return () => clearTimeout(t);
+    }, [loading]);
 
     const runAction = async (fn, okMsg) => {
         setError('');
@@ -356,6 +401,9 @@ export default function FixedValueContracts({ user }) {
 
             {error && <div className="fv-alert error"><AlertCircle size={16} />{error}</div>}
             {msg && <div className="fv-alert ok"><CheckCircle size={16} />{msg}</div>}
+            {IS_STAGING && slowLoad && (
+                <div className="fv-alert ok"><RefreshCw size={16} />{COLD_START_MSG}</div>
+            )}
 
             {step === 'period' && (
                 <div className="fv-panel">
@@ -364,6 +412,12 @@ export default function FixedValueContracts({ user }) {
                         Select the billing month and Fixed Value contract. Site filter narrows drill-downs;
                         contract-level CTAs (bulk attendance, entire payroll, all-site invoices) always cover every depot.
                     </p>
+                    {IS_STAGING && (
+                        <div className="fv-cold-note">
+                            <strong>Staging note:</strong> Render free tier sleeps after ~10–20 min idle.
+                            The first request after wake can take 1–2 minutes — not a hang.
+                        </div>
+                    )}
                     <div className="fv-kpi-grid">
                         <div className="fv-kpi"><div className="label">Contract</div><div className="value" style={{ fontSize: '0.85rem' }}>{contractId || '—'}</div></div>
                         <div className="fv-kpi"><div className="label">Sites</div><div className="value">{orders.length}</div></div>
@@ -517,16 +571,28 @@ export default function FixedValueContracts({ user }) {
 
                     {payrollRun && (
                         <div className="fv-kpi-grid">
-                            <div className="fv-kpi"><div className="label">Run</div><div className="value">{payrollRun.id}</div></div>
+                            <div className="fv-kpi fv-kpi-run">
+                                <div className="label">Payroll run #{payrollRun.id}</div>
+                                <p className="fv-kpi-help">
+                                    World B batch id for this contract/month; use this id in sidebar → Payroll Run
+                                    to lock/disburse. Not an invoice number.
+                                </p>
+                            </div>
                             <div className="fv-kpi"><div className="label">Status</div><div className="value">{payrollRun.status}</div></div>
-                            <div className="fv-kpi"><div className="label">Headcount</div><div className="value">{payrollTotals.headcount}</div></div>
+                            <div className="fv-kpi"><div className="label">HC</div><div className="value">{payrollTotals.headcount}</div></div>
                             <div className="fv-kpi"><div className="label">Wages</div><div className="value">{fmt(payrollTotals.wages)}</div></div>
+                            <div className="fv-kpi"><div className="label">Arrears</div><div className="value">{fmt(payrollTotals.arrears)}</div></div>
+                            <div className="fv-kpi"><div className="label">Deductions</div><div className="value">{fmt(payrollTotals.deductions)}</div></div>
+                            <div className="fv-kpi"><div className="label">Bonus</div><div className="value">{fmt(payrollTotals.bonus)}</div></div>
+                            <div className="fv-kpi"><div className="label">OT</div><div className="value">{fmt(payrollTotals.ot)}</div></div>
                             <div className="fv-kpi"><div className="label">EOBI EE</div><div className="value">{fmt(payrollTotals.eobi)}</div></div>
-                            <div className="fv-kpi"><div className="label">SESSI ER</div><div className="value">{fmt(payrollTotals.sessi)}</div></div>
                             <div className="fv-kpi"><div className="label">Tax</div><div className="value">{fmt(payrollTotals.tax)}</div></div>
                             <div className="fv-kpi"><div className="label">Net</div><div className="value">{fmt(payrollTotals.net)}</div></div>
                         </div>
                     )}
+                    <p className="fv-lead">
+                        Employee take-home only. Employer SESSI &amp; life insurance are on the Statutory step.
+                    </p>
 
                     <h4 style={{ margin: 0 }}>By site</h4>
                     <div className="fv-table-wrap">
@@ -534,8 +600,9 @@ export default function FixedValueContracts({ user }) {
                             <thead>
                                 <tr>
                                     <th>Site</th><th className="num">HC</th><th className="num">Wages</th>
-                                    <th className="num">EOBI</th><th className="num">SESSI</th>
-                                    <th className="num">Tax</th><th className="num">Life</th><th className="num">Net</th>
+                                    <th className="num">Arrears</th><th className="num">Deductions</th>
+                                    <th className="num">Bonus</th><th className="num">OT</th>
+                                    <th className="num">EOBI EE</th><th className="num">Tax</th><th className="num">Net</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -547,10 +614,12 @@ export default function FixedValueContracts({ user }) {
                                         </td>
                                         <td className="num">{s.headcount}</td>
                                         <td className="num">{fmt(s.wages)}</td>
+                                        <td className="num">{fmt(s.arrears)}</td>
+                                        <td className="num">{fmt(s.deductions)}</td>
+                                        <td className="num">{fmt(s.bonus)}</td>
+                                        <td className="num">{fmt(s.ot)}</td>
                                         <td className="num">{fmt(s.eobi)}</td>
-                                        <td className="num">{fmt(s.sessi)}</td>
                                         <td className="num">{fmt(s.tax)}</td>
-                                        <td className="num">{fmt(s.life)}</td>
                                         <td className="num">{fmt(s.net)}</td>
                                     </tr>
                                 ))}
@@ -560,10 +629,12 @@ export default function FixedValueContracts({ user }) {
                                     <td>Contract total</td>
                                     <td className="num">{payrollTotals.headcount}</td>
                                     <td className="num">{fmt(payrollTotals.wages)}</td>
+                                    <td className="num">{fmt(payrollTotals.arrears)}</td>
+                                    <td className="num">{fmt(payrollTotals.deductions)}</td>
+                                    <td className="num">{fmt(payrollTotals.bonus)}</td>
+                                    <td className="num">{fmt(payrollTotals.ot)}</td>
                                     <td className="num">{fmt(payrollTotals.eobi)}</td>
-                                    <td className="num">{fmt(payrollTotals.sessi)}</td>
                                     <td className="num">{fmt(payrollTotals.tax)}</td>
-                                    <td className="num">{fmt(payrollTotals.life)}</td>
                                     <td className="num">{fmt(payrollTotals.net)}</td>
                                 </tr>
                             </tfoot>
@@ -582,7 +653,9 @@ export default function FixedValueContracts({ user }) {
                                     <th>Designation</th>
                                     <th className="num">Present</th><th className="num">Absent</th>
                                     <th className="num">Basic</th><th className="num">Wages</th>
-                                    <th className="num">EOBI</th><th className="num">Tax</th><th className="num">Net</th>
+                                    <th className="num">Arrears</th><th className="num">Deductions</th>
+                                    <th className="num">Bonus</th><th className="num">OT</th>
+                                    <th className="num">EOBI EE</th><th className="num">Tax</th><th className="num">Net</th>
                                     <th>Source</th>
                                 </tr>
                             </thead>
@@ -599,6 +672,10 @@ export default function FixedValueContracts({ user }) {
                                             <td className="num">{absentDays(r) ?? '—'}</td>
                                             <td className="num">{fmt(r.basic_salary)}</td>
                                             <td className="num">{fmt(c.salaryForDays)}</td>
+                                            <td className="num">{fmt(rowArrears(r))}</td>
+                                            <td className="num">{fmt(rowDeductions(r))}</td>
+                                            <td className="num">{fmt(rowBonus(r))}</td>
+                                            <td className="num">{fmt(rowOt(r))}</td>
                                             <td className="num">{fmt(c.eobiEmployee)}</td>
                                             <td className="num">{fmt(c.wht)}</td>
                                             <td className="num">{fmt(c.netPay)}</td>
@@ -741,15 +818,16 @@ export default function FixedValueContracts({ user }) {
                 <div className="fv-panel">
                     <h3>5 · Statutory / Compliance</h3>
                     <p className="fv-lead">
-                        Month-level EOBI &amp; SESSI/PESSI totals from the computed payroll run — ready for challan packs.
-                        CPR freeze &amp; provincial sales-tax packs are <strong>Next</strong> on the roadmap.
+                        Employer-cost rollup and employee statutory deductions from the computed payroll run —
+                        ready for challan packs. SESSI/PESSI and life insurance are <strong>employer contributions</strong>
+                        (not deducted from employee net). CPR freeze &amp; provincial sales-tax packs are <strong>Next</strong> on the roadmap.
                     </p>
                     <div className="fv-kpi-grid">
-                        <div className="fv-kpi"><div className="label">EOBI (employee)</div><div className="value">{fmt(payrollTotals.eobi)}</div></div>
-                        <div className="fv-kpi"><div className="label">SESSI/PESSI (employer)</div><div className="value">{fmt(payrollTotals.sessi)}</div></div>
-                        <div className="fv-kpi"><div className="label">Income tax (payroll)</div><div className="value">{fmt(payrollTotals.tax)}</div></div>
-                        <div className="fv-kpi"><div className="label">Life insurance</div><div className="value">{fmt(payrollTotals.life)}</div></div>
                         <div className="fv-kpi"><div className="label">Headcount</div><div className="value">{payrollTotals.headcount}</div></div>
+                        <div className="fv-kpi"><div className="label">EOBI (employee)</div><div className="value">{fmt(payrollTotals.eobi)}</div></div>
+                        <div className="fv-kpi"><div className="label">Income tax (payroll)</div><div className="value">{fmt(payrollTotals.tax)}</div></div>
+                        <div className="fv-kpi"><div className="label">SESSI/PESSI (employer)</div><div className="value">{fmt(payrollTotals.sessi)}</div></div>
+                        <div className="fv-kpi"><div className="label">Life insurance (employer)</div><div className="value">{fmt(payrollTotals.life)}</div></div>
                     </div>
                     <div className="fv-later">
                         <strong>Later:</strong> EOBI/SESSI challan Excel packs · BRA/SRB/KPRA/PRA ST annexures · CPR reference freeze before invoice stamp.

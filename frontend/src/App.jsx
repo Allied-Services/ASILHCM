@@ -108,6 +108,9 @@ function App() {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState(null);
+  const [authSlow, setAuthSlow] = useState(false);
+  const isStagingHost = /staging/i.test(API || '')
+    || (typeof window !== 'undefined' && /staging/i.test(window.location.hostname));
 
   useEffect(() => {
     // Magic-link / public portals must not treat ?token= as staff Google JWT
@@ -133,6 +136,12 @@ function App() {
       .catch(() => { localStorage.removeItem('asil_hcm_token'); setAuthReady(true); });
   }, []);
 
+  useEffect(() => {
+    if (authReady) { setAuthSlow(false); return undefined; }
+    const t = setTimeout(() => setAuthSlow(true), 4000);
+    return () => clearTimeout(t);
+  }, [authReady]);
+
   if (portalPath) return <EmployeePortal />;
   if (claimsFillPath) return <ClaimsFillPage />;
   if (claimsApprovePath) return <ClaimsApprovePage />;
@@ -144,9 +153,16 @@ function App() {
   if (!authReady) {
     return (
       <div style={{ minHeight: '100vh', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: '#94a3b8', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '20px', height: '20px', border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-          Loading ASIL HCM…
+        <div style={{ color: '#94a3b8', fontSize: '0.9rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', maxWidth: 420, textAlign: 'center', padding: '0 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ width: '20px', height: '20px', border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            Loading ASIL HCM…
+          </div>
+          {authSlow && isStagingHost && (
+            <div style={{ color: '#cbd5e1', fontSize: '0.85rem', lineHeight: 1.45 }}>
+              Staging server waking up (Render free tier) — usually 1–2 minutes…
+            </div>
+          )}
         </div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>

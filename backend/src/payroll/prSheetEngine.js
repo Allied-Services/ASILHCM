@@ -239,6 +239,8 @@ function computePrSheetRow(input, policy = {}) {
         ot3Hours: ot3,
         otRate2x: rates.otRate2x,
         otRate3x: rates.otRate3x,
+        arrears: Math.round(arrears),
+        otherDeduction: Math.round(otherDeduction),
         previousDues,
         modelA,
         paidDays,
