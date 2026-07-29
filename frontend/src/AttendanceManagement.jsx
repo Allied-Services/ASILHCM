@@ -187,6 +187,9 @@ function MonthlyReport({user}) {
   const [busy, setBusy] = useState(false);
   const [adjEmpId, setAdjEmpId] = useState('');
   const [adjPresent, setAdjPresent] = useState('');
+  const [adjOt2, setAdjOt2] = useState('');
+  const [adjLeaveDed, setAdjLeaveDed] = useState('');
+  const [adjArrears, setAdjArrears] = useState('');
   const [adjOtherDed, setAdjOtherDed] = useState('');
   const [adjMsg, setAdjMsg] = useState('');
   const [rowEdits, setRowEdits] = useState({});
@@ -253,16 +256,28 @@ function MonthlyReport({user}) {
     setBusy(false);
   };
 
-  const saveEmployeeOverride = async (employeeId, presentDays, otherDeduction) => {
+  const saveEmployeeOverride = async (employeeId, fields = {}) => {
     if (!employeeId) return alert('Employee ID required.');
     setBusy(true);
     setAdjMsg('');
     try {
       const payload = { employeeId, month, year };
-      if (presentDays !== '' && presentDays != null) payload.presentDays = Number(presentDays);
-      if (otherDeduction !== '' && otherDeduction != null) payload.otherDeduction = Number(otherDeduction);
+      const putNum = (key, val) => {
+        if (val !== '' && val != null) payload[key] = Number(val);
+      };
+      putNum('presentDays', fields.presentDays);
+      putNum('ot2Hours', fields.ot2Hours);
+      putNum('ot3Hours', fields.ot3Hours);
+      putNum('leaveDeduction', fields.leaveDeduction);
+      putNum('arrears', fields.arrears);
+      putNum('otherDeduction', fields.otherDeduction);
+      putNum('absentDays', fields.absentDays);
       const r = await api.saveMonthlyHubOverride(payload);
-      setAdjMsg(`Saved ${r.employeeName || r.employeeId}: present ${r.presentDays ?? '—'}, other deduction ${r.otherDeduction ?? 0}`);
+      setAdjMsg(
+        `Saved ${r.employeeName || r.employeeId}: present ${r.presentDays ?? '—'}, OT@2X ${r.ot2 ?? 0}h, `
+        + `leave ded ${r.leaveDeduction ?? 0}, arrears ${r.arrears ?? 0}, other ded ${r.otherDeduction ?? 0}. `
+        + `Recompute the payroll run (Fixed Value → Payroll, or Payroll Run) for this to affect net pay.`
+      );
       load();
     } catch (e) {
       alert(e.message || 'Save failed');
@@ -270,7 +285,13 @@ function MonthlyReport({user}) {
     setBusy(false);
   };
 
-  const saveQuickOverride = () => saveEmployeeOverride(adjEmpId.trim(), adjPresent, adjOtherDed);
+  const saveQuickOverride = () => saveEmployeeOverride(adjEmpId.trim(), {
+    presentDays: adjPresent,
+    ot2Hours: adjOt2,
+    leaveDeduction: adjLeaveDed,
+    arrears: adjArrears,
+    otherDeduction: adjOtherDed,
+  });
 
   const clearMonthOverrides = async () => {
     const label = `${month}/${year}${fContract ? ` · ${fContract}` : fClient ? ` · ${fClient}` : ' (all contracts)'}`;
@@ -294,6 +315,9 @@ function MonthlyReport({user}) {
     if (stored) return stored;
     return {
       present: r.present ?? '',
+      ot2: r.ot2_hours ?? '',
+      leaveDeduction: r.leave_deduction ?? '',
+      arrears: r.arrears ?? '',
       otherDeduction: r.other_deduction ?? '',
     };
   };
@@ -309,7 +333,13 @@ function MonthlyReport({user}) {
     const edit = getRowEdit(r);
     setRowSaving(r.employee_id);
     try {
-      await saveEmployeeOverride(r.employee_id, edit.present, edit.otherDeduction);
+      await saveEmployeeOverride(r.employee_id, {
+        presentDays: edit.present,
+        ot2Hours: edit.ot2,
+        leaveDeduction: edit.leaveDeduction,
+        arrears: edit.arrears,
+        otherDeduction: edit.otherDeduction,
+      });
     } finally {
       setRowSaving(null);
     }
@@ -405,24 +435,39 @@ function MonthlyReport({user}) {
       <Card>
         <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>Single employee adjustment</h3>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
-          Set <strong>Present Days</strong> for one employee (leave days = working days − present).
-          Use <strong>Other Deduction</strong> for one-off payroll deductions. You can also edit directly in the table below.
-          Recompute the payroll run after saving.
+          Canonical store: <code>monthly_attendance_overrides</code> (same source Fixed Value payroll reads).
+          Set Present, OT hrs @ 2X, Deduction against Leaves, Arrears, and Other Deduction.
+          <strong> You must recompute the payroll run after saving</strong> or net pay will stay stale.
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
           <div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>ASIL Employee Code</div>
-            <input value={adjEmpId} onChange={e => setAdjEmpId(e.target.value)} placeholder="ASIL/SPL-419/21"
+            <input value={adjEmpId} onChange={e => setAdjEmpId(e.target.value)} placeholder="ASIL/PSO-060/25"
               style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', color: 'var(--text)', width: 200 }} />
           </div>
           <div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Present Days</div>
             <input type="number" min="0" max="31" value={adjPresent} onChange={e => setAdjPresent(e.target.value)} placeholder="e.g. 27"
+              style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', color: 'var(--text)', width: 90 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>OT Hrs @ 2X</div>
+            <input type="number" min="0" step="0.5" value={adjOt2} onChange={e => setAdjOt2(e.target.value)} placeholder="0"
+              style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', color: 'var(--text)', width: 90 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Deduction vs Leaves (Rs.)</div>
+            <input type="number" min="0" value={adjLeaveDed} onChange={e => setAdjLeaveDed(e.target.value)} placeholder="0"
+              style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', color: 'var(--text)', width: 120 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Arrears (Rs.)</div>
+            <input type="number" min="0" value={adjArrears} onChange={e => setAdjArrears(e.target.value)} placeholder="0"
               style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', color: 'var(--text)', width: 100 }} />
           </div>
           <div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Other Deduction (Rs.)</div>
-            <input type="number" min="0" value={adjOtherDed} onChange={e => setAdjOtherDed(e.target.value)} placeholder="optional"
+            <input type="number" min="0" value={adjOtherDed} onChange={e => setAdjOtherDed(e.target.value)} placeholder="0"
               style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', color: 'var(--text)', width: 120 }} />
           </div>
           <button type="button" disabled={busy} onClick={saveQuickOverride} className="btn-primary">Save override</button>
@@ -442,7 +487,7 @@ function MonthlyReport({user}) {
             const avg = rows.reduce((a,r)=>a+(r.attendance_pct||0),0)/rows.length;
             return Math.round(avg)+'%';
           })()} color="#22c55e"/>
-          <Kpi label="Total Deductions" value={'Rs. '+fmt(data.employees?.reduce((a,r)=>a+(r.other_deduction||0),0)||0)} color="#ef4444"/>
+          <Kpi label="Total Deductions" value={'Rs. '+fmt(data.employees?.reduce((a,r)=>a+(r.other_deduction||0)+(r.leave_deduction||0),0)||0)} color="#ef4444"/>
         </div>
 
         {rollups && (
@@ -458,54 +503,61 @@ function MonthlyReport({user}) {
           <div style={{padding:'0.75rem 1rem',borderBottom:'1px solid var(--border)',fontSize:'0.8rem',color:'var(--text-muted)'}}>
             {data.employees?.length || 0} employee{(data.employees?.length||0)!==1?'s':''} shown
             {fClient||fContract||fLocation||fEmpId||fName ? ' (filtered)' : ''}
-            · Edit <strong>Present</strong> or <strong>Other Ded.</strong> inline, then click Save on that row
+            · Edit Present / OT / Leave Ded. / Arrears / Other Ded. inline, then Save — then recompute payroll
           </div>
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.84rem'}}>
               <thead>
                 <tr style={{background:'var(--bg-dark)',borderBottom:'1px solid var(--border)'}}>
-                  {['Employee','Client/Contract/Site','Days','Present','Absent','Half','Leave','Att%','Other Ded.',''].map(h=>(
-                    <th key={h||'act'} style={{padding:'0.75rem 1rem',textAlign:'left',color:'var(--text-muted)',fontWeight:600,fontSize:'0.72rem',textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
+                  {['Employee','Client/Contract/Site','Days','Present','Absent','Leave','Att%','OT@2X','Leave Ded.','Arrears','Other Ded.',''].map(h=>(
+                    <th key={h||'act'} style={{padding:'0.75rem 0.6rem',textAlign:'left',color:'var(--text-muted)',fontWeight:600,fontSize:'0.72rem',textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {(data.employees||[]).map(r=>{
                   const edit = getRowEdit(r);
-                  const dirty = edit.present !== '' && Number(edit.present) !== Number(r.present)
-                    || edit.otherDeduction !== '' && Number(edit.otherDeduction) !== Number(r.other_deduction);
+                  const numDirty = (a, b) => a !== '' && Number(a) !== Number(b || 0);
+                  const dirty = numDirty(edit.present, r.present)
+                    || numDirty(edit.ot2, r.ot2_hours)
+                    || numDirty(edit.leaveDeduction, r.leave_deduction)
+                    || numDirty(edit.arrears, r.arrears)
+                    || numDirty(edit.otherDeduction, r.other_deduction);
+                  const cellInp = (field, width, color) => (
+                    <input type="number" min="0" step={field==='ot2'?'0.5':'1'} value={edit[field]}
+                      onChange={e=>setRowEdit(r,field,e.target.value)}
+                      placeholder="0"
+                      style={{width,background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 6px',color:color||'var(--text)',fontWeight:700,textAlign:'right'}}/>
+                  );
                   return (
                   <tr key={r.employee_id} style={{borderBottom:'1px solid var(--border)',background:r.has_override?'rgba(56,189,248,0.04)':'transparent'}}>
-                    <td style={{padding:'0.75rem 1rem'}}>
+                    <td style={{padding:'0.75rem 0.6rem'}}>
                       <div style={{fontWeight:600}}>{r.name}</div>
                       <div style={{color:'var(--text-muted)',fontSize:'0.76rem',fontFamily:'monospace'}}>{r.employee_id}</div>
                     </td>
-                    <td style={{padding:'0.75rem 1rem',color:'var(--text-muted)',fontSize:'0.82rem'}}>
+                    <td style={{padding:'0.75rem 0.6rem',color:'var(--text-muted)',fontSize:'0.82rem'}}>
                       <div>{r.client||'—'}</div>
                       <div style={{fontSize:'0.76rem'}}>{r.contract||''}</div>
                       <div style={{fontSize:'0.76rem'}}>{r.site||''}</div>
                     </td>
-                    <td style={{padding:'0.75rem 1rem',textAlign:'center'}}>{r.working_days}</td>
-                    <td style={{padding:'0.5rem 0.75rem',textAlign:'center'}}>
+                    <td style={{padding:'0.75rem 0.6rem',textAlign:'center'}}>{r.working_days}</td>
+                    <td style={{padding:'0.5rem 0.4rem',textAlign:'center'}}>
                       <input type="number" min="0" max="31" value={edit.present}
                         onChange={e=>setRowEdit(r,'present',e.target.value)}
                         style={{width:52,textAlign:'center',background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 6px',color:'#22c55e',fontWeight:700}}/>
                     </td>
-                    <td style={{padding:'0.75rem 1rem',textAlign:'center',color:'#ef4444',fontWeight:700}}>{r.absent||0}</td>
-                    <td style={{padding:'0.75rem 1rem',textAlign:'center',color:'#f59e0b'}}>{r.half_day||0}</td>
-                    <td style={{padding:'0.75rem 1rem',textAlign:'center',color:'#38bdf8',fontWeight:700}}>{r.on_leave||0}</td>
-                    <td style={{padding:'0.75rem 1rem',textAlign:'center'}}>
+                    <td style={{padding:'0.75rem 0.6rem',textAlign:'center',color:'#ef4444',fontWeight:700}}>{r.absent||0}</td>
+                    <td style={{padding:'0.75rem 0.6rem',textAlign:'center',color:'#38bdf8',fontWeight:700}}>{r.on_leave||0}</td>
+                    <td style={{padding:'0.75rem 0.6rem',textAlign:'center'}}>
                       <span style={{fontWeight:700,color:pctColor(r.attendance_pct)}}>
                         {r.attendance_pct!=null?r.attendance_pct+'%':'—'}
                       </span>
                     </td>
-                    <td style={{padding:'0.5rem 0.75rem'}}>
-                      <input type="number" min="0" value={edit.otherDeduction}
-                        onChange={e=>setRowEdit(r,'otherDeduction',e.target.value)}
-                        placeholder="0"
-                        style={{width:80,background:'var(--bg-dark)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 6px',color:r.other_deduction>0?'#ef4444':'var(--text)',fontWeight:r.other_deduction>0?700:400}}/>
-                    </td>
-                    <td style={{padding:'0.5rem 0.75rem'}}>
+                    <td style={{padding:'0.5rem 0.4rem'}}>{cellInp('ot2', 56, '#a78bfa')}</td>
+                    <td style={{padding:'0.5rem 0.4rem'}}>{cellInp('leaveDeduction', 72, r.leave_deduction>0?'#f97316':undefined)}</td>
+                    <td style={{padding:'0.5rem 0.4rem'}}>{cellInp('arrears', 72, r.arrears>0?'#22c55e':undefined)}</td>
+                    <td style={{padding:'0.5rem 0.4rem'}}>{cellInp('otherDeduction', 72, r.other_deduction>0?'#ef4444':undefined)}</td>
+                    <td style={{padding:'0.5rem 0.4rem'}}>
                       <button type="button" disabled={busy||rowSaving===r.employee_id}
                         onClick={()=>saveRowOverride(r)}
                         style={{background:dirty?'var(--primary)':'var(--bg-dark)',border:`1px solid ${dirty?'var(--primary)':'var(--border)'}`,color:dirty?'#fff':'var(--text-muted)',padding:'4px 10px',borderRadius:6,cursor:'pointer',fontSize:'0.78rem',fontWeight:600,whiteSpace:'nowrap'}}>

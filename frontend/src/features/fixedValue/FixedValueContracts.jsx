@@ -37,8 +37,10 @@ function rowArrears(r) {
 }
 function rowDeductions(r) {
     const c = r.computed || {};
-    const v = c.otherDeduction ?? r.inputs?.otherDeduction ?? r.inputs?.other_deduction;
-    return Number(v || 0);
+    if (c.otherDeductionTotal != null) return Number(c.otherDeductionTotal) || 0;
+    const other = Number(c.otherDeduction ?? r.inputs?.otherDeduction ?? r.inputs?.other_deduction ?? 0);
+    const leave = Number(c.leaveDeduction ?? r.inputs?.leaveDeduction ?? r.inputs?.leave_deduction ?? 0);
+    return other + leave;
 }
 function rowBonus(r) {
     return Number((r.computed || {}).bonusDisbursed || 0);
@@ -86,6 +88,9 @@ export default function FixedValueContracts({ user }) {
     const [bulkAttResults, setBulkAttResults] = useState([]);
     const [parsedRows, setParsedRows] = useState([]);
     const [deductions, setDeductions] = useState([]);
+    const [hubOverrides, setHubOverrides] = useState([]);
+    const [hubEdits, setHubEdits] = useState({});
+    const [hubSaving, setHubSaving] = useState(null);
 
     const [payrollRun, setPayrollRun] = useState(null);
     const [payrollRows, setPayrollRows] = useState([]);
@@ -219,6 +224,54 @@ export default function FixedValueContracts({ user }) {
         setDeductions(Array.isArray(rows) ? rows : []);
     }, [selectedOrder?.id, month, year]);
 
+    const loadHubOverrides = useCallback(async () => {
+        if (!contractId || step !== 'attendance') {
+            setHubOverrides([]);
+            return;
+        }
+        const contract = contracts.find(c => c.id === contractId);
+        const q = {
+            month, year,
+            ...(contract?.contract_name ? { contract: contract.contract_name } : {}),
+            ...(selectedOrder?.name ? { location: selectedOrder.name } : {}),
+        };
+        try {
+            const data = await api.getMonthlyHubList(q);
+            setHubOverrides(Array.isArray(data?.employees) ? data.employees : []);
+            setHubEdits({});
+        } catch {
+            setHubOverrides([]);
+        }
+    }, [contractId, contracts, month, year, selectedOrder?.name, step]);
+
+    const saveHubRow = async (r) => {
+        const edit = hubEdits[r.employee_id] || {};
+        const payload = {
+            employeeId: r.employee_id,
+            month,
+            year,
+        };
+        const put = (key, val, fallback) => {
+            const v = val !== undefined && val !== '' ? val : fallback;
+            if (v !== '' && v != null) payload[key] = Number(v);
+        };
+        put('presentDays', edit.present, r.present);
+        put('ot2Hours', edit.ot2, r.ot2_hours);
+        put('leaveDeduction', edit.leaveDeduction, r.leave_deduction);
+        put('arrears', edit.arrears, r.arrears);
+        put('otherDeduction', edit.otherDeduction, r.other_deduction);
+        setHubSaving(r.employee_id);
+        try {
+            await api.saveMonthlyHubOverride(payload);
+            setMsg(`Saved overrides for ${r.name || r.employee_id}. Recompute Payroll (step 3) to apply to net pay.`);
+            await loadHubOverrides();
+        } catch (e) {
+            setError(e.message || 'Override save failed');
+        } finally {
+            setHubSaving(null);
+        }
+    };
+
     useEffect(() => { loadContracts().catch(e => setError(e.message)); }, [loadContracts]);
     useEffect(() => { loadOrders().catch(() => {}); }, [loadOrders]);
     useEffect(() => { loadAttStatus().catch(() => {}); }, [loadAttStatus]);
@@ -231,6 +284,7 @@ export default function FixedValueContracts({ user }) {
         if (step === 'invoice' || step === 'export') loadRegistry().catch(() => {});
     }, [step, loadRegistry]);
     useEffect(() => { loadDeductions().catch(() => {}); }, [loadDeductions]);
+    useEffect(() => { loadHubOverrides().catch(() => {}); }, [loadHubOverrides]);
     useEffect(() => {
         if (!loading) { setSlowLoad(false); return undefined; }
         const t = setTimeout(() => setSlowLoad(true), 4000);
@@ -538,6 +592,74 @@ export default function FixedValueContracts({ user }) {
                             </table>
                         </div>
                     )}
+                    <div className="fv-later" style={{ marginTop: '1rem' }}>
+                        <strong>Manual overrides</strong> (same <code>monthly_attendance_overrides</code> as Attendance → Monthly Report):
+                        OT hrs, Deduction against Leaves, Arrears, Other Deduction. Filter to a site above for a shorter list.
+                    </div>
+                    {hubOverrides.length > 0 && (
+                        <div className="fv-table-wrap">
+                            <table className="fv-table">
+                                <thead>
+                                    <tr>
+                                        <th>Code</th><th>Name</th>
+                                        <th className="num">Present</th><th className="num">Absent</th>
+                                        <th className="num">OT@2X</th><th className="num">Leave Ded.</th>
+                                        <th className="num">Arrears</th><th className="num">Other Ded.</th>
+                                        <th />
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {hubOverrides.slice(0, 80).map(r => {
+                                        const edit = hubEdits[r.employee_id] || {};
+                                        const val = (k, fallback) => (edit[k] !== undefined ? edit[k] : (fallback ?? ''));
+                                        const set = (k, v) => setHubEdits(prev => ({
+                                            ...prev,
+                                            [r.employee_id]: { ...edit, [k]: v },
+                                        }));
+                                        return (
+                                            <tr key={r.employee_id}>
+                                                <td>{r.employee_id}</td>
+                                                <td>{r.name}</td>
+                                                <td className="num">
+                                                    <input type="number" min="0" max="31" style={{ width: 56 }}
+                                                        value={val('present', r.present)}
+                                                        onChange={e => set('present', e.target.value)} />
+                                                </td>
+                                                <td className="num">{r.absent ?? 0}</td>
+                                                <td className="num">
+                                                    <input type="number" min="0" step="0.5" style={{ width: 56 }}
+                                                        value={val('ot2', r.ot2_hours)}
+                                                        onChange={e => set('ot2', e.target.value)} />
+                                                </td>
+                                                <td className="num">
+                                                    <input type="number" min="0" style={{ width: 72 }}
+                                                        value={val('leaveDeduction', r.leave_deduction)}
+                                                        onChange={e => set('leaveDeduction', e.target.value)} />
+                                                </td>
+                                                <td className="num">
+                                                    <input type="number" min="0" style={{ width: 72 }}
+                                                        value={val('arrears', r.arrears)}
+                                                        onChange={e => set('arrears', e.target.value)} />
+                                                </td>
+                                                <td className="num">
+                                                    <input type="number" min="0" style={{ width: 72 }}
+                                                        value={val('otherDeduction', r.other_deduction)}
+                                                        onChange={e => set('otherDeduction', e.target.value)} />
+                                                </td>
+                                                <td>
+                                                    <button type="button" className="btn-secondary" style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                                                        disabled={loading || hubSaving === r.employee_id || !canWrite}
+                                                        onClick={() => saveHubRow(r)}>
+                                                        {hubSaving === r.employee_id ? '…' : 'Save'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                     <div className="fv-actions">
                         <button type="button" className="btn-primary" disabled={!attDoneCount} onClick={() => setStep('payroll')}>
                             Continue to Payroll
@@ -552,6 +674,8 @@ export default function FixedValueContracts({ user }) {
                     <p className="fv-lead">
                         World B compute for the whole contract. Wages use Conservancy Model A:
                         <strong> paid factor = (30 − sheet absent) / 30</strong>. Present is shown from the sheet for audit; Absent must match attendance exactly.
+                        OT / Arrears / Leave Deduction / Other Deduction come from <code>monthly_attendance_overrides</code> —
+                        recompute after any Monthly Report or Attendance-step override save.
                     </p>
                     <div className="fv-actions">
                         <button type="button" className="btn-primary" disabled={loading || !contractId || !canWrite} onClick={handleComputePayroll}>

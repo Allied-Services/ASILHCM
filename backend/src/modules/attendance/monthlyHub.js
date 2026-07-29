@@ -226,6 +226,7 @@ async function upsertMonthlyHubOverride(pool, {
     year,
     presentDays,
     otherDeduction,
+    leaveDeduction,
     ot2Hours,
     ot3Hours,
     opd,
@@ -233,6 +234,7 @@ async function upsertMonthlyHubOverride(pool, {
     arrears,
     specialAllowance,
     fuelMobile,
+    absentDays,
     updatedBy,
 }) {
     const id = String(employeeId || '').trim();
@@ -257,6 +259,7 @@ async function upsertMonthlyHubOverride(pool, {
     const pick = (val, fallback) => (val != null && val !== '' ? Number(val) : fallback);
     const merged = {
         presentDays: pick(presentDays, ex?.present_days ?? null),
+        absentDays: pick(absentDays, ex?.absent_days ?? null),
         ot2: pick(ot2Hours, ex?.ot2_hours ?? 0),
         ot3: pick(ot3Hours, ex?.ot3_hours ?? 0),
         opd: pick(opd, ex?.opd ?? 0),
@@ -265,33 +268,71 @@ async function upsertMonthlyHubOverride(pool, {
         specialAllowance: pick(specialAllowance, ex?.special_allowance ?? 0),
         fuelMobile: pick(fuelMobile, ex?.fuel_mobile ?? 0),
         otherDeduction: pick(otherDeduction, ex?.other_deduction ?? 0),
+        leaveDeduction: pick(leaveDeduction, ex?.leave_deduction ?? 0),
     };
 
-    await pool.query(
-        `INSERT INTO monthly_attendance_overrides
-            (employee_id, period_month, period_year, present_days, ot2_hours, ot3_hours,
-             opd, expense, arrears, special_allowance, fuel_mobile, other_deduction, updated_by, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())
-         ON CONFLICT (employee_id, period_month, period_year) DO UPDATE SET
-           present_days = COALESCE(EXCLUDED.present_days, monthly_attendance_overrides.present_days),
-           ot2_hours = COALESCE(EXCLUDED.ot2_hours, monthly_attendance_overrides.ot2_hours),
-           ot3_hours = COALESCE(EXCLUDED.ot3_hours, monthly_attendance_overrides.ot3_hours),
-           opd = COALESCE(EXCLUDED.opd, monthly_attendance_overrides.opd),
-           expense = COALESCE(EXCLUDED.expense, monthly_attendance_overrides.expense),
-           arrears = COALESCE(EXCLUDED.arrears, monthly_attendance_overrides.arrears),
-           special_allowance = COALESCE(EXCLUDED.special_allowance, monthly_attendance_overrides.special_allowance),
-           fuel_mobile = COALESCE(EXCLUDED.fuel_mobile, monthly_attendance_overrides.fuel_mobile),
-           other_deduction = COALESCE(EXCLUDED.other_deduction, monthly_attendance_overrides.other_deduction),
-           updated_by = EXCLUDED.updated_by,
-           updated_at = NOW()`,
-        [
-            id, month, year,
-            merged.presentDays, merged.ot2, merged.ot3,
-            merged.opd, merged.expense, merged.arrears,
-            merged.specialAllowance, merged.fuelMobile, merged.otherDeduction,
-            updatedBy || null,
-        ]
-    );
+    // leave_deduction column may be missing until migration — try full write, fall back.
+    try {
+        await pool.query(
+            `INSERT INTO monthly_attendance_overrides
+                (employee_id, period_month, period_year, present_days, absent_days, ot2_hours, ot3_hours,
+                 opd, expense, arrears, special_allowance, fuel_mobile, other_deduction, leave_deduction,
+                 updated_by, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
+             ON CONFLICT (employee_id, period_month, period_year) DO UPDATE SET
+               present_days = COALESCE(EXCLUDED.present_days, monthly_attendance_overrides.present_days),
+               absent_days = COALESCE(EXCLUDED.absent_days, monthly_attendance_overrides.absent_days),
+               ot2_hours = COALESCE(EXCLUDED.ot2_hours, monthly_attendance_overrides.ot2_hours),
+               ot3_hours = COALESCE(EXCLUDED.ot3_hours, monthly_attendance_overrides.ot3_hours),
+               opd = COALESCE(EXCLUDED.opd, monthly_attendance_overrides.opd),
+               expense = COALESCE(EXCLUDED.expense, monthly_attendance_overrides.expense),
+               arrears = COALESCE(EXCLUDED.arrears, monthly_attendance_overrides.arrears),
+               special_allowance = COALESCE(EXCLUDED.special_allowance, monthly_attendance_overrides.special_allowance),
+               fuel_mobile = COALESCE(EXCLUDED.fuel_mobile, monthly_attendance_overrides.fuel_mobile),
+               other_deduction = COALESCE(EXCLUDED.other_deduction, monthly_attendance_overrides.other_deduction),
+               leave_deduction = COALESCE(EXCLUDED.leave_deduction, monthly_attendance_overrides.leave_deduction),
+               updated_by = EXCLUDED.updated_by,
+               updated_at = NOW()`,
+            [
+                id, month, year,
+                merged.presentDays, merged.absentDays, merged.ot2, merged.ot3,
+                merged.opd, merged.expense, merged.arrears,
+                merged.specialAllowance, merged.fuelMobile, merged.otherDeduction, merged.leaveDeduction,
+                updatedBy || null,
+            ]
+        );
+    } catch (err) {
+        if (!/leave_deduction/i.test(err.message || '')) throw err;
+        // Pre-migration: fold leave deduction into other_deduction so payroll still picks it up.
+        const foldedOther = Number(merged.otherDeduction || 0) + Number(merged.leaveDeduction || 0);
+        await pool.query(
+            `INSERT INTO monthly_attendance_overrides
+                (employee_id, period_month, period_year, present_days, absent_days, ot2_hours, ot3_hours,
+                 opd, expense, arrears, special_allowance, fuel_mobile, other_deduction, updated_by, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+             ON CONFLICT (employee_id, period_month, period_year) DO UPDATE SET
+               present_days = COALESCE(EXCLUDED.present_days, monthly_attendance_overrides.present_days),
+               absent_days = COALESCE(EXCLUDED.absent_days, monthly_attendance_overrides.absent_days),
+               ot2_hours = COALESCE(EXCLUDED.ot2_hours, monthly_attendance_overrides.ot2_hours),
+               ot3_hours = COALESCE(EXCLUDED.ot3_hours, monthly_attendance_overrides.ot3_hours),
+               opd = COALESCE(EXCLUDED.opd, monthly_attendance_overrides.opd),
+               expense = COALESCE(EXCLUDED.expense, monthly_attendance_overrides.expense),
+               arrears = COALESCE(EXCLUDED.arrears, monthly_attendance_overrides.arrears),
+               special_allowance = COALESCE(EXCLUDED.special_allowance, monthly_attendance_overrides.special_allowance),
+               fuel_mobile = COALESCE(EXCLUDED.fuel_mobile, monthly_attendance_overrides.fuel_mobile),
+               other_deduction = COALESCE(EXCLUDED.other_deduction, monthly_attendance_overrides.other_deduction),
+               updated_by = EXCLUDED.updated_by,
+               updated_at = NOW()`,
+            [
+                id, month, year,
+                merged.presentDays, merged.absentDays, merged.ot2, merged.ot3,
+                merged.opd, merged.expense, merged.arrears,
+                merged.specialAllowance, merged.fuelMobile, foldedOther,
+                updatedBy || null,
+            ]
+        );
+        merged.otherDeduction = foldedOther;
+    }
 
     return {
         ok: true,
@@ -299,6 +340,7 @@ async function upsertMonthlyHubOverride(pool, {
         employeeName: emp[0].name,
         month,
         year,
+        recomputeRequired: true,
         ...merged,
     };
 }
@@ -344,55 +386,111 @@ async function getMonthlyHubList(pool, {
         OR e.active::text = 'Yes')
         AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($2, $1, 1))`;
 
-    const { rows } = await pool.query(
-        `SELECT e.id AS employee_id, e.name, e.client, e.contract_name, e.location AS site,
-                o.present_days, o.other_deduction, o.updated_at AS override_updated_at,
-                COALESCE((
-                    SELECT COUNT(*)::int FROM attendance_records ar
-                    WHERE ar.employee_id = e.id
-                      AND EXTRACT(MONTH FROM ar.date) = $1
-                      AND EXTRACT(YEAR FROM ar.date) = $2
-                      AND ar.status IN ('present','ot','leave','half_day')
-                ), 0) AS att_present,
-                COALESCE((
-                    SELECT COUNT(*)::int FROM attendance_records ar
-                    WHERE ar.employee_id = e.id
-                      AND EXTRACT(MONTH FROM ar.date) = $1
-                      AND EXTRACT(YEAR FROM ar.date) = $2
-                      AND ar.status IN ('absent','unexcused')
-                ), 0) AS att_absent,
-                COALESCE((
-                    SELECT COUNT(*)::int FROM attendance_records ar
-                    WHERE ar.employee_id = e.id
-                      AND EXTRACT(MONTH FROM ar.date) = $1
-                      AND EXTRACT(YEAR FROM ar.date) = $2
-                      AND ar.status = 'half_day'
-                ), 0) AS att_half,
-                COALESCE((
-                    SELECT COUNT(*)::int FROM attendance_records ar
-                    WHERE ar.employee_id = e.id
-                      AND EXTRACT(MONTH FROM ar.date) = $1
-                      AND EXTRACT(YEAR FROM ar.date) = $2
-                      AND ar.status = 'leave'
-                ), 0) AS att_leave
-         FROM employees e
-         LEFT JOIN monthly_attendance_overrides o
-           ON o.employee_id = e.id AND o.period_month = $1 AND o.period_year = $2
-         WHERE ${activeWhere}
-           ${filters}
-         ORDER BY e.client, e.contract_name, e.name`,
-        params
-    );
+    let rows;
+    try {
+        ({ rows } = await pool.query(
+            `SELECT e.id AS employee_id, e.name, e.client, e.contract_name, e.location AS site,
+                    o.present_days, o.absent_days, o.other_deduction, o.leave_deduction,
+                    o.ot2_hours, o.ot3_hours, o.arrears, o.source, o.updated_at AS override_updated_at,
+                    COALESCE((
+                        SELECT COUNT(*)::int FROM attendance_records ar
+                        WHERE ar.employee_id = e.id
+                          AND EXTRACT(MONTH FROM ar.date) = $1
+                          AND EXTRACT(YEAR FROM ar.date) = $2
+                          AND ar.status IN ('present','ot','leave','half_day')
+                    ), 0) AS att_present,
+                    COALESCE((
+                        SELECT COUNT(*)::int FROM attendance_records ar
+                        WHERE ar.employee_id = e.id
+                          AND EXTRACT(MONTH FROM ar.date) = $1
+                          AND EXTRACT(YEAR FROM ar.date) = $2
+                          AND ar.status IN ('absent','unexcused')
+                    ), 0) AS att_absent,
+                    COALESCE((
+                        SELECT COUNT(*)::int FROM attendance_records ar
+                        WHERE ar.employee_id = e.id
+                          AND EXTRACT(MONTH FROM ar.date) = $1
+                          AND EXTRACT(YEAR FROM ar.date) = $2
+                          AND ar.status = 'half_day'
+                    ), 0) AS att_half,
+                    COALESCE((
+                        SELECT COUNT(*)::int FROM attendance_records ar
+                        WHERE ar.employee_id = e.id
+                          AND EXTRACT(MONTH FROM ar.date) = $1
+                          AND EXTRACT(YEAR FROM ar.date) = $2
+                          AND ar.status = 'leave'
+                    ), 0) AS att_leave
+             FROM employees e
+             LEFT JOIN monthly_attendance_overrides o
+               ON o.employee_id = e.id AND o.period_month = $1 AND o.period_year = $2
+             WHERE ${activeWhere}
+               ${filters}
+             ORDER BY e.client, e.contract_name, e.name`,
+            params
+        ));
+    } catch (err) {
+        if (!/leave_deduction/i.test(err.message || '')) throw err;
+        ({ rows } = await pool.query(
+            `SELECT e.id AS employee_id, e.name, e.client, e.contract_name, e.location AS site,
+                    o.present_days, o.absent_days, o.other_deduction, 0::numeric AS leave_deduction,
+                    o.ot2_hours, o.ot3_hours, o.arrears, o.source, o.updated_at AS override_updated_at,
+                    COALESCE((
+                        SELECT COUNT(*)::int FROM attendance_records ar
+                        WHERE ar.employee_id = e.id
+                          AND EXTRACT(MONTH FROM ar.date) = $1
+                          AND EXTRACT(YEAR FROM ar.date) = $2
+                          AND ar.status IN ('present','ot','leave','half_day')
+                    ), 0) AS att_present,
+                    COALESCE((
+                        SELECT COUNT(*)::int FROM attendance_records ar
+                        WHERE ar.employee_id = e.id
+                          AND EXTRACT(MONTH FROM ar.date) = $1
+                          AND EXTRACT(YEAR FROM ar.date) = $2
+                          AND ar.status IN ('absent','unexcused')
+                    ), 0) AS att_absent,
+                    COALESCE((
+                        SELECT COUNT(*)::int FROM attendance_records ar
+                        WHERE ar.employee_id = e.id
+                          AND EXTRACT(MONTH FROM ar.date) = $1
+                          AND EXTRACT(YEAR FROM ar.date) = $2
+                          AND ar.status = 'half_day'
+                    ), 0) AS att_half,
+                    COALESCE((
+                        SELECT COUNT(*)::int FROM attendance_records ar
+                        WHERE ar.employee_id = e.id
+                          AND EXTRACT(MONTH FROM ar.date) = $1
+                          AND EXTRACT(YEAR FROM ar.date) = $2
+                          AND ar.status = 'leave'
+                    ), 0) AS att_leave
+             FROM employees e
+             LEFT JOIN monthly_attendance_overrides o
+               ON o.employee_id = e.id AND o.period_month = $1 AND o.period_year = $2
+             WHERE ${activeWhere}
+               ${filters}
+             ORDER BY e.client, e.contract_name, e.name`,
+            params
+        ));
+    }
 
     const employees = rows.map((r) => {
         const attPresent = parseInt(r.att_present, 10) || 0;
-        const hasOverride = r.present_days != null;
-        const present = hasOverride ? Number(r.present_days) : attPresent;
-        const onLeave = hasOverride
+        const hasMoneyOverride = (Number(r.other_deduction) || 0) > 0
+            || (Number(r.leave_deduction) || 0) > 0
+            || (Number(r.arrears) || 0) > 0
+            || (Number(r.ot2_hours) || 0) > 0
+            || (Number(r.ot3_hours) || 0) > 0;
+        const hasOverride = r.present_days != null || r.absent_days != null || hasMoneyOverride;
+        const present = r.present_days != null ? Number(r.present_days) : attPresent;
+        const sheetAbsent = r.absent_days != null ? Number(r.absent_days) : null;
+        const onLeave = r.present_days != null
             ? Math.max(0, workingDays - present)
             : (parseInt(r.att_leave, 10) || 0);
-        const absent = hasOverride ? 0 : (parseInt(r.att_absent, 10) || 0);
-        const halfDay = hasOverride ? 0 : (parseInt(r.att_half, 10) || 0);
+        const absent = sheetAbsent != null
+            ? sheetAbsent
+            : (r.present_days != null ? 0 : (parseInt(r.att_absent, 10) || 0));
+        const halfDay = (r.present_days != null || sheetAbsent != null)
+            ? 0
+            : (parseInt(r.att_half, 10) || 0);
         const effPres = present + halfDay * 0.5;
         const pct = workingDays > 0 ? Math.round((effPres / workingDays) * 100) : null;
         return {
@@ -407,8 +505,13 @@ async function getMonthlyHubList(pool, {
             half_day: halfDay,
             on_leave: onLeave,
             attendance_pct: pct,
+            ot2_hours: Number(r.ot2_hours) || 0,
+            ot3_hours: Number(r.ot3_hours) || 0,
+            arrears: Number(r.arrears) || 0,
+            leave_deduction: Number(r.leave_deduction) || 0,
             other_deduction: Number(r.other_deduction) || 0,
-            has_override: hasOverride || (Number(r.other_deduction) || 0) > 0,
+            source: r.source || null,
+            has_override: hasOverride,
             override_updated_at: r.override_updated_at,
         };
     });

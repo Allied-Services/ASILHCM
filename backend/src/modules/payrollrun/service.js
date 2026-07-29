@@ -421,6 +421,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             if (ov.special_allowance != null) inputs.specialAllowance = Number(ov.special_allowance) || 0;
             if (ov.fuel_mobile != null) inputs.fuelMobile = Number(ov.fuel_mobile) || 0;
             if (ov.other_deduction != null) inputs.otherDeduction = Number(ov.other_deduction) || 0;
+            if (ov.leave_deduction != null) inputs.leaveDeduction = Number(ov.leave_deduction) || 0;
             if (ov.pf_deduction != null) inputs.pfDeduction = Number(ov.pf_deduction) || 0;
             if (ov.income_tax != null) inputs.wht = Number(ov.income_tax);
             if (ov.eobi_employee != null) inputs.eobiEmployee = Number(ov.eobi_employee);

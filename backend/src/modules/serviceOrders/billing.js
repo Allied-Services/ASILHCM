@@ -262,10 +262,14 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
     const invNo = await generateInvoiceNumber(pool, year, month);
 
     const lineItems = computed.lineItems.map(l => ({
+        lineId: l.lineId,
         description: `${l.description} — ${month}/${year}`,
+        name: l.description,
         amount: l.amount,
         quantity: l.quantity,
         rate: l.rate,
+        isManpowerDependent: !!l.isManpowerDependent,
+        roles: l.roles || [],
     }));
 
     const notesObj = {
@@ -283,6 +287,17 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
         net_receivable: computed.netReceivable,
         receivable_note: computed.receivableNote,
         tax_rate: computed.taxRate,
+        deductions: (computed.deductions || []).map(d => ({
+            id: d.id,
+            line_id: d.line_id,
+            type: d.type,
+            employee_id: d.employee_id,
+            employee_name: d.employee_name,
+            employee_designation: d.employee_designation,
+            days_absent: d.days_absent,
+            amount: Number(d.amount) || 0,
+            note: d.note,
+        })),
     };
 
     const { rows } = await pool.query(
@@ -354,6 +369,38 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
     const soById = await loadServiceOrdersByIds(pool, soId ? [soId] : []);
     const inv = enrichInvoiceRow(invoiceRow, soById);
     const notes = inv.notes || {};
+    const so = soId ? soById.get(soId) : null;
+
+    // Prefer live SO deductions (absence shortages) so reprints stay accurate after attendance re-apply.
+    let deductions = Array.isArray(notes.deductions) ? notes.deductions : [];
+    if (soId && inv.period_month && inv.period_year) {
+        try {
+            deductions = await listDeductions(pool, soId, inv.period_month, inv.period_year);
+        } catch (_) { /* keep stamped notes */ }
+    }
+
+    let lineItems = typeof inv.line_items === 'string'
+        ? (() => { try { return JSON.parse(inv.line_items); } catch { return []; } })()
+        : (inv.line_items || []);
+
+    // Attach SO line roles / ids when persisted invoice rows only stored amount/description.
+    if (so?.lines?.length) {
+        lineItems = lineItems.map((li, idx) => {
+            const match = so.lines.find((l) => l.id === li.lineId || l.id === li.line_id)
+                || so.lines[idx]
+                || null;
+            return {
+                ...li,
+                lineId: li.lineId || li.line_id || match?.id,
+                name: li.name || match?.name,
+                description: li.description || match?.name,
+                roles: li.roles || match?.roles || [],
+                isManpowerDependent: li.isManpowerDependent ?? match?.is_manpower_dependent,
+                soLineNumber: li.soLineNumber || match?.meta?.so_line || match?.so_line_number || (idx + 1),
+            };
+        });
+    }
+
     const payload = {
         invoiceNumber: inv.invoice_number,
         clientName: inv.client,
@@ -364,9 +411,8 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
         province: inv.province || notes.province,
         periodMonth: inv.period_month,
         periodYear: inv.period_year,
-        lineItems: typeof inv.line_items === 'string'
-            ? (() => { try { return JSON.parse(inv.line_items); } catch { return []; } })()
-            : (inv.line_items || []),
+        lineItems,
+        deductions,
         netTaxable: inv.subtotal,
         provincialSt: inv.sales_tax,
         grandTotal: inv.grand_total,
@@ -375,8 +421,12 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
         netReceivable: notes.net_receivable,
         taxRate: notes.tax_rate,
         gross: notes.gross,
-        totalDeductions: notes.total_deductions,
+        totalDeductions: notes.total_deductions != null
+            ? notes.total_deductions
+            : deductions.reduce((s, d) => s + Number(d.amount || 0), 0),
         poNumber: inv.po_number,
+        ntn: notes.ntn,
+        strn: notes.strn,
     };
     return renderInvoiceHtml({ computed: payload }, { format });
 }

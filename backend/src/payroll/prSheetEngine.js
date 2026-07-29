@@ -138,7 +138,10 @@ function computePrSheetRow(input, policy = {}) {
     const previousDues = Number(input.previousDues || input.previous_dues || 0);
     const specialAllowance = Number(input.specialAllowance || 0);
     const fuelMobile = Number(input.fuelMobile || 0);
-    const otherDeduction = Number(input.otherDeduction || 0);
+    const leaveDeduction = Number(input.leaveDeduction || 0);
+    // Deduction against Leaves + Other Deduction both reduce net pay
+    const otherDeductionRaw = Number(input.otherDeduction || 0);
+    const otherDeduction = otherDeductionRaw + leaveDeduction;
 
     const useModelA = input.modelA === true
         || input.presentDays != null
@@ -240,7 +243,9 @@ function computePrSheetRow(input, policy = {}) {
         otRate2x: rates.otRate2x,
         otRate3x: rates.otRate3x,
         arrears: Math.round(arrears),
-        otherDeduction: Math.round(otherDeduction),
+        leaveDeduction: Math.round(leaveDeduction),
+        otherDeduction: Math.round(otherDeductionRaw),
+        otherDeductionTotal: Math.round(otherDeduction),
         previousDues,
         modelA,
         paidDays,
