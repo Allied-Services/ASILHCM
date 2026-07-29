@@ -267,7 +267,8 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             : computeWorkingDays(year, month, holidayDateSet));
 
     const { rows: employees } = await pool.query(
-        `SELECT id, name, salary, doj, designation, spouse_name, child1_name, child2_name
+        `SELECT id, name, salary, doj, designation, site, location,
+                spouse_name, child1_name, child2_name
          FROM employees e
          WHERE (e.contract_id = $1 OR e.contract_name = $1)
            AND (e.active IS NULL OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
@@ -471,6 +472,10 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         rowPayloads.push({
             employee_id: emp.id,
             employee_name: emp.name,
+            designation: emp.designation || null,
+            site: emp.site || null,
+            location: emp.location || null,
+            basic_salary: Number(emp.salary || 0),
             paid_days: paidDays,
             working_days: effectiveWorkingDays,
             ot1_hours: ot1,
@@ -478,7 +483,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             ot3_hours: ot3,
             inputs,
             computed,
-            source: att.length ? 'attendance' : 'default',
+            source: att.length ? 'attendance' : (presentDaysForModelA != null ? 'monthly_override' : 'default'),
             claimsApplied: claimAgg.claimIds.length,
             claimIds: claimAgg.claimIds,
         });
@@ -532,12 +537,13 @@ async function getPayrollRuns(pool, { contractId, month, year } = {}) {
     if (!runs.length) return { runs: [], rows: [] };
     const run = runs[0];
     const { rows: runRows } = await pool.query(
-        `SELECT prr.*, e.name AS employee_name,
+        `SELECT prr.*, e.name AS employee_name, e.designation, e.site, e.location,
+                e.salary AS basic_salary,
                 (SELECT COUNT(*)::int FROM employee_claims ec
                  WHERE ec.payroll_run_id = $2 AND ec.employee_id = prr.employee_id AND ec.status = 'in_payroll_run') AS claims_applied
          FROM payroll_run_rows prr
          LEFT JOIN employees e ON e.id = prr.employee_id
-         WHERE prr.run_id = $1 ORDER BY e.name`,
+         WHERE prr.run_id = $1 ORDER BY e.site NULLS LAST, e.name`,
         [run.id, run.id]
     );
     return {
