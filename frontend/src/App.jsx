@@ -160,16 +160,23 @@ function App() {
 
   // Compute allowed tabs:
   // 1. SuperAdmin -> always ROLE_NAV.superadmin (keeps new tabs like fixed_value in sync)
-  // 2. User has saved custom permissions (from User Management panel) -> use those
+  // 2. User has saved custom permissions (from User Management panel) -> use those,
+  //    but union ROLE_NAV defaults for keys never saved (stale JSON omitting new modules)
   // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
     allowedTabs = ROLE_NAV.superadmin;
   } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
-    // Saved custom permissions: show all modules where access === true
-    allowedTabs = Object.entries(user.permissions)
+    const fromPerms = Object.entries(user.permissions)
       .filter(([, p]) => p && p.access === true)
       .map(([key]) => key);
+    const explicitKeys = new Set(Object.keys(user.permissions));
+    const roleDefaults = ROLE_NAV[role] || [];
+    const merged = new Set(fromPerms);
+    for (const key of roleDefaults) {
+      if (!explicitKeys.has(key)) merged.add(key);
+    }
+    allowedTabs = [...merged];
   } else {
     allowedTabs = ROLE_NAV[role] || [];
   }

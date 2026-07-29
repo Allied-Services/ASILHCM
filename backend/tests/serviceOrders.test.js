@@ -146,6 +146,37 @@ describe('serviceOrders — designation → SO line match', () => {
     test('unrelated designation still returns null', () => {
         expect(findLineForDesignation(tjLines, 'Astronaut')).toBeNull();
     });
+
+    test('Storekeeper aliases to Store Keeping services', () => {
+        const m = findLineForDesignation(tjLines, 'Storekeeper');
+        expect(m).not.toBeNull();
+        expect(m.roles.some(r => /store/i.test(r.designation))).toBe(true);
+    });
+
+    test('Lube Handling Services aliases to Lubricant Handling', () => {
+        // Sihala uses "Lubricant Handling services"; sheet often says "Lube Handling Services"
+        const sihala = require('../../scripts/seeds/pso_sites.json').find(s => s.id === 'SIHALA');
+        const sihLines = sihala.lineItems.map(l => ({
+            id: l.id,
+            is_manpower_dependent: !!l.isManpowerDependent,
+            rate: l.rate,
+            roles: l.roles || [],
+        }));
+        const m = findLineForDesignation(sihLines, 'Lube Handling Services');
+        expect(m).not.toBeNull();
+    });
+
+    test('M & R Support Services matches M&R Support after & normalize', () => {
+        const chak = require('../../scripts/seeds/pso_sites.json').find(s => s.id === 'CHAKPIRANA');
+        const chakLines = chak.lineItems.map(l => ({
+            id: l.id,
+            is_manpower_dependent: !!l.isManpowerDependent,
+            rate: l.rate,
+            roles: l.roles || [],
+        }));
+        const m = findLineForDesignation(chakLines, 'M & R Support Services');
+        expect(m).not.toBeNull();
+    });
 });
 
 describe('serviceOrders — excel parse', () => {

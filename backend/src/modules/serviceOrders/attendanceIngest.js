@@ -11,6 +11,7 @@ function normalizeDesignation(s) {
     return String(s || '')
         .trim()
         .toLowerCase()
+        .replace(/&/g, ' ')
         .replace(/[/_.,\-]+/g, ' ')
         .replace(/\b(services?|svc)\b/g, ' ')
         .replace(/\s+/g, ' ')
@@ -35,6 +36,18 @@ function designationMatchKeys(designation) {
         'filling pumproom': ['pump room', 'pumproom', 'filling pumproom', 'invoicing room'],
         'filling pumproom invoicing room': ['pump room', 'pumproom', 'filling pumproom', 'invoicing room'],
         'invoicing room': ['invoicing room', 'pump room', 'pumproom', 'filling pumproom'],
+        // Sheet vs SO wording drift
+        'lube handling': ['lube handling', 'lubricant handling'],
+        'lubricant handling': ['lube handling', 'lubricant handling'],
+        storekeeper: ['storekeeper', 'store keeping', 'store keeping services'],
+        'store keeping': ['storekeeper', 'store keeping'],
+        'general additional': ['general additional', 'additional general', 'additional', 'general'],
+        'additional general': ['general additional', 'additional general', 'additional', 'general'],
+        'general housekeeping': ['general housekeeping', 'sweeping cleaning', 'housekeeping'],
+        'sweeping cleaning': ['sweeping cleaning', 'general housekeeping', 'housekeeping'],
+        'mechanical technician': ['mechanical technician', 'fitter', 'm r support'],
+        fitter: ['fitter', 'mechanical technician', 'm r support'],
+        'm r support': ['m r support', 'fitter', 'mechanical technician'],
     };
 
     return ALIASES[key] || [key];

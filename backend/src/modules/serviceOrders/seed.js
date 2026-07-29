@@ -81,13 +81,16 @@ async function seedPsoNorthZone(pool, { actor } = {}) {
             await client.query(
                 `INSERT INTO contract_policies
                  (contract_id, billing_model, attendance_input_mode, income_tax_wht_pct, service_charge_pct,
-                  credit_days, effective_from, effective_to)
-                 VALUES ($1,'service_order_deduction','full_ledger',15,0,30,$2,$3)`,
+                  credit_days, bonus_accrual_months, gratuity_accrual_months, effective_from, effective_to)
+                 VALUES ($1,'service_order_deduction','full_ledger',15,0,30,0,12,$2,$3)`,
                 [PSO_CONTRACT_ID, CONTRACT_START, CONTRACT_END]
             );
         } else {
             await client.query(
-                `UPDATE contract_policies SET billing_model = 'service_order_deduction', income_tax_wht_pct = 15
+                `UPDATE contract_policies
+                 SET billing_model = 'service_order_deduction',
+                     income_tax_wht_pct = 15,
+                     bonus_accrual_months = 0
                  WHERE contract_id = $1`,
                 [PSO_CONTRACT_ID]
             );

@@ -141,10 +141,15 @@ function computePrSheetRow(input, policy = {}) {
     const totalDeductions = wht + pfDeduction + eobi.employeeShare + Math.round(otherDeduction);
     const netPay = Math.round(gross - whtForNet - pfForNet - eobi.employeeShare - otherDeduction);
 
-    const bonusMonths = policy.bonus_accrual_months || 12;
-    const gratuityMonths = policy.gratuity_accrual_months || 12;
-    const bonusAccrual = Math.round(salary / bonusMonths);
-    const gratuityAccrual = Math.round(salary / gratuityMonths);
+    // Treat explicit 0 as "disabled" (|| would incorrectly fall through to 12).
+    const bonusMonths = policy.bonus_accrual_months != null
+        ? Number(policy.bonus_accrual_months)
+        : 12;
+    const gratuityMonths = policy.gratuity_accrual_months != null
+        ? Number(policy.gratuity_accrual_months)
+        : 12;
+    const bonusAccrual = bonusMonths > 0 ? Math.round(salary / bonusMonths) : 0;
+    const gratuityAccrual = gratuityMonths > 0 ? Math.round(salary / gratuityMonths) : 0;
     const eobiEr = eobi.employerShare;
     const lifeInsurance = Number(input.lifeInsurance || 150);
     const medicalCoverage = Number(input.medicalCoverage || 0);

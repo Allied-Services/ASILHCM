@@ -320,6 +320,17 @@ describe('Pillar 7 — Pakistan tax deductions', () => {
         expect(row.totalPayrollCost).toBe(withoutMed.totalPayrollCost);
     });
 
+    test('bonus_accrual_months 0 disables bonus (does not fall through to 12)', () => {
+        const row = computePrSheetRow({
+            newSalary: 48000,
+            paidDays: 30,
+            workingDays: 30,
+            lifeInsurance: 150,
+        }, { ...POLICY, bonus_accrual_months: 0 });
+        expect(row.bonusAccrual).toBe(0);
+        expect(row.lifeInsurance).toBe(150);
+    });
+
     test('engine WHT matches taxEngine with OPD/expense exclusions', () => {
         const row = computePrSheetRow({
             newSalary: 100000,
