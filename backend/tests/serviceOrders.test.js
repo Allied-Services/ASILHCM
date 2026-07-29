@@ -93,6 +93,13 @@ describe('serviceOrders — drive file match', () => {
         expect(matchFileToSite('Chakpirana Depot.xlsx', 'CHAKPIRANA')).toBe(true);
         expect(matchFileToSite('Random.xlsx', 'KOHAT')).toBe(false);
     });
+
+    test('does not cross-match on generic DEPOT/INSTALLATION tokens', () => {
+        expect(matchFileToSite('Sihala_Installation_Attendance_Master.xlsx', 'MORGAH')).toBe(false);
+        expect(matchFileToSite('Tarru_Jabba_Depot_Attendance_Master.xlsx', 'CHAKPIRANA')).toBe(false);
+        expect(matchFileToSite('Morgah_Installation_Attendance_Master.xlsx', 'SIHALA')).toBe(false);
+        expect(matchFileToSite('Chakpirana_Depot_Attendance_Master.xlsx', 'TARUJABBA')).toBe(false);
+    });
 });
 
 describe('serviceOrders — designation → SO line match', () => {

@@ -37,27 +37,52 @@ function normalizeToken(s) {
     return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
-function matchFileToSite(fileName, siteCode) {
+/** Site-specific filename tokens. Never use generic words (DEPOT, INST) — they collide across files. */
+const SITE_FILE_ALIASES = {
+    MORGAH: ['MORGAH'],
+    CHAKPIRANA: ['CHAKPIRANA', 'CHAKPIR'],
+    SIHALA: ['SIHALA'],
+    FAQIRABAD: ['FAQIRABAD', 'FAQIR'],
+    JUGLOT: ['JUGLOT'],
+    CHITRAL: ['CHITRAL'],
+    TARUJABBA: ['TARUJABBA', 'TARRUJABBA', 'TARRU', 'JABBA'],
+    SERAINOURANG: ['SERAINOURANG', 'SERAINAURANG', 'NAURANG', 'SERAI'],
+    KOHAT: ['KOHAT'],
+    KUNDIAN: ['KUNDIAN'],
+    DGM_OPS: ['DGMOPS', 'DGM'],
+    PR_FUELING: ['PRFUELING', 'PRFUEL', 'FUELING'],
+};
+
+/** Longer token wins so CHAKPIRANA beats CHAKPIR, etc. */
+function scoreFileForSite(fileName, siteCode) {
     const name = normalizeToken(fileName);
     const site = normalizeToken(siteCode);
-    if (!name || !site) return false;
-    if (name.includes(site)) return true;
-    const aliases = {
-        MORGAH: ['MORGAH', 'INST'],
-        CHAKPIRANA: ['CHAKPIRANA', 'CHAKPIR', 'DEPOT'],
-        SIHALA: ['SIHALA'],
-        FAQIRABAD: ['FAQIRABAD', 'FAQIR'],
-        JUGLOT: ['JUGLOT'],
-        CHITRAL: ['CHITRAL'],
-        TARUJABBA: ['TARUJABBA', 'TARRUJABBA', 'TARRU', 'TARU', 'JABBA'],
-        SERAINOURANG: ['SERAINOURANG', 'SERAINAURANG', 'NAURANG', 'SERAI'],
-        KOHAT: ['KOHAT'],
-        KUNDIAN: ['KUNDIAN'],
-        DGM_OPS: ['DGM', 'DGMOps'],
-        PR_FUELING: ['PRFUEL', 'FUELING', 'PRFUELING'],
-    };
-    const tokens = aliases[siteCode] || [siteCode];
-    return tokens.some(t => name.includes(normalizeToken(t)));
+    if (!name || !site) return 0;
+    const tokens = SITE_FILE_ALIASES[siteCode] || [siteCode];
+    let best = 0;
+    for (const raw of tokens) {
+        const t = normalizeToken(raw);
+        if (t && name.includes(t) && t.length > best) best = t.length;
+    }
+    if (name.includes(site) && site.length > best) best = site.length;
+    return best;
+}
+
+function matchFileToSite(fileName, siteCode) {
+    return scoreFileForSite(fileName, siteCode) > 0;
+}
+
+function pickBestFileForSite(files, siteCode) {
+    let best = null;
+    let bestScore = 0;
+    for (const f of files || []) {
+        const score = scoreFileForSite(f.name, siteCode);
+        if (score > bestScore) {
+            bestScore = score;
+            best = f;
+        }
+    }
+    return best;
 }
 
 async function listDriveAttendanceFiles(folderId = DEFAULT_FOLDER_ID) {
@@ -87,7 +112,7 @@ async function pullAttendanceForSite({ siteCode, month, year, folderId } = {}) {
     const listing = await listDriveAttendanceFiles(folderId);
     if (!listing.ok) return { ok: false, code: listing.code, matched: null, parse: null };
 
-    const matched = (listing.files || []).find(f => matchFileToSite(f.name, siteCode));
+    const matched = pickBestFileForSite(listing.files || [], siteCode);
     if (!matched) {
         return {
             ok: false,
@@ -109,7 +134,10 @@ async function pullAttendanceForSite({ siteCode, month, year, folderId } = {}) {
 module.exports = {
     DEFAULT_FOLDER_ID,
     createDriveClient,
+    SITE_FILE_ALIASES,
+    scoreFileForSite,
     matchFileToSite,
+    pickBestFileForSite,
     listDriveAttendanceFiles,
     downloadDriveFile,
     pullAttendanceForSite,
