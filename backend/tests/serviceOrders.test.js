@@ -13,6 +13,7 @@ const {
     parseConservancyWorkbook,
 } = require('../src/modules/serviceOrders/attendanceParse');
 const { matchFileToSite } = require('../src/modules/serviceOrders/driveAttendance');
+const { findLineForDesignation } = require('../src/modules/serviceOrders/attendanceIngest');
 const { renderInvoiceHtml } = require('../src/modules/serviceOrders/invoiceHtml');
 const { composeFocalEmail, monthYearLabel } = require('../src/modules/serviceOrders/service');
 const { ST_WITHHOLDING_RATE } = require('../src/modules/serviceOrders/billing');
@@ -91,6 +92,52 @@ describe('serviceOrders — drive file match', () => {
         expect(matchFileToSite('Serai_Naurang_Depot_Attendance_Master.xlsx', 'SERAINOURANG')).toBe(true);
         expect(matchFileToSite('Chakpirana Depot.xlsx', 'CHAKPIRANA')).toBe(true);
         expect(matchFileToSite('Random.xlsx', 'KOHAT')).toBe(false);
+    });
+});
+
+describe('serviceOrders — designation → SO line match', () => {
+    const sites = JSON.parse(fs.readFileSync(path.join(__dirname, '../../scripts/seeds/pso_sites.json'), 'utf8'));
+    const tarujabba = sites.find(s => s.id === 'TARUJABBA');
+    const faqirabad = sites.find(s => s.id === 'FAQIRABAD');
+    const tjLines = tarujabba.lineItems.map(l => ({
+        id: l.id,
+        is_manpower_dependent: !!l.isManpowerDependent,
+        rate: l.rate,
+        roles: l.roles || [],
+    }));
+    const faqLines = faqirabad.lineItems.map(l => ({
+        id: l.id,
+        is_manpower_dependent: !!l.isManpowerDependent,
+        rate: l.rate,
+        roles: l.roles || [],
+    }));
+
+    test('Laboratory / Lab Services fuzzy-match Tarujabba line 1', () => {
+        for (const des of ['Laboratory', 'Laboratory Services', 'Lab Services', 'Lab']) {
+            const m = findLineForDesignation(tjLines, des);
+            expect(m).not.toBeNull();
+            expect(m.line.id).toBe('tj-item-1');
+            expect(m.roles.some(r => /lab/i.test(r.designation))).toBe(true);
+        }
+    });
+
+    test('Pump Room aliases to Tarujabba Invoicing Room (no dedicated pumproom role)', () => {
+        for (const des of ['Pump Room', 'Pump Room Services']) {
+            const m = findLineForDesignation(tjLines, des);
+            expect(m).not.toBeNull();
+            expect(m.line.id).toBe('tj-item-1');
+        }
+    });
+
+    test('Pump Room matches Faqirabad Filling Pumproom / Invoicing Room', () => {
+        const m = findLineForDesignation(faqLines, 'Pump Room');
+        expect(m).not.toBeNull();
+        expect(m.line.id).toBe('faq-item-1');
+        expect(m.roles.some(r => /pumproom|invoicing/i.test(r.designation))).toBe(true);
+    });
+
+    test('unrelated designation still returns null', () => {
+        expect(findLineForDesignation(tjLines, 'Astronaut')).toBeNull();
     });
 });
 
