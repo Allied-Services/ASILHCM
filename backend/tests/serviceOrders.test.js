@@ -16,7 +16,12 @@ const { matchFileToSite } = require('../src/modules/serviceOrders/driveAttendanc
 const { findLineForDesignation } = require('../src/modules/serviceOrders/attendanceIngest');
 const { renderInvoiceHtml } = require('../src/modules/serviceOrders/invoiceHtml');
 const { composeFocalEmail, monthYearLabel } = require('../src/modules/serviceOrders/service');
-const { ST_WITHHOLDING_RATE } = require('../src/modules/serviceOrders/billing');
+const {
+    ST_WITHHOLDING_RATE,
+    enrichInvoiceRow,
+    resourcesFromLines,
+    parseInvoiceNotes,
+} = require('../src/modules/serviceOrders/billing');
 const fs = require('fs');
 const path = require('path');
 
@@ -58,13 +63,63 @@ describe('serviceOrders — Tarujabba grand total', () => {
                 incomeWht,
                 stWithholding: Math.round(pst * ST_WITHHOLDING_RATE),
                 taxRate: 0.15,
+                siteName: 'Tarujabba Depot',
+                siteCode: 'TARUJABBA',
+                resources: 12,
+                province: 'KPK',
                 lineItems: [{ description: 'Services', quantity: 1, rate: net, amount: net }],
             },
         });
         expect(html).toContain('2,479,745');
         expect(html).toContain('Stamped Grand Total');
         expect(html).toContain('Income Tax WHT');
+        expect(html).toContain('Tarujabba Depot');
+        expect(html).toContain('Resources (billed manpower):</strong> 12');
         expect(html).not.toMatch(/Stamped Grand Total[\s\S]*2,156,300/);
+    });
+});
+
+describe('serviceOrders — registry invoice metadata', () => {
+    test('parseInvoiceNotes handles TEXT JSON from client_invoices', () => {
+        const notes = parseInvoiceNotes('{"site_code":"TARUJABBA","service_order_id":"SO-PSO-TARUJABBA"}');
+        expect(notes.site_code).toBe('TARUJABBA');
+        expect(notes.service_order_id).toBe('SO-PSO-TARUJABBA');
+    });
+
+    test('resourcesFromLines sums manpower role counts only', () => {
+        const n = resourcesFromLines([
+            { is_manpower_dependent: true, roles: [{ count: 4 }, { count: 2 }] },
+            { is_manpower_dependent: false, roles: [{ count: 99 }] },
+            { isManpowerDependent: true, roles: [{ count: 1 }] },
+        ]);
+        expect(n).toBe(7);
+    });
+
+    test('enrichInvoiceRow backfills site_name/resources from service order', () => {
+        const soById = new Map([['SO-PSO-TARUJABBA', {
+            id: 'SO-PSO-TARUJABBA',
+            site_code: 'TARUJABBA',
+            name: 'Tarujabba Depot',
+            lines: [
+                { is_manpower_dependent: true, roles: [{ count: 8 }, { count: 4 }] },
+                { is_manpower_dependent: false, roles: [{ count: 1 }] },
+            ],
+        }]]);
+        const row = enrichInvoiceRow({
+            id: 1,
+            invoice_number: 'INV-JUL26-0001',
+            grand_total: 100,
+            notes: JSON.stringify({
+                source: 'fixed_value_service_order',
+                service_order_id: 'SO-PSO-TARUJABBA',
+                site_code: 'TARUJABBA',
+            }),
+        }, soById);
+        expect(row.site_name).toBe('Tarujabba Depot');
+        expect(row.site_code).toBe('TARUJABBA');
+        expect(row.resources).toBe(12);
+        expect(row.notes.site_name).toBe('Tarujabba Depot');
+        expect(row.province).toBe('KPK');
     });
 });
 

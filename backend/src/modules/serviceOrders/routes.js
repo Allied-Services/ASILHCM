@@ -99,7 +99,7 @@ function registerServiceOrderRoutes(app, deps) {
             }
             const { rows } = await pool.query(`SELECT * FROM client_invoices WHERE id = $1`, [invId]);
             if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
-            const html = printInvoiceHtml(rows[0], format);
+            const html = await printInvoiceHtml(pool, rows[0], format);
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
             res.send(html);
         } catch (err) {

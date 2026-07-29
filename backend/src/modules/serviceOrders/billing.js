@@ -4,13 +4,93 @@ const { getPolicy } = require('../constraints/service');
 const { provinceSalesTaxRate } = require('../../core/regionTax');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { getServiceOrder } = require('./crud');
-const { siteProvince } = require('./sitesMeta');
+const { siteProvince, roleCount } = require('./sitesMeta');
 const { renderInvoiceHtml } = require('./invoiceHtml');
 
 const ST_WITHHOLDING_RATE = 0.20;
 
 function round2(n) {
     return Math.round(Number(n || 0) * 100) / 100;
+}
+
+/** client_invoices.notes is TEXT — always parse before reading fields. */
+function parseInvoiceNotes(notes) {
+    if (!notes) return {};
+    if (typeof notes === 'object') return notes;
+    try {
+        return JSON.parse(notes);
+    } catch {
+        return {};
+    }
+}
+
+/** Billed manpower = sum of role counts on manpower-dependent SO lines. */
+function resourcesFromLines(lines) {
+    let n = 0;
+    for (const l of lines || []) {
+        if (!(l.is_manpower_dependent || l.isManpowerDependent)) continue;
+        n += roleCount(l.roles);
+    }
+    return n;
+}
+
+function siteCodeFromSoId(soId) {
+    const m = String(soId || '').match(/^SO-PSO-(.+)$/i);
+    return m ? m[1].toUpperCase() : null;
+}
+
+function enrichInvoiceRow(row, soById = new Map()) {
+    const notes = parseInvoiceNotes(row.notes);
+    const soId = notes.service_order_id || notes.serviceOrderId || null;
+    const so = soId ? soById.get(soId) : null;
+
+    let siteCode = notes.site_code || notes.siteCode || so?.site_code || siteCodeFromSoId(soId) || null;
+    let siteName = notes.site_name || notes.siteName || so?.name || null;
+    let siteId = notes.site_id || notes.siteId || siteCode || so?.site_code || null;
+    let resources = notes.resources != null ? Number(notes.resources)
+        : (notes.headcount != null ? Number(notes.headcount) : null);
+    if (resources == null && so) resources = resourcesFromLines(so.lines);
+    let province = notes.province || (siteCode ? siteProvince(siteCode) : null) || null;
+
+    const enrichedNotes = {
+        ...notes,
+        service_order_id: soId || notes.service_order_id || null,
+        site_id: siteId,
+        site_code: siteCode,
+        site_name: siteName,
+        resources,
+        province,
+        gross: notes.gross != null ? Number(notes.gross) : notes.gross,
+        total_deductions: notes.total_deductions != null ? Number(notes.total_deductions) : notes.total_deductions,
+        tax_rate: notes.tax_rate != null ? Number(notes.tax_rate) : notes.tax_rate,
+        st_withholding: notes.st_withholding != null ? Number(notes.st_withholding) : notes.st_withholding,
+        net_receivable: notes.net_receivable != null ? Number(notes.net_receivable) : notes.net_receivable,
+    };
+
+    return {
+        ...row,
+        notes: enrichedNotes,
+        site_id: siteId,
+        site_code: siteCode,
+        site_name: siteName,
+        resources,
+        province,
+        service_order_id: soId,
+    };
+}
+
+async function loadServiceOrdersByIds(pool, ids) {
+    const unique = [...new Set((ids || []).filter(Boolean))];
+    if (!unique.length) return new Map();
+    const { rows } = await pool.query(
+        `SELECT so.id, so.site_code, so.name,
+                (SELECT COALESCE(json_agg(l ORDER BY l.id), '[]'::json)
+                 FROM service_order_lines l WHERE l.service_order_id = so.id) AS lines
+         FROM service_orders so
+         WHERE so.id = ANY($1::text[])`,
+        [unique]
+    );
+    return new Map(rows.map((r) => [r.id, r]));
 }
 
 async function listDeductions(pool, serviceOrderId, month, year) {
@@ -128,15 +208,19 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year }) {
     const incomeWht = round2(netTaxable * whtPct);
     const stWithholding = round2(provincialSt * ST_WITHHOLDING_RATE);
     const netReceivable = round2(grandTotal - incomeWht - stWithholding);
+    const resources = resourcesFromLines(lines);
+    const province = siteProvince(so.site_code) || contract.region_province || null;
 
     return {
         serviceOrderId,
+        siteId: so.site_code || so.id,
         siteCode: so.site_code,
         siteName: so.name,
+        resources,
         contractId: contract.id,
         contractName: contract.contract_name,
         clientName: contract.client_name,
-        province: siteProvince(so.site_code),
+        province,
         periodMonth: month,
         periodYear: year,
         lineItems: grossLines,
@@ -187,7 +271,11 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
     const notesObj = {
         source: 'fixed_value_service_order',
         service_order_id: serviceOrderId,
+        site_id: computed.siteId || computed.siteCode,
         site_code: computed.siteCode,
+        site_name: computed.siteName,
+        resources: computed.resources,
+        province: computed.province,
         gross: computed.gross,
         total_deductions: computed.totalDeductions,
         income_wht: computed.incomeWht,
@@ -244,6 +332,9 @@ async function listRegistry(pool, { contractId, month, year, siteCode } = {}) {
     if (siteCode) {
         params.push(`%"site_code":"${siteCode}"%`);
         where.push(`ci.notes ILIKE $${params.length}`);
+        // Also match SO id pattern when older stamps omitted site_code
+        params.push(`%"service_order_id":"SO-PSO-${siteCode}"%`);
+        where[where.length - 1] = `(${where[where.length - 1]} OR ci.notes ILIKE $${params.length})`;
     }
     const { rows } = await pool.query(
         `SELECT ci.* FROM client_invoices ci
@@ -251,31 +342,41 @@ async function listRegistry(pool, { contractId, month, year, siteCode } = {}) {
          ORDER BY ci.period_year DESC, ci.period_month DESC, ci.id DESC`,
         params
     );
-    return rows;
+
+    // Backfill site_name / resources from service_orders when July stamps only stored SO id / site_code.
+    const soIds = rows.map((r) => parseInvoiceNotes(r.notes).service_order_id).filter(Boolean);
+    const soById = await loadServiceOrdersByIds(pool, soIds);
+    return rows.map((r) => enrichInvoiceRow(r, soById));
 }
 
-function printInvoiceHtml(invoiceRow, format) {
-    let notes = {};
-    try {
-        notes = typeof invoiceRow.notes === 'string' ? JSON.parse(invoiceRow.notes) : (invoiceRow.notes || {});
-    } catch { notes = {}; }
+async function printInvoiceHtml(pool, invoiceRow, format) {
+    const soId = parseInvoiceNotes(invoiceRow.notes).service_order_id;
+    const soById = await loadServiceOrdersByIds(pool, soId ? [soId] : []);
+    const inv = enrichInvoiceRow(invoiceRow, soById);
+    const notes = inv.notes || {};
     const payload = {
-        invoiceNumber: invoiceRow.invoice_number,
-        clientName: invoiceRow.client,
-        contractName: invoiceRow.contract,
-        siteCode: notes.site_code,
-        siteName: notes.site_code,
-        periodMonth: invoiceRow.period_month,
-        periodYear: invoiceRow.period_year,
-        lineItems: invoiceRow.line_items,
-        netTaxable: invoiceRow.subtotal,
-        provincialSt: invoiceRow.sales_tax,
-        grandTotal: invoiceRow.grand_total,
-        incomeWht: invoiceRow.wht,
+        invoiceNumber: inv.invoice_number,
+        clientName: inv.client,
+        contractName: inv.contract,
+        siteCode: inv.site_code || notes.site_code,
+        siteName: inv.site_name || notes.site_name,
+        resources: inv.resources != null ? inv.resources : notes.resources,
+        province: inv.province || notes.province,
+        periodMonth: inv.period_month,
+        periodYear: inv.period_year,
+        lineItems: typeof inv.line_items === 'string'
+            ? (() => { try { return JSON.parse(inv.line_items); } catch { return []; } })()
+            : (inv.line_items || []),
+        netTaxable: inv.subtotal,
+        provincialSt: inv.sales_tax,
+        grandTotal: inv.grand_total,
+        incomeWht: inv.wht,
         stWithholding: notes.st_withholding,
         netReceivable: notes.net_receivable,
         taxRate: notes.tax_rate,
-        poNumber: invoiceRow.po_number,
+        gross: notes.gross,
+        totalDeductions: notes.total_deductions,
+        poNumber: inv.po_number,
     };
     return renderInvoiceHtml({ computed: payload }, { format });
 }
@@ -289,4 +390,7 @@ module.exports = {
     listRegistry,
     printInvoiceHtml,
     resolveTaxRate,
+    parseInvoiceNotes,
+    resourcesFromLines,
+    enrichInvoiceRow,
 };

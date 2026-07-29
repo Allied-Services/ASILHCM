@@ -679,7 +679,10 @@ export default function FixedValueContracts({ user }) {
                                 <tbody>
                                     {invoicePack.sites.map(s => (
                                         <tr key={s.siteCode || s.serviceOrderId}>
-                                            <td>{s.siteCode}</td>
+                                            <td>
+                                                {s.siteName || s.siteCode || '—'}
+                                                {s.resources != null ? ` · ${s.resources} res` : ''}
+                                            </td>
                                             <td>{s.province || '—'}</td>
                                             <td className="num">{fmt(s.gross)}</td>
                                             <td className="num">{fmt(s.totalDeductions)}</td>
@@ -697,23 +700,37 @@ export default function FixedValueContracts({ user }) {
                     <h4 style={{ margin: 0 }}>Registry <Database size={14} style={{ verticalAlign: -2 }} /></h4>
                     <div className="fv-table-wrap">
                         <table className="fv-table">
-                            <thead><tr><th>Invoice #</th><th>Site</th><th className="num">Grand</th><th>Print</th></tr></thead>
+                            <thead>
+                                <tr>
+                                    <th>Invoice #</th>
+                                    <th>Site</th>
+                                    <th className="num">Resources</th>
+                                    <th className="num">Grand</th>
+                                    <th>Print</th>
+                                </tr>
+                            </thead>
                             <tbody>
                                 {registry.length === 0 ? (
-                                    <tr><td colSpan={4} style={{ color: 'var(--text-muted)' }}>No stamped invoices for this period yet.</td></tr>
-                                ) : registry.map(inv => (
-                                    <tr key={inv.id}>
-                                        <td>{inv.invoice_number}</td>
-                                        <td>{inv.notes?.site_code || inv.site_code || '—'}</td>
-                                        <td className="num">{fmt(inv.grand_total)}</td>
-                                        <td>
-                                            {PRINT_FORMATS.map(f => (
-                                                <button key={f.key} type="button" className="btn-secondary" style={{ marginRight: 4, padding: '2px 6px', fontSize: '0.7rem' }}
-                                                    onClick={() => api.openFixedValueInvoicePrint(inv.id, f.key)}>{f.label}</button>
-                                            ))}
-                                        </td>
-                                    </tr>
-                                ))}
+                                    <tr><td colSpan={5} style={{ color: 'var(--text-muted)' }}>No stamped invoices for this period yet.</td></tr>
+                                ) : registry.map(inv => {
+                                    const notes = inv.notes && typeof inv.notes === 'object' ? inv.notes : null;
+                                    const siteLabel = inv.site_name || notes?.site_name || inv.site_code || notes?.site_code || '—';
+                                    const resources = inv.resources ?? notes?.resources;
+                                    return (
+                                        <tr key={inv.id}>
+                                            <td>{inv.invoice_number}</td>
+                                            <td title={inv.site_code || notes?.site_code || ''}>{siteLabel}</td>
+                                            <td className="num">{resources != null ? resources : '—'}</td>
+                                            <td className="num">{fmt(inv.grand_total)}</td>
+                                            <td>
+                                                {PRINT_FORMATS.map(f => (
+                                                    <button key={f.key} type="button" className="btn-secondary" style={{ marginRight: 4, padding: '2px 6px', fontSize: '0.7rem' }}
+                                                        onClick={() => api.openFixedValueInvoicePrint(inv.id, f.key)}>{f.label}</button>
+                                                ))}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

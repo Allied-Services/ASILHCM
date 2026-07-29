@@ -71,11 +71,13 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
         <div><strong>Invoice #:</strong> ${data.invoiceNumber || 'DRAFT'}</div>
         <div><strong>Client:</strong> ${data.clientName || ''}</div>
         <div><strong>Contract:</strong> ${data.contractName || ''}</div>
-        <div><strong>Site:</strong> ${data.siteName || data.siteCode || ''}</div>
+        <div><strong>Site:</strong> ${data.siteName || data.siteCode || '—'}${data.siteCode && data.siteName && data.siteName !== data.siteCode ? ` (${data.siteCode})` : ''}</div>
+        ${data.resources != null && data.resources !== '' ? `<div><strong>Resources (billed manpower):</strong> ${data.resources}</div>` : ''}
       </div>
       <div style="text-align:right">
         <div><strong>Period:</strong> ${data.periodMonth}/${data.periodYear}</div>
-        <div><strong>Province:</strong> ${data.province || ''}</div>
+        <div><strong>Province:</strong> ${data.province || '—'}</div>
+        ${data.taxRate != null && data.taxRate !== '' ? `<div><strong>ST rate:</strong> ${((Number(data.taxRate) || 0) * 100).toFixed(0)}%</div>` : ''}
         ${data.poNumber ? `<div><strong>PO:</strong> ${data.poNumber}</div>` : ''}
       </div>
     </div>
