@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail, Inbox, Wrench, Briefcase, ClipboardList, CheckSquare, TrendingUp } from 'lucide-react';
+import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail, Inbox, Wrench, Briefcase, ClipboardList, CheckSquare, TrendingUp, MapPin } from 'lucide-react';
 import EmailClaimsListener from './EmailClaimsListener';
 import WafiClaimsDashboard from './WafiClaimsDashboard';
 import Dashboard from './Dashboard';
 import AnnexureDashboard from './AnnexureDashboard';
-import MockOCR from './MockOCR';
 import EmployeeInformation from './EmployeeInformation';
 import ClientInformation from './ClientInformation';
 import VendorMaster from './VendorMaster';
@@ -34,29 +33,32 @@ import ComplianceLedger from './features/compliance/ComplianceLedger';
 import PayrollRun from './features/payroll/PayrollRun';
 import ARDashboard from './features/ar/ARDashboard';
 import AuditLogViewer from './features/audit/AuditLogViewer';
+import FixedValueContracts from './features/fixedValue/FixedValueContracts';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+/** Hard ceiling for JWT bootstrap — never leave the loading spinner past this. */
+const AUTH_BOOTSTRAP_MS = 14000;
 
 // ── Role-based nav access ─────────────────────────────────────────────────────
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','bill_verification','compliance','ar'],
+    superadmin:           ['dashboard','employee','payroll','payroll_run','fixed_value','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','bill_verification','compliance','ar'],
     supervisor:           ['attendance','maintenance'],
-    operations:           ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
-    operations_supervisor:['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
-    operations_team:      ['employee','documents','client','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops'],
+    operations:           ['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
+    operations_supervisor:['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops','bizdev'],
+    operations_team:      ['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_queue','claims_portal','contract_ops'],
     procurement_proposer: ['billing','vendor','inventory','bill_verification','ap'],
     procurement_approver: ['billing','vendor','inventory','bill_verification'],
     procurement_manager:  ['billing','vendor','inventory','ap','maintenance','bill_verification'],
     procurement:          ['billing','vendor','inventory','ap','bill_verification'],
-    finance_proposer:     ['billing','invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
-    finance_approver:     ['payroll','payroll_run','billing','invoices','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal','contract_ops','compliance','bizdev','ar'],
-    finance_manager:      ['payroll','payroll_run','billing','invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','compliance','ar'],
-    ap_team:              ['ap','billing'],
-    ar_team:              ['invoices','po_tracking','billing','compliance'],
-    payroll_initiator:    ['payroll','payroll_run','employee','claims_queue','claims_portal'],
-    payroll:              ['payroll','payroll_run','employee','claims_queue','claims_portal'],
+    finance_proposer:     ['billing','invoices','fixed_value','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
+    finance_approver:     ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal','contract_ops','compliance','bizdev','ar'],
+    finance_manager:      ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','compliance','ar'],
+    ap_team:              ['ap','billing','payroll_run','fixed_value'],
+    ar_team:              ['invoices','fixed_value','po_tracking','billing','compliance'],
+    payroll_initiator:    ['payroll','payroll_run','fixed_value','employee','claims_queue','claims_portal'],
+    payroll:              ['payroll','payroll_run','fixed_value','employee','claims_queue','claims_portal'],
     bizdev:               ['bizdev','client','contract_ops'],
     pending:              [],
 };
@@ -108,30 +110,94 @@ function App() {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState(null);
+  const [authSlow, setAuthSlow] = useState(false);
+  const isStagingHost = /staging/i.test(API || '')
+    || (typeof window !== 'undefined' && /staging/i.test(window.location.hostname));
 
   useEffect(() => {
     // Magic-link / public portals must not treat ?token= as staff Google JWT
     if (isPublicMagicPath(window.location.pathname, window.location.search)) {
       setAuthReady(true);
-      return;
+      return undefined;
     }
 
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
     const urlError = params.get('error');
 
-    if (urlError) { setAuthError(urlError); setAuthReady(true); window.history.replaceState({}, '', '/'); return; }
+    if (urlError) { setAuthError(urlError); setAuthReady(true); window.history.replaceState({}, '', '/'); return undefined; }
 
     if (urlToken) { localStorage.setItem('asil_hcm_token', urlToken); window.history.replaceState({}, '', '/'); }
 
     const token = urlToken || localStorage.getItem('asil_hcm_token');
-    if (!token) { setAuthReady(true); return; }
+    if (!token) { setAuthReady(true); return undefined; }
 
-    fetch(`${API}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => { setUser(data.user); setAuthReady(true); })
-      .catch(() => { localStorage.removeItem('asil_hcm_token'); setAuthReady(true); });
+    let cancelled = false;
+    const controller = new AbortController();
+    const hardTimer = setTimeout(() => controller.abort(), AUTH_BOOTSTRAP_MS);
+
+    const finish = (nextUser, nextError) => {
+      if (cancelled) return;
+      if (nextUser) setUser(nextUser);
+      if (nextError) setAuthError(nextError);
+      setAuthSlow(false);
+      setAuthReady(true);
+    };
+
+    const fetchMe = () => fetch(`${API}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+
+    (async () => {
+      try {
+        const r = await fetchMe();
+        if (r.ok) {
+          const data = await r.json();
+          finish(data.user, null);
+          return;
+        }
+        // Invalid/expired JWT — clear and show login (no slow-wake message)
+        localStorage.removeItem('asil_hcm_token');
+        finish(null, null);
+        return;
+      } catch {
+        // Timeout or network — probe /health once (helps wake Render), then retry /auth/me if time remains
+      }
+
+      if (cancelled || controller.signal.aborted) {
+        finish(null, 'server_slow');
+        return;
+      }
+
+      try {
+        await fetch(`${API}/health`, { signal: controller.signal });
+        const r2 = await fetchMe();
+        if (r2.ok) {
+          const data = await r2.json();
+          finish(data.user, null);
+          return;
+        }
+        localStorage.removeItem('asil_hcm_token');
+        finish(null, null);
+      } catch {
+        // Keep JWT so a later refresh can succeed once the dyno is awake
+        finish(null, 'server_slow');
+      }
+    })().finally(() => clearTimeout(hardTimer));
+
+    return () => {
+      cancelled = true;
+      clearTimeout(hardTimer);
+      controller.abort();
+    };
   }, []);
+
+  useEffect(() => {
+    if (authReady) { setAuthSlow(false); return undefined; }
+    const t = setTimeout(() => setAuthSlow(true), 4000);
+    return () => clearTimeout(t);
+  }, [authReady]);
 
   if (portalPath) return <EmployeePortal />;
   if (claimsFillPath) return <ClaimsFillPage />;
@@ -144,9 +210,16 @@ function App() {
   if (!authReady) {
     return (
       <div style={{ minHeight: '100vh', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: '#94a3b8', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '20px', height: '20px', border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-          Loading ASIL HCM…
+        <div style={{ color: '#94a3b8', fontSize: '0.9rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', maxWidth: 420, textAlign: 'center', padding: '0 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ width: '20px', height: '20px', border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            Loading ASIL HCM…
+          </div>
+          {authSlow && isStagingHost && (
+            <div style={{ color: '#cbd5e1', fontSize: '0.85rem', lineHeight: 1.45 }}>
+              Staging server waking up (Render free tier) — usually 1–2 minutes…
+            </div>
+          )}
         </div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
@@ -159,17 +232,24 @@ function App() {
   const roleBadge = ROLE_BADGE[role] || ROLE_BADGE.pending;
 
   // Compute allowed tabs:
-  // 1. SuperAdmin -> always full access (no custom perms can restrict this)
-  // 2. User has saved custom permissions (from User Management panel) -> use those
+  // 1. SuperAdmin -> always ROLE_NAV.superadmin (keeps new tabs like fixed_value in sync)
+  // 2. User has saved custom permissions (from User Management panel) -> use those,
+  //    but union ROLE_NAV defaults for keys never saved (stale JSON omitting new modules)
   // 3. Fallback -> role-based ROLE_NAV defaults
   let allowedTabs;
   if (role === 'superadmin') {
-    allowedTabs = ['dashboard','employee','payroll','payroll_run','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','contract_ops','bizdev','bill_verification','compliance','ar'];
+    allowedTabs = ROLE_NAV.superadmin;
   } else if (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0) {
-    // Saved custom permissions: show all modules where access === true
-    allowedTabs = Object.entries(user.permissions)
+    const fromPerms = Object.entries(user.permissions)
       .filter(([, p]) => p && p.access === true)
       .map(([key]) => key);
+    const explicitKeys = new Set(Object.keys(user.permissions));
+    const roleDefaults = ROLE_NAV[role] || [];
+    const merged = new Set(fromPerms);
+    for (const key of roleDefaults) {
+      if (!explicitKeys.has(key)) merged.add(key);
+    }
+    allowedTabs = [...merged];
   } else {
     allowedTabs = ROLE_NAV[role] || [];
   }
@@ -206,6 +286,7 @@ function App() {
     { key: 'employee',  label: 'Employee Information',   icon: <Users size={20} /> },
     { key: 'payroll',   label: 'Payroll Sheet',          icon: <Calculator size={20} /> },
     { key: 'payroll_run', label: 'Payroll Run',        icon: <Calculator size={20} /> },
+    { key: 'fixed_value', label: 'Fixed Value / PSO',  icon: <MapPin size={20} /> },
     { key: 'documents', label: 'Document Generator',     icon: <FilePlus size={20} /> },
     { key: 'billing',   label: 'Bills & Procurement',    icon: <Receipt size={20} /> },
     { key: 'invoices',    label: 'Invoices (AR)',          icon: <FileText size={20} /> },
@@ -293,7 +374,8 @@ function App() {
           {effectiveTab === 'dashboard'  && <Dashboard />}
           {effectiveTab === 'employee'   && <EmployeeInformation user={user} />}
           {effectiveTab === 'payroll'    && <PayrollSheet user={user} />}
-          {effectiveTab === 'payroll_run' && <PayrollRun />}
+          {effectiveTab === 'payroll_run' && <PayrollRun user={user} />}
+          {effectiveTab === 'fixed_value' && <FixedValueContracts user={user} />}
           {effectiveTab === 'documents'  && <DocumentGenerator />}
           {effectiveTab === 'billing'    && <BillingProcurement user={user} />}
           {effectiveTab === 'invoices'    && <InvoiceSection user={user} />}

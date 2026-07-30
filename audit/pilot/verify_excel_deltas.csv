@@ -1,0 +1,4 @@
+﻿employee_id,employee_name,paid_days,gross,income_tax,eobi,sessi_or_pessi,pf,advances,other_deductions,net_pay
+ASIL-A,Alpha,30,50000,1000,400,0,0,0,0,48600
+ASIL-B,Beta,30,40000,850,400,0,0,0,0,38750
+ASIL-ONLY-EXCEL,Excel Only,30,25000,400,400,0,0,0,0,24200

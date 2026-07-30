@@ -13,10 +13,12 @@ const { registerProcurementRoutes } = require('./src/modules/procurement/routes'
 const { registerComplianceRoutes } = require('./src/modules/compliance/routes');
 const { registerArRoutes } = require('./src/modules/ar/routes');
 const { registerPayrollRunRoutes } = require('./src/modules/payrollrun/routes');
+const { registerDisbursementRoutes } = require('./src/modules/disbursement/routes');
 const { registerBillApprovalRoutes } = require('./src/modules/billApproval/routes');
 const { registerXeroBillImportRoutes } = require('./src/modules/xeroBillImport/routes');
 const { registerLeaveRoutes } = require('./src/modules/leave/routes');
 const { registerOrgMasterRoutes } = require('./src/modules/org/orgMasters');
+const { registerServiceOrderRoutes } = require('./src/modules/serviceOrders/routes');
 const { runMigrations } = require('./src/core/runMigrations');
 const { initJobs, registerWorkers, scheduleJob } = require('./src/core/jobs');
 const { pollIntakeMailbox } = require('./src/intake/imapWatcher');
@@ -41,10 +43,12 @@ function mountRestructureModules(app, deps) {
     registerComplianceRoutes(app, deps);
     registerArRoutes(app, deps);
     registerPayrollRunRoutes(app, deps);
+    registerDisbursementRoutes(app, deps);
     registerXeroBillImportRoutes(app, deps);
     registerBillApprovalRoutes(app, deps);
     registerLeaveRoutes(app, deps);
     registerOrgMasterRoutes(app, deps);
+    registerServiceOrderRoutes(app, deps);
 }
 
 let migrationStatus = 'ok';

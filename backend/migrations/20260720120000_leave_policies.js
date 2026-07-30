@@ -21,10 +21,8 @@
 exports.up = (pgm) => {
     pgm.createTable('contract_leave_policies', {
         id: { type: 'serial', primaryKey: true },
-        // contracts.id is INTEGER (SERIAL) — confirmed via the existing working FK
-        // on purchase_orders.contract_id (`INT REFERENCES contracts(id)`, server.js).
-        // A text column here would fail Postgres' FK type-compatibility check outright.
-        contract_id: { type: 'integer', notNull: true, references: 'contracts', onDelete: 'CASCADE' },
+        // contracts.id is TEXT (CTR-…) in prod/staging — all other contract_id FKs are text.
+        contract_id: { type: 'text', notNull: true, references: 'contracts', onDelete: 'CASCADE' },
         cl_days: { type: 'integer', notNull: true, default: 10 },
         ml_days: { type: 'integer', notNull: true, default: 8 },
         el_days: { type: 'integer', notNull: true, default: 14 },

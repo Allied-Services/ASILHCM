@@ -1,0 +1,41 @@
+[
+  {
+    "employee_id": "ASIL-A",
+    "employee_name": "Alpha",
+    "paid_days": 30,
+    "gross": 50000,
+    "income_tax": 1000,
+    "eobi": 400,
+    "sessi_or_pessi": 0,
+    "pf": 0,
+    "advances": 0,
+    "other_deductions": 0,
+    "net_pay": 48600
+  },
+  {
+    "employee_id": "ASIL-B",
+    "employee_name": "Beta",
+    "paid_days": 30,
+    "gross": 40000,
+    "income_tax": 800,
+    "eobi": 400,
+    "sessi_or_pessi": 0,
+    "pf": 0,
+    "advances": 0,
+    "other_deductions": 0,
+    "net_pay": 38800
+  },
+  {
+    "employee_id": "ASIL-ONLY-HCM",
+    "employee_name": "Hcm Only",
+    "paid_days": 30,
+    "gross": 30000,
+    "income_tax": 500,
+    "eobi": 400,
+    "sessi_or_pessi": 0,
+    "pf": 0,
+    "advances": 0,
+    "other_deductions": 0,
+    "net_pay": 29100
+  }
+]

@@ -6,7 +6,16 @@ const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 const fmt = (n) => (n == null || Number.isNaN(n)) ? '—' : Math.round(Number(n)).toLocaleString();
 const inputStyle = { width: '100%', background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 6, padding: 8, color: 'var(--text)' };
 
-const PayrollRun = () => {
+const DISBURSE_ROLES = ['ap_team', 'finance_manager', 'superadmin'];
+const DISBURSE_ERROR_LABELS = {
+    BATCH_EXISTS: 'A payment batch already exists for this contract and period.',
+    LEGACY_PAYROLL_LOCKED: 'Legacy World A payroll is locked for this contract and period — resolve before disbursing.',
+    RUN_NOT_DISBURSABLE: 'This run cannot be disbursed (status must be locked or invoiced).',
+    MISSING_BANK_DETAILS: 'Some employees are missing bank account details.',
+    NO_DISBURSABLE_ROWS: 'No employees with valid bank details to disburse.',
+};
+
+const PayrollRun = ({ user }) => {
     const now = new Date();
     const [contracts, setContracts] = useState([]);
     const [contractId, setContractId] = useState('');
@@ -25,6 +34,16 @@ const PayrollRun = () => {
     const [msg, setMsg] = useState('');
     const [modal, setModal] = useState(null);
     const [overrideRow, setOverrideRow] = useState(null);
+    const [banks, setBanks] = useState([]);
+    const [disburseOpen, setDisburseOpen] = useState(false);
+    const [disburseForm, setDisburseForm] = useState({ bank_id: '', bank_name: '', payment_date: '', reference_no: '', notes: '' });
+    const [disburseLoading, setDisburseLoading] = useState(false);
+    const [disburseError, setDisburseError] = useState('');
+    const [missingBankEmployees, setMissingBankEmployees] = useState([]);
+    const [allowMissingBank, setAllowMissingBank] = useState(false);
+
+    const canDisburse = DISBURSE_ROLES.includes(user?.role);
+    const canDisburseRun = canDisburse && (run?.status === 'locked' || run?.status === 'invoiced');
 
     const totals = rows.reduce((acc, r) => {
         const c = r.computed || {};
@@ -46,6 +65,13 @@ const PayrollRun = () => {
         api.getContracts().then(d => setContracts(d.contracts || d || [])).catch(() => {});
         api.getHolidays().then(setHolidays).catch(() => setHolidays([]));
     }, []);
+
+    useEffect(() => {
+        if (!disburseOpen || !canDisburse) return;
+        api.getBanks()
+            .then(d => setBanks(d.banks || d || []))
+            .catch(() => setBanks([]));
+    }, [disburseOpen, canDisburse]);
 
     const loadRun = async () => {
         if (!contractId) return;
@@ -97,6 +123,53 @@ const PayrollRun = () => {
             setMsg(`Invoice created #${result.invoice?.invoice_number || result.invoice?.id}. Feeds P&L and AR.`);
             await loadRun();
         } catch (e) { setError(e.message); }
+    };
+
+    const openDisburseModal = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        setDisburseForm({ bank_id: '', bank_name: '', payment_date: today, reference_no: '', notes: '' });
+        setDisburseError('');
+        setMissingBankEmployees([]);
+        setAllowMissingBank(false);
+        setDisburseOpen(true);
+    };
+
+    const selectDisburseBank = (bankId) => {
+        const bank = banks.find(b => String(b.id) === String(bankId));
+        setDisburseForm(f => ({
+            ...f,
+            bank_id: bankId,
+            bank_name: bank?.name || '',
+        }));
+    };
+
+    const doDisburseRun = async () => {
+        setDisburseError('');
+        setDisburseLoading(true);
+        try {
+            const result = await api.disbursePayrollRun(run.id, {
+                bank_id: disburseForm.bank_id || null,
+                bank_name: disburseForm.bank_name,
+                payment_date: disburseForm.payment_date || null,
+                reference_no: disburseForm.reference_no || null,
+                notes: disburseForm.notes || null,
+                allow_missing_bank: allowMissingBank,
+            });
+            setDisburseOpen(false);
+            setMsg(`Disbursement confirmed — batch ${result.batch_id} (${result.employee_count} employees, PKR ${fmt(result.total_amount)})`);
+            await loadRun();
+        } catch (e) {
+            if (e.status === 422 && e.code === 'MISSING_BANK_DETAILS') {
+                setMissingBankEmployees(e.employees || []);
+                setDisburseError(DISBURSE_ERROR_LABELS.MISSING_BANK_DETAILS);
+            } else if (e.status === 409 && e.code) {
+                setDisburseError(DISBURSE_ERROR_LABELS[e.code] || e.message);
+            } else {
+                setDisburseError(e.message || 'Disbursement failed');
+            }
+        } finally {
+            setDisburseLoading(false);
+        }
     };
 
     const doOverrideRow = async (values) => {
@@ -239,6 +312,92 @@ const PayrollRun = () => {
                 onCancel={() => setOverrideRow(null)}
             />
 
+            {disburseOpen && (
+                <div style={{
+                    position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 9999,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
+                }}>
+                    <div className="glass-card" style={{ maxWidth: 480, width: '100%' }}>
+                        <h3 style={{ marginTop: 0 }}>Disburse payroll run</h3>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                            Creates a confirmed AP payment batch for {rows.length} employees — total net pay PKR {fmt(totals.netPay)}.
+                        </p>
+                        {disburseError && (
+                            <div style={{ color: 'var(--danger)', marginBottom: '1rem', fontSize: '0.9rem' }}>{disburseError}</div>
+                        )}
+                        {missingBankEmployees.length > 0 && (
+                            <div style={{ marginBottom: '1rem', padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 8 }}>
+                                <strong style={{ color: 'var(--warning)' }}>Missing bank details</strong>
+                                <ul style={{ margin: '0.5rem 0', paddingLeft: '1.25rem', color: 'var(--text-muted)' }}>
+                                    {missingBankEmployees.map(emp => (
+                                        <li key={emp.id}>{emp.name || emp.id} ({emp.id})</li>
+                                    ))}
+                                </ul>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={allowMissingBank}
+                                        onChange={e => setAllowMissingBank(e.target.checked)}
+                                    />
+                                    Exclude employees without bank details and proceed
+                                </label>
+                            </div>
+                        )}
+                        <label style={{ display: 'block', marginBottom: '0.75rem' }}>
+                            Bank
+                            <select
+                                value={disburseForm.bank_id}
+                                onChange={e => selectDisburseBank(e.target.value)}
+                                style={inputStyle}
+                            >
+                                <option value="">— Select bank —</option>
+                                {banks.map(b => (
+                                    <option key={b.id} value={b.id}>{b.name}</option>
+                                ))}
+                            </select>
+                        </label>
+                        <label style={{ display: 'block', marginBottom: '0.75rem' }}>
+                            Payment date
+                            <input
+                                type="date"
+                                value={disburseForm.payment_date}
+                                onChange={e => setDisburseForm(f => ({ ...f, payment_date: e.target.value }))}
+                                style={inputStyle}
+                            />
+                        </label>
+                        <label style={{ display: 'block', marginBottom: '0.75rem' }}>
+                            Reference no
+                            <input
+                                value={disburseForm.reference_no}
+                                onChange={e => setDisburseForm(f => ({ ...f, reference_no: e.target.value }))}
+                                placeholder="Optional bank reference"
+                                style={inputStyle}
+                            />
+                        </label>
+                        <label style={{ display: 'block', marginBottom: '1rem' }}>
+                            Notes
+                            <input
+                                value={disburseForm.notes}
+                                onChange={e => setDisburseForm(f => ({ ...f, notes: e.target.value }))}
+                                placeholder="Optional notes"
+                                style={inputStyle}
+                            />
+                        </label>
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                            <button type="button" className="btn-secondary" onClick={() => setDisburseOpen(false)} disabled={disburseLoading}>Cancel</button>
+                            <button
+                                type="button"
+                                className="btn-primary"
+                                onClick={doDisburseRun}
+                                disabled={disburseLoading || !disburseForm.bank_name}
+                            >
+                                {disburseLoading ? 'Processing…' : 'Confirm disbursement'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="page-header">
                 <h1 className="page-title">Payroll Run</h1>
                 <p className="page-subtitle">Compute payroll from attendance — PR sheet parity with lock & invoice</p>
@@ -301,6 +460,7 @@ const PayrollRun = () => {
                             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                                 {run?.status === 'draft' && <button type="button" className="btn-primary" onClick={() => setModal('lock')}>Lock Run</button>}
                                 {run?.status === 'locked' && <button type="button" className="btn-primary" onClick={() => setModal('invoice')}>Generate Invoice</button>}
+                                {canDisburseRun && <button type="button" className="btn-primary" onClick={openDisburseModal}>Disburse</button>}
                                 {canPayslip && <button type="button" className="btn-secondary" onClick={() => setModal('email-payslips')}>Email All Payslips</button>}
                                 {run?.status === 'invoiced' && (
                                     <>
@@ -350,7 +510,7 @@ const PayrollRun = () => {
                                             </tr>
                                             {expanded === r.id && (
                                                 <tr><td colSpan={13} style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                                                    Salary for days: {fmt(c.salaryForDays)} · OT amt: {fmt(c.overtimeAmount)} · EOBI ER: {fmt(c.eobiEmployer)} · SESSI ER: {fmt(c.sessiEmployer)} · Bonus accrual: {fmt(c.bonusAccrual)} · Gratuity: {fmt(c.gratuityAccrual)} · Edu cess: {fmt(c.eduCess)}
+                                                    Salary for days: {fmt(c.salaryForDays)} · OT amt: {fmt(c.overtimeAmount)} · EOBI ER: {fmt(c.eobiEmployer)} · SESSI ER: {fmt(c.sessiEmployer)} · Bonus: {c.bonusDisbursed > 0 ? fmt(c.bonusDisbursed) : '—'} · Bonus accrual: {fmt(c.bonusAccrual)} · Gratuity: {fmt(c.gratuityAccrual)} · Edu cess: {fmt(c.eduCess)}
                                                     {c.billSource === 'rate_card' && <> · Bill rate: {fmt(c.billAmount)}</>}
                                                 </td></tr>
                                             )}

@@ -1,0 +1,3 @@
+employee_id,employee_name,excel_paid_days,hcm_paid_days,delta_paid_days,excel_gross,hcm_gross,delta_gross,excel_income_tax,hcm_income_tax,delta_income_tax,excel_eobi,hcm_eobi,delta_eobi,excel_sessi_or_pessi,hcm_sessi_or_pessi,delta_sessi_or_pessi,excel_pf,hcm_pf,delta_pf,excel_advances,hcm_advances,delta_advances,excel_other_deductions,hcm_other_deductions,delta_other_deductions,excel_net_pay,hcm_net_pay,delta_net_pay,all_zero
+ASIL-A,"Alpha",30,30,0,50000,50000,0,1000,1000,0,400,400,0,0,0,0,0,0,0,0,0,0,0,0,0,48600,48600,0,1
+ASIL-B,"Beta",30,30,0,40000,40000,0,850,800,50,400,400,0,0,0,0,0,0,0,0,0,0,0,0,0,38750,38800,-50,0

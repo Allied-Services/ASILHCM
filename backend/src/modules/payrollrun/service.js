@@ -1,6 +1,6 @@
 'use strict';
 
-const { computePrSheetRow } = require('../../payroll/prSheetEngine');
+const { computePrSheetRow, computeMedicalCoverage, computeBonusDisbursement } = require('../../payroll/prSheetEngine');
 const { getPolicy } = require('../constraints/service');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { provinceSalesTaxRate } = require('../../core/regionTax');
@@ -8,11 +8,12 @@ const { provinceSalesTaxRate } = require('../../core/regionTax');
 const DEFAULT_OT_HOURS_PER_DAY = 8;
 
 /** MD Mandate §4 — payroll run status cycle */
-const PAYROLL_RUN_STATUSES = ['draft', 'proposed', 'locked', 'paid', 'revised'];
+const PAYROLL_RUN_STATUSES = ['draft', 'proposed', 'locked', 'invoiced', 'paid', 'revised'];
 const PAYROLL_STATUS_TRANSITIONS = {
     draft: ['proposed'],
     proposed: ['locked', 'draft'],
     locked: ['paid', 'revised'],
+    invoiced: ['paid', 'revised'],
     paid: ['revised'],
     revised: ['proposed', 'locked'],
 };
@@ -238,6 +239,13 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
     const policy = await getPolicy(pool, contractId);
     if (!policy) return { ok: false, code: 'NO_POLICY', message: 'No contract policy configured.' };
 
+    const { rows: contractRows } = await pool.query(
+        `SELECT costs FROM contracts WHERE id = $1`,
+        [contractId]
+    );
+    const contractCosts = parseJsonField(contractRows[0]?.costs, {});
+    const lifeInsurance = Number(contractCosts.life_insurance || 150);
+
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
     const endDate = new Date(year, month, 0);
     const endStr = endDate.toISOString().slice(0, 10);
@@ -259,8 +267,14 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             : computeWorkingDays(year, month, holidayDateSet));
 
     const { rows: employees } = await pool.query(
-        `SELECT id, name, salary, doj, designation FROM employees WHERE contract_id = $1 OR contract_name = $1`,
-        [contractId]
+        `SELECT id, name, salary, doj, designation, site, location,
+                spouse_name, child1_name, child2_name
+         FROM employees e
+         WHERE (e.contract_id = $1 OR e.contract_name = $1)
+           AND (e.active IS NULL OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
+                OR e.active::text = 'Yes')
+           AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($3, $2, 1))`,
+        [contractId, month, year]
     );
 
     const rateCards = await listRateCards(pool, contractId);
@@ -297,43 +311,101 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
     let totalBillable = 0;
     let hasRateCardBilling = false;
 
-    for (const emp of employees) {
-        const { rows: att } = await pool.query(
-            `SELECT date::text AS date, status, hours, ot_hours, ot_rate FROM attendance_records
-             WHERE employee_id = $1 AND date >= $2::date AND date <= $3::date`,
-            [emp.id, startDate, endStr]
+    // Batch-load inputs (avoids N+1 that hung ~500-head FV recomputes)
+    const empIds = employees.map((e) => e.id);
+    const attByEmp = new Map();
+    const ovByEmp = new Map();
+    const dedByEmp = new Map();
+    const claimsByEmp = new Map();
+    if (empIds.length) {
+        const { rows: allAtt } = await pool.query(
+            `SELECT employee_id, date::text AS date, status, hours, ot_hours, ot_rate
+             FROM attendance_records
+             WHERE employee_id = ANY($1::text[]) AND date >= $2::date AND date <= $3::date`,
+            [empIds, startDate, endStr]
         );
+        for (const r of allAtt) {
+            if (!attByEmp.has(r.employee_id)) attByEmp.set(r.employee_id, []);
+            attByEmp.get(r.employee_id).push(r);
+        }
+        const { rows: allOv } = await pool.query(
+            `SELECT * FROM monthly_attendance_overrides
+             WHERE employee_id = ANY($1::text[]) AND period_month = $2 AND period_year = $3`,
+            [empIds, month, year]
+        ).catch(() => ({ rows: [] }));
+        for (const r of allOv) ovByEmp.set(r.employee_id, r);
+        const { rows: allDed } = await pool.query(
+            `SELECT DISTINCT ON (employee_id) employee_id, days_absent
+             FROM so_deductions
+             WHERE employee_id = ANY($1::text[]) AND period_month = $2 AND period_year = $3
+               AND type = 'absence' AND source = 'attendance_ledger'
+             ORDER BY employee_id, id DESC`,
+            [empIds, month, year]
+        ).catch(() => ({ rows: [] }));
+        for (const r of allDed) dedByEmp.set(r.employee_id, Number(r.days_absent) || 0);
+        const { rows: allClaims } = await pool.query(
+            `SELECT * FROM employee_claims
+             WHERE employee_id = ANY($1::text[]) AND status = 'focal_approved'
+               AND period_month = $2 AND period_year = $3`,
+            [empIds, month, year]
+        );
+        for (const c of allClaims) {
+            if (!claimsByEmp.has(c.employee_id)) claimsByEmp.set(c.employee_id, []);
+            claimsByEmp.get(c.employee_id).push(c);
+        }
+    }
 
-        if (!att.length) warnings.push({ employeeId: emp.id, code: 'NO_ATTENDANCE', message: `${emp.name}: no attendance — defaulting present days to ${workingDays}` });
+    for (const emp of employees) {
+        const att = attByEmp.get(emp.id) || [];
+        const ov = ovByEmp.get(emp.id);
+        let presentDaysForModelA = null;
+        let absentDaysForModelA = null;
+        let overrideWorkingDays = null;
+        if (ov) {
+            if (ov.present_days != null) {
+                presentDaysForModelA = Number(ov.present_days);
+            }
+            if (ov.absent_days != null) {
+                absentDaysForModelA = Number(ov.absent_days);
+            } else if (ov.source === 'fv_conservancy_attendance') {
+                // Conservancy: wages deduct sheet absences; missing row ⇒ 0 absent
+                absentDaysForModelA = dedByEmp.has(emp.id) ? dedByEmp.get(emp.id) : 0;
+            }
+            if (ov.working_days != null) overrideWorkingDays = Number(ov.working_days);
+        }
+
+        if (!att.length) {
+            if (presentDaysForModelA != null || absentDaysForModelA != null) {
+                warnings.push({
+                    employeeId: emp.id,
+                    code: 'NO_DAILY_ATTENDANCE',
+                    message: `${emp.name}: no daily attendance — using monthly override`
+                        + (absentDaysForModelA != null ? ` (${absentDaysForModelA} absent days)` : '')
+                        + (presentDaysForModelA != null ? ` / ${presentDaysForModelA} present` : ''),
+                });
+            } else {
+                warnings.push({
+                    employeeId: emp.id,
+                    code: 'NO_ATTENDANCE',
+                    message: `${emp.name}: no daily attendance — defaulting present days to ${workingDays}`,
+                });
+            }
+        }
 
         let paidDays = derivePaidDays(att, workingDays, policy.attendance_input_mode);
         let { ot1, ot2, ot3 } = deriveOtHours(att, holidayDateSet);
 
-        // 15-column monthly hub overrides (Model A present days + OT) take precedence
-        const { rows: overrideRows } = await pool.query(
-            `SELECT present_days, ot2_hours, ot3_hours, opd, expense, arrears,
-                    special_allowance, fuel_mobile, other_deduction
-             FROM monthly_attendance_overrides
-             WHERE employee_id = $1 AND period_month = $2 AND period_year = $3`,
-            [emp.id, month, year]
-        ).catch(() => ({ rows: [] }));
-        const ov = overrideRows[0];
-        let presentDaysForModelA = null;
+        // Monthly hub / FV overrides take precedence
         if (ov) {
-            if (ov.present_days != null) {
-                presentDaysForModelA = Number(ov.present_days);
+            if (presentDaysForModelA != null) {
                 paidDays = presentDaysForModelA;
             }
+            if (ov.ot1_hours != null) ot1 = Number(ov.ot1_hours) || 0;
             if (ov.ot2_hours != null) ot2 = Number(ov.ot2_hours) || 0;
             if (ov.ot3_hours != null) ot3 = Number(ov.ot3_hours) || 0;
         }
 
-        const { rows: claimRows } = await pool.query(
-            `SELECT * FROM employee_claims
-             WHERE employee_id = $1 AND status = 'focal_approved'
-               AND period_month = $2 AND period_year = $3`,
-            [emp.id, month, year]
-        );
+        const claimRows = claimsByEmp.get(emp.id) || [];
         const claimAgg = aggregateClaimInputs(claimRows);
         ot1 += claimAgg.ot1;
         ot2 += claimAgg.ot2;
@@ -349,6 +421,14 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             if (ov.special_allowance != null) inputs.specialAllowance = Number(ov.special_allowance) || 0;
             if (ov.fuel_mobile != null) inputs.fuelMobile = Number(ov.fuel_mobile) || 0;
             if (ov.other_deduction != null) inputs.otherDeduction = Number(ov.other_deduction) || 0;
+            if (ov.leave_deduction != null) inputs.leaveDeduction = Number(ov.leave_deduction) || 0;
+            if (ov.pf_deduction != null) inputs.pfDeduction = Number(ov.pf_deduction) || 0;
+            if (ov.income_tax != null) inputs.wht = Number(ov.income_tax);
+            if (ov.eobi_employee != null) inputs.eobiEmployee = Number(ov.eobi_employee);
+            if (ov.salary_for_days != null) inputs.salaryForDays = Number(ov.salary_for_days);
+            if (ov.overtime_amount != null) inputs.overtimeAmount = Number(ov.overtime_amount);
+            if (presentDaysForModelA != null) inputs.present_days = presentDaysForModelA;
+            if (absentDaysForModelA != null) inputs.absent_days = absentDaysForModelA;
         }
 
         if (!policy.ot_allowed) {
@@ -371,27 +451,55 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         const salesTaxRate = policy.sales_tax_exempt
             ? 0
             : Number(policy.sales_tax_rate != null ? policy.sales_tax_rate : 0.18);
-        let computed = computePrSheetRow({
-            newSalary: Number(emp.salary || 0),
+        const effectiveWorkingDays = overrideWorkingDays ?? workingDays;
+        const effectiveSalary = (ov && ov.salary_override != null && Number(ov.salary_override) > 0)
+            ? Number(ov.salary_override)
+            : Number(emp.salary || 0);
+        const bonusDisbursement = computeBonusDisbursement({
+            salary: effectiveSalary,
+            doj: emp.doj,
+            month,
+            year,
+            bonusMonths: contractCosts.bonus_months,
+            bonusMinMonths: contractCosts.bonus_min_months,
+            disbursementMonth: contractCosts.bonus_disbursement_month,
+            manualBonusAmount: ov?.bonus_amount,
+        });
+        const computeInput = {
+            newSalary: effectiveSalary,
             paidDays,
-            workingDays,
-            // Model A: Expected = calendar working days (Sundays/holidays already excluded from expected)
-            presentDays: presentDaysForModelA != null ? presentDaysForModelA : paidDays,
-            expectedDays: workingDays,
-            modelA: true,
+            workingDays: effectiveWorkingDays,
             ot1,
             ot2,
             ot3,
             salesTaxRate,
+            lifeInsurance,
+            medicalCoverage: computeMedicalCoverage(emp, contractCosts),
+            contractBonusMonths: contractCosts.bonus_months,
+            bonusDisbursement,
             ...inputs,
-        }, policy);
+        };
+        // Model A (30-day calendar basis). Conservancy: wages = base × ((30 − absent) / 30)
+        // using explicit sheet absent — never invent absent from calendar WD − present.
+        if (absentDaysForModelA != null) {
+            computeInput.absentDays = absentDaysForModelA;
+            computeInput.expectedDays = 30;
+            computeInput.presentDays = presentDaysForModelA != null
+                ? presentDaysForModelA
+                : Math.max(0, 30 - absentDaysForModelA);
+        } else {
+            computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
+            computeInput.expectedDays = overrideWorkingDays ?? workingDays;
+        }
+        computeInput.modelA = true;
+        let computed = computePrSheetRow(computeInput, policy);
 
         const designation = (emp.designation || '').toLowerCase().trim();
         const rateCard = designation ? rateCardMap.get(designation) : null;
         computed = applyBillingAmount(computed, {
             billRate: rateCard?.bill_rate,
             paidDays,
-            workingDays,
+            workingDays: effectiveWorkingDays,
             ot1,
             ot2,
             ot3,
@@ -410,14 +518,18 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         rowPayloads.push({
             employee_id: emp.id,
             employee_name: emp.name,
+            designation: emp.designation || null,
+            site: emp.site || null,
+            location: emp.location || null,
+            basic_salary: Number(emp.salary || 0),
             paid_days: paidDays,
-            working_days: workingDays,
+            working_days: effectiveWorkingDays,
             ot1_hours: ot1,
             ot2_hours: ot2,
             ot3_hours: ot3,
             inputs,
             computed,
-            source: att.length ? 'attendance' : 'default',
+            source: att.length ? 'attendance' : (presentDaysForModelA != null ? 'monthly_override' : 'default'),
             claimsApplied: claimAgg.claimIds.length,
             claimIds: claimAgg.claimIds,
         });
@@ -471,12 +583,13 @@ async function getPayrollRuns(pool, { contractId, month, year } = {}) {
     if (!runs.length) return { runs: [], rows: [] };
     const run = runs[0];
     const { rows: runRows } = await pool.query(
-        `SELECT prr.*, e.name AS employee_name,
+        `SELECT prr.*, e.name AS employee_name, e.designation, e.site, e.location,
+                e.salary AS basic_salary,
                 (SELECT COUNT(*)::int FROM employee_claims ec
                  WHERE ec.payroll_run_id = $2 AND ec.employee_id = prr.employee_id AND ec.status = 'in_payroll_run') AS claims_applied
          FROM payroll_run_rows prr
          LEFT JOIN employees e ON e.id = prr.employee_id
-         WHERE prr.run_id = $1 ORDER BY e.name`,
+         WHERE prr.run_id = $1 ORDER BY e.site NULLS LAST, e.name`,
         [run.id, run.id]
     );
     return {
@@ -499,12 +612,14 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
     }
 
     const { rows: rowRows } = await pool.query(
-        `SELECT prr.*, e.salary, e.designation FROM payroll_run_rows prr JOIN employees e ON e.id = prr.employee_id WHERE prr.id = $1 AND prr.run_id = $2`,
+        `SELECT prr.*, e.salary, e.designation, e.doj FROM payroll_run_rows prr JOIN employees e ON e.id = prr.employee_id WHERE prr.id = $1 AND prr.run_id = $2`,
         [rowId, runId]
     );
     if (!rowRows.length) throw new Error('Row not found');
     const row = rowRows[0];
     const policy = await getPolicy(pool, runRows[0].contract_id);
+    const { rows: contractRows } = await pool.query(`SELECT costs FROM contracts WHERE id = $1`, [runRows[0].contract_id]);
+    const contractCosts = parseJsonField(contractRows[0]?.costs, {});
     const prevInputs = parseJsonField(row.inputs, {});
     const inputs = { ...prevInputs, ...patch, overridden_by: overriddenBy, source: 'override' };
     const paidDays = patch.paidDays != null ? Number(patch.paidDays) : Number(row.paid_days);
@@ -514,6 +629,16 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
     const workingDays = patch.workingDays != null
         ? Number(patch.workingDays)
         : Number(row.working_days || policy?.standard_month_days || 30);
+    const bonusDisbursement = computeBonusDisbursement({
+        salary: Number(row.salary || 0),
+        doj: row.doj,
+        month: runRows[0].month,
+        year: runRows[0].year,
+        bonusMonths: contractCosts.bonus_months,
+        bonusMinMonths: contractCosts.bonus_min_months,
+        disbursementMonth: contractCosts.bonus_disbursement_month,
+        manualBonusAmount: patch.bonus_amount ?? prevInputs.bonus_amount,
+    });
     let computed = computePrSheetRow({
         newSalary: Number(row.salary || 0),
         paidDays,
@@ -525,6 +650,8 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
         ot2,
         ot3,
         salesTaxRate: 0.18,
+        contractBonusMonths: contractCosts.bonus_months,
+        bonusDisbursement,
         ...inputs,
     }, policy || {});
 
@@ -607,6 +734,16 @@ async function generateInvoiceFromRun(pool, { runId, generatedBy }) {
     );
     const contract = contractRows[0];
     if (!contract) throw new Error('Contract not found');
+
+    const policyEarly = await getPolicy(pool, contract.id);
+    const { isSoBillingModel, PSO_SERVICE_TYPE } = require('../serviceOrders/sitesMeta');
+    const svcType = String(contract.service_type || '').trim();
+    if (isSoBillingModel(policyEarly?.billing_model) || svcType === PSO_SERVICE_TYPE || /fixed value/i.test(svcType)) {
+        const err = new Error('Use Fixed Value service-order invoicing for this contract');
+        err.status = 409;
+        err.code = 'USE_SO_INVOICE';
+        throw err;
+    }
 
     const { rows: prRows } = await pool.query(`SELECT computed FROM payroll_run_rows WHERE run_id = $1`, [runId]);
     let subtotal = 0;

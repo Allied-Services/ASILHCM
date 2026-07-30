@@ -13,6 +13,9 @@ const {
     exportMonthlyHubCsv,
     importMonthlyHubCsv,
     getMonthlyHubRollups,
+    getMonthlyHubList,
+    upsertMonthlyHubOverride,
+    clearMonthlyHubOverrides,
 } = require('./monthlyHub');
 const {
     upsertProjectClientFocals,
@@ -113,6 +116,86 @@ function registerAttendanceIntakeRoutes(app, deps) {
             res.json(result);
         } catch (err) {
             handleRouteError(res, 'attendance.monthlyHubImport', err);
+        }
+    });
+
+    app.post('/api/attendance/monthly-hub/override', requireAuth, requireRole('hr_manager', 'finance_manager', 'superadmin', 'admin', 'operations', 'payroll_initiator'), async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            const employeeId = req.body.employeeId || req.body.employee_id;
+            if (!month || !year || !employeeId) {
+                return res.status(400).json({ error: 'month, year, and employeeId required' });
+            }
+            const body = req.body || {};
+            // Prefer camelCase; treat explicit null/''/0 as provided (so 0 clears prior value).
+            const take = (...keys) => {
+                for (const k of keys) {
+                    if (Object.prototype.hasOwnProperty.call(body, k)) return body[k];
+                }
+                return undefined; // omit → keep existing
+            };
+            const result = await upsertMonthlyHubOverride(pool, {
+                employeeId,
+                month,
+                year,
+                presentDays: take('presentDays', 'present_days'),
+                absentDays: take('absentDays', 'absent_days'),
+                otherDeduction: take('otherDeduction', 'other_deduction'),
+                leaveDeduction: take('leaveDeduction', 'leave_deduction'),
+                ot2Hours: take('ot2Hours', 'ot2_hours', 'otHours', 'ot_hours'),
+                ot3Hours: take('ot3Hours', 'ot3_hours'),
+                opd: take('opd'),
+                expense: take('expense'),
+                arrears: take('arrears'),
+                specialAllowance: take('specialAllowance', 'special_allowance'),
+                fuelMobile: take('fuelMobile', 'fuel_mobile'),
+                updatedBy: req.user?.email,
+                recomputeDraft: body.recomputeDraft !== false,
+            });
+            res.json(result);
+        } catch (err) {
+            if (err.code === 'NOT_FOUND') return res.status(404).json({ error: 'Employee not found' });
+            handleRouteError(res, 'attendance.monthlyHubOverride', err);
+        }
+    });
+
+    app.post('/api/attendance/monthly-hub/clear', requireAuth, requireRole('hr_manager', 'finance_manager', 'superadmin', 'admin', 'operations', 'payroll_initiator'), async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            if (!month || !year) {
+                return res.status(400).json({ error: 'month and year required' });
+            }
+            const result = await clearMonthlyHubOverrides(pool, {
+                month,
+                year,
+                contractId: req.body.contractId || req.body.contract_id || null,
+                client: req.body.client || null,
+                contract: req.body.contract || req.body.contractName || null,
+            });
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'attendance.monthlyHubClear', err);
+        }
+    });
+
+    app.get('/api/attendance/monthly-hub/list', requireAuth, requireRole('hr_manager', 'finance_manager', 'superadmin', 'admin', 'operations', 'payroll_initiator'), async (req, res) => {
+        try {
+            const month = parseInt(req.query.month, 10) || (new Date().getMonth() + 1);
+            const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+            const result = await getMonthlyHubList(pool, {
+                month,
+                year,
+                client: req.query.client || null,
+                contract: req.query.contract || null,
+                location: req.query.location || null,
+                employeeId: req.query.employeeId || req.query.employee_id || null,
+                name: req.query.name || null,
+            });
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'attendance.monthlyHubList', err);
         }
     });
 

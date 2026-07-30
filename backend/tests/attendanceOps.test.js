@@ -181,3 +181,20 @@ describe('Monthly Report Hub — 15 master columns', () => {
         expect(merged.otherDeduction).toBe(10);
     });
 });
+
+describe('Monthly hub override pick — zero clears prior', () => {
+    const { pickOverrideField, OMIT } = require('../src/modules/attendance/monthlyHub');
+
+    test('omitted field keeps previous other_deduction', () => {
+        expect(pickOverrideField(OMIT, 1000)).toBe(1000);
+        expect(pickOverrideField(undefined, 1000)).toBe(1000);
+    });
+
+    test('explicit 0 / empty / null clear other_deduction to 0', () => {
+        expect(pickOverrideField(0, 1000)).toBe(0);
+        expect(pickOverrideField('0', 1000)).toBe(0);
+        expect(pickOverrideField('', 1000)).toBe(0);
+        expect(pickOverrideField(null, 1000)).toBe(0);
+    });
+});
+

@@ -10,6 +10,7 @@
     "migrate": "node src/core/runMigrations.js",
     "migrate:up": "node src/core/runMigrations.js up",
     "test": "jest --runInBand --forceExit",
+    "test:int": "jest -c jest.int.config.js --runInBand --forceExit",
     "test:auth": "jest --runInBand --forceExit --testPathPattern=auth",
     "test:payroll": "jest --runInBand --forceExit --testPathPattern=payroll",
     "test:restructure": "jest --runInBand --forceExit --testPathPattern=restructure",

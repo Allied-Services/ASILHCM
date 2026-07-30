@@ -1,0 +1,5 @@
+[
+  {"employee_id":"ASIL-A","employee_name":"Alpha","paid_days":30,"computed":{"paidDays":30,"gross":50000,"wht":1000,"eobiEmployee":400,"sessiEmployer":0,"pfDeduction":0,"netPay":48600},"inputs":{"advanceDeduction":0,"otherDeduction":0}},
+  {"employee_id":"ASIL-B","employee_name":"Beta","paid_days":30,"computed":{"paidDays":30,"gross":40000,"wht":800,"eobiEmployee":400,"sessiEmployer":0,"pfDeduction":0,"netPay":38800},"inputs":{"advanceDeduction":0,"otherDeduction":0}},
+  {"employee_id":"ASIL-ONLY-HCM","employee_name":"Hcm Only","paid_days":30,"computed":{"paidDays":30,"gross":30000,"wht":500,"eobiEmployee":400,"sessiEmployer":0,"pfDeduction":0,"netPay":29100},"inputs":{"advanceDeduction":0,"otherDeduction":0}}
+]

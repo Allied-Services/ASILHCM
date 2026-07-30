@@ -67,6 +67,7 @@ export const api = {
 
     // ── Users (superadmin) ──────────────────────────────────────────────────────
     getUsers: () => apiFetch('/api/users'),
+    getPortalReadiness: () => apiFetch('/api/admin/portal-readiness'),
     createUser: (data) => apiFetch('/api/users', { method: 'POST', body: JSON.stringify(data) }),
     updateUserRole: (userId, role) => apiFetch(`/api/users/${userId}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
     updateUserPermissions: (userId, permissions) => apiFetch(`/api/users/${userId}/permissions`, { method: 'PATCH', body: JSON.stringify({ permissions }) }),
@@ -219,6 +220,8 @@ export const api = {
 
     // ── Payslips ──────────────────────────────────────────────────────────────
     getPayslipUrl: (empId, month, year) => `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}`,
+    sendPayslipEmails: (year, month, employeeIds = []) =>
+        apiFetch(`/api/payroll/${year}/${month}/send-payslips`, { method: 'POST', body: JSON.stringify({ employeeIds }) }),
     openPayslip:   (empId, month, year) => {
         const token = localStorage.getItem('asil_hcm_token');
         // URL-encode employee ID to handle IDs with slashes or special characters
@@ -465,6 +468,9 @@ export const api = {
         return { ok: true, filename };
     },
     importMonthlyHub: (data) => apiFetch('/api/attendance/monthly-hub/import', { method: 'POST', body: JSON.stringify(data) }),
+    saveMonthlyHubOverride: (data) => apiFetch('/api/attendance/monthly-hub/override', { method: 'POST', body: JSON.stringify(data) }),
+    clearMonthlyHubOverrides: (data) => apiFetch('/api/attendance/monthly-hub/clear', { method: 'POST', body: JSON.stringify(data) }),
+    getMonthlyHubList: (q = {}) => apiFetch('/api/attendance/monthly-hub/list?' + new URLSearchParams(q).toString()),
     getMonthlyHubRollups: (q = {}) => apiFetch('/api/attendance/monthly-hub/rollups?' + new URLSearchParams(q).toString()),
     saveClientFocals: (data) => apiFetch('/api/attendance/client-focals', { method: 'POST', body: JSON.stringify(data) }),
     getClientFocals: (q = {}) => apiFetch('/api/attendance/client-focals?' + new URLSearchParams(q).toString()),
@@ -612,4 +618,98 @@ export const api = {
     markBillsPaid: (data) => apiFetch('/api/ap/bills/mark-paid', { method: 'POST', body: JSON.stringify(data) }),
 
     assignClaim: (id, employeeId) => apiFetch(`/api/claims/${id}`, { method: 'PATCH', body: JSON.stringify({ employeeId }) }),
+
+    // ── Fixed Value / Conservancy (PSO service orders) ─────────────────────────
+    getFixedValueContracts: () => apiFetch('/api/fixed-value/contracts'),
+    getFixedValueServiceOrders: (contractId) => apiFetch(`/api/fixed-value/service-orders?contractId=${encodeURIComponent(contractId)}`),
+    getFixedValueServiceOrder: (id) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}`),
+    upsertFixedValueServiceOrder: (id, data) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+    replaceFixedValueLines: (id, lines) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/lines`, { method: 'PUT', body: JSON.stringify({ lines }) }),
+    getFixedValueDeductions: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/deductions?month=${month}&year=${year}`),
+    addFixedValueDeduction: (id, data) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/deductions`, { method: 'POST', body: JSON.stringify(data) }),
+    uploadFixedValueAttendance: async (id, month, year, file) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('month', String(month));
+        fd.append('year', String(year));
+        const res = await fetch(`${API}/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/upload`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: fd,
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `Upload failed (${res.status})`);
+        }
+        return res.json();
+    },
+    pullFixedValueDriveAttendance: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/drive`, { method: 'POST', body: JSON.stringify({ month, year }) }),
+    getFixedValueDriveStatus: (id) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/drive/status`),
+    applyFixedValueAttendance: (id, month, year, rows) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/attendance/apply`, { method: 'POST', body: JSON.stringify({ month, year, rows }) }),
+    applyFixedValueAttendanceAll: (contractId, month, year, siteCodes) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/attendance/apply-all`,
+        { method: 'POST', body: JSON.stringify({ month, year, siteCodes }) }
+    ),
+    getFixedValueAttendanceStatus: (contractId, month, year) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/attendance/status?month=${month}&year=${year}`
+    ),
+    computeFixedValueInvoice: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/invoice/compute`, { method: 'POST', body: JSON.stringify({ month, year }) }),
+    persistFixedValueInvoice: (id, month, year, poNumber) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/invoice/persist`, { method: 'POST', body: JSON.stringify({ month, year, poNumber }) }),
+    computeFixedValueInvoicesAll: (contractId, month, year, siteCodes) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/invoices/compute-all`,
+        { method: 'POST', body: JSON.stringify({ month, year, siteCodes }) }
+    ),
+    persistFixedValueInvoicesAll: (contractId, month, year, siteCodes) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/invoices/persist-all`,
+        { method: 'POST', body: JSON.stringify({ month, year, siteCodes }) }
+    ),
+    getFixedValueRegistry: (contractId, month, year, siteCode) => {
+        const q = new URLSearchParams({ contractId, month: String(month), year: String(year) });
+        if (siteCode) q.set('siteCode', siteCode);
+        return apiFetch(`/api/fixed-value/registry?${q}`);
+    },
+    downloadFixedValuePayrollExcel: async (contractId, month, year) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const res = await fetch(
+            `${API}/api/fixed-value/contracts/${encodeURIComponent(contractId)}/exports/payroll.xlsx?month=${month}&year=${year}`,
+            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        );
+        if (!res.ok) throw new Error(`Payroll Excel download failed (${res.status})`);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `FV_Payroll_${contractId}_${year}-${String(month).padStart(2, '0')}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        return { ok: true };
+    },
+    downloadFixedValueInvoicesExcel: async (contractId, month, year) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const res = await fetch(
+            `${API}/api/fixed-value/contracts/${encodeURIComponent(contractId)}/exports/invoices.xlsx?month=${month}&year=${year}`,
+            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        );
+        if (!res.ok) throw new Error(`Invoice Excel download failed (${res.status})`);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `FV_Invoices_${contractId}_${year}-${String(month).padStart(2, '0')}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        return { ok: true };
+    },
+    openFixedValueInvoicePrint: async (invoiceId, format = 'invoice') => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const res = await fetch(`${API}/api/fixed-value/invoices/${invoiceId}/print?format=${encodeURIComponent(format)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error(`Print failed (${res.status})`);
+        const html = await res.text();
+        const w = window.open('', '_blank');
+        if (w) { w.document.write(html); w.document.close(); }
+        return { ok: true };
+    },
+    sendFixedValueFocalEmail: (id, month, year, payload = {}) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/focals/email`, { method: 'POST', body: JSON.stringify({ month, year, ...payload }) }),
+    seedPsoNorthZone: () => apiFetch('/api/fixed-value/seed-pso', { method: 'POST', body: '{}' }),
 };

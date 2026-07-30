@@ -126,6 +126,9 @@ function LoginScreen({ onLogin }) {
                 setDupes(data.employees);
                 throw new Error(data.error || 'Multiple matches — pick your employee code');
             }
+            if (res.status === 409 && data.code) {
+                throw new Error(data.error || 'Unable to send login code. Contact HR.');
+            }
             if (!res.ok) throw new Error(data.error || 'Failed to send OTP');
             setEmpName(data.employeeName);
             setEmployeeId(data.employeeId || body.employeeId || '');
@@ -154,6 +157,9 @@ function LoginScreen({ onLogin }) {
                 body: JSON.stringify(body),
             });
             const data = await res.json();
+            if (res.status === 409 && data.code) {
+                throw new Error(data.error || 'Unable to sign in. Contact HR.');
+            }
             if (!res.ok) throw new Error(data.error);
             localStorage.setItem(PORTAL_TOKEN_KEY, data.token);
             localStorage.setItem(PORTAL_EMP_KEY, JSON.stringify(data.employee));
