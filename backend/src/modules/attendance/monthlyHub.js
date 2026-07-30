@@ -217,25 +217,96 @@ async function getMonthlyHubRollups(pool, { month, year, client }) {
 }
 
 /**
+ * Merge helper for monthly hub override upsert.
+ * - undefined / Symbol SENTINEL_OMIT → keep existing (field not sent)
+ * - '' / null → clear to 0 for money/hours (or null for day counts when clearDays)
+ * - 0 → persist 0 (never COALESCE-keep previous)
+ */
+const OMIT = Symbol('omit');
+function pickOverrideField(val, fallback, { allowNull = false } = {}) {
+    if (val === OMIT || val === undefined) return fallback;
+    if (val === '' || val === null) return allowNull ? null : 0;
+    const n = Number(val);
+    return Number.isFinite(n) ? n : (allowNull ? null : 0);
+}
+
+/**
+ * If a draft World B payroll_run exists for the employee's contract/period,
+ * recompute it so Attendance/FV overrides show up in payroll UI without a manual click.
+ */
+async function recomputeDraftRunForEmployee(pool, { employeeId, month, year }) {
+    const { rows: empRows } = await pool.query(
+        `SELECT contract_id, contract_name FROM employees WHERE id = $1`,
+        [employeeId]
+    );
+    const contractId = empRows[0]?.contract_id || empRows[0]?.contract_name;
+    if (!contractId) return { recomputed: false, reason: 'NO_CONTRACT' };
+
+    const { rows: runs } = await pool.query(
+        `SELECT id, status FROM payroll_runs
+         WHERE (contract_id = $1 OR contract_id = $2)
+           AND period_month = $3 AND period_year = $4
+         ORDER BY id DESC LIMIT 1`,
+        [empRows[0]?.contract_id || contractId, empRows[0]?.contract_name || contractId, month, year]
+    );
+    if (!runs.length) return { recomputed: false, reason: 'NO_RUN', contractId };
+    const run = runs[0];
+    if (['locked', 'invoiced', 'paid'].includes(run.status)) {
+        return {
+            recomputed: false,
+            reason: 'RUN_LOCKED',
+            runId: run.id,
+            status: run.status,
+            contractId,
+        };
+    }
+
+    // Lazy require avoids circular load at module init.
+    const { computeRunForContract } = require('../payrollrun/service');
+    const result = await computeRunForContract(pool, {
+        contractId: empRows[0]?.contract_id || contractId,
+        month,
+        year,
+    });
+    if (!result?.ok) {
+        return {
+            recomputed: false,
+            reason: result?.code || 'RECOMPUTE_FAILED',
+            runId: run.id,
+            contractId,
+            message: result?.message,
+        };
+    }
+    return {
+        recomputed: true,
+        runId: result.run?.id || run.id,
+        contractId,
+        rowCount: Array.isArray(result.rows) ? result.rows.length : undefined,
+    };
+}
+
+/**
  * Single-employee monthly hub override (present days, other deduction, etc.).
- * Blank/null fields leave existing override values unchanged.
+ * Omitted fields leave existing override values unchanged.
+ * Explicit 0 / empty string persists 0 (clears prior deduction/OT/arrears).
  */
 async function upsertMonthlyHubOverride(pool, {
     employeeId,
     month,
     year,
-    presentDays,
-    otherDeduction,
-    leaveDeduction,
-    ot2Hours,
-    ot3Hours,
-    opd,
-    expense,
-    arrears,
-    specialAllowance,
-    fuelMobile,
-    absentDays,
+    presentDays = OMIT,
+    otherDeduction = OMIT,
+    leaveDeduction = OMIT,
+    ot2Hours = OMIT,
+    ot3Hours = OMIT,
+    opd = OMIT,
+    expense = OMIT,
+    arrears = OMIT,
+    specialAllowance = OMIT,
+    fuelMobile = OMIT,
+    absentDays = OMIT,
     updatedBy,
+    recomputeDraft = true,
 }) {
     const id = String(employeeId || '').trim();
     if (!id) {
@@ -243,7 +314,7 @@ async function upsertMonthlyHubOverride(pool, {
         err.code = 'VALIDATION';
         throw err;
     }
-    const { rows: emp } = await pool.query(`SELECT id, name FROM employees WHERE id = $1`, [id]);
+    const { rows: emp } = await pool.query(`SELECT id, name, contract_id FROM employees WHERE id = $1`, [id]);
     if (!emp.length) {
         const err = new Error(`Employee not found: ${id}`);
         err.code = 'NOT_FOUND';
@@ -256,19 +327,18 @@ async function upsertMonthlyHubOverride(pool, {
         [id, month, year]
     );
     const ex = existingRows[0];
-    const pick = (val, fallback) => (val != null && val !== '' ? Number(val) : fallback);
     const merged = {
-        presentDays: pick(presentDays, ex?.present_days ?? null),
-        absentDays: pick(absentDays, ex?.absent_days ?? null),
-        ot2: pick(ot2Hours, ex?.ot2_hours ?? 0),
-        ot3: pick(ot3Hours, ex?.ot3_hours ?? 0),
-        opd: pick(opd, ex?.opd ?? 0),
-        expense: pick(expense, ex?.expense ?? 0),
-        arrears: pick(arrears, ex?.arrears ?? 0),
-        specialAllowance: pick(specialAllowance, ex?.special_allowance ?? 0),
-        fuelMobile: pick(fuelMobile, ex?.fuel_mobile ?? 0),
-        otherDeduction: pick(otherDeduction, ex?.other_deduction ?? 0),
-        leaveDeduction: pick(leaveDeduction, ex?.leave_deduction ?? 0),
+        presentDays: pickOverrideField(presentDays, ex?.present_days ?? null, { allowNull: true }),
+        absentDays: pickOverrideField(absentDays, ex?.absent_days ?? null, { allowNull: true }),
+        ot2: pickOverrideField(ot2Hours, ex?.ot2_hours ?? 0),
+        ot3: pickOverrideField(ot3Hours, ex?.ot3_hours ?? 0),
+        opd: pickOverrideField(opd, ex?.opd ?? 0),
+        expense: pickOverrideField(expense, ex?.expense ?? 0),
+        arrears: pickOverrideField(arrears, ex?.arrears ?? 0),
+        specialAllowance: pickOverrideField(specialAllowance, ex?.special_allowance ?? 0),
+        fuelMobile: pickOverrideField(fuelMobile, ex?.fuel_mobile ?? 0),
+        otherDeduction: pickOverrideField(otherDeduction, ex?.other_deduction ?? 0),
+        leaveDeduction: pickOverrideField(leaveDeduction, ex?.leave_deduction ?? 0),
     };
 
     // leave_deduction column may be missing until migration — try full write, fall back.
@@ -282,15 +352,15 @@ async function upsertMonthlyHubOverride(pool, {
              ON CONFLICT (employee_id, period_month, period_year) DO UPDATE SET
                present_days = COALESCE(EXCLUDED.present_days, monthly_attendance_overrides.present_days),
                absent_days = COALESCE(EXCLUDED.absent_days, monthly_attendance_overrides.absent_days),
-               ot2_hours = COALESCE(EXCLUDED.ot2_hours, monthly_attendance_overrides.ot2_hours),
-               ot3_hours = COALESCE(EXCLUDED.ot3_hours, monthly_attendance_overrides.ot3_hours),
-               opd = COALESCE(EXCLUDED.opd, monthly_attendance_overrides.opd),
-               expense = COALESCE(EXCLUDED.expense, monthly_attendance_overrides.expense),
-               arrears = COALESCE(EXCLUDED.arrears, monthly_attendance_overrides.arrears),
-               special_allowance = COALESCE(EXCLUDED.special_allowance, monthly_attendance_overrides.special_allowance),
-               fuel_mobile = COALESCE(EXCLUDED.fuel_mobile, monthly_attendance_overrides.fuel_mobile),
-               other_deduction = COALESCE(EXCLUDED.other_deduction, monthly_attendance_overrides.other_deduction),
-               leave_deduction = COALESCE(EXCLUDED.leave_deduction, monthly_attendance_overrides.leave_deduction),
+               ot2_hours = EXCLUDED.ot2_hours,
+               ot3_hours = EXCLUDED.ot3_hours,
+               opd = EXCLUDED.opd,
+               expense = EXCLUDED.expense,
+               arrears = EXCLUDED.arrears,
+               special_allowance = EXCLUDED.special_allowance,
+               fuel_mobile = EXCLUDED.fuel_mobile,
+               other_deduction = EXCLUDED.other_deduction,
+               leave_deduction = EXCLUDED.leave_deduction,
                updated_by = EXCLUDED.updated_by,
                updated_at = NOW()`,
             [
@@ -313,14 +383,14 @@ async function upsertMonthlyHubOverride(pool, {
              ON CONFLICT (employee_id, period_month, period_year) DO UPDATE SET
                present_days = COALESCE(EXCLUDED.present_days, monthly_attendance_overrides.present_days),
                absent_days = COALESCE(EXCLUDED.absent_days, monthly_attendance_overrides.absent_days),
-               ot2_hours = COALESCE(EXCLUDED.ot2_hours, monthly_attendance_overrides.ot2_hours),
-               ot3_hours = COALESCE(EXCLUDED.ot3_hours, monthly_attendance_overrides.ot3_hours),
-               opd = COALESCE(EXCLUDED.opd, monthly_attendance_overrides.opd),
-               expense = COALESCE(EXCLUDED.expense, monthly_attendance_overrides.expense),
-               arrears = COALESCE(EXCLUDED.arrears, monthly_attendance_overrides.arrears),
-               special_allowance = COALESCE(EXCLUDED.special_allowance, monthly_attendance_overrides.special_allowance),
-               fuel_mobile = COALESCE(EXCLUDED.fuel_mobile, monthly_attendance_overrides.fuel_mobile),
-               other_deduction = COALESCE(EXCLUDED.other_deduction, monthly_attendance_overrides.other_deduction),
+               ot2_hours = EXCLUDED.ot2_hours,
+               ot3_hours = EXCLUDED.ot3_hours,
+               opd = EXCLUDED.opd,
+               expense = EXCLUDED.expense,
+               arrears = EXCLUDED.arrears,
+               special_allowance = EXCLUDED.special_allowance,
+               fuel_mobile = EXCLUDED.fuel_mobile,
+               other_deduction = EXCLUDED.other_deduction,
                updated_by = EXCLUDED.updated_by,
                updated_at = NOW()`,
             [
@@ -334,13 +404,28 @@ async function upsertMonthlyHubOverride(pool, {
         merged.otherDeduction = foldedOther;
     }
 
+    let payrollSync = { recomputed: false, reason: 'SKIPPED' };
+    if (recomputeDraft) {
+        try {
+            payrollSync = await recomputeDraftRunForEmployee(pool, {
+                employeeId: id,
+                month,
+                year,
+            });
+        } catch (err) {
+            console.error('[monthlyHub.override recompute]', err);
+            payrollSync = { recomputed: false, reason: 'RECOMPUTE_ERROR' };
+        }
+    }
+
     return {
         ok: true,
         employeeId: id,
         employeeName: emp[0].name,
         month,
         year,
-        recomputeRequired: true,
+        recomputeRequired: !payrollSync.recomputed,
+        payrollSync,
         ...merged,
     };
 }
@@ -579,6 +664,9 @@ module.exports = {
     getMonthlyHubList,
     upsertMonthlyHubOverride,
     clearMonthlyHubOverrides,
+    recomputeDraftRunForEmployee,
+    pickOverrideField,
+    OMIT,
     MONTHLY_HUB_COLUMNS,
     calendarWorkingDays,
 };

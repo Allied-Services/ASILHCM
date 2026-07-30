@@ -127,22 +127,31 @@ function registerAttendanceIntakeRoutes(app, deps) {
             if (!month || !year || !employeeId) {
                 return res.status(400).json({ error: 'month, year, and employeeId required' });
             }
+            const body = req.body || {};
+            // Prefer camelCase; treat explicit null/''/0 as provided (so 0 clears prior value).
+            const take = (...keys) => {
+                for (const k of keys) {
+                    if (Object.prototype.hasOwnProperty.call(body, k)) return body[k];
+                }
+                return undefined; // omit → keep existing
+            };
             const result = await upsertMonthlyHubOverride(pool, {
                 employeeId,
                 month,
                 year,
-                presentDays: req.body.presentDays ?? req.body.present_days,
-                absentDays: req.body.absentDays ?? req.body.absent_days,
-                otherDeduction: req.body.otherDeduction ?? req.body.other_deduction,
-                leaveDeduction: req.body.leaveDeduction ?? req.body.leave_deduction,
-                ot2Hours: req.body.ot2Hours ?? req.body.ot2_hours ?? req.body.otHours ?? req.body.ot_hours,
-                ot3Hours: req.body.ot3Hours ?? req.body.ot3_hours,
-                opd: req.body.opd,
-                expense: req.body.expense,
-                arrears: req.body.arrears,
-                specialAllowance: req.body.specialAllowance ?? req.body.special_allowance,
-                fuelMobile: req.body.fuelMobile ?? req.body.fuel_mobile,
+                presentDays: take('presentDays', 'present_days'),
+                absentDays: take('absentDays', 'absent_days'),
+                otherDeduction: take('otherDeduction', 'other_deduction'),
+                leaveDeduction: take('leaveDeduction', 'leave_deduction'),
+                ot2Hours: take('ot2Hours', 'ot2_hours', 'otHours', 'ot_hours'),
+                ot3Hours: take('ot3Hours', 'ot3_hours'),
+                opd: take('opd'),
+                expense: take('expense'),
+                arrears: take('arrears'),
+                specialAllowance: take('specialAllowance', 'special_allowance'),
+                fuelMobile: take('fuelMobile', 'fuel_mobile'),
                 updatedBy: req.user?.email,
+                recomputeDraft: body.recomputeDraft !== false,
             });
             res.json(result);
         } catch (err) {

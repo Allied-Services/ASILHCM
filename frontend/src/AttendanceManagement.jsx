@@ -262,21 +262,32 @@ function MonthlyReport({user}) {
     setAdjMsg('');
     try {
       const payload = { employeeId, month, year };
-      const putNum = (key, val) => {
-        if (val !== '' && val != null) payload[key] = Number(val);
+      // Money/hours: empty → 0 so clearing a deduction persists (not omit/keep previous).
+      const putMoney = (key, val) => {
+        if (val === undefined) return;
+        payload[key] = (val === '' || val == null) ? 0 : (Number(val) || 0);
       };
-      putNum('presentDays', fields.presentDays);
-      putNum('ot2Hours', fields.ot2Hours);
-      putNum('ot3Hours', fields.ot3Hours);
-      putNum('leaveDeduction', fields.leaveDeduction);
-      putNum('arrears', fields.arrears);
-      putNum('otherDeduction', fields.otherDeduction);
-      putNum('absentDays', fields.absentDays);
+      const putDays = (key, val) => {
+        if (val === undefined || val === '') return;
+        payload[key] = Number(val);
+      };
+      putDays('presentDays', fields.presentDays);
+      putMoney('ot2Hours', fields.ot2Hours);
+      putMoney('ot3Hours', fields.ot3Hours);
+      putMoney('leaveDeduction', fields.leaveDeduction);
+      putMoney('arrears', fields.arrears);
+      putMoney('otherDeduction', fields.otherDeduction);
+      putDays('absentDays', fields.absentDays);
       const r = await api.saveMonthlyHubOverride(payload);
+      const synced = r?.payrollSync?.recomputed;
       setAdjMsg(
         `Saved ${r.employeeName || r.employeeId}: present ${r.presentDays ?? '—'}, OT@2X ${r.ot2 ?? 0}h, `
         + `leave ded ${r.leaveDeduction ?? 0}, arrears ${r.arrears ?? 0}, other ded ${r.otherDeduction ?? 0}. `
-        + `Recompute the payroll run (Fixed Value → Payroll, or Payroll Run) for this to affect net pay.`
+        + (synced
+          ? `Draft payroll run #${r.payrollSync.runId} recomputed.`
+          : (r?.payrollSync?.reason === 'RUN_LOCKED'
+            ? 'Payroll run is locked — unlock to refresh net pay.'
+            : 'No draft payroll run refreshed — recompute Fixed Value → Payroll if needed.'))
       );
       load();
     } catch (e) {

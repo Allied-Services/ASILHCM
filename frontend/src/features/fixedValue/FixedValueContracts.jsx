@@ -246,25 +246,33 @@ export default function FixedValueContracts({ user }) {
 
     const saveHubRow = async (r) => {
         const edit = hubEdits[r.employee_id] || {};
+        // Empty / cleared money fields must send 0 (not omit) so prior deductions are wiped.
+        const numOr0 = (editVal, fallback) => {
+            const v = editVal !== undefined ? editVal : fallback;
+            if (v === '' || v == null) return 0;
+            return Number(v) || 0;
+        };
         const payload = {
             employeeId: r.employee_id,
             month,
             year,
+            presentDays: edit.present !== undefined && edit.present !== ''
+                ? Number(edit.present)
+                : (r.present != null ? Number(r.present) : undefined),
+            ot2Hours: numOr0(edit.ot2, r.ot2_hours),
+            leaveDeduction: numOr0(edit.leaveDeduction, r.leave_deduction),
+            arrears: numOr0(edit.arrears, r.arrears),
+            otherDeduction: numOr0(edit.otherDeduction, r.other_deduction),
         };
-        const put = (key, val, fallback) => {
-            const v = val !== undefined && val !== '' ? val : fallback;
-            if (v !== '' && v != null) payload[key] = Number(v);
-        };
-        put('presentDays', edit.present, r.present);
-        put('ot2Hours', edit.ot2, r.ot2_hours);
-        put('leaveDeduction', edit.leaveDeduction, r.leave_deduction);
-        put('arrears', edit.arrears, r.arrears);
-        put('otherDeduction', edit.otherDeduction, r.other_deduction);
         setHubSaving(r.employee_id);
         try {
-            await api.saveMonthlyHubOverride(payload);
-            setMsg(`Saved overrides for ${r.name || r.employee_id}. Recompute Payroll (step 3) to apply to net pay.`);
+            const saved = await api.saveMonthlyHubOverride(payload);
+            const synced = saved?.payrollSync?.recomputed;
+            setMsg(synced
+                ? `Saved overrides for ${r.name || r.employee_id} and refreshed draft payroll run #${saved.payrollSync.runId}.`
+                : `Saved overrides for ${r.name || r.employee_id}. ${saved?.payrollSync?.reason === 'RUN_LOCKED' ? 'Payroll run is locked — unlock/recompute manually.' : 'Open Payroll and recompute if figures look stale.'}`);
             await loadHubOverrides();
+            if (synced) await loadPayrollRun().catch(() => {});
         } catch (e) {
             setError(e.message || 'Override save failed');
         } finally {
@@ -674,8 +682,8 @@ export default function FixedValueContracts({ user }) {
                     <p className="fv-lead">
                         World B compute for the whole contract. Wages use Conservancy Model A:
                         <strong> paid factor = (30 − sheet absent) / 30</strong>. Present is shown from the sheet for audit; Absent must match attendance exactly.
-                        OT / Arrears / Leave Deduction / Other Deduction come from <code>monthly_attendance_overrides</code> —
-                        recompute after any Monthly Report or Attendance-step override save.
+                        OT / Arrears / Leave Deduction / Other Deduction come from <code>monthly_attendance_overrides</code>.
+                        Saving an override on Attendance (here or Monthly Report) auto-refreshes the draft payroll run.
                     </p>
                     <div className="fv-actions">
                         <button type="button" className="btn-primary" disabled={loading || !contractId || !canWrite} onClick={handleComputePayroll}>
