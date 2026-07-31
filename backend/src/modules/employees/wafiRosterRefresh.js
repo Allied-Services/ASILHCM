@@ -90,36 +90,55 @@ function normalizeCnic(v) {
     return s;
 }
 
+function isNaToken(v) {
+    return /^n\/?a$/i.test(String(v == null ? '' : v).trim());
+}
+
+function cleanCell(v) {
+    if (isBlank(v) || isNaToken(v)) return null;
+    return String(v).trim();
+}
+
 function mapCsvRowToDb(row) {
     const asilCode = pickCell(row, 'ASIL Employee Code', 'Employee Code');
     if (!asilCode) return null;
 
     const mapped = { id: asilCode };
     for (const field of FIELD_MAP) {
-        const val = pickCell(row, field.csv, ...(field.aliases || []));
-        if (isBlank(val)) continue;
+        const val = cleanCell(pickCell(row, field.csv, ...(field.aliases || [])));
+        if (val == null) continue;
         if (field.db === 'email') continue; // handled separately
-        if (field.type === 'number') mapped[field.db] = toNumberOrNull(val);
-        else if (field.type === 'date') mapped[field.db] = toDateOrNull(val);
-        else if (field.db === 'cnic' || field.db === 'spouse_cnic' || field.db === 'child1_id' || field.db === 'child2_id') {
+        if (field.type === 'number') {
+            const n = toNumberOrNull(val);
+            if (n != null) mapped[field.db] = n;
+        } else if (field.type === 'date') {
+            const d = toDateOrNull(val);
+            if (d && /^\d{4}-\d{2}-\d{2}/.test(d)) mapped[field.db] = d;
+        } else if (field.db === 'cnic' || field.db === 'spouse_cnic' || field.db === 'child1_id' || field.db === 'child2_id') {
             mapped[field.db] = normalizeCnic(val);
         } else mapped[field.db] = val;
     }
 
-    // Wafi-specific header aliases
-    mapped.line_manager_name = pickCell(row, 'Line Manager(Wafi) Name', 'Line Manager Name', 'Line Manager(Wafi) *') || mapped.line_manager_name;
-    mapped.line_manager_email = pickCell(row, 'Line Manager(Wafi) Email', 'Line Manager Email', 'Line Manager(Wafi) *') || mapped.line_manager_email;
-    mapped.claim_authority = pickCell(row, 'Focal/ Supervisor Email', 'Focal/ Supervisor *', 'Claim Authority', 'Supervisor Email') || mapped.claim_authority;
+    // Wafi-specific header aliases (N/A => null so routing matrix works)
+    const lmName = cleanCell(pickCell(row, 'Line Manager(Wafi) Name', 'Line Manager Name', 'Line Manager(Wafi) *'));
+    const lmEmail = cleanCell(pickCell(row, 'Line Manager(Wafi) Email', 'Line Manager Email', 'Line Manager(Wafi) *'));
+    const focalEmail = cleanCell(pickCell(row, 'Focal/ Supervisor Email', 'Focal/ Supervisor *', 'Claim Authority', 'Supervisor Email'));
+    mapped.line_manager_name = lmName;
+    mapped.line_manager_email = lmEmail;
+    mapped.claim_authority = focalEmail;
 
     const email = resolveEmail(row);
     if (email) mapped.email = email;
 
-    const salaryRaw = pickCell(row, 'Salary', 'Base Salary', 'Gross Salary');
-    if (!isBlank(salaryRaw)) mapped.salary = toNumberOrNull(salaryRaw);
+    const salaryRaw = cleanCell(pickCell(row, 'Salary', 'Base Salary', 'Gross Salary'));
+    if (salaryRaw != null) {
+        const n = toNumberOrNull(salaryRaw);
+        if (n != null) mapped.salary = n;
+    }
 
     // Focal email → claim_authority only; supervisor_email is legacy non-Wafi portal approver
     if (mapped.claim_authority) {
-        delete mapped.supervisor_email;
+        mapped.supervisor_email = null;
     }
 
     return mapped;
@@ -304,25 +323,60 @@ async function runWafiRosterRefresh(pool, { csvText, csvPath, dryRun = true }) {
 
     if (!dryRun) {
         const beforeSnapshots = [];
+        const applyErrors = [];
+        // Map CNIC -> employee id for collision checks
+        const cnicOwner = new Map();
+        const { rows: allCnicRows } = await pool.query(
+            `SELECT id, cnic FROM employees WHERE cnic IS NOT NULL AND TRIM(cnic) <> ''`
+        );
+        for (const e of allCnicRows) {
+            if (e.cnic) cnicOwner.set(String(e.cnic).trim(), e.id);
+        }
+
         for (const m of matched.filter(x => x.hasChanges)) {
             const dbRow = dbById.get(m.id);
-            beforeSnapshots.push({ asil_code: m.id, before: { ...dbRow } });
+            const patch = { ...m.mapped };
+            if (patch.cnic) {
+                const owner = cnicOwner.get(String(patch.cnic).trim());
+                if (owner && owner !== m.id) {
+                    applyErrors.push({
+                        asil_code: m.id,
+                        field: 'cnic',
+                        reason: `CNIC already used by ${owner} — skipped cnic update`,
+                    });
+                    delete patch.cnic;
+                } else {
+                    cnicOwner.set(String(patch.cnic).trim(), m.id);
+                }
+            }
             const sets = [];
             const vals = [];
-            for (const [col, val] of Object.entries(m.mapped)) {
+            for (const [col, val] of Object.entries(patch)) {
                 if (col === 'id') continue;
                 vals.push(val);
                 sets.push(`${col} = $${vals.length}`);
             }
             if (!sets.length) continue;
             vals.push(m.id);
-            await pool.query(
-                `UPDATE employees SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length}`,
-                vals
-            );
+            try {
+                await pool.query(
+                    `UPDATE employees SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length}`,
+                    vals
+                );
+                beforeSnapshots.push({ asil_code: m.id, before: { ...dbRow } });
+            } catch (err) {
+                applyErrors.push({
+                    asil_code: m.id,
+                    reason: err && err.message ? err.message : String(err),
+                });
+            }
         }
         report.applied = beforeSnapshots.length;
         report.before_snapshots = beforeSnapshots;
+        report.apply_errors = applyErrors;
+        if (applyErrors.length) {
+            report.summary.errors = (report.summary.errors || 0) + applyErrors.length;
+        }
     }
 
     return report;

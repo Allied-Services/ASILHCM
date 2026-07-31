@@ -181,10 +181,11 @@ function pickFromRow(row, field) {
 function toDateOrNull(v) {
     if (isBlank(v)) return null;
     const s = String(v).trim();
+    if (/^n\/?a$/i.test(s)) return null;
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
     const d = new Date(s);
     if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-    return s;
+    return null;
 }
 
 function toNumberOrNull(v) {
