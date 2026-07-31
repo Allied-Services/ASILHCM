@@ -98,7 +98,7 @@ const FIELD_MAP = [
     { csv: 'Marital Status', db: 'marital_status', aliases: ['Marital'] },
     { csv: 'Primary Contact', db: 'primary_contact', aliases: ['Phone', 'Mobile', 'Contact'] },
     { csv: 'Emergency Contact', db: 'emergency_contact', aliases: ['Emergency Phone'] },
-    { csv: 'Email Address', db: 'email', aliases: ['Email'] },
+    { csv: 'Email Address', db: 'email', aliases: ['Email', 'Personal Email Address', 'Official Email Address'] },
     { csv: 'Present Address', db: 'present_address', aliases: ['Current Address', 'Address'] },
     { csv: 'Permanent Address', db: 'permanent_address', aliases: ['Home Address'] },
     { csv: 'Date of Birth', db: 'dob', aliases: ['DOB', 'Birth Date'], type: 'date' },
@@ -131,11 +131,11 @@ const FIELD_MAP = [
     { csv: 'Gate Pass Expiry', db: 'gate_pass_expiry', aliases: ['Gate Pass Expiry Date'], type: 'date' },
     { csv: 'Payroll Cycle Type', db: 'payroll_cycle_type', aliases: ['Payroll Cycle'] },
     { csv: 'Region', db: 'region', aliases: [] },
-    { csv: 'Line Manager Name', db: 'line_manager_name', aliases: [] },
-    { csv: 'Line Manager Email', db: 'line_manager_email', aliases: [] },
-    { csv: 'Supervisor Email', db: 'supervisor_email', aliases: ['supervisor_email', 'Approver', 'Approver Email'] },
+    { csv: 'Line Manager Name', db: 'line_manager_name', aliases: ['Line Manager(Wafi) Name', 'Line Manager(Wafi) *'] },
+    { csv: 'Line Manager Email', db: 'line_manager_email', aliases: ['Line Manager(Wafi) Email', 'Line Manager(Wafi) *'] },
+    { csv: 'Supervisor Email', db: 'supervisor_email', aliases: ['supervisor_email', 'Approver', 'Approver Email', 'Focal/ Supervisor Email', 'Focal/ Supervisor *'] },
     { csv: 'Client Focal Email(s)', db: 'client_focal_emails', aliases: ['Client Focal Emails', 'Client Focal Email'] },
-    { csv: 'Claim Authority', db: 'claim_authority', aliases: ['claim_authority', 'Claims Authority', 'Claim Filler'] },
+    { csv: 'Claim Authority', db: 'claim_authority', aliases: ['claim_authority', 'Claims Authority', 'Claim Filler', 'Focal/ Supervisor Email', 'Focal/ Supervisor *'] },
 ];
 
 const DB_COLUMNS = [...new Set(FIELD_MAP.map(f => f.db))];
@@ -454,4 +454,8 @@ module.exports = {
     csvRowToPatch,
     mergeEmployeePatch,
     resolveRosterRefs: csvRowToPatch, // backward compat for tests
+    isBlank,
+    normHeader,
+    toNumberOrNull,
+    toDateOrNull,
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail, Inbox, Wrench, Briefcase, ClipboardList, CheckSquare, TrendingUp, MapPin } from 'lucide-react';
+import { Home, FileText, ScanLine, Settings, Users, Building, Truck, Calculator, FilePlus, Receipt, Smartphone, LogOut, Package, Shield, Clock, CreditCard, Mail, Inbox, Wrench, Briefcase, ClipboardList, CheckSquare, TrendingUp, MapPin, Archive } from 'lucide-react';
 import EmailClaimsListener from './EmailClaimsListener';
 import WafiClaimsDashboard from './WafiClaimsDashboard';
 import Dashboard from './Dashboard';
@@ -15,6 +15,7 @@ import AccountsPayable from './AccountsPayable';
 import EmployeePortal from './EmployeePortal';
 import ClientCMMSPortal from './ClientCMMSPortal';
 import LoginScreen from './LoginScreen';
+import { api, getArchiveMode, setArchiveMode } from './api';
 import InventoryManagement from './InventoryManagement';
 import SystemConfig from './SystemConfig';
 import UserManagement from './UserManagement';
@@ -111,6 +112,8 @@ function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState(null);
   const [authSlow, setAuthSlow] = useState(false);
+  const [archiveOn, setArchiveOn] = useState(() => getArchiveMode());
+  const [archiveAllowed, setArchiveAllowed] = useState(false);
   const isStagingHost = /staging/i.test(API || '')
     || (typeof window !== 'undefined' && /staging/i.test(window.location.hostname));
 
@@ -198,6 +201,36 @@ function App() {
     const t = setTimeout(() => setAuthSlow(true), 4000);
     return () => clearTimeout(t);
   }, [authReady]);
+
+  useEffect(() => {
+    if (!user) return;
+    const email = (user.email || '').toLowerCase();
+    const can = user.role === 'superadmin' || email === 'huzaifa.rafaqat@asil.com.pk';
+    setArchiveAllowed(can);
+    if (!can) {
+      setArchiveOn(false);
+      setArchiveMode(false);
+      return;
+    }
+    api.getCutoverSettings().then(d => {
+      if (!d.show_pre_cutover_archive && archiveOn) {
+        setArchiveOn(false);
+        setArchiveMode(false);
+      }
+    }).catch(() => {});
+  }, [user]);
+
+  const toggleArchive = async () => {
+    const next = !archiveOn;
+    try {
+      await api.updateCutoverSettings(next);
+      setArchiveOn(next);
+      setArchiveMode(next);
+      window.location.reload();
+    } catch (e) {
+      alert(e.message || 'Failed to update archive mode');
+    }
+  };
 
   if (portalPath) return <EmployeePortal />;
   if (claimsFillPath) return <ClaimsFillPage />;
@@ -340,6 +373,13 @@ function App() {
               <Smartphone size={16} />
               {showESS ? 'Close Employee Portal' : 'Preview Employee Portal'}
             </button>
+            {archiveAllowed && (
+              <button onClick={toggleArchive}
+                style={{ width: '100%', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '8px', background: archiveOn ? 'rgba(245,158,11,0.18)' : 'rgba(148,163,184,0.08)', border: `1px solid ${archiveOn ? 'rgba(245,158,11,0.35)' : 'rgba(148,163,184,0.2)'}`, color: archiveOn ? '#fbbf24' : '#94a3b8', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                <Archive size={16} />
+                {archiveOn ? 'Archive ON (pre-Jul 2026)' : 'Show pre-Jul 2026 archive'}
+              </button>
+            )}
           </div>
 
           {/* User info + role badge + logout */}

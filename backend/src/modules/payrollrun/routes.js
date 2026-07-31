@@ -48,10 +48,13 @@ function registerPayrollRunRoutes(app, deps) {
 
     app.get('/api/payroll-runs', requireAuth, async (req, res) => {
         try {
+            const cutover = require('../../core/cutover');
+            const { archive } = await cutover.resolveArchiveMode(req, pool);
             res.json(await getPayrollRuns(pool, {
                 contractId: req.query.contractId,
                 month: req.query.month ? parseInt(req.query.month, 10) : null,
                 year: req.query.year ? parseInt(req.query.year, 10) : null,
+                archive,
             }));
         } catch (err) {
             handleRouteError(res, 'payrollrun.list', err);

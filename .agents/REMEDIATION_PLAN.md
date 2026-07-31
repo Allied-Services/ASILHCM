@@ -39,6 +39,10 @@ The strategy is **strangler-fig consolidation onto World B**: build the missing 
 | 8 — Claims consolidation | S8A, S8B | One claims store, one approval queue |
 | 9 — Backlog | S9 | PSO deliverable billing, medical tiers, frontend restructure, server.js decomposition, paid worker |
 
+### Parallel operational programme (July 2026 — not a replacement for Phases 5–7)
+
+**July 2026 soft cutover + Wafi master refresh** is a separate MD-approved plan: `.agents/plans/JULY_2026_CUTOVER_AND_WAFI_REFRESH.md`. It governs (a) UI/AP/payroll visibility floor at 2026-07 with a superadmin + huzaifa archive toggle, and (b) in-place Wafi roster upsert from `ASIL_Master_Roster (1).csv`. Implementation sessions: `J26A`–`J26E` (stubs to be added when execution starts). Does not retire World A compute.
+
 ## Cross-phase invariants
 
 - **World A must keep working** (it is how ~500 people get paid) until Phase 7 retirement — every earlier session is additive or isolated.
