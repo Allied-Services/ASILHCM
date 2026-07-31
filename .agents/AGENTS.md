@@ -1,4 +1,4 @@
-﻿# ASIL HCM — Antigravity Agent Operational Rules
+# ASIL HCM — Antigravity Agent Operational Rules
 **Workspace:** `BPOFMSystem` -> `shezad/ASILHCM`
 **Last Updated:** 2026-07-05
 **Read this file before writing a single line of code.**
@@ -24,6 +24,7 @@ A full-codebase audit (2026-07-24, Claude Fable 5) established that ASIL HCM con
 - **Until the program says otherwise:** World A (legacy payroll) must keep working — ~500 people are paid through it; the blueprints named above are scheduled for deletion in session S0C (after which `ARCHITECTURE.md` replaces them); the staging-lane rules in the session files supersede the "no staging environment" line above once S0B completes.
 
 ---
+
 
 ## SECTION 1A — `backend/server.js` Route Map (orientation only, verify before relying on it)
 
@@ -342,6 +343,17 @@ Verified via `node --check server.js` + full `npm test` (147/147, unchanged) aft
 **Env vars needed before deploying:** none new.
 **Not done / explicitly out of scope for this pass:** portal leave-request contract-override wiring (see point 3); leave approval workflow changes; carry-forward rules; any change to the `employee_leaves`/`employee_leave_balances` table schemas themselves (reused as-is).
 
+### 2026-07-24 — Full-codebase audit + Remediation Program established (docs only, no application code changed)
+Claude Code (Fable 5) session. Three-track audit (backend, frontend, docs/deployment) followed by an MD-approved master plan. Key audit facts, recorded so no future session re-derives them:
+
+1. **Two disconnected payroll systems** (the root cause of payroll never running): legacy World A (browser-computed `PayrollSheet.jsx`/`payrollUtils.js` → `POST /api/payroll/:year/:month` stores blindly into `payroll_transactions`; ignores attendance + contract_policies; owns the ONLY payment path AP queue → `payment_batches`/`payment_ledger`) vs World B (`backend/src/modules/payrollrun/` — server-computed from attendance + contract_policies + employee_claims, Excel-parity-validated via `payrollParity.test.js`; owns NO payment path). Different proration bases (26 working days vs 30 calendar days).
+2. **Wafi stage-payroll is broken**: server.js ~7065 and ~7739 compute OT payout amounts and INSERT into `payroll_transactions (ot, reimb, opd)` — dead legacy columns from `setup-db.js` (or nonexistent on a fresh bootstrap). Verified Wafi claims never reach payroll. The working pattern is `employee_claims` (`focal_approved`) consumed by `computeRunForContract`.
+3. Reachable frontend crashes: `BillingProcurement.jsx:729-734` (undefined CLIENTS/CONTRACTS/SITES), `PayrollSheet.jsx:1390` (undefined netPay), relative-origin fetch `PayrollSheet.jsx:894`.
+4. Three contradictory schema sources (dead `database/schema.sql`, ~42 inline CREATE TABLEs in server.js ~8580-8960, 21 migrations) and three contradictory blueprints (this file is the only accurate doc). Backend tests mock pg.Pool entirely — SQL bugs invisible by design.
+5. `classifyOtDate` (payrollrun/service.js:86-92) returns 'ot2' for ordinary weekdays — flagged for MD confirmation during the pilot shadow month.
+
+**Artifacts created this session:** `.agents/REMEDIATION_PLAN.md` (master plan: strangler-fig consolidation onto World B, disbursement bridge, pilot parallel-run milestone, contract-by-contract cutover, World A retirement) and `.agents/sessions/S0A…S9` (17 self-contained Composer 2.5 session files with rules headers, verification checklists, rollback notes). New SECTION 0 added at the top of this file. No application code, schema, or data was modified.
+
 ### 2026-07-24 — S0A production ground-truth snapshot (remediation program)
 Read-only session per `.agents/sessions/S0A_ground_truth_snapshot.md`. No application code or database changes.
 
@@ -492,6 +504,22 @@ Per `.agents/sessions/S1A_frontend_crashes.md`.
 1. **`BillingProcurement.jsx`** — `ImportQuotationModal` review stage now uses `clientsList`/`contractsList` props (was undefined `CLIENTS`/`CONTRACTS`/`SITES`).
 2. **`PayrollSheet.jsx`** — Bulk-SMS placeholder label escaped (`{'{name}'}` / `{'{netPay}'}`); payslip email routed through `api.sendPayslipEmails`.
 3. **`api.js`** — added `sendPayslipEmails(year, month, employeeIds)`.
+
+---
+
+### 2026-07-31 — July 2026 cutover + Wafi refresh (P0–P3)
+Per `.agents/plans/JULY_2026_CUTOVER_AND_WAFI_REFRESH.md`.
+
+1. **P0** — `system_config` keys `cutover_period` / `show_pre_cutover_archive`; `backend/src/core/cutover.js`; `GET/PUT /api/admin/cutover-settings`; archive toggle in `App.jsx` (superadmin + huzaifa only).
+2. **P1** — Cutover filters on employees, dashboard, AP queue, FM batches, client invoices, payroll runs, Wafi sessions/stats.
+3. **P2** — `scripts/wafi_roster_refresh.js` + `backend/src/modules/employees/wafiRosterRefresh.js`; Wafi CSV header aliases in `masterRoster.js`.
+4. **P3** — `wafi_claims_approval_events`; session `approval_state` / routing columns; focal→LM magic links (`/api/wafi-claims/focal-action`, `lm-action`); verify/stage gated on `ready_for_hcm`.
+
+**Wafi routing column map:** `claim_authority` = focal filler email; `line_manager_email` = LM approver; `supervisor_email` legacy portal approver (unchanged for non-Wafi).
+
+**Env vars needed:** none new. Run `npm run migrate` on staging before deploy.
+
+**Verification follow-up (2026-07-31):** Tightened `assertReadyForHcm` (null state blocked for post-Jul-2026 when chain enabled); portal `resolveApproverEmail` prefers LM when focal+LM both named; Wafi roster refresh clears duplicate `supervisor_email`; dashboard invoice KPI + legacy payroll GET respect cutover floor.
 
 ---
 

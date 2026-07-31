@@ -19,6 +19,8 @@ const { sendJazzSMS, sendJazzOtpSMS, normalisePhone } = require('./lib/sms');
 const { isJazzProxyConfigured, jazzProxyLogLabel } = require('./lib/jazz_http_transport');
 const { canApproveBill } = require('./src/modules/procurement/service');
 const { getLeavePolicy } = require('./src/modules/leave/service');
+const cutover = require('./src/core/cutover');
+const wafiApproval = require('./src/modules/wafiClaims/approvalService');
 const {
     isValidEmail,
     maskEmail,
@@ -544,12 +546,12 @@ app.post('/api/employees/import', requireAuth, requireRole('superadmin', 'hr_man
 
 app.get('/api/employees', requireAuth, async (req, res) => {
     try {
+        const { archive } = await cutover.resolveArchiveMode(req, pool);
+        const vis = cutover.employeeVisibilityClause('e', { archive });
         const { rows } = await pool.query(`
             SELECT e.*,
               COALESCE(
-                -- Priority 1: manually set contract_date on employee record
                 e.contract_date::text,
-                -- Priority 2: auto-match by client name (flexible LIKE in both directions)
                 (SELECT c.start_date::text
                  FROM contracts c
                  JOIN clients cl ON c.client_id = cl.id
@@ -564,9 +566,10 @@ app.get('/api/employees', requireAuth, async (req, res) => {
                  LIMIT 1)
               ) AS contract_start_date
             FROM employees e
+            WHERE ${vis}
             ORDER BY e.name ASC
         `);
-        res.json({ employees: rows.map(empFromDb) });
+        res.json({ employees: rows.map(empFromDb), archive_mode: archive });
     } catch (err) {
         console.error('[GET /api/employees]', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -953,6 +956,54 @@ app.get('/api/admin/portal-readiness', requireAuth, requireRole('superadmin'), a
         });
     } catch (err) {
         console.error('[GET /api/admin/portal-readiness]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// July 2026 cutover — archive toggle (superadmin + huzaifa only)
+app.get('/api/admin/cutover-settings', requireAuth, async (req, res) => {
+    try {
+        if (!cutover.canUseArchiveToggle(req.user)) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+        const config = await cutover.loadCutoverConfig(pool);
+        res.json({
+            cutover_period: { month: config.cutoverMonth, year: config.cutoverYear },
+            show_pre_cutover_archive: config.showPreCutoverArchive,
+            can_toggle: true,
+        });
+    } catch (err) {
+        console.error('[GET /api/admin/cutover-settings]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.put('/api/admin/cutover-settings', requireAuth, async (req, res) => {
+    try {
+        if (!cutover.canUseArchiveToggle(req.user)) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+        const { show_pre_cutover_archive } = req.body || {};
+        if (typeof show_pre_cutover_archive !== 'boolean') {
+            return res.status(400).json({ error: 'show_pre_cutover_archive (boolean) required' });
+        }
+        const old = await pool.query(`SELECT value FROM system_config WHERE key = 'show_pre_cutover_archive'`);
+        await pool.query(
+            `INSERT INTO system_config (key, value) VALUES ('show_pre_cutover_archive', $1::jsonb)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+            [JSON.stringify(show_pre_cutover_archive)]
+        );
+        logAudit(req, 'cutover_archive_toggle', 'system_config', show_pre_cutover_archive ? 'on' : 'off');
+        if (old.rows[0]) {
+            await pool.query(
+                `INSERT INTO system_config_history (config_key, old_value, new_value, changed_by)
+                 VALUES ('show_pre_cutover_archive', $1, $2, $3)`,
+                [old.rows[0].value, JSON.stringify(show_pre_cutover_archive), req.user?.email || null]
+            ).catch(() => {});
+        }
+        res.json({ ok: true, show_pre_cutover_archive });
+    } catch (err) {
+        console.error('[PUT /api/admin/cutover-settings]', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -3307,6 +3358,12 @@ app.delete('/api/inventory/issuances/:id', requireAuth, async (req, res) => {
 app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
     try {
         const { year, month } = req.params;
+        const y = parseInt(year, 10);
+        const m = parseInt(month, 10);
+        const { archive, config } = await cutover.resolveArchiveMode(req, pool);
+        if (!archive && !cutover.periodAtOrAfterCutover(m, y, config.cutoverMonth, config.cutoverYear)) {
+            return res.json({ rows: [], locked: false, archived: false, cutover_blocked: true });
+        }
         const { rows } = await pool.query(
             'SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2',
             [parseInt(year), parseInt(month)]
@@ -4492,6 +4549,8 @@ app.post('/api/banks', requireAuth, requireRole('superadmin'), async (req, res) 
 // GET /api/ap/payroll-queue Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ locked payroll batches grouped by client+contract+month
 app.get('/api/ap/payroll-queue', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
     try {
+        const { archive, config } = await cutover.resolveArchiveMode(req, pool);
+        const periodFloor = cutover.applyPeriodFloor('pt.month', 'pt.year', { archive, cutoverMonth: config.cutoverMonth, cutoverYear: config.cutoverYear });
         const { rows } = await pool.query(`
             SELECT
                 pt.year, pt.month,
@@ -4508,7 +4567,7 @@ app.get('/api/ap/payroll-queue', requireAuth, requireRole('ap_team','finance_man
                  AND COALESCE(pb.contract_name,'') = COALESCE(e.contract_name,'')) AS batch_count
             FROM payroll_transactions pt
             JOIN employees e ON e.id = pt.employee_id
-            WHERE pt.locked=TRUE
+            WHERE pt.locked=TRUE AND ${periodFloor}
             GROUP BY pt.year, pt.month, e.client, e.contract_name
             ORDER BY pt.year DESC, pt.month DESC, e.client ASC, e.contract_name ASC
         `);
@@ -4789,7 +4848,9 @@ async function generateInvoiceNumber(year, month) {
 app.get('/api/client-invoices', requireAuth, requireRole('ar_team','finance_manager','finance_approver','finance_proposer','superadmin'), async (req, res) => {
     try {
         const { status, client } = req.query;
-        const conds = ['1=1']; const params = [];
+        const { archive, config } = await cutover.resolveArchiveMode(req, pool);
+        const periodFloor = cutover.applyPeriodFloor('ci.period_month', 'ci.period_year', { archive, cutoverMonth: config.cutoverMonth, cutoverYear: config.cutoverYear });
+        const conds = ['1=1', periodFloor]; const params = [];
         if (status) { params.push(status); conds.push(`ci.status=$${params.length}`); }
         if (client) { params.push(client); conds.push(`ci.client=$${params.length}`); }
         const where = 'WHERE ' + conds.join(' AND ');
@@ -5558,17 +5619,19 @@ app.get('/api/audit-log', requireAuth, requireRole('superadmin'), async (req, re
 // ├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É├óΓÇó┬É
 app.get('/api/dashboard/summary', requireAuth, async (req, res) => {
     try {
+        const { archive, config } = await cutover.resolveArchiveMode(req, pool);
+        const empVis = cutover.employeeVisibilityClause('employees', { archive });
+        const invoicePeriodFloor = cutover.applyPeriodFloor('period_month', 'period_year', { archive, cutoverMonth: config.cutoverMonth, cutoverYear: config.cutoverYear });
         const now = new Date();
         const curMonth = now.getMonth() + 1;
         const curYear  = now.getFullYear();
 
         const [empCount, contractData, invoiceData, billData, payrollData, expiring30, expiring60, recentLogs] = await Promise.all([
-            // Headcount
-            pool.query(`SELECT COUNT(*) AS total, COUNT(DISTINCT client) AS clients, COUNT(DISTINCT contract_name) AS contracts FROM employees WHERE active='Yes' OR active='Active' OR active IS NULL`),
+            pool.query(`SELECT COUNT(*) AS total, COUNT(DISTINCT client) AS clients, COUNT(DISTINCT contract_name) AS contracts FROM employees WHERE ${empVis}`),
             // Contracts by status
             pool.query(`SELECT status, COUNT(*) AS cnt FROM contracts GROUP BY status`),
             // Outstanding invoices
-            pool.query(`SELECT COUNT(*) AS cnt, COALESCE(SUM(grand_total),0) AS value FROM client_invoices WHERE status NOT IN ('Paid','Void','Voided')`),
+            pool.query(`SELECT COUNT(*) AS cnt, COALESCE(SUM(grand_total),0) AS value FROM client_invoices WHERE status NOT IN ('Paid','Void','Voided') AND ${invoicePeriodFloor}`),
             // Pending bills
             pool.query(`SELECT COUNT(*) AS pending, COALESCE(SUM(CASE WHEN status='Paid' THEN total ELSE 0 END),0) AS paid_this_month FROM bills WHERE (status NOT IN ('Paid','Rejected') OR (status='Paid' AND EXTRACT(MONTH FROM paid_at)=$1 AND EXTRACT(YEAR FROM paid_at)=$2))`, [curMonth, curYear]),
             // Payroll allocations placeholder
@@ -5606,7 +5669,7 @@ app.get('/api/dashboard/summary', requireAuth, async (req, res) => {
         }
 
         const { rows: byClient } = await pool.query(
-            `SELECT client, COUNT(*) AS cnt FROM employees WHERE active='Yes' OR active='Active' OR active IS NULL GROUP BY client ORDER BY cnt DESC LIMIT 8`
+            `SELECT client, COUNT(*) AS cnt FROM employees WHERE ${empVis} GROUP BY client ORDER BY cnt DESC LIMIT 8`
         );
 
         res.json({
@@ -5616,6 +5679,8 @@ app.get('/api/dashboard/summary', requireAuth, async (req, res) => {
             bills: { pending_count: parseInt(billData.rows[0].pending), paid_this_month: parseFloat(billData.rows[0].paid_this_month) },
             payroll: { monthly_cost: monthlyCost, locked_count: lockedCount, month: dataMonth, year: dataYear },
             data_period: { month: dataMonth, year: dataYear },
+            archive_mode: archive,
+            cutover: { month: cutover.CUTOVER_MONTH, year: cutover.CUTOVER_YEAR },
             alerts: {
                 expiring_30: expiring30.rows,
                 expiring_60: expiring60.rows,
@@ -5804,8 +5869,10 @@ app.patch('/api/ap/batches/:batchId/fm-approve', requireAuth, requireRole('finan
 // Get all batches pending FM approval
 app.get('/api/ap/pending-fm-approval', requireAuth, requireRole('finance_manager','superadmin'), async (req, res) => {
     try {
+        const { archive, config } = await cutover.resolveArchiveMode(req, pool);
+        const periodFloor = cutover.applyPeriodFloor('month', 'year', { archive, cutoverMonth: config.cutoverMonth, cutoverYear: config.cutoverYear });
         const { rows } = await pool.query(
-            `SELECT * FROM payment_batches WHERE status='Confirmed' ORDER BY created_at DESC`);
+            `SELECT * FROM payment_batches WHERE status='Confirmed' AND ${periodFloor} ORDER BY created_at DESC`);
         res.json({ batches: rows });
     } catch (err) { console.error('[GET /api/ap/pending-fm-approval]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -6831,13 +6898,15 @@ pool.query(`
 // GET /api/wafi-claims/sessions
 app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
     try {
+        const { archive, config } = await cutover.resolveArchiveMode(req, pool);
+        const periodClause = wafiApproval.wafiSessionPeriodClause('wcs', { archive });
         const { status, dateFrom, dateTo, location, search, claimMonth } = req.query;
         const page  = Math.max(1, parseInt(req.query.page)  || 1);
         const limit = Math.min(200, parseInt(req.query.limit) || 50);
         const offset = (page - 1) * limit;
 
         const vals = [];
-        let where = 'WHERE 1=1';
+        let where = `WHERE ${periodClause}`;
         if (status)   { 
             vals.push(status);   
             where += ` AND wcs.processing_status = $${vals.length}`; 
@@ -6897,10 +6966,11 @@ app.get('/api/wafi-claims/sessions', requireAuth, async (req, res) => {
                 COUNT(*) FILTER (WHERE processing_status = 'REVISED') AS revised,
                 COUNT(*) FILTER (WHERE processing_status = 'PENDING_REVIEW') AS pending_review,
                 COUNT(*) FILTER (WHERE processing_status IN ('PROCESSED_SUCCESSFULLY','VERIFIED') AND pushed_to_payroll = FALSE) AS pending_payroll
-            FROM wafi_claims_sessions
+            FROM wafi_claims_sessions wcs
+            WHERE ${periodClause}
         `);
 
-        res.json({ sessions, total, page, limit, stats: statsRows[0] });
+        res.json({ sessions, total, page, limit, stats: statsRows[0], archive_mode: archive });
     } catch (err) { console.error('[GET /api/wafi-claims/sessions]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
@@ -7200,6 +7270,15 @@ app.post('/api/wafi-claims/sessions/:id/stage-payroll', requireAuth, async (req,
         const STAGEABLE = ['PROCESSED_SUCCESSFULLY', 'VERIFIED', 'PENDING_REVIEW'];
         if (!STAGEABLE.includes(session.processing_status)) {
             return res.status(400).json({ error: `Session status is '${session.processing_status}' — only ${STAGEABLE.join(', ')} sessions can be staged to payroll.` });
+        }
+
+        const approvalGate = await wafiApproval.assertReadyForHcm(pool, sessionId);
+        if (!approvalGate.ok) {
+            return res.status(approvalGate.status || 409).json({
+                error: approvalGate.message || 'Approval chain incomplete',
+                code: approvalGate.code,
+                approval_state: approvalGate.approval_state,
+            });
         }
 
         const { rows: items } = await pool.query(
@@ -7821,6 +7900,8 @@ app.get('/api/wafi-claims/employee-search', requireAuth, async (req, res) => {
 // GET /api/wafi-claims/stats
 app.get('/api/wafi-claims/stats', requireAuth, async (req, res) => {
     try {
+        const { archive } = await cutover.resolveArchiveMode(req, pool);
+        const periodClause = wafiApproval.wafiSessionPeriodClause('wafi_claims_sessions', { archive });
         const { rows } = await pool.query(`
             SELECT
                 COUNT(*) AS total_sessions,
@@ -7830,14 +7911,103 @@ app.get('/api/wafi-claims/stats', requireAuth, async (req, res) => {
                 COUNT(*) FILTER (WHERE processing_status = 'IRRELEVANT') AS irrelevant,
                 COUNT(*) FILTER (WHERE processing_status = 'SKIPPED') AS skipped,
                 COUNT(*) FILTER (WHERE processing_status IN ('PROCESSED_SUCCESSFULLY','VERIFIED') AND pushed_to_payroll = FALSE) AS pending_payroll,
+                COUNT(*) FILTER (WHERE approval_state = 'pending_focal_input') AS pending_focal,
+                COUNT(*) FILTER (WHERE approval_state = 'pending_lm_approval') AS pending_lm,
+                COUNT(*) FILTER (WHERE approval_state = 'ready_for_hcm') AS ready_for_hcm,
                 SUM(total_ot_rows) AS total_ot_rows,
                 SUM(total_expense_rows) AS total_expense_rows,
                 SUM(total_medical_rows) AS total_medical_rows,
                 MAX(received_at) AS last_received_at
             FROM wafi_claims_sessions
+            WHERE ${periodClause}
         `);
-        res.json(rows[0]);
+        res.json({ ...rows[0], archive_mode: archive });
     } catch (err) { console.error('[GET /api/wafi-claims/stats]', err); res.status(500).json({ error: 'Internal server error' }); }
+});
+
+const wafiFocalActionHtml = (sessionId, token, step) => `<!DOCTYPE html><html><body style="font-family:Inter,Arial,sans-serif;padding:24px;">
+<h2>Wafi Claims — ${step === 'lm' ? 'Manager' : 'Focal'} Action</h2>
+<p>Session #${sessionId}</p>
+<form method="POST" action="/api/wafi-claims/${step}-action" style="margin-top:1.5rem">
+  <input type="hidden" name="token" value="${token}" />
+  <input type="hidden" name="id" value="${sessionId}" />
+  <label>Comment (optional)<br/><textarea name="comment" rows="3" style="width:100%;max-width:480px"></textarea></label><br/><br/>
+  <button type="submit" name="decision" value="approve" style="padding:10px 20px;background:#16a34a;color:#fff;border:none;border-radius:6px;cursor:pointer">Approve</button>
+  <button type="submit" name="decision" value="reject" style="padding:10px 20px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-left:8px">Reject</button>
+</form></body></html>`;
+
+app.get('/api/wafi-claims/focal-action', async (req, res) => {
+    try {
+        const { token, id } = req.query;
+        if (!token || !id) return res.status(400).send('Missing token or id');
+        res.send(wafiFocalActionHtml(id, token, 'focal'));
+    } catch (err) {
+        console.error('[GET /api/wafi-claims/focal-action]', err);
+        res.status(500).send('Internal server error');
+    }
+});
+
+app.post('/api/wafi-claims/focal-action', async (req, res) => {
+    try {
+        const token = req.body?.token || req.query?.token;
+        const sessionId = parseInt(req.body?.id || req.query?.id, 10);
+        const decision = (req.body?.decision || 'approve').toLowerCase() === 'reject' ? 'reject' : 'approve';
+        const result = await wafiApproval.handleFocalAction(pool, {
+            sessionId, token, decision, comment: req.body?.comment,
+            actorEmail: req.body?.actor_email || null,
+        });
+        if (!result.ok) return res.status(result.status || 400).send(result.error || 'Action failed');
+        if (result.lmToken && result.lmEmail) {
+            try {
+                const url = wafiApproval.buildActionLink(
+                    process.env.APP_BASE_URL || process.env.BACKEND_URL || '',
+                    '/api/wafi-claims/lm-action', result.lmToken, sessionId
+                );
+                await sendAppEmail({
+                    to: result.lmEmail,
+                    subject: `[ASIL HCM] Wafi claims — manager approval required (#${sessionId})`,
+                    html: wafiApproval.buildApprovalEmailHtml({
+                        title: 'Wafi Claims — Manager Approval',
+                        sessionId,
+                        actionUrl: url,
+                        instructions: 'Focal has approved. Please complete manager approval.',
+                    }),
+                });
+            } catch (_) {}
+        }
+        res.send(`<p>Decision recorded: ${result.state}. You may close this window.</p>`);
+    } catch (err) {
+        console.error('[POST /api/wafi-claims/focal-action]', err);
+        res.status(500).send('Internal server error');
+    }
+});
+
+app.get('/api/wafi-claims/lm-action', async (req, res) => {
+    try {
+        const { token, id } = req.query;
+        if (!token || !id) return res.status(400).send('Missing token or id');
+        res.send(wafiFocalActionHtml(id, token, 'lm'));
+    } catch (err) {
+        console.error('[GET /api/wafi-claims/lm-action]', err);
+        res.status(500).send('Internal server error');
+    }
+});
+
+app.post('/api/wafi-claims/lm-action', async (req, res) => {
+    try {
+        const token = req.body?.token || req.query?.token;
+        const sessionId = parseInt(req.body?.id || req.query?.id, 10);
+        const decision = (req.body?.decision || 'approve').toLowerCase() === 'reject' ? 'reject' : 'approve';
+        const result = await wafiApproval.handleLmAction(pool, {
+            sessionId, token, decision, comment: req.body?.comment,
+            actorEmail: req.body?.actor_email || null,
+        });
+        if (!result.ok) return res.status(result.status || 400).send(result.error || 'Action failed');
+        res.send(`<p>Decision recorded: ${result.state}. You may close this window.</p>`);
+    } catch (err) {
+        console.error('[POST /api/wafi-claims/lm-action]', err);
+        res.status(500).send('Internal server error');
+    }
 });
 
 // POST /api/wafi-claims/sessions/:id/verify
@@ -7859,6 +8029,16 @@ app.post('/api/wafi-claims/sessions/:id/verify', requireAuth, async (req, res) =
         if (!['PENDING_REVIEW', 'PROCESSED_SUCCESSFULLY'].includes(sess.processing_status)) {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: `Cannot verify session with status ${sess.processing_status}` });
+        }
+
+        const approvalGate = await wafiApproval.assertReadyForHcm(client, sessionId);
+        if (!approvalGate.ok) {
+            await client.query('ROLLBACK');
+            return res.status(approvalGate.status || 409).json({
+                error: approvalGate.message || 'Approval chain incomplete',
+                code: approvalGate.code,
+                approval_state: approvalGate.approval_state,
+            });
         }
 
         // Push items to employee_claims (World B intake)

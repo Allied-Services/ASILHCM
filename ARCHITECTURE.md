@@ -98,6 +98,20 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 
 ---
 
+## July 2026 soft cutover & Wafi routing
+
+| Item | Detail |
+|---|---|
+| Cutover floor | Normal UI/AP/payroll/invoices show period ≥ **2026-07** |
+| Archive toggle | `GET/PUT /api/admin/cutover-settings` — **superadmin** + **huzaifa.rafaqat@asil.com.pk** only; propagates via `X-Show-Archive: 1` / `?archive=1` |
+| Helper | `backend/src/core/cutover.js` — `employeeVisibilityClause`, `applyPeriodFloor`, `resolveArchiveMode` |
+| Wafi roster refresh | `node scripts/wafi_roster_refresh.js --csv "<path>" --dry-run` (apply only on staging with `STAGING_DATABASE_URL`) |
+| Wafi claim routing | `claim_authority` → focal input; `line_manager_email` → LM approve; `GET/POST /api/wafi-claims/focal-action`, `lm-action` |
+| Approval gate | `verify` / `stage-payroll` require `approval_state` ∈ `{ready_for_hcm, legacy_bypass}`; post-Jul-2026 sessions with null state blocked when chain enabled |
+| Portal claims (Wafi) | Filler = `claim_authority`; approver = `line_manager_email` when both named (else `supervisor_email` legacy). No second focal-then-LM state machine — email Excel path is authoritative for Wafi |
+
+---
+
 ## Further reading
 
 - `.agents/REMEDIATION_PLAN.md` — session order, milestones, MD gates

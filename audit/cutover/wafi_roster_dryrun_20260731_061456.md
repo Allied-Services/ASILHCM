@@ -1,0 +1,326 @@
+# Wafi Roster Dry-Run Report
+
+Generated: 2026-07-31T06:14:56.185Z
+CSV: C:\Projects\Allied HCM Content-Hub\ASIL_Master_Roster (1).csv
+Mode: dry-run-offline
+
+## Summary
+- Matched: 0
+- Would update: 0
+- Would insert: 0 (must be 0)
+- Would delete: 0 (must be 0)
+- Salary deltas: 0
+- Email changes: 0
+- Routing changes: 0
+- Insurance field changes: 0
+- Warnings: 1
+- Errors: 0
+
+## Unmatched CSV (307)
+- ASIL/SPL-91/21 — Muhammad Anees: no_database_url
+- ASIL/SPL-205/21 — Muhammad Usman: no_database_url
+- ASIL/SPL-379/21 — Rao Muhammad Zubair: no_database_url
+- ASIL/SPL-380/21 — Arshad Naveed: no_database_url
+- ASIL/SPL-236/21 — Muhammad Naeem Iqbal: no_database_url
+- ASIL/SPL-119/21 — Tanveer Ejaz: no_database_url
+- ASIL/SPL-208/21 — Bilal Sagheer: no_database_url
+- ASIL/SPL-214/21 — Faizullah: no_database_url
+- ASIL/SPL-218/21 — Ghaffar Ali: no_database_url
+- ASIL/SPL-213/21 — Kamran Ahmed: no_database_url
+- ASIL/SPL-222/21 — Muhammad Asif: no_database_url
+- ASIL/SPL-229/21 — Muhammad Faizan Sarmad: no_database_url
+- ASIL/SPL-36/21 — Muhammad Ikram Shireen: no_database_url
+- ASIL/SPL-216/21 — Muhammad Khalil: no_database_url
+- ASIL/SPL-144/21 — Muhammad Mussaddiq Shaikh: no_database_url
+- ASIL/SPL-51/21 — Muhammad Tariq: no_database_url
+- ASIL/SPL-223/21 — Muhmmad Irfan Ayub: no_database_url
+- ASIL/SPL-227/21 — Naeem Afzal: no_database_url
+- ASIL/SPL-217/21 — Naeem Ahmed: no_database_url
+- ASIL/SPL-206/21 — Nasir Abbas: no_database_url
+- ASIL/SPL-211/21 — Rehmat Ullah: no_database_url
+- ASIL/SPL-62/21 — Syed Adnan Hussain: no_database_url
+- ASIL/SPL-210/21 — Waseem Ahmed: no_database_url
+- ASIL/SPL-209/21 — Zubair Sagheer: no_database_url
+- ASIL/SPL-43/21 — Khalid Hussain: no_database_url
+- ASIL/SPL-230/21 — Kifayatullah: no_database_url
+- ASIL/SPL-289/21 — Amjad Akram: no_database_url
+- ASIL/SPL-291/21 — Nadeem Ahmed: no_database_url
+- ASIL/SPL-381/21 — Mulazim Hussain: no_database_url
+- ASIL/SPL-382/21 — Muhammad Faheem Rahat: no_database_url
+- ASIL/SPL-421/21 — Raja Ahtisham Hussain: no_database_url
+- ASIL/SPL-57/21 — Kenneth Eric: no_database_url
+- ASIL/SPL-146/21 — Muhammad Akmal Khan: no_database_url
+- ASIL/SPL-63/21 — Syed Mudasar Mumtaz Shah: no_database_url
+- ASIL/SPL-328/21 — Muhammad Yasir: no_database_url
+- ASIL/SPL-366/21 — Iman Akbar: no_database_url
+- ASIL/SPL-402/21 — Arsalan Salim: no_database_url
+- ASIL/SPL-420/21 — Rafae Kayani: no_database_url
+- ASIL/SPL-422/21 — Talha Bin Khalid: no_database_url
+- ASIL/SPL-233/21 — Badal Khan: no_database_url
+- ASIL/SPL-232/21 — Ghulam Sarwar: no_database_url
+- ASIL/SPL-231/21 — Kamil Khan: no_database_url
+- ASIL/SPL-234/21 — Muhammad Sajjan: no_database_url
+- ASIL/SPL-235/21 — Talib Hussain: no_database_url
+- ASIL/SPL-304/21 — Muhammad Asif Arain: no_database_url
+- ASIL/SPL-410/21 — Muhammad Hamza Arif: no_database_url
+- ASIL/SPL-25/21 — Abdul Hafeez: no_database_url
+- ASIL/SPL-25/21 — Abdul Hafeez: no_database_url
+- ASIL/SPL-72/21 — Abdul Rehman: no_database_url
+- ASIL/SPL-27/21 — Ansar Ali: no_database_url
+- ASIL/SPL-93/21 — Anwar_Ul-Haq Shah: no_database_url
+- ASIL/SPL-23/21 — Ayaz Ahmed: no_database_url
+- ASIL/SPL-64/21 — Muhammad Ahsan: no_database_url
+- ASIL/SPL-29/21 — Muhammad Ismail Hans: no_database_url
+- ASIL/SPL-24/21 — Muneer Ahmed: no_database_url
+- ASIL/SPL-288/21 — Talib Hussain: no_database_url
+- ASIL/SPL-286/21 — Munir Ahmed: no_database_url
+- ASIL/SPL-278/21 — Muhammad Mustafa: no_database_url
+- ASIL/SPL-350/21 — Zubair Ansar: no_database_url
+- ASIL/SPL-143/21 — Abdul Saleem: no_database_url
+- ASIL/SPL-117/21 — Adnan Hussain: no_database_url
+- ASIL/SPL-130/21 — Adnan Khan: no_database_url
+- ASIL/SPL-156/21 — Akhtar Ali: no_database_url
+- ASIL/SPL-148/21 — Ali Abbas Khan: no_database_url
+- ASIL/SPL-194/21 — Asghar Ali Khan: no_database_url
+- ASIL/SPL-173/21 — Aurangzeb: no_database_url
+- ASIL/SPL-48/21 — Habib-ul-Haq: no_database_url
+- ASIL/SPL-121/21 — Iftikhar Hussain: no_database_url
+- ASIL/SPL-200/21 — Iftikhar Muhammad: no_database_url
+- ASIL/SPL-122/21 — Imran Khan: no_database_url
+- ASIL/SPL-136/21 — Jawed Israr: no_database_url
+- ASIL/SPL-69/21 — Kanwar Muhammad Azhar: no_database_url
+- ASIL/SPL-80/21 — Kashif Ameer: no_database_url
+- ASIL/SPL-139/21 — Mohammad Anees: no_database_url
+- ASIL/SPL-132/21 — Muhammad Ali: no_database_url
+- ASIL/SPL-118/21 — Muhammad Saqib Khan: no_database_url
+- ASIL/SPL-111/21 — Murad Hussain: no_database_url
+- ASIL/SPL-178/21 — Mushtaq Ahmed: no_database_url
+- ASIL/SPL-113/21 — Nabeel Khan: no_database_url
+- ASIL/SPL-197/21 — Nisar Ahmed: no_database_url
+- ASIL/SPL-202/21 — Nouman Ali: no_database_url
+- ASIL/SPL-107/21 — Rashid Bashir: no_database_url
+- ASIL/SPL-116/21 — Shoaib Sultan Tanoli: no_database_url
+- ASIL/SPL-195/21 — Syed Muhammad Shiraz Hussain: no_database_url
+- ASIL/SPL-104/21 — Ulfat Khan: no_database_url
+- ASIL/SPL-201/21 — Zeeshan Baig: no_database_url
+- ASIL/SPL-255/21 — Sindh: no_database_url
+- ASIL/SPL-287/21 — Mumtaz Hussain: no_database_url
+- ASIL/SPL-331/21 — Ahmer Hyder: no_database_url
+- ASIL/SPL-384/21 — Shahid Irshad: no_database_url
+- ASIL/SPL-418/21 — Shahzad Masih: no_database_url
+- ASIL/SPL-419/21 — Abdul Saboor Mufti: no_database_url
+- ASIL/SPL-53/21 — Mazhar Mustafa: no_database_url
+- ASIL/SPL-138/21 — Muhammad Waseem: no_database_url
+- ASIL/SPL-320/21 — Shayan Shahrukh Butt: no_database_url
+- ASIL/SPL-347/21 — Muhammad Faheem: no_database_url
+- ASIL/SPL-397/21 — Fahad Ahmed: no_database_url
+- ASIL/SPL-406/21 — Adnan Saleem: no_database_url
+- ASIL/SPL-416/21 — Syed Jahanzeb Raza: no_database_url
+- ASIL/SPL-220/21 — Hussan Dad: no_database_url
+- ASIL/SPL-180/21 — Abdul Rasheed: no_database_url
+- ASIL/SPL-169/21 — Abid Hussain: no_database_url
+- ASIL/SPL-154/21 — Adnan Ali: no_database_url
+- ASIL/SPL-174/21 — Ahmad Hussain: no_database_url
+- ASIL/SPL-168/21 — Ahsan Ul Haq: no_database_url
+- ASIL/SPL-97/21 — Akhtar Ali: no_database_url
+- ASIL/SPL-158/21 — Amjad Masih: no_database_url
+- ASIL/SPL-152/21 — Asim Ali: no_database_url
+- ASIL/SPL-140/21 — Chaman Shahzad: no_database_url
+- ASIL/SPL-176/21 — Dilshad Nazir: no_database_url
+- ASIL/SPL-165/21 — Habib Ali: no_database_url
+- ASIL/SPL-77/21 — Hassan Raza Khan: no_database_url
+- ASIL/SPL-155/21 — Ibrar Hussain: no_database_url
+- ASIL/SPL-86/21 — Imran Munir: no_database_url
+- ASIL/SPL-85/21 — Muhammad Awais: no_database_url
+- ASIL/SPL-97/21 — Muhammad Faisal Ayaz: no_database_url
+- ASIL/SPL-157/21 — Muhammad Hanif: no_database_url
+- ASIL/SPL-88/21 — Muhammad Nadeem: no_database_url
+- ASIL/SPL-140/21 — Muhammad Shahbaz: no_database_url
+- ASIL/SPL-177/21 — Muhammad Sharif: no_database_url
+- ASIL/SPL-89/21 — Muhammad Sohail: no_database_url
+- ASIL/SPL-161/21 — Muhammad Tayyab: no_database_url
+- ASIL/SPL-151/21 — Muhammad Waseem: no_database_url
+- ASIL/SPL-94/21 — Muzammal Hussain: no_database_url
+- ASIL/SPL-274/21 — Syed Maqsood Hussain Shah: no_database_url
+- ASIL/SPL-125/21 — Waleed Ahmed Khan: no_database_url
+- ASIL/SPL-101/21 — Yameen: no_database_url
+- ASIL/SPL-82/21 — Arsalan: no_database_url
+- ASIL/SPL-378/21 — Arsalan: no_database_url
+- ASIL/SPL-282/21 — Sadiq Ali: no_database_url
+- ASIL/SPL-275/21 — Abdul Rehman: no_database_url
+- ASIL/SPL-276/21 — Muhammad Irshad: no_database_url
+- ASIL/SPL-306/21 — Muhammad Nauman Amin: no_database_url
+- ASIL/SPL-326/21 — Sonia Khan: no_database_url
+- ASIL/SPL-371/21 — Ahmad Raza: no_database_url
+- ASIL/SPL-373/21 — Faraz Ahmad: no_database_url
+- ASIL/SPL-378/21 — Muhammad Asif: no_database_url
+- ASIL/SPL-390/21 — Ahmad Faraz: no_database_url
+- ASIL/SPL-391/21 — Sami Ullah: no_database_url
+- ASIL/SPL-403/21 — Usman Ali: no_database_url
+- ASIL/SPL-28/21 — Sultan Ahmed: no_database_url
+- ASIL/SPL-131/21 — Khalil Ahmed: no_database_url
+- ASIL/SPL-254/21 — Sana ullah: no_database_url
+- ASIL/SPL-281/21 — Muhammad Akram: no_database_url
+- ASIL/SPL-5/21 — Salman Khan: no_database_url
+- ASIL/SPL-50/21 — Muhammad Nabeel: no_database_url
+- ASIL/SPL-294/21 — Rana Faheem Younis: no_database_url
+- ASIL/SPL-295/21 — Muhammad Mozammil: no_database_url
+- ASIL/SPL-349/21 — Waqas Ahmed: no_database_url
+- ASIL/SPL-368/21 — Syed Ahmed Iftikhar: no_database_url
+- ASIL/SPL-385/21 — Rehana Mansha: no_database_url
+- ASIL/SPL-392/21 — Imam Ali Gardezi: no_database_url
+- ASIL/SPL-400/21 — Muhammad Mohsin Rasheed: no_database_url
+- ASIL/SPL-404/21 — Muhammad Usman: no_database_url
+- ASIL/SPL-413/21 — Muhammad Zain Bin Ahsan: no_database_url
+- ASIL/SPL-414/21 — Muhammad Abdullah Baig: no_database_url
+- ASIL/SPL-37/21 — Wilayat Ali: no_database_url
+- ASIL/SPL-358/21 — Muhammad Imran: no_database_url
+- ASIL/SPL-367/21 — Muhammad Rizwan: no_database_url
+- ASIL/SPL-8/21 — Haseeb Ullah Khan: no_database_url
+- ASIL/SPL-41/21 — Allah Dad Khan: no_database_url
+- ASIL/SPL-240/21 — Altaf Hussain: no_database_url
+- ASIL/SPL-75/21 — Fayaz Ahmed: no_database_url
+- ASIL/SPL-115/21 — Ghulam Mohiuddin Qadri: no_database_url
+- ASIL/SPL-96/21 — Hafeezullah Soomro: no_database_url
+- ASIL/SPL-183/21 — Imran Ahmed Qureshi: no_database_url
+- ASIL/SPL-149/21 — Kifayatullah: no_database_url
+- ASIL/SPL-239/21 — Mansab Ali: no_database_url
+- ASIL/SPL-241/21 — Mola Bux: no_database_url
+- ASIL/SPL-242/21 — Safeer Ahmed: no_database_url
+- ASIL/SPL-238/21 — Soomar: no_database_url
+- ASIL/SPL-54/21 — Syed Hafeez Shah: no_database_url
+- ASIL/SPL-280/21 — Muhammad Javed Rajput: no_database_url
+- ASIL/SPL-333/21 — Shahbaz Hussain: no_database_url
+- ASIL/SPL-336/21 — Muhammad Farooq: no_database_url
+- ASIL/SPL-411/21 — Muhammad Safyan: no_database_url
+- ASIL/SPL-423/21 — Hassan Raza Khan: no_database_url
+- ASIL/SPL-243/21 — Ghulam Hussain: no_database_url
+- ASIL/SPL-248/21 — Mir Alam Khan: no_database_url
+- ASIL/SPL-245/21 — Muhammad Ali: no_database_url
+- ASIL/SPL-106/21 — Sharjeel Khan: no_database_url
+- ASIL/SPL-47/21 — Subhan Ud Din: no_database_url
+- ASIL/SPL-244/21 — Younus Khan: no_database_url
+- ASIL/SPL-277/21 — Muhammad Jahangir Khan: no_database_url
+- ASIL/SPL-352/21 — Abdullah Tahmeed: no_database_url
+- ASIL/SPL-386/21 — Muhammad Ayaz Khan: no_database_url
+- ASIL/SPL-31/21 — Hafiz Muhammad Arshad Chaudhary: no_database_url
+- ASIL/SPL-137/21 — Naveed Ahmed: no_database_url
+- ASIL/SPL-19/21 — Aamir Ali: no_database_url
+- ASIL/SPL-103/21 — Ali Mustapha: no_database_url
+- ASIL/SPL-129/21 — Haseen Uddin: no_database_url
+- ASIL/SPL-34/21 — Imran Samad: no_database_url
+- ASIL/SPL-10/21 — Muhammad Burhan Baig: no_database_url
+- ASIL/SPL-15/21 — Nasir Irfan: no_database_url
+- ASIL/SPL-17/21 — Seroug Rana: no_database_url
+- ASIL/SPL-187/21 — Shahzad Shakil: no_database_url
+- ASIL/SPL-153/21 — Syed Aarfeen Zaidi: no_database_url
+- ASIL/SPL-147/21 — Syed Farooq Ur Rehman: no_database_url
+- ASIL/SPL-83/21 — Syed Fasahat Hasnain Abidi: no_database_url
+- ASIL/SPL-318/21 — Hamid Hussain: no_database_url
+- ASIL/SPL-319/21 — Muhammad Umer Usmani: no_database_url
+- ASIL/SPL-325/21 — Waqar Ahmed: no_database_url
+- ASIL/SPL-329/21 — Zubair Ahmed: no_database_url
+- ASIL/SPL-340/21 — Muhammad Umer: no_database_url
+- ASIL/SPL-341/21 — Muhammad Baber: no_database_url
+- ASIL/SPL-345/21 — Muhammad Ahsan Khan: no_database_url
+- ASIL/SPL-363/21 — Muhammad Shahid: no_database_url
+- ASIL/SPL-364/21 — Jasir Salahuddin: no_database_url
+- ASIL/SPL-365/21 — Shahper Hussain: no_database_url
+- ASIL/SPL-374/21 — Saqib Ali: no_database_url
+- ASIL/SPL-394/21 — Ammad Ahmed: no_database_url
+- ASIL/SPL-393/21 — Moiz: no_database_url
+- ASIL/SPL-399/21 — Fahad Saeed: no_database_url
+- ASIL/SPL-407/21 — Zeeshan Idrees: no_database_url
+- ASIL/SPL-409/21 — Numair Ahmed Qureshi: no_database_url
+- ASIL/SPL-412/21 — Ali Sheikh: no_database_url
+- ASIL/SPL-415/21 — Saqlain Qadir: no_database_url
+- ASIL/SPL-417/21 — Syed Haris Ali: no_database_url
+- ASIL/SPL-283/21 — Muhammad Iqbal: no_database_url
+- ASIL/SPL-351/21 — M.Toqeer Haider: no_database_url
+- ASIL/SPL-354/21 — Mohsin Mahmood: no_database_url
+- ASIL/SPL-355/21 — Ubaid Ahmed: no_database_url
+- ASIL/SPL-383/21 — Muhammad Shahrukh: no_database_url
+- ASILFM/SPL/22/70 — Ashok Kumar: no_database_url
+- ASILFM/SPL/22/72 — Haroon Rasheed: no_database_url
+- ASILFM/SPL/22/73 — Juma Khan: no_database_url
+- ASILFM/SPL/22/76 — Kamran: no_database_url
+- ASILFM/SPL/22/77 — Abdullah: no_database_url
+- ASILFM/SPL/22/78 — Abdul Razzaq: no_database_url
+- ASILFM/SPL/22/79 — Nisar: no_database_url
+- ASILFM/SPL/22/80 — Shamraiz Khan: no_database_url
+- ASILFM/SPL/22/83 — Muhammad Ibrahim: no_database_url
+- ASILFM/SPL/22/84 — Muhammad Yaseen: no_database_url
+- ASILFM/SPL/22/92 — Zain Ul Hadi: no_database_url
+- ASILFM/SPL/22/166 — Shehzad: no_database_url
+- ASILFM/SPL/22/94 — Ahmed: no_database_url
+- ASILFM/SPL/22/95 — Hayat Rauf: no_database_url
+- ASILFM/SPL/22/97 — Muhammad Waseem Khan: no_database_url
+- ASILFM/SPL/22/103 — Shehryar: no_database_url
+- ASILFM/SPL/22/105 — Safeer Ahmed: no_database_url
+- ASILFM/SPL/22/128 — Nawab Zada: no_database_url
+- ASILFM/SPL/22/145 — Saddam: no_database_url
+- ASILFM/SPL/22/148 — Muhammad Hammad: no_database_url
+- ASILFM/SPL/22/147 — Owais Rehman: no_database_url
+- ASILFM/SPL/22/150 — Abdul Kareem Shah: no_database_url
+- ASILFM/SPL/22/151 — Syed Munir Ali Shah Bukhari: no_database_url
+- ASILFM/SPL/22/152 — Nasir Ali: no_database_url
+- ASILFM/SPL/22/154 — Muhammad Tahir: no_database_url
+- ASILFM/SPL/22/155 — Safeer: no_database_url
+- ASILFM/SPL/22/160 — Zain: no_database_url
+- ASILFM/SPL/22/161 — Shehzad Ahmed: no_database_url
+- ASILFM/SPL/22/163 — Shaharyar: no_database_url
+- ASILFM/SPL/22/164 — Dinesh: no_database_url
+- ASILFM/SPL/22/165 — Govinda: no_database_url
+- ASILFM/SPL/22/27 — Raja Ghulam Hussain: no_database_url
+- ASILFM/SPL/22/28 — Abdul Majeed: no_database_url
+- ASILFM/SPL/22/30 — Muhammad Yameen: no_database_url
+- ASILFM/SPL/22/32 — Muhammad Usman: no_database_url
+- ASILFM/SPL/22/156 — Muhammad Khurram: no_database_url
+- ASILFM/SPL/22/23 — Amjad Shaikh: no_database_url
+- ASILFM/SPL/22/24 — Zikeriya: no_database_url
+- ASILFM/SPL/22/35 — Rafaqat: no_database_url
+- ASILFM/SPL/22/36 — Nadem Masih: no_database_url
+- ASILFM/SPL/22/38 — Naqqash Bahadur: no_database_url
+- ASILFM/SPL/22/39 — Javed Masih: no_database_url
+- ASILFM/SPL/22/42 — Naeem Khan: no_database_url
+- ASILFM/SPL/22/43 — Daniyal Masih: no_database_url
+- ASILFM/SPL/22/44 — Muhammad Irfan: no_database_url
+- ASILFM/SPL/22/46 — Sohail Masih: no_database_url
+- ASILFM/SPL/22/48 — Muhammad Adnan: no_database_url
+- ASILFM/SPL/22/49 — Kishore Kumar: no_database_url
+- ASILFM/SPL/22/51 — Muhammad Faizan: no_database_url
+- ASILFM/SPL/22/52 — Shakeel Masih: no_database_url
+- ASILFM/SPL/22/53 — Abid Ullah: no_database_url
+- ASILFM/SPL/22/55 — Riaz Hussain: no_database_url
+- ASILFM/SPL/22/114 — Sohail Qamar: no_database_url
+- ASILFM/SPL/22/118 — Nazim: no_database_url
+- ASILFM/SPL/22/122 — Stephen: no_database_url
+- ASILFM/SPL/22/127 — Daniyal Nazir: no_database_url
+- ASILFM/SPL/22/138 — Babar: no_database_url
+- ASILFM/SPL/22/153 — Asif: no_database_url
+- ASILFM/SPL/22/158 — Imran Masih: no_database_url
+- ASILFM/SPL/22/159 — Rishi: no_database_url
+- ASILFM/SPL/22/162 — Ravi: no_database_url
+- ASILFM/SPL/22/3 — Ashraf Masih: no_database_url
+- ASILFM/SPL/22/4 — Azmat: no_database_url
+- ASILFM/SPL/22/5 — Allah Rakha Masih: no_database_url
+- ASILFM/SPL/22/6 — Rokas Masih: no_database_url
+- ASILFM/SPL/22/8 — Inderias Masih: no_database_url
+- ASILFM/SPL/22/111 — Mehrooz Zahid: no_database_url
+- ASILFM/SPL/22/112 — Sarfaraz: no_database_url
+- ASILFM/SPL/22/106 — Allah Rakha: no_database_url
+- ASILFM/SPL/22/115 — Asim Ahsan: no_database_url
+- ASILFM/SPL/22/9 — Dharmo Mal: no_database_url
+- ASILFM/SPL/22/10 — Krishan Lal: no_database_url
+- ASILFM/SPL/22/11 — Ameer Bux: no_database_url
+- ASILFM/SPL/22/12 — Mukhtiyar Ahmed: no_database_url
+- ASILFM/SPL/22/13 — Darshan Kumar: no_database_url
+- ASILFM/SPL/22/25 — Mazhar Abbas: no_database_url
+- ASILFM/SPL/22/16 — Saeed Mehmood: no_database_url
+- ASILFM/SPL/22/17 — Fazal Amin: no_database_url
+- ASILFM/SPL/22/18 — Shahras Khan: no_database_url
+- ASILFM/SPL/22/19 — Kifayat Ullah: no_database_url
+- ASILFM/SPL/22/157 — Adil Khan: no_database_url
+- ASILFM/SPL/22/21 — Waris Maseeh: no_database_url
+- ASILFM/SPL/22/124 — Muhammad Zeeshan: no_database_url
+- ASILFM/SPL/22/1 — Muhammad Naveed: no_database_url
