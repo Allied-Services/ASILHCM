@@ -2235,6 +2235,24 @@ async function processOneMessage(pool, gmail, msg) {
         return;
     }
 
+    // P3 — start focal → LM approval chain for post-cutover sessions
+    if (status === 'PENDING_REVIEW' && sessionId) {
+        try {
+            const { initApprovalChain } = require('./src/modules/wafiClaims/approvalService');
+            const sendApprovalEmail = async ({ to, subject, html }) => {
+                if (!EMAILS_ENABLED || !to) return;
+                const resend = getResend();
+                if (resend) await resend.emails.send({ from: EMAIL_FROM, to, subject, html });
+            };
+            await initApprovalChain(pool, sessionId, {
+                sendAppEmail: sendApprovalEmail,
+                appBaseUrl: process.env.APP_BASE_URL || process.env.BACKEND_URL,
+            });
+        } catch (chainErr) {
+            console.warn('[Wafi Claims] Approval chain init warning:', chainErr.message);
+        }
+    }
+
     // Apply label based on final status
     if (status === 'PENDING_REVIEW') {
         await applyLabel(gmail, msgId, 'Claims/Pending-Review');

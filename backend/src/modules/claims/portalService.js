@@ -144,7 +144,12 @@ function resolveFillerEmail(emp) {
 }
 
 function resolveApproverEmail(emp) {
-    return (emp.supervisor_email || emp.line_manager_email || '').toLowerCase().trim() || null;
+    const lm = (emp.line_manager_email || '').toLowerCase().trim();
+    const sup = (emp.supervisor_email || '').toLowerCase().trim();
+    const focal = resolveFillerEmail(emp);
+    // Wafi matrix: focal fills, LM approves — prefer LM when both are named and distinct
+    if (lm && focal && lm !== focal) return lm;
+    return sup || lm || null;
 }
 
 function periodWindow(campaignYear, campaignMonth) {
@@ -1725,6 +1730,8 @@ async function getAttachmentContent(pool, attachmentId) {
 module.exports = {
     FILL_OPEN_DAY, FILL_CLOSE_DAY, APPROVE_CLOSE_DAY,
     normalizeAuthority,
+    resolveFillerEmail,
+    resolveApproverEmail,
     ensureClaimAuthorityColumn,
     listEligibleEmployees,
     createCampaign,

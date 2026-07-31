@@ -12,13 +12,27 @@ const _cacheSet = (key, data) => { _cache[key] = { data, cachedAt: Date.now() };
 const _cacheClear = (key) => { delete _cache[key]; };
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
+export function getArchiveMode() {
+    return localStorage.getItem('asil_show_archive') === '1';
+}
+
+export function setArchiveMode(on) {
+    if (on) localStorage.setItem('asil_show_archive', '1');
+    else localStorage.removeItem('asil_show_archive');
+    _cacheClear('employees');
+}
+
 export async function apiFetch(path, options = {}) {
     const token = localStorage.getItem('asil_hcm_token');
-    const res = await fetch(`${API}${path}`, {
+    const archiveHdr = getArchiveMode() ? { 'X-Show-Archive': '1' } : {};
+    const sep = path.includes('?') ? '&' : '?';
+    const archivePath = getArchiveMode() && !path.includes('archive=') ? `${path}${sep}archive=1` : path;
+    const res = await fetch(`${API}${archivePath}`, {
         ...options,
         headers: {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...archiveHdr,
             ...(options.headers || {}),
         },
     });
@@ -68,6 +82,11 @@ export const api = {
     // ── Users (superadmin) ──────────────────────────────────────────────────────
     getUsers: () => apiFetch('/api/users'),
     getPortalReadiness: () => apiFetch('/api/admin/portal-readiness'),
+    getCutoverSettings: () => apiFetch('/api/admin/cutover-settings'),
+    updateCutoverSettings: (showArchive) => apiFetch('/api/admin/cutover-settings', {
+        method: 'PUT',
+        body: JSON.stringify({ show_pre_cutover_archive: showArchive }),
+    }),
     createUser: (data) => apiFetch('/api/users', { method: 'POST', body: JSON.stringify(data) }),
     updateUserRole: (userId, role) => apiFetch(`/api/users/${userId}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
     updateUserPermissions: (userId, permissions) => apiFetch(`/api/users/${userId}/permissions`, { method: 'PATCH', body: JSON.stringify({ permissions }) }),

@@ -572,12 +572,16 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
     };
 }
 
-async function getPayrollRuns(pool, { contractId, month, year } = {}) {
+async function getPayrollRuns(pool, { contractId, month, year, archive = false } = {}) {
     const params = [];
     let sql = `SELECT * FROM payroll_runs WHERE 1=1`;
     if (contractId) { params.push(contractId); sql += ` AND contract_id = $${params.length}`; }
     if (month) { params.push(month); sql += ` AND period_month = $${params.length}`; }
     if (year) { params.push(year); sql += ` AND period_year = $${params.length}`; }
+    if (!archive) {
+        const { applyPeriodFloor, CUTOVER_MONTH, CUTOVER_YEAR } = require('../../core/cutover');
+        sql += ` AND ${applyPeriodFloor('period_month', 'period_year', { archive: false, cutoverMonth: CUTOVER_MONTH, cutoverYear: CUTOVER_YEAR })}`;
+    }
     sql += ` ORDER BY period_year DESC, period_month DESC`;
     const { rows: runs } = await pool.query(sql, params);
     if (!runs.length) return { runs: [], rows: [] };

@@ -7,15 +7,34 @@ import {
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 const tok = () => localStorage.getItem('asil_hcm_token');
-const apiFetch = (path, opts = {}) =>
-  fetch(`${API}${path}`, {
+const archiveHdr = () => (localStorage.getItem('asil_show_archive') === '1' ? { 'X-Show-Archive': '1' } : {});
+const apiFetch = (path, opts = {}) => {
+  const sep = path.includes('?') ? '&' : '?';
+  const p = localStorage.getItem('asil_show_archive') === '1' && !path.includes('archive=') ? `${path}${sep}archive=1` : path;
+  return fetch(`${API}${p}`, {
     ...opts,
     headers: {
       Authorization: `Bearer ${tok()}`,
       'Content-Type': 'application/json',
+      ...archiveHdr(),
       ...(opts.headers || {}),
     },
   }).then(r => r.json());
+};
+
+const APPROVAL_LABELS = {
+  pending_focal_input: { label: 'Focal pending', color: '#f59e0b' },
+  pending_lm_approval: { label: 'LM pending', color: '#38bdf8' },
+  ready_for_hcm: { label: 'Ready for HCM', color: '#22c55e' },
+  legacy_bypass: { label: 'Legacy', color: '#94a3b8' },
+  focal_rejected: { label: 'Focal rejected', color: '#ef4444' },
+  lm_rejected: { label: 'LM rejected', color: '#ef4444' },
+};
+
+function canVerifySession(sess) {
+  const st = sess.approval_state;
+  return st === 'ready_for_hcm' || st === 'legacy_bypass';
+}
 
 const fmt    = n => (parseFloat(n) || 0).toLocaleString('en-PK');
 const fmtD   = d => d ? new Date(d).toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' }) : '—';
@@ -856,13 +875,13 @@ export default function WafiClaimsDashboard({ user }) {
                   if (e.target.checked) setSelectedSessions(new Set(sessions.filter(s => s.processing_status === 'PENDING_REVIEW').map(s => s.id)));
                   else setSelectedSessions(new Set());
                 }} /></th>
-                {['Received','Sender','Filename','Month','Status','OT 1x','OT 2x','OT 3x','Exp','Med','Rev?','Actions'].map(h => <th key={h} style={s.th}>{h}</th>)}
+                {['Received','Sender','Filename','Month','Status','Approval','OT 1x','OT 2x','OT 3x','Exp','Med','Rev?','Actions'].map(h => <th key={h} style={s.th}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {sessionsLoading ? (
-                  <tr><td colSpan={13} style={{ ...s.td, textAlign: 'center', padding: '2rem' }}><div style={{ display: 'flex', justifyContent: 'center', gap: '8px', color: '#64748b' }}><Spinner /> Loading sessions…</div></td></tr>
+                  <tr><td colSpan={14} style={{ ...s.td, textAlign: 'center', padding: '2rem' }}><div style={{ display: 'flex', justifyContent: 'center', gap: '8px', color: '#64748b' }}><Spinner /> Loading sessions…</div></td></tr>
                 ) : sessions.length === 0 ? (
-                  <tr><td colSpan={13} style={{ ...s.td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>No sessions found.</td></tr>
+                  <tr><td colSpan={14} style={{ ...s.td, textAlign: 'center', color: '#64748b', padding: '2rem' }}>No sessions found.</td></tr>
                 ) : sessions.map(sess => {
                   const stCfg = STATUS[sess.processing_status] || {};
                   return (
@@ -890,6 +909,13 @@ export default function WafiClaimsDashboard({ user }) {
                       <td style={{ ...s.td, fontSize: '0.78rem', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sess.attachment_filename || '—'}</td>
                       <td style={{ ...s.td, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{sess.claim_month ? new Date(sess.claim_month).toLocaleString('en-PK',{month:'short',year:'numeric'}) : '—'}</td>
                       <td style={s.td}><StatusBadge status={sess.processing_status} /></td>
+                      <td style={{ ...s.td, fontSize: '0.72rem' }}>
+                        {sess.approval_state ? (
+                          <span style={{ color: (APPROVAL_LABELS[sess.approval_state] || {}).color || '#94a3b8' }}>
+                            {(APPROVAL_LABELS[sess.approval_state] || {}).label || sess.approval_state}
+                          </span>
+                        ) : '—'}
+                      </td>
                       <td style={{ ...s.td, textAlign: 'center', color: '#a78bfa', fontSize: '0.8rem' }}>{sess.ot_single_count || 0}</td>
                       <td style={{ ...s.td, textAlign: 'center', color: '#c084fc', fontSize: '0.8rem' }}>{sess.ot_double_count || 0}</td>
                       <td style={{ ...s.td, textAlign: 'center', color: '#7c3aed', fontSize: '0.8rem' }}>{sess.ot_triple_count || 0}</td>
@@ -910,7 +936,9 @@ export default function WafiClaimsDashboard({ user }) {
                           {sess.processing_status === 'PENDING_REVIEW' && (
                             <button
                               onClick={() => setVerifyModal({ sessionId: sess.id, sender: sess.sender_email, filename: sess.attachment_filename, otCount: sess.total_ot_rows, expCount: sess.total_expense_rows, medCount: sess.total_medical_rows })}
-                              style={{ ...btn('#10b981','rgba(16,185,129,0.12)'), fontSize:'0.78rem', padding:'5px 10px' }}
+                              disabled={!canVerifySession(sess)}
+                              title={canVerifySession(sess) ? 'Verify and push to payroll' : `Blocked — approval state: ${sess.approval_state || 'pending'}`}
+                              style={{ ...btn('#10b981','rgba(16,185,129,0.12)'), fontSize:'0.78rem', padding:'5px 10px', opacity: canVerifySession(sess) ? 1 : 0.45, cursor: canVerifySession(sess) ? 'pointer' : 'not-allowed' }}
                             >
                               <CheckCircle size={13}/> Verify
                             </button>

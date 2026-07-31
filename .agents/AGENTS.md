@@ -507,4 +507,20 @@ Per `.agents/sessions/S1A_frontend_crashes.md`.
 
 ---
 
+### 2026-07-31 — July 2026 cutover + Wafi refresh (P0–P3)
+Per `.agents/plans/JULY_2026_CUTOVER_AND_WAFI_REFRESH.md`.
+
+1. **P0** — `system_config` keys `cutover_period` / `show_pre_cutover_archive`; `backend/src/core/cutover.js`; `GET/PUT /api/admin/cutover-settings`; archive toggle in `App.jsx` (superadmin + huzaifa only).
+2. **P1** — Cutover filters on employees, dashboard, AP queue, FM batches, client invoices, payroll runs, Wafi sessions/stats.
+3. **P2** — `scripts/wafi_roster_refresh.js` + `backend/src/modules/employees/wafiRosterRefresh.js`; Wafi CSV header aliases in `masterRoster.js`.
+4. **P3** — `wafi_claims_approval_events`; session `approval_state` / routing columns; focal→LM magic links (`/api/wafi-claims/focal-action`, `lm-action`); verify/stage gated on `ready_for_hcm`.
+
+**Wafi routing column map:** `claim_authority` = focal filler email; `line_manager_email` = LM approver; `supervisor_email` legacy portal approver (unchanged for non-Wafi).
+
+**Env vars needed:** none new. Run `npm run migrate` on staging before deploy.
+
+**Verification follow-up (2026-07-31):** Tightened `assertReadyForHcm` (null state blocked for post-Jul-2026 when chain enabled); portal `resolveApproverEmail` prefers LM when focal+LM both named; Wafi roster refresh clears duplicate `supervisor_email`; dashboard invoice KPI + legacy payroll GET respect cutover floor.
+
+---
+
 *This file is maintained by the Antigravity Development Consultant. Update it when architectural decisions change.*
