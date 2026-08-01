@@ -171,6 +171,40 @@ describe('GET /api/admin/portal-readiness', () => {
   });
 });
 
+describe('GET /api/portal/me', () => {
+  test('includes World B payslips when payroll_run_rows exist', async () => {
+    const portalToken = makePortalToken({ employeeId: 'ASIL-001' });
+    mockPool.query
+      .mockResolvedValueOnce({ rows: [{ id: 'ASIL-001', name: 'Ali Khan', cnic: '1234512345671', bank_account: '1234567890' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{
+          period_month: 7,
+          period_year: 2026,
+          run_status: 'locked',
+          run_id: 9,
+          computed: { gross: 50000, netPay: 42000, wht: 3000, eobiEmployee: 400 },
+          inputs: {},
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await request()
+      .get('/api/portal/me')
+      .set('Authorization', `Bearer ${portalToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.payslips).toHaveLength(1);
+    expect(res.body.payslips[0]).toMatchObject({
+      month: 7,
+      year: 2026,
+      net: 42000,
+      source: 'world_b',
+    });
+  });
+});
+
 describe('Portal vs staff auth separation', () => {
   test('staff JWT is rejected by requirePortalAuth → 403', async () => {
     const staffToken = makeToken({ role: 'operations' });
