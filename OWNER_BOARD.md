@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-01 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-02 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -10,7 +10,7 @@
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
 STATUS: **RED** (no pilot month proven; two payroll systems still active)  
-LIVE: prod + staging API healthy (`/health` 200, commit `32abcad`, verified 2026-08-01 22:42 PKT).
+LIVE: prod + staging API healthy (`/health` 200). **PR #7 merged** to `main` at `ff34925` (2026-08-01). Deploy poll 2026-08-02: both envs still report `32abcad` — Render build pending. Staging git branch also at `32abcad` (needs `main` merge).
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -31,7 +31,7 @@ You have a serious payroll engine and many working parts — but **no single aut
 4. **June 2026 reconciliation** — may be ahead in `C:\Projects\ASILHCM-Staging`; not merged here (S5B1–S5B3)
 
 ### Owner vision gaps (P1 — after pilot proof)
-5. **Portal payslips** — portal reads old pay table only; new-engine employees would see nothing
+5. **Portal payslips** — portal still reads World A table only; World B bridge not merged yet (Week 3)
 6. **Claims** — four intake paths; not one configurable "who claims / who approves" UI
 7. **Payslip branding** — emails work if Resend is set; **no logo image** in templates today
 8. **Nothing is automatic** — compute, lock, disburse, email each need a human click
@@ -50,7 +50,8 @@ You have a serious payroll engine and many working parts — but **no single aut
 ---
 
 ## IN PROGRESS
-- Chief operating system — owner audit + 30-day execution plan (this change)
+- **Week 1 prep** — offline variance fixtures PASS; prod deploy of `ff34925` pending; see `audit/pilot/WEEK1_STATUS.md`
+- **Week 2 prep** — staging dry-run checklist documented; `staging` branch behind `main`; see `audit/pilot/WEEK2_STATUS.md`
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ---
