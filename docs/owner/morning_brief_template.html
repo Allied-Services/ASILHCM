@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Morning brief — ASIL HCM</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --line: #334155;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background: linear-gradient(160deg, #0f172a 0%, #1e3a5f 55%, #0f172a 100%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 28px 16px 48px;
+    }
+    .wrap { max-width: 520px; margin: 0 auto; }
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin: 0 0 6px;
+      letter-spacing: -0.02em;
+    }
+    .date { color: var(--muted); font-size: 1rem; margin-bottom: 22px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px 18px 14px;
+      margin-bottom: 14px;
+    }
+    .label {
+      font-family: system-ui, sans-serif;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .big { font-size: 1.45rem; line-height: 1.25; margin: 0; }
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: system-ui, sans-serif;
+      font-weight: 700;
+      font-size: 0.95rem;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #0f172a;
+      border: 1px solid var(--line);
+    }
+    .dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      background: var(--muted);
+    }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 12px rgba(34,197,94,.55); }
+    .dot.warn { background: var(--warn); box-shadow: 0 0 12px rgba(245,158,11,.45); }
+    .dot.bad { background: var(--bad); box-shadow: 0 0 12px rgba(239,68,68,.5); }
+    ul {
+      margin: 0;
+      padding-left: 1.1rem;
+      font-size: 1.15rem;
+      line-height: 1.45;
+    }
+    li { margin: 0.35rem 0; }
+    .focus {
+      font-size: 1.35rem;
+      margin: 0;
+      padding: 14px 16px;
+      border-left: 4px solid var(--warn);
+      background: rgba(245,158,11,.08);
+      border-radius: 0 12px 12px 0;
+    }
+    .foot {
+      margin-top: 18px;
+      color: var(--muted);
+      font-family: system-ui, sans-serif;
+      font-size: 0.8rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Good morning</h1>
+    <div class="date">{{DATE}}</div>
+
+    <div class="card">
+      <div class="label">Site</div>
+      <div class="row">
+        <span class="pill"><span class="dot {{SITE_DOT}}"></span> {{SITE_TEXT}}</span>
+        <span class="pill"><span class="dot {{STATUS_DOT}}"></span> {{STATUS_TEXT}}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Today's mission</div>
+      <p class="big">{{MISSION}}</p>
+    </div>
+
+    <div class="card">
+      <div class="label">Not finished yet</div>
+      <ul>
+        {{STILL_OPEN_ITEMS}}
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="label">Needs you</div>
+      <ul>
+        {{NEEDS_YOU_ITEMS}}
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="label">I suggest</div>
+      <ul>
+        {{SUGGESTION_ITEMS}}
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="label">Focus</div>
+      <p class="focus">{{FOCUS}}</p>
+    </div>
+
+    <p class="foot">ASIL HCM · Chief morning brief · Reply in Cursor: yes / no / change …</p>
+  </div>
+</body>
+</html>
