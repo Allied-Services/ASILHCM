@@ -50,7 +50,7 @@ You have a serious payroll engine and many working parts — but **no single aut
 ---
 
 ## IN PROGRESS
-- Chief operating system — owner audit + 30-day execution plan (this change)
+- Week 1 prep — staging verified; portal payslip bridge coded (PR #7, not merged)
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ---
