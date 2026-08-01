@@ -68,33 +68,43 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 ## Fixed Value / Conservancy (PSO service orders)
 
 Module: `backend/src/modules/serviceOrders/` — mounted at `/api/fixed-value/*`.
-UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops workflow (Period → Attendance → Payroll → Invoice → Statutory → Export).
+UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops workflow (Period → Attendance → Payroll → Invoice → Statutory → Export) plus **create/edit wizard** (`FixedValueContractWizard.jsx`).
 
 | Item | Detail |
 |---|---|
-| Contract (staging seed) | `CTR-PSO-NORTH-ZONE` — PSO North Zone Operations |
-| Service order IDs | `SO-PSO-{SITE_CODE}` (e.g. `SO-PSO-TARUJABBA`) |
-| Employee IDs (seed) | `ASIL/PSO-###/25` (PSO North Zone roster) |
+| Contract (multi-site conservancy) | `CTR-PSO-NORTH-ZONE` — PSO North Zone Operations |
+| Contract (CORO retail ops) | `CTR-PSO-CORO-MA` — CORO - Masood Anwari (SO `4110036239`, site `SS94`) |
+| Service order IDs | Explicit `so_id` on create, or default `SO-PSO-{SITE_CODE}` |
+| CORO SO | `SO-PSO-CORO-SS94` (not `SO-PSO-SS94`) |
 | Billing model | `service_order_deduction` on `contract_policies` |
-| Monthly qty default | `1` per service order line |
+| Contract meta | `contracts.meta` JSONB — `fv_product`, external SO #, SLA/retention text, security deposit |
+| Monthly qty default | `1` per service order line (annual months stored in meta) |
 | Absence deduction (invoice) | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` |
 | Payroll wages (Conservancy) | Model A: `salary × ((30 − sheet_absent) / 30)`; Absent column = explicit sheet `days_absent` (not WD − present) |
 | Attendance ingest | Excel sheet `"{MonthName} {year}"` or Google Drive folder `DRIVE_ATTENDANCE_FOLDER_ID`; override stores `present_days` + `absent_days` |
+| Single write path | `backend/src/modules/serviceOrders/contractCrud.js` (wizard, CORO seed, NZ re-sync) |
 
-**Tax rule (critical):** Stamped invoice grand = net taxable + provincial ST only. Income WHT (policy default 15%) and ~20% ST withholding appear in the receivable section only — they do **not** reduce stamped grand. Persisted to `client_invoices`: `subtotal=net`, `sales_tax=PST`, `grand_total=net+PST`, `wht=incomeWht`, breakdown in `notes` JSON. Province defaults (Wafi portal aligned): Punjab **16%**, Sindh/KPK/Balochistan **15%**.
+**Tax rule (critical):** Stamped invoice grand = net taxable + provincial ST only. Income WHT (policy default 15%) and ~20% ST withholding appear in the receivable section only — they do **not** reduce stamped grand. Persisted to `client_invoices`: `subtotal=net`, `sales_tax=PST`, `grand_total=net+PST`, `wht=incomeWht`, breakdown in `notes` JSON. Province defaults (Wafi portal aligned): Punjab **16%**, Sindh/KPK/Balochistan **15%**. Prefer `service_orders.meta.taxRate` / `meta.province` when set.
 
 **Tarujabba verification:** Monthly line rates sum to **2,156,300**; KPK ST 15% = **323,445**; stamped grand **2,479,745**.
+
+**CORO SS94 verification:** Monthly lines sum **4,136,919.94**; Punjab ST 16% = **661,907.19**; stamped grand **4,798,827.13**.
 
 **Payroll run guard:** `generateInvoiceFromRun` returns **409 `USE_SO_INVOICE`** for Fixed Value / Conservancy contracts — use `/api/fixed-value/service-orders/:id/invoice/*` instead.
 
 **Routes (summary):**
+- Contract CRUD: `GET/POST /api/fixed-value/contracts`, `GET/PUT .../contracts/:id`, `POST .../CTR-PSO-NORTH-ZONE/resync-seed` (superadmin, `{confirm:true}`)
 - Per site: attendance upload/drive/apply, invoice compute/persist, deductions, focal email
 - Contract bulk: `POST .../contracts/:id/attendance/apply-all`, `GET .../attendance/status`, `POST .../invoices/compute-all`, `POST .../invoices/persist-all`
 - Exports (ExcelJS): `GET .../exports/payroll.xlsx`, `GET .../exports/invoices.xlsx` (payroll workbook includes “Bank file (format TBD)” sheet)
 - World B payroll: `POST /api/payroll-runs/compute` (entire contract); FV UI shows by-site summary
-- Also: registry, print (`/invoices/:id/print?format=`), seed (`POST /seed-pso`)
+- Also: registry, print (`/invoices/:id/print?format=`), deprecated seed alias (`POST /seed-pso`)
 
-**Seed:** `node scripts/seed_pso_north_zone.js` (requires `DATABASE_URL`) or `POST /api/fixed-value/seed-pso` (superadmin).
+**Seed / data ops:**
+- North Zone: `node scripts/seed_pso_north_zone.js` or `POST .../resync-seed` (UI source of truth; seed is optional re-sync)
+- CORO: `node scripts/seed_pso_coro_ma.js` (payload `seedData/pso_coro_ss94.json`)
+- Assign CORO roster: `node scripts/assign_coro_employees.js --apply`
+- PSO-085 CNIC expiry: `scripts/fix_pso085_cnic_expiry.sql`
 
 ---
 

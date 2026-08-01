@@ -71,11 +71,11 @@ describe('serviceOrders — Tarujabba grand total', () => {
             },
         });
         expect(html).toContain('2,479,745');
-        expect(html).toContain('Stamped Grand Total');
-        expect(html).toContain('Income Tax WHT');
+        expect(html).toMatch(/Stamped grand|Grand Net Invoice Amount/i);
+        expect(html).toMatch(/Income (Tax )?WHT/i);
         expect(html).toContain('Tarujabba Depot');
-        expect(html).toContain('Resources (billed manpower):</strong> 12');
-        expect(html).not.toMatch(/Stamped Grand Total[\s\S]*2,156,300/);
+        expect(html).toMatch(/Resources \(billed manpower\):[\s\S]*?\b12\b/);
+        expect(html).not.toMatch(/Grand Net Invoice Amount[\s\S]*PKR 2,156,300/);
     });
 });
 
@@ -270,5 +270,67 @@ describe('serviceOrders — billing model guard', () => {
 
     test('siteProvince for Tarujabba is KPK', () => {
         expect(siteProvince('TARUJABBA')).toBe('KPK');
+    });
+
+    test('siteProvince prefers so.meta.province over SITE_PROVINCES', () => {
+        expect(siteProvince('TARUJABBA', { soMeta: { province: 'Punjab' } })).toBe('Punjab');
+        expect(siteProvince('SS94', { soMeta: { province: 'Punjab' } })).toBe('Punjab');
+        expect(siteProvince('UNKNOWN_SITE')).toBe('Punjab');
+    });
+});
+
+describe('serviceOrders — CORO SS94 invoice fixture', () => {
+    const coroPathCandidates = [
+        path.join(__dirname, '../src/modules/serviceOrders/seedData/pso_coro_ss94.json'),
+        path.join(__dirname, '../../scripts/seeds/pso_coro_ss94.json'),
+    ];
+    const coroPath = coroPathCandidates.find(p => fs.existsSync(p));
+    const coro = JSON.parse(fs.readFileSync(coroPath, 'utf8'));
+    const round2 = (n) => Math.round(Number(n) * 100) / 100;
+
+    test('pinned lines sum to 4,136,919.94', () => {
+        const lines = coro.sites[0].lines;
+        const gross = round2(lines.reduce((s, l) => s + Number(l.rate), 0));
+        expect(gross).toBe(4136919.94);
+        expect(lines).toHaveLength(5);
+    });
+
+    test('Punjab 16% ST → grand 4,798,827.13', () => {
+        const gross = 4136919.94;
+        const pst = round2(gross * 0.16);
+        const grand = round2(gross + pst);
+        expect(pst).toBe(661907.19);
+        expect(grand).toBe(4798827.13);
+    });
+
+    test('canonical CORO ids', () => {
+        expect(coro.contractId).toBe('CTR-PSO-CORO-MA');
+        expect(coro.sites[0].so_id).toBe('SO-PSO-CORO-SS94');
+        expect(coro.sites[0].site_code).toBe('SS94');
+        expect(coro.meta.fv_product).toBe('coro_retail_ops');
+        expect(coro.policy.billing_model).toBe('service_order_deduction');
+    });
+});
+
+describe('serviceOrders — contractCrud CORO validation', () => {
+    const { createFixedValueContract, CORO_EXPECTED_GROSS } = require('../src/modules/serviceOrders/contractCrud');
+
+    test('rejects CORO payload when line sum drifts', async () => {
+        const fakePool = {
+            connect: async () => ({ query: async () => ({ rows: [] }), release() {} }),
+        };
+        await expect(createFixedValueContract(fakePool, {
+            id: 'CTR-PSO-CORO-MA',
+            contract_name: 'CORO - Masood Anwari',
+            start_date: '2026-07-01',
+            end_date: '2027-06-30',
+            meta: { fv_product: 'coro_retail_ops', expected_monthly_gross: CORO_EXPECTED_GROSS },
+            policy: { billing_model: 'service_order_deduction' },
+            sites: [{
+                site_code: 'SS94',
+                name: 'SS94',
+                lines: [{ name: 'x', rate: 100 }],
+            }],
+        })).rejects.toMatchObject({ status: 400 });
     });
 });

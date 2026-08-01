@@ -2,7 +2,8 @@
 
 const { MONTH_NAMES } = require('./attendanceParse');
 const { renderInvoiceHtml } = require('./invoiceHtml');
-const { seedPsoNorthZone } = require('./seed');
+const { seedPsoNorthZone, resyncNorthZoneFromSeed } = require('./seed');
+const contractCrud = require('./contractCrud');
 
 const crud = require('./crud');
 const billing = require('./billing');
@@ -62,7 +63,9 @@ module.exports = {
     ...sitesMeta,
     ...bulkOps,
     ...exportsXlsx,
+    ...contractCrud,
     seedPsoNorthZone,
+    resyncNorthZoneFromSeed,
     renderInvoiceHtml,
     composeFocalEmail,
     sendFocalEmail,
