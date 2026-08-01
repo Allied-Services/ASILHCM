@@ -10,7 +10,7 @@
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
 STATUS: **RED** (no pilot month proven; two payroll systems still active)  
-LIVE: prod API healthy (`/health` 200). Staging timed out when checked — likely asleep.
+LIVE: prod + staging API healthy (`/health` 200, commit `32abcad`, verified 2026-08-01 22:42 PKT).
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
