@@ -8,7 +8,7 @@
 **Prove one real payroll month through HCM for the pilot contract** — people get paid correctly from the new engine, with proof you can see.
 
 STATUS: AMBER  
-LIVE: check with `/status` (do not guess)
+LIVE: OK (2026-08-01 morning health check — site up)
 
 ---
 
@@ -16,12 +16,12 @@ LIVE: check with `/status` (do not guess)
 1. Pilot shadow month (S5B) — need payroll-team Excel vs HCM at zero difference
 2. Staging must stay the proving ground — merge to main only after staging checks pass
 3. World A (old payroll sheet) still pays ~500 people — keep it working until cutover is done
-4. Morning brief Automation — email only; not switched on until you say so
+4. Morning brief Automation — first weekday run started; email must reach your inbox
 
 ---
 
 ## IN PROGRESS
-- Chief operating system — board + skills + morning card (this change)
+- Morning brief cadence (HTML card + owner email) — Chief OS landed on main
 
 ---
 
@@ -65,7 +65,7 @@ LIVE: check with `/status` (do not guess)
 ---
 
 ## SUGGESTIONS (optional — agents must not start these)
-- Turn on weekday morning email after you like the first few briefs
+- Keep weekday morning email on if the brief looks right
 - After pilot proof: cut over the next contract (same playbook)
 - Keep draft PRs short-lived — triage or close, don’t leave forever
 
