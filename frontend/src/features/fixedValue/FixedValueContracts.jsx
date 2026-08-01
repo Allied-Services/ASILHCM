@@ -418,7 +418,7 @@ export default function FixedValueContracts({ user }) {
             <div className="fv-ops-header">
                 <div>
                     <h2>Fixed Value / Conservancy</h2>
-                    <p>Stepped monthly ops — attendance → payroll (absent-driven) → invoices → exports. Staging workflow.</p>
+                    <p>Stepped monthly ops — attendance → payroll (absent-driven) → invoices → exports.</p>
                 </div>
                 <div className="fv-ops-period">
                     <select value={contractId} onChange={e => setContractId(e.target.value)}>
@@ -491,7 +491,17 @@ export default function FixedValueContracts({ user }) {
                             Continue to Attendance <Play size={14} />
                         </button>
                         {user?.role === 'superadmin' && (
-                            <button type="button" className="btn-secondary" disabled={loading} onClick={() => runAction(() => api.seedPsoNorthZone(), 'PSO seed complete')}>
+                            <button
+                                type="button"
+                                className="btn-secondary"
+                                disabled={loading}
+                                onClick={() => runAction(async () => {
+                                    await api.seedPsoNorthZone();
+                                    await loadContracts();
+                                    await loadOrders();
+                                    await loadAttStatus();
+                                }, 'PSO seed complete — contract and sites reloaded')}
+                            >
                                 Seed PSO North Zone
                             </button>
                         )}

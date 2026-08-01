@@ -18,8 +18,17 @@ const PSO_CLIENT_NAME = 'Pakistan State Oil Company Limited';
 const FOCAL_SITES = new Set(['MORGAH', 'CHAKPIRANA', 'SIHALA']);
 
 function loadJson(relPath) {
-    const p = path.join(__dirname, '../../../../scripts/seeds', relPath);
-    return JSON.parse(fs.readFileSync(p, 'utf8'));
+    // Prefer module-local seedData (Render rootDir=backend), then repo scripts/seeds.
+    const candidates = [
+        path.join(__dirname, 'seedData', relPath),
+        path.join(__dirname, '../../../../scripts/seeds', relPath),
+        path.join(process.cwd(), 'scripts/seeds', relPath),
+        path.join(process.cwd(), '../scripts/seeds', relPath),
+    ];
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'));
+    }
+    throw new Error(`PSO seed file not found: ${relPath} (tried ${candidates.join(', ')})`);
 }
 
 function padEmpNum(n) {
