@@ -30,6 +30,13 @@ const {
     canApproveChangeRequest,
     CHANGE_QUEUE_ROLES,
 } = require('./src/modules/portal/essHelpers');
+const {
+    fetchWorldBPayslipSummaries,
+    fetchWorldBPayslipDetail,
+    mapWorldARowToSummary,
+    mergePayslipSummaries,
+} = require('./src/modules/portal/payslipBridge');
+const { renderPayslipHtml } = require('./src/modules/payrollrun/payslip');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -2355,8 +2362,21 @@ app.get('/api/payslip/:employeeId/:month/:year', requirePayslipAuth, async (req,
             pool.query(`SELECT value FROM system_config WHERE key='payslip_salary_split'`).catch(() => ({ rows: [] })),
         ]);
         const emp = empRes.rows[0];
-        const pay = payRes.rows[0];
         if (!emp) return res.status(404).json({ error: 'Employee not found' });
+
+        const worldBDetail = await fetchWorldBPayslipDetail(pool, employeeId, month, year);
+        if (worldBDetail) {
+            const html = renderPayslipHtml({ emp, ...worldBDetail });
+            res.setHeader('Content-Type', 'text/html');
+            if (req.query.download === '1') {
+                const monthName = new Date(2000, parseInt(month, 10) - 1, 1).toLocaleString('en-PK', { month: 'long' });
+                const safeName = (emp.name || 'Employee').replace(/[^a-zA-Z0-9 ]/g, '_').trim();
+                res.setHeader('Content-Disposition', `attachment; filename="PaySlip_${safeName}_${monthName}_${year}.html"`);
+            }
+            return res.send(html);
+        }
+
+        const pay = payRes.rows[0];
 
         // Display-only split (does NOT affect tax/EOBI, which run on full gross) —
         // configurable via System Config > Payslip Split, falls back to these defaults.
@@ -2837,9 +2857,10 @@ app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
     try {
         const empId = req.portalEmployee.employeeId;
 
-        const [empRes, payrollRes, advancesRes, leavesRes] = await Promise.all([
+        const [empRes, payrollRes, worldBPayslips, advancesRes, leavesRes] = await Promise.all([
             pool.query('SELECT * FROM employees WHERE id=$1', [empId]),
             pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 ORDER BY year DESC, month DESC LIMIT 24', [empId]),
+            fetchWorldBPayslipSummaries(pool, empId).catch(() => []),
             pool.query('SELECT * FROM employee_advances WHERE employee_id=$1 ORDER BY created_at DESC', [empId]),
             pool.query('SELECT * FROM employee_leaves WHERE employee_id=$1 ORDER BY from_date DESC LIMIT 20', [empId]).catch(() => ({ rows: [] }))
         ]);
@@ -2860,12 +2881,10 @@ app.get('/api/portal/me', requirePortalAuth, async (req, res) => {
                 photoUrl,
                 hasPhoto: !!emp.photo_file_id,
             },
-            payslips: payrollRes.rows.map(p => ({
-                month: p.month, year: p.year,
-                gross: parseFloat(p.gross)||0, net: parseFloat(p.net)||0,
-                wht: parseFloat(p.wht)||0, eobi: parseFloat(p.eobi_ee)||0,
-                advance: parseFloat(p.adv)||0, status: p.status
-            })),
+            payslips: mergePayslipSummaries(
+                payrollRes.rows.map(mapWorldARowToSummary),
+                worldBPayslips
+            ),
             advances: advancesRes.rows.map(a => ({
                 id: a.id, type: a.type, reason: a.reason,
                 totalAmount: parseFloat(a.total_amount), installmentAmt: parseFloat(a.installment_amt),
