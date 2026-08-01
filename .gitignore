@@ -14,6 +14,9 @@ build/
 .env.*.local
 .env.production
 
+# Local dev Postgres self-signed CA cert (machine-specific, never commit)
+.dev-pg-ca.crt
+
 # Logs
 logs/
 *.log

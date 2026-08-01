@@ -539,4 +539,28 @@ Per plan `fv_coro_contracts` (CORO onboarding & data-driven PSO North Zone).
 
 ---
 
+## Cursor Cloud specific instructions
+
+Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency install (`npm install` in `backend/` and `frontend/`) is handled by the environment update script; this section only covers the non-obvious startup/run caveats. Standard commands live in `backend/package.json` / `frontend/package.json` and `backend/.env.example` — refer to those; only the gotchas are repeated here.
+
+### Services (dev)
+- **Backend** — Express API, `backend/`, port **3000**, health at `GET /health`.
+- **Frontend** — React 19 + Vite dev server, `frontend/`, port **5173**.
+- **PostgreSQL 16** — local, installed in the VM snapshot. DB `asil_hcm_dev`, role `asil` / password `asil_dev_pw` (made SUPERUSER — local sandbox only). Start it after a fresh boot: `sudo pg_ctlcluster 16 main start`.
+
+### Non-obvious caveats
+1. **`server.js` does NOT load dotenv.** `npm run dev` (`node server.js`) will ignore `backend/.env`. Start the backend with dotenv preloaded: `NODE_EXTRA_CA_CERTS=/workspace/backend/.dev-pg-ca.crt node -r dotenv/config server.js` (run from `backend/`). Migrations/worker (`src/core/*`) do load dotenv.
+2. **The main `server.js` pool forces `ssl: { rejectUnauthorized: true }`** even for localhost (unlike `src/core/db.js`, which disables SSL for localhost). So local Postgres has SSL enabled with a self-signed cert, and Node must trust it via **`NODE_EXTRA_CA_CERTS=/workspace/backend/.dev-pg-ca.crt`** (gitignored, machine-specific, persisted in the snapshot). Without this env var the backend cannot connect to the DB.
+3. **A fresh/empty DB is only partially bootstrapped by `server.js` inline `CREATE TABLE IF NOT EXISTS` (~20 tables).** The full schema (~112 tables: `employees`, `contracts`, `clients`, `payroll_transactions`, …) comes from loading `database/schema.sql` then applying post-snapshot migrations (same flow as `backend/tests-int/globalSetup.js`). This is already done in the snapshot. If you ever rebuild the DB: `database/schema.sql` is a PG17/18 dump — strip the `SET transaction_timeout` and `\restrict`/`\unrestrict` lines before loading into PG16, then seed `pgmigrations` for migrations before `20260724120000_employee_claims_source.js` and run the rest with `node-pg-migrate`.
+4. **Auth is Google OAuth (`@asil.com.pk`), which is unavailable in the VM.** `requireAuth` only verifies a JWT bearer token signed with `JWT_SECRET`, so bypass OAuth by minting a token (payload `{id,email,name,avatar,role}`) and opening `http://localhost:5173/?token=<JWT>` (the SPA stores it in `localStorage.asil_hcm_token`). A superadmin user `dev.admin@asil.com.pk` is already seeded in `hcm_users`.
+5. **Frontend must have `VITE_API_URL=http://localhost:3000`** (in `frontend/.env.local`); otherwise every request defaults to the production URL `https://asilhcm.onrender.com`.
+
+### Lint / test / build
+- Backend tests: `npm test` in `backend/` (mocks `pg`, needs no DB). NOTE: a handful of tests currently fail on `main` (e.g. in `tests/serviceOrders.test.js`, `tests/cutover.test.js`) — pre-existing, unrelated to environment setup.
+- Frontend lint: `npm run lint` in `frontend/` — runs, but the codebase has many pre-existing eslint errors (`react-hooks/*`, `no-unused-vars`).
+- Frontend build: `npm run build` in `frontend/`.
+- Integration tests `npm run test:int` require a Neon `ci-test` branch via `TEST_DATABASE_URL` and cannot run against the local DB (the runner refuses URLs without the `ci-test` marker).
+
+---
+
 *This file is maintained by the Antigravity Development Consultant. Update it when architectural decisions change.*
