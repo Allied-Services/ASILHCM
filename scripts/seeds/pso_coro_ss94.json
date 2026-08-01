@@ -1,0 +1,122 @@
+{
+  "contractId": "CTR-PSO-CORO-MA",
+  "contractName": "CORO - Masood Anwari",
+  "serviceType": "Fixed Value / Conservancy",
+  "location": "Lahore",
+  "regionProvince": "Punjab",
+  "startDate": "2026-07-01",
+  "endDate": "2027-06-30",
+  "headcount": 64,
+  "creditDays": 30,
+  "meta": {
+    "fv_product": "coro_retail_ops",
+    "external_so_number": "4110036239",
+    "vendor_code": "7771004670",
+    "indent_no": "1180001910",
+    "tender_ref": "CS-A4832-SZR",
+    "contract_months": 12,
+    "expected_monthly_gross": 4136919.94,
+    "security_deposit": {
+      "amount": 900000,
+      "currency": "PKR",
+      "notes": "PO/DD 28570303 dated 19.05.2026 Rs.900,000 (1.5%) + 8.5% from running bills → 10% retention"
+    },
+    "sla": {
+      "summary": "CORO OPS SS94 Masood Anwari — Agreement for Operating Company Owned Retail Outlets",
+      "tat_penalties_text": "TAT non-compliance: 1st warning; 2nd 2%; 3rd 3%; thereafter max 5% of monthly service charge. HSE LD min 5% of monthly bill. Delivery LD 0.1%/day capped 10%.",
+      "retention_pct": 10
+    },
+    "invoice_notes_default": "SO 4110036239 — Operational Services Required for Company Operated Outlets at SS 94 (Masood Anwari) – Lahore Division"
+  },
+  "policy": {
+    "billing_model": "service_order_deduction",
+    "attendance_input_mode": "full_ledger",
+    "income_tax_wht_pct": 15,
+    "sales_tax_rate": 0.16,
+    "sales_tax_exempt": false,
+    "credit_days": 30,
+    "bonus_accrual_months": 0,
+    "gratuity_accrual_months": 12
+  },
+  "costs": {
+    "eobi": 400,
+    "life_insurance": 150,
+    "bonus_months": 0,
+    "eosb_type": "Gratuity"
+  },
+  "financials": {
+    "wht_pct": 15,
+    "service_charges_pct": 0,
+    "credit_cycle_days": 30
+  },
+  "sites": [
+    {
+      "site_code": "SS94",
+      "name": "PSO CORO Masood Anwari SS94",
+      "province": "Punjab",
+      "so_id": "SO-PSO-CORO-SS94",
+      "so_number": "4110036239",
+      "meta": {
+        "siteCode": "SS94",
+        "province": "Punjab",
+        "taxRate": 0.16,
+        "requiredAt": "PSO SS 94 (Masood Anwari) Lahore",
+        "contractMonths": 12,
+        "focalEnabled": false,
+        "focalEmail": ""
+      },
+      "lines": [
+        {
+          "line_number": "1",
+          "name": "Administration / Accountancy Services",
+          "unit": "MON",
+          "quantity": 1,
+          "rate": 331885.81,
+          "total_amount": 331885.81,
+          "is_manpower_dependent": true,
+          "roles": [{ "designation": "Administration / Accountancy", "count": 4 }]
+        },
+        {
+          "line_number": "2",
+          "name": "Operational Services Cash/Credit Handling",
+          "unit": "MON",
+          "quantity": 1,
+          "rate": 403390.22,
+          "total_amount": 403390.22,
+          "is_manpower_dependent": true,
+          "roles": [{ "designation": "Cash/Credit Handling", "count": 6 }]
+        },
+        {
+          "line_number": "3",
+          "name": "Operational Services-Refueling/Traffic",
+          "unit": "MON",
+          "quantity": 1,
+          "rate": 2982216.83,
+          "total_amount": 2982216.83,
+          "is_manpower_dependent": true,
+          "roles": [{ "designation": "Refueling/Traffic", "count": 50 }]
+        },
+        {
+          "line_number": "4",
+          "name": "Janitorial Services",
+          "unit": "MON",
+          "quantity": 1,
+          "rate": 238577.35,
+          "total_amount": 238577.35,
+          "is_manpower_dependent": true,
+          "roles": [{ "designation": "Janitorial", "count": 4 }]
+        },
+        {
+          "line_number": "5",
+          "name": "Cash Management Services",
+          "unit": "MON",
+          "quantity": 1,
+          "rate": 180849.73,
+          "total_amount": 180849.73,
+          "is_manpower_dependent": true,
+          "roles": [{ "designation": "Cash Management", "count": 1 }]
+        }
+      ]
+    }
+  ]
+}

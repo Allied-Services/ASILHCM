@@ -19,6 +19,10 @@ const {
     parseConservancyWorkbook,
     applyAttendance,
     seedPsoNorthZone,
+    resyncNorthZoneFromSeed,
+    getFixedValueContract,
+    createFixedValueContract,
+    updateFixedValueContract,
     composeFocalEmail,
     sendFocalEmail,
     renderInvoiceHtml,
@@ -44,12 +48,60 @@ function registerServiceOrderRoutes(app, deps) {
         'superadmin', 'operations', 'finance_manager', 'finance_approver',
         'ar_team', 'payroll_initiator', 'payroll'
     );
+    const contractWriteRoles = requireRole('superadmin', 'operations');
 
     app.get('/api/fixed-value/contracts', requireAuth, readRoles, async (req, res) => {
         try {
             res.json(await listFixedValueContracts(pool));
         } catch (err) {
             handleRouteError(res, 'fixed-value.contracts', err);
+        }
+    });
+
+    app.get('/api/fixed-value/contracts/:contractId', requireAuth, readRoles, async (req, res) => {
+        try {
+            const row = await getFixedValueContract(pool, req.params.contractId);
+            if (!row) return res.status(404).json({ error: 'Contract not found' });
+            res.json(row);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.contracts.get', err);
+        }
+    });
+
+    app.post('/api/fixed-value/contracts', requireAuth, contractWriteRoles, async (req, res) => {
+        try {
+            const result = await createFixedValueContract(pool, req.body || {}, req.user?.email);
+            if (logAudit) logAudit(req, 'CREATE', 'fixed_value_contract', result.contract?.id || req.body?.id);
+            res.status(201).json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.contracts.create', err);
+        }
+    });
+
+    app.put('/api/fixed-value/contracts/:contractId', requireAuth, contractWriteRoles, async (req, res) => {
+        try {
+            const result = await updateFixedValueContract(pool, req.params.contractId, req.body || {}, req.user?.email);
+            if (logAudit) logAudit(req, 'UPDATE', 'fixed_value_contract', req.params.contractId);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.contracts.update', err);
+        }
+    });
+
+    app.post('/api/fixed-value/contracts/:contractId/resync-seed', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            if (req.params.contractId !== 'CTR-PSO-NORTH-ZONE') {
+                return res.status(400).json({ error: 'resync-seed is only supported for CTR-PSO-NORTH-ZONE' });
+            }
+            const result = await resyncNorthZoneFromSeed(pool, {
+                confirm: !!req.body?.confirm,
+                syncEmployees: !!req.body?.syncEmployees,
+                actor: req.user?.email,
+            });
+            if (logAudit) logAudit(req, 'RESYNC_SEED', 'fixed_value_contract', req.params.contractId);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.contracts.resyncSeed', err);
         }
     });
 
@@ -81,9 +133,14 @@ function registerServiceOrderRoutes(app, deps) {
 
     app.post('/api/fixed-value/seed-pso', requireAuth, requireRole('superadmin'), async (req, res) => {
         try {
+            // Deprecated alias → resyncNorthZoneFromSeed (employees included for first-time bootstrap).
             const result = await seedPsoNorthZone(pool, { actor: req.user?.email });
             if (logAudit) logAudit(req, 'SEED', 'fixed_value_pso', result.contractId);
-            res.json(result);
+            res.json({
+                ...result,
+                deprecated: true,
+                preferredPath: 'POST /api/fixed-value/contracts/CTR-PSO-NORTH-ZONE/resync-seed',
+            });
         } catch (err) {
             handleRouteError(res, 'fixed-value.seedPso', err);
         }

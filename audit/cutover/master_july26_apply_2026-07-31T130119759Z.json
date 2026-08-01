@@ -1,0 +1,219 @@
+{
+  "generated_at": "2026-07-31T12:51:25.578Z",
+  "transfers": [
+    {
+      "id": "ASIL/SPL-361/21",
+      "action": "set_inactive",
+      "reason": "Rafae transfer/rehire — old ID"
+    },
+    {
+      "id": "ASIL/SPL-420/21",
+      "action": "activate_with_cnic",
+      "cnic": "42201-4100258-9"
+    },
+    {
+      "id": "ASILFM/SPL/22/40",
+      "action": "set_inactive",
+      "reason": "Shehzad transfer FM→BPO — old ID"
+    },
+    {
+      "id": "ASIL/SPL-418/21",
+      "action": "activate_with_cnic",
+      "cnic": "42301-6929450-9"
+    },
+    {
+      "id": "ASIL/SPL-77/21",
+      "action": "set_inactive",
+      "reason": "Hassan transfer/rehire — old ID"
+    },
+    {
+      "id": "ASIL/SPL-423/21",
+      "action": "activate_with_cnic",
+      "cnic": "36502-3031534-5"
+    }
+  ],
+  "updated": 674,
+  "inserted": 332,
+  "skipped": [
+    {
+      "id": "ASIL/SPL-378/21",
+      "name": "Arsalan",
+      "reason": "duplicate of ASIL/SPL-82/21 (MD)"
+    }
+  ],
+  "warnings": [
+    {
+      "id": "ASIL/SPL-212/21",
+      "warning": "insert skipped cnic owned by ASIL/PSO-201/25"
+    },
+    {
+      "id": "ASIL/SPL-361/21",
+      "warning": "skipped cnic 42201-4100258-9 owned by ASIL/SPL-420/21"
+    },
+    {
+      "id": "ASIL/SPL-189/21",
+      "warning": "insert skipped cnic owned by ASIL/PSO-291/25"
+    },
+    {
+      "id": "ASIL/SPL-20/21",
+      "warning": "insert skipped cnic owned by ASIL/SPL-397/21"
+    },
+    {
+      "id": "ASIL/SPL-327/21",
+      "warning": "insert skipped cnic owned by ASIL/SPL-326/21"
+    },
+    {
+      "id": "ASIL/SPL-401/21",
+      "warning": "insert skipped cnic owned by ASIL/SPL-21/21"
+    },
+    {
+      "id": "ASIL/SPL-303/21",
+      "warning": "insert skipped cnic owned by ASIL/SPL-16/21"
+    },
+    {
+      "id": "ASIL/SPL-372/21",
+      "warning": "insert skipped cnic owned by ASIL/SPL-373/21"
+    },
+    {
+      "id": "ASILFM/SPL/22/75",
+      "warning": "insert skipped cnic owned by ASILFM/SPL/22/162"
+    },
+    {
+      "id": "ASILFM/SPL/22/88",
+      "warning": "insert skipped cnic owned by ASILFM/SPL/22/150"
+    },
+    {
+      "id": "ASILFM/SPL/22/117",
+      "warning": "insert skipped cnic owned by ASILFM/SPL/22/154"
+    },
+    {
+      "id": "ASILFM/SPL/22/40",
+      "warning": "skipped cnic 42301-6929450-9 owned by ASIL/SPL-418/21"
+    },
+    {
+      "id": "ASILFM/SPL/22/26",
+      "warning": "insert skipped cnic owned by ASIL/SPL-333/21"
+    },
+    {
+      "id": "ASIL/PSO-161/25",
+      "warning": "skipped cnic 17301-5832005-3 owned by ASIL-PSO-NZ-001"
+    },
+    {
+      "id": "ASIL/PSO-162/25",
+      "warning": "skipped cnic 37401-8144415-7 owned by ASIL-PSO-NZ-002"
+    },
+    {
+      "id": "ASIL/PSO-163/25",
+      "warning": "skipped cnic 61101-4295943-3 owned by ASIL-PSO-NZ-003"
+    }
+  ],
+  "not_in_db": [],
+  "errors": [
+    {
+      "id": "ASIL/PSO-085/25",
+      "error": "time zone displacement out of range: \"+020232-08\""
+    }
+  ],
+  "verify": [
+    {
+      "id": "ASIL/SPL-140/21",
+      "name": "Muhammad Shahbaz",
+      "active": "true",
+      "cnic": "33202-7562458-7",
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASIL/SPL-361/21",
+      "name": "Rafae Kayani",
+      "active": "false",
+      "cnic": null,
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASIL/SPL-378/21",
+      "name": "Muhammad Asif",
+      "active": "true",
+      "cnic": "35202-2177308-1",
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASIL/SPL-39/21",
+      "name": "Chaman Shahzad",
+      "active": "true",
+      "cnic": "35404-8703563-9",
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASIL/SPL-418/21",
+      "name": "Shahzad Masih",
+      "active": "true",
+      "cnic": "42301-6929450-9",
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASIL/SPL-420/21",
+      "name": "Rafae Kayani",
+      "active": "true",
+      "cnic": "42201-4100258-9",
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASIL/SPL-423/21",
+      "name": "Hassan Raza Khan",
+      "active": "true",
+      "cnic": "36502-3031534-5",
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASIL/SPL-67/21",
+      "name": "Akhtar Ali",
+      "active": "true",
+      "cnic": "35404-1567364-9",
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASIL/SPL-77/21",
+      "name": "Hassan Raza Khan",
+      "active": "false",
+      "cnic": null,
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASIL/SPL-82/21",
+      "name": "Arsalan",
+      "active": "true",
+      "cnic": "34103-7507165-9",
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASIL/SPL-97/21",
+      "name": "Muhammad Faisal Ayaz",
+      "active": "true",
+      "cnic": "35404-3842016-3",
+      "contract_id": "CTR-1773046722553",
+      "contract_name": "Wafi BPO"
+    },
+    {
+      "id": "ASILFM/SPL/22/40",
+      "name": "Shehzad Masih",
+      "active": "false",
+      "cnic": null,
+      "contract_id": "CTR-1773048523696",
+      "contract_name": "Facility Management (T&S)"
+    }
+  ],
+  "coverage": {
+    "active_n": 742,
+    "no_contract": 69
+  }
+}

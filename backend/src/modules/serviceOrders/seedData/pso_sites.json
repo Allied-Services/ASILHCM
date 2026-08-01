@@ -1,0 +1,1017 @@
+[
+  {
+    "id": "MORGAH",
+    "name": "Morgah Installation",
+    "requiredAt": "Morgah (Inst.)",
+    "taxRate": 0.16,
+    "hasEquipment": true,
+    "equipmentRequired": [
+      "Safety Helmets",
+      "Safety Shoes",
+      "Uniforms",
+      "Nitryl gloves",
+      "First Aid kit"
+    ],
+    "lineItems": [
+      {
+        "id": "mor-item-1",
+        "name": "Office/Misc Services",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 331248,
+        "totalAmount": 3974976,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Conservancy Supervisory Services",
+            "count": 1
+          },
+          {
+            "designation": "Sweeping / Cleaning Services",
+            "count": 1
+          },
+          {
+            "designation": "Gardening Services",
+            "count": 2
+          },
+          {
+            "designation": "Decanting/Filling Services",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "id": "mor-item-2",
+        "name": "Office/Misc Services (Sealing)",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 227964,
+        "totalAmount": 2735568,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Sealing Services",
+            "count": 4
+          }
+        ]
+      },
+      {
+        "id": "mor-item-3",
+        "name": "Housekeeping services (Consumables)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 10988,
+        "totalAmount": 131856,
+        "isManpowerDependent": false
+      },
+      {
+        "id": "mor-item-4",
+        "name": "Removal of garbage / solid waste",
+        "unit": "MON",
+        "quantity": 12,
+        "rate": 10750,
+        "totalAmount": 129000,
+        "isManpowerDependent": false
+      }
+    ]
+  },
+  {
+    "id": "CHAKPIRANA",
+    "name": "Chakpirana Depot",
+    "requiredAt": "Chakpirana (Depot)",
+    "taxRate": 0.16,
+    "hasEquipment": true,
+    "equipmentRequired": [
+      "Safety Helmets",
+      "Safety Shoes",
+      "Uniforms",
+      "Nitryl gloves",
+      "First Aid kit"
+    ],
+    "lineItems": [
+      {
+        "id": "cp-item-1",
+        "name": "Office/Misc Services",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 823618,
+        "totalAmount": 9883416,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Conservancy Supervisory Services",
+            "count": 1
+          },
+          {
+            "designation": "Sweeping / Cleaning Services",
+            "count": 4
+          },
+          {
+            "designation": "Gardening Services",
+            "count": 1
+          },
+          {
+            "designation": "M&R Support services",
+            "count": 1
+          },
+          {
+            "designation": "Sealing Services",
+            "count": 2
+          },
+          {
+            "designation": "Lube Handling",
+            "count": 1
+          },
+          {
+            "designation": "Lab service",
+            "count": 1
+          },
+          {
+            "designation": "Office service",
+            "count": 1
+          },
+          {
+            "designation": "OMC Physical Reporting",
+            "count": 1
+          },
+          {
+            "designation": "Additional general services",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "id": "cp-item-2",
+        "name": "Services for forklifter operation/driving",
+        "unit": "D",
+        "quantity": 12,
+        "rate": 56991,
+        "totalAmount": 683892,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Forklift Operation Services",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "cp-item-3",
+        "name": "Housekeeping services (Consumables)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 27806,
+        "totalAmount": 333672,
+        "isManpowerDependent": false
+      },
+      {
+        "id": "cp-item-4",
+        "name": "Removal of garbage / solid waste",
+        "unit": "MON",
+        "quantity": 12,
+        "rate": 10750,
+        "totalAmount": 129000,
+        "isManpowerDependent": false
+      },
+      {
+        "id": "cp-item-5",
+        "name": "Services for Tank-lorry receipt operation",
+        "unit": "D",
+        "quantity": 12,
+        "rate": 802256,
+        "totalAmount": 9627072,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Fuel Oil Handling Services",
+            "count": 14
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "SIHALA",
+    "name": "Sihala Installation",
+    "requiredAt": "Sihala (Inst.)",
+    "taxRate": 0.16,
+    "hasEquipment": true,
+    "equipmentRequired": [
+      "Safety Helmets",
+      "Safety Shoes",
+      "Uniforms",
+      "Nitryl gloves",
+      "First Aid kit"
+    ],
+    "lineItems": [
+      {
+        "id": "sih-item-1",
+        "name": "Office/Misc Service",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 1192940,
+        "totalAmount": 14315280,
+        "isManpowerDependent": true,
+        "soLineNumber": "01",
+        "roles": [
+          {
+            "designation": "Conservancy Supervisory Services",
+            "count": 1
+          },
+          {
+            "designation": "Sweeping / Cleaning Services",
+            "count": 7
+          },
+          {
+            "designation": "Gardening Services",
+            "count": 2
+          },
+          {
+            "designation": "Ops Office services",
+            "count": 1
+          },
+          {
+            "designation": "Logistics Office Services",
+            "count": 1
+          },
+          {
+            "designation": "Lab Services",
+            "count": 1
+          },
+          {
+            "designation": "Invoicing Room services",
+            "count": 2
+          },
+          {
+            "designation": "Lubricant Handling services",
+            "count": 3
+          },
+          {
+            "designation": "General services",
+            "count": 2
+          },
+          {
+            "designation": "Additional general services",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "id": "sih-item-2",
+        "name": "Office/Misc Service",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 56991,
+        "totalAmount": 683892,
+        "isManpowerDependent": true,
+        "soLineNumber": "02",
+        "roles": [
+          {
+            "designation": "Forklift Operation Services",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "sih-item-3",
+        "name": "Housekeeping service - Consumables items",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 32002,
+        "totalAmount": 384024,
+        "isManpowerDependent": false,
+        "soLineNumber": "03"
+      },
+      {
+        "id": "sih-item-4",
+        "name": "Removal of garbage / solid waste",
+        "unit": "MON",
+        "quantity": 48,
+        "rate": 10750,
+        "totalAmount": 516000,
+        "isManpowerDependent": false,
+        "soLineNumber": "04"
+      },
+      {
+        "id": "sih-item-5",
+        "name": "Office/Misc Service",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 170973,
+        "totalAmount": 2051676,
+        "isManpowerDependent": true,
+        "soLineNumber": "05",
+        "roles": [
+          {
+            "designation": "Electrical services",
+            "count": 2
+          },
+          {
+            "designation": "Fitter services",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "sih-item-6",
+        "name": "Office/Misc Service",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 573040,
+        "totalAmount": 6876480,
+        "isManpowerDependent": true,
+        "soLineNumber": "06",
+        "roles": [
+          {
+            "designation": "Fuel Oil Handling Services",
+            "count": 10
+          }
+        ]
+      },
+      {
+        "id": "sih-item-7",
+        "name": "Pesh Imam Service",
+        "unit": "MON",
+        "quantity": 12,
+        "rate": 56985,
+        "totalAmount": 683820,
+        "isManpowerDependent": true,
+        "soLineNumber": "07",
+        "roles": [
+          {
+            "designation": "Pesh Imam Services",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "sih-item-8",
+        "name": "Housekeeping services (Sand Trolley)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 4838,
+        "totalAmount": 58056,
+        "isManpowerDependent": false,
+        "soLineNumber": "08"
+      },
+      {
+        "id": "sih-item-9",
+        "name": "Plantation at Ops location",
+        "unit": "MON",
+        "quantity": 500,
+        "rate": 430,
+        "totalAmount": 215000,
+        "isManpowerDependent": false,
+        "soLineNumber": "09"
+      },
+      {
+        "id": "sih-item-10",
+        "name": "Laying Gravel stone",
+        "unit": "MON",
+        "quantity": 4,
+        "rate": 20000,
+        "totalAmount": 80000,
+        "isManpowerDependent": false,
+        "soLineNumber": "10"
+      },
+      {
+        "id": "sih-item-11",
+        "name": "Driver Service",
+        "unit": "JOB",
+        "quantity": 12,
+        "rate": 170955,
+        "totalAmount": 2051460,
+        "isManpowerDependent": true,
+        "soLineNumber": "11",
+        "roles": [
+          {
+            "designation": "Driving Services",
+            "count": 3
+          }
+        ]
+      },
+      {
+        "id": "sih-item-12",
+        "name": "Housekeeping services (Mechanical sweeping)",
+        "unit": "EA",
+        "quantity": 48,
+        "rate": 2100,
+        "totalAmount": 100800,
+        "isManpowerDependent": false,
+        "soLineNumber": "12"
+      }
+    ]
+  },
+  {
+    "id": "FAQIRABAD",
+    "name": "Faqirabad Depot",
+    "requiredAt": "Faqirabad (Depot)",
+    "taxRate": 0.16,
+    "hasEquipment": true,
+    "equipmentRequired": [
+      "Safety Helmets",
+      "Safety Shoes",
+      "Uniforms",
+      "Nitryl gloves",
+      "First Aid kit"
+    ],
+    "lineItems": [
+      {
+        "id": "faq-item-1",
+        "name": "Office/Misc Services",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 715486,
+        "totalAmount": 8585832,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Conservancy Supervisory Services",
+            "count": 1
+          },
+          {
+            "designation": "Sweeping / Cleaning Services",
+            "count": 2
+          },
+          {
+            "designation": "Gardening Services",
+            "count": 2
+          },
+          {
+            "designation": "Lube Handling",
+            "count": 1
+          },
+          {
+            "designation": "Filling Pumproom / Invoicing Room services",
+            "count": 1
+          },
+          {
+            "designation": "Sealing Services",
+            "count": 1
+          },
+          {
+            "designation": "M&R Support services",
+            "count": 1
+          },
+          {
+            "designation": "Office service",
+            "count": 1
+          },
+          {
+            "designation": "Lab Services",
+            "count": 1
+          },
+          {
+            "designation": "Additional services",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "id": "faq-item-2",
+        "name": "Services for forklifter operation/driving",
+        "unit": "D",
+        "quantity": 12,
+        "rate": 113982,
+        "totalAmount": 1367784,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Forklift Operation Services",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "id": "faq-item-3",
+        "name": "Housekeeping services (Consumables)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 30217,
+        "totalAmount": 362604,
+        "isManpowerDependent": false
+      },
+      {
+        "id": "faq-item-4",
+        "name": "Removal of garbage / solid waste",
+        "unit": "MON",
+        "quantity": 12,
+        "rate": 10750,
+        "totalAmount": 129000,
+        "isManpowerDependent": false
+      },
+      {
+        "id": "faq-item-5",
+        "name": "Services (Fuel oil handling decanting)",
+        "unit": "MON",
+        "quantity": 12,
+        "rate": 229216,
+        "totalAmount": 2750592,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Fuel Oil Handling Services",
+            "count": 4
+          }
+        ]
+      },
+      {
+        "id": "faq-item-6",
+        "name": "Office/Misc Services (Technical services)",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 113982,
+        "totalAmount": 1367784,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Electrical services",
+            "count": 1
+          },
+          {
+            "designation": "Fitter services",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "JUGLOT",
+    "name": "Juglot Depot",
+    "requiredAt": "Juglot (Depot)",
+    "taxRate": 0.16,
+    "hasEquipment": true,
+    "lineItems": [
+      {
+        "id": "jug-item-1",
+        "name": "Housekeeping services",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 273488,
+        "totalAmount": 3281856,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Conservancy Supervisory Services",
+            "count": 1
+          },
+          {
+            "designation": "Sweeping / Cleaning Services",
+            "count": 2
+          },
+          {
+            "designation": "Gardening Services",
+            "count": 1
+          },
+          {
+            "designation": "Sealing Services",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "jug-item-2",
+        "name": "Housekeeping services (Fuel loading decanting)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 171912,
+        "totalAmount": 2062944,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Fuel Oil Handling Services",
+            "count": 3
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "CHITRAL",
+    "name": "Chitral Depot",
+    "requiredAt": "Chitral (Depot)",
+    "taxRate": 0.15,
+    "hasEquipment": false,
+    "lineItems": [
+      {
+        "id": "chi-item-1",
+        "name": "Office/Misc Services",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 218217,
+        "totalAmount": 2618604,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Sweeping / Cleaning Services",
+            "count": 1
+          },
+          {
+            "designation": "Gardening Services",
+            "count": 1
+          },
+          {
+            "designation": "Lube Handling",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "id": "chi-item-2",
+        "name": "Housekeeping services (Consumables)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 10332,
+        "totalAmount": 123984,
+        "isManpowerDependent": false
+      }
+    ]
+  },
+  {
+    "id": "TARUJABBA",
+    "name": "Tarujabba Depot",
+    "requiredAt": "Tarujabba (Depot)",
+    "taxRate": 0.15,
+    "hasEquipment": true,
+    "lineItems": [
+      {
+        "id": "tj-item-1",
+        "name": "Office/Misc Services",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 1202918,
+        "totalAmount": 14435016,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Conservancy Supervisory Services",
+            "count": 1
+          },
+          {
+            "designation": "Sweeping / Cleaning Services",
+            "count": 4
+          },
+          {
+            "designation": "Gardening Services",
+            "count": 2
+          },
+          {
+            "designation": "Sealing Services",
+            "count": 2
+          },
+          {
+            "designation": "Ops Office services",
+            "count": 1
+          },
+          {
+            "designation": "Logistics Office Services",
+            "count": 1
+          },
+          {
+            "designation": "Invoicing Room services",
+            "count": 2
+          },
+          {
+            "designation": "Lab Services",
+            "count": 2
+          },
+          {
+            "designation": "Store Keeping services",
+            "count": 1
+          },
+          {
+            "designation": "Lube Handling",
+            "count": 2
+          },
+          {
+            "designation": "General services",
+            "count": 2
+          },
+          {
+            "designation": "Additional services",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "id": "tj-item-2",
+        "name": "Office/Misc Services (Forklift)",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 56991,
+        "totalAmount": 683892,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Forklift Operation Services",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "tj-item-3",
+        "name": "Housekeeping services (Consumables)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 27020,
+        "totalAmount": 324240,
+        "isManpowerDependent": false
+      },
+      {
+        "id": "tj-item-4",
+        "name": "Removal of garbage / solid waste",
+        "unit": "MON",
+        "quantity": 12,
+        "rate": 10750,
+        "totalAmount": 129000,
+        "isManpowerDependent": false
+      },
+      {
+        "id": "tj-item-5",
+        "name": "Office/Misc Services (Fuel oil decanting)",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 687648,
+        "totalAmount": 8251776,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Fuel Oil Handling Services",
+            "count": 12
+          }
+        ]
+      },
+      {
+        "id": "tj-item-6",
+        "name": "Contract for services of pesh imam",
+        "unit": "MON",
+        "quantity": 12,
+        "rate": 56991,
+        "totalAmount": 683892,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Pesh Imam Services",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "tj-item-7",
+        "name": "Office/Misc Services (Technical services)",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 113982,
+        "totalAmount": 1367784,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Electrical services",
+            "count": 1
+          },
+          {
+            "designation": "Fitter services",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "SERAINOURANG",
+    "name": "Serai Naurang Depot",
+    "requiredAt": "Serai Naurang (Depot)",
+    "taxRate": 0.15,
+    "hasEquipment": false,
+    "lineItems": [
+      {
+        "id": "sn-item-1",
+        "name": "Office/Misc Services",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 498227,
+        "totalAmount": 5978724,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Sweeping / Cleaning Services",
+            "count": 2
+          },
+          {
+            "designation": "Gardening Services",
+            "count": 1
+          },
+          {
+            "designation": "Sealing Services",
+            "count": 1
+          },
+          {
+            "designation": "Office service",
+            "count": 1
+          },
+          {
+            "designation": "Invoicing Room services",
+            "count": 4
+          }
+        ]
+      },
+      {
+        "id": "sn-item-2",
+        "name": "Office/Misc Services (Fuel oil handling)",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 229216,
+        "totalAmount": 2750592,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Fuel Oil Handling Services",
+            "count": 4
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "KOHAT",
+    "name": "Kohat Depot",
+    "requiredAt": "Kohat (Depot)",
+    "taxRate": 0.15,
+    "hasEquipment": false,
+    "lineItems": [
+      {
+        "id": "koh-item-1",
+        "name": "Office/Misc Services",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 312419,
+        "totalAmount": 3749028,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Sweeping / Cleaning Services",
+            "count": 2
+          },
+          {
+            "designation": "Gardening Services",
+            "count": 1
+          },
+          {
+            "designation": "General Housekeeping Services",
+            "count": 3
+          }
+        ]
+      },
+      {
+        "id": "koh-item-2",
+        "name": "Housekeeping services (Consumables)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 11020,
+        "totalAmount": 132240,
+        "isManpowerDependent": false
+      }
+    ]
+  },
+  {
+    "id": "KUNDIAN",
+    "name": "Kundian Depot",
+    "requiredAt": "Kundian (Depot)",
+    "taxRate": 0.15,
+    "hasEquipment": false,
+    "lineItems": [
+      {
+        "id": "kun-item-1",
+        "name": "Office/Misc Services",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 374355,
+        "totalAmount": 4492260,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Invoicing Room services",
+            "count": 1
+          },
+          {
+            "designation": "Gardening Services",
+            "count": 1
+          },
+          {
+            "designation": "Lube Handling",
+            "count": 2
+          },
+          {
+            "designation": "General Housekeeping Services",
+            "count": 3
+          }
+        ]
+      },
+      {
+        "id": "kun-item-2",
+        "name": "Office/Misc Services (Fuel oil handling)",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 114608,
+        "totalAmount": 1375286,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Fuel Oil Handling Services",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "id": "kun-item-3",
+        "name": "Housekeeping services (Consumables)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 27241,
+        "totalAmount": 326892,
+        "isManpowerDependent": false
+      }
+    ]
+  },
+  {
+    "id": "DGM_OPS",
+    "name": "DGM Operations",
+    "requiredAt": "DGM Ops (N) Office",
+    "taxRate": 0.16,
+    "hasEquipment": false,
+    "lineItems": [
+      {
+        "id": "dgm-item-1",
+        "name": "Services required to provide driver",
+        "unit": "JOB",
+        "quantity": 12,
+        "rate": 56991,
+        "totalAmount": 683892,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Driving Services",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "PR_FUELING",
+    "name": "PR Fueling Facility",
+    "requiredAt": "PR Fueling Facility Rawalpindi",
+    "taxRate": 0.16,
+    "hasEquipment": false,
+    "lineItems": [
+      {
+        "id": "prf-item-1",
+        "name": "Office/Misc Services",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 320446,
+        "totalAmount": 3845352,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Conservancy Supervisory Services",
+            "count": 1
+          },
+          {
+            "designation": "Sweeping / Cleaning Services",
+            "count": 1
+          },
+          {
+            "designation": "General Services",
+            "count": 4
+          }
+        ]
+      },
+      {
+        "id": "prf-item-2",
+        "name": "Office/Misc Services (Technical)",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 56991,
+        "totalAmount": 683892,
+        "isManpowerDependent": true,
+        "roles": [
+          {
+            "designation": "Electrical services",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "prf-item-3",
+        "name": "Housekeeping services (Consumables)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 19369,
+        "totalAmount": 232428,
+        "isManpowerDependent": false
+      }
+    ]
+  }
+]
