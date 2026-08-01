@@ -1,6 +1,6 @@
 # BLOCKED — S5B shadow month (payroll team + MD sign-off)
 
-_Last updated: 2026-07-25_
+_Last updated: 2026-08-01_
 
 ## Active blocker
 
