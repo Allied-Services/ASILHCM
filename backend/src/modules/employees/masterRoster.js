@@ -1,5 +1,7 @@
 'use strict';
 
+const { parseDateOrNull } = require('../../core/dateParse');
+
 /**
  * Full employee master roster — aligned with frontend MASTER_COLUMNS + operational fields.
  * Import: match on ASIL Employee Code; blank CSV cells NEVER overwrite existing DB values.
@@ -178,14 +180,14 @@ function pickFromRow(row, field) {
     return null;
 }
 
-function toDateOrNull(v) {
-    if (isBlank(v)) return null;
-    const s = String(v).trim();
-    if (/^n\/?a$/i.test(s)) return null;
-    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-    const d = new Date(s);
-    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-    return null;
+const EXPIRY_DATE_FIELDS = new Set(['cnic_expiry', 'gate_pass_expiry']);
+const DOB_DATE_FIELDS = new Set(['dob']);
+
+function toDateOrNull(v, fieldDb) {
+    let kind = 'default';
+    if (EXPIRY_DATE_FIELDS.has(fieldDb)) kind = 'expiry';
+    else if (DOB_DATE_FIELDS.has(fieldDb)) kind = 'dob';
+    return parseDateOrNull(v, { kind });
 }
 
 function toNumberOrNull(v) {
@@ -285,7 +287,7 @@ function csvRowToPatch(row, maps, existing) {
         if (raw == null) continue;
 
         if (field.type === 'date') {
-            patch[field.db] = toDateOrNull(raw);
+            patch[field.db] = toDateOrNull(raw, field.db);
         } else if (field.type === 'number') {
             patch[field.db] = toNumberOrNull(raw);
         } else if (field.db === 'supervisor_email' || field.db === 'line_manager_email') {

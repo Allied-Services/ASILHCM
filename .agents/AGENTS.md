@@ -523,4 +523,20 @@ Per `.agents/plans/JULY_2026_CUTOVER_AND_WAFI_REFRESH.md`.
 
 ---
 
+### 2026-08-01 — Fixed Value contract wizard + CORO SS94 onboarding
+Per plan `fv_coro_contracts` (CORO onboarding & data-driven PSO North Zone).
+
+1. **Migration `20260801120000_contracts_fv_meta.js`** — `contracts.meta` JSONB (+ GIN index).
+2. **`contractCrud.js`** — single write path: create/update/get FV contracts, `resyncNorthZoneFromSeed`, `createCoroFromSeed`.
+3. **Routes** — `GET/POST /api/fixed-value/contracts`, `GET/PUT .../:id`, `POST .../CTR-PSO-NORTH-ZONE/resync-seed`; `POST /seed-pso` kept as deprecated alias.
+4. **UI** — `FixedValueContractWizard.jsx` (6 steps); ops UI New/Edit + “Re-sync North Zone from seed JSON”.
+5. **CORO seed** — `seedData/pso_coro_ss94.json` + `scripts/seed_pso_coro_ma.js` (`CTR-PSO-CORO-MA` / `SO-PSO-CORO-SS94`, monthly **4,136,919.94** + 16% ST → **4,798,827.13**).
+6. **Roster assign** — `scripts/assign_coro_employees.js` (64 CORO rows → `site=SS94`).
+7. **Date parse** — `backend/src/core/dateParse.js`; CNIC/gate-pass expiry `16-Aug-32` → `2032-08-16`; `scripts/fix_pso085_cnic_expiry.sql`.
+8. **`siteProvince()`** — prefers `so.meta.province` / contract region before hardcoded map.
+
+**Env vars needed:** none new. Staging/prod data ops require `DATABASE_URL` or `STAGING_DATABASE_URL`: migrate → `seed_pso_coro_ma.js` → `assign_coro_employees.js --apply` → PSO-085 SQL.
+
+---
+
 *This file is maintained by the Antigravity Development Consultant. Update it when architectural decisions change.*

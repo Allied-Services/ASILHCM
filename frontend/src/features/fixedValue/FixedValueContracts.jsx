@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     MapPin, Upload, CloudDownload, Calculator, FileText, Shield,
     Mail, Database, RefreshCw, AlertCircle, CheckCircle, Download,
-    ExternalLink, Layers, Play,
+    ExternalLink, Layers, Play, Plus, Pencil,
 } from 'lucide-react';
 import { api } from '../../api';
+import FixedValueContractWizard from './FixedValueContractWizard';
 import './FixedValueOps.css';
 
 const ALL_SITES = '__ALL__';
@@ -98,9 +99,11 @@ export default function FixedValueContracts({ user }) {
 
     const [invoicePack, setInvoicePack] = useState(null);
     const [registry, setRegistry] = useState([]);
+    const [wizard, setWizard] = useState(null); // { mode: 'create'|'edit', contractId? }
 
     const canWrite = ['superadmin', 'operations', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
         .includes(user?.role);
+    const canEditContract = ['superadmin', 'operations'].includes(user?.role);
 
     const selectedOrder = useMemo(
         () => orders.find(o => o.site_code === siteCode) || null,
@@ -490,19 +493,43 @@ export default function FixedValueContracts({ user }) {
                         <button type="button" className="btn-primary" disabled={!contractId} onClick={() => setStep('attendance')}>
                             Continue to Attendance <Play size={14} />
                         </button>
+                        {canEditContract && (
+                            <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => setWizard({ mode: 'create' })}
+                            >
+                                <Plus size={14} /> New Fixed Value Contract
+                            </button>
+                        )}
+                        {canEditContract && contractId && (
+                            <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => setWizard({ mode: 'edit', contractId })}
+                            >
+                                <Pencil size={14} /> Edit contract
+                            </button>
+                        )}
                         {user?.role === 'superadmin' && (
                             <button
                                 type="button"
                                 className="btn-secondary"
                                 disabled={loading}
-                                onClick={() => runAction(async () => {
-                                    await api.seedPsoNorthZone();
-                                    await loadContracts();
-                                    await loadOrders();
-                                    await loadAttStatus();
-                                }, 'PSO seed complete — contract and sites reloaded')}
+                                onClick={() => {
+                                    const ok = window.confirm(
+                                        'Re-sync North Zone from seed JSON?\n\nThis overwrites SO line rates/meta for CTR-PSO-NORTH-ZONE from pso_sites.json. UI edits will be replaced.'
+                                    );
+                                    if (!ok) return;
+                                    runAction(async () => {
+                                        await api.resyncPsoNorthZoneSeed(true, false);
+                                        await loadContracts();
+                                        await loadOrders();
+                                        await loadAttStatus();
+                                    }, 'North Zone re-synced from seed JSON');
+                                }}
                             >
-                                Seed PSO North Zone
+                                Re-sync North Zone from seed JSON
                             </button>
                         )}
                     </div>
@@ -1015,6 +1042,22 @@ export default function FixedValueContracts({ user }) {
                         EOBI/SESSI challans → Sales tax by authority → email focals.
                     </div>
                 </div>
+            )}
+
+            {wizard && (
+                <FixedValueContractWizard
+                    mode={wizard.mode}
+                    contractId={wizard.contractId || null}
+                    onClose={() => setWizard(null)}
+                    onSaved={async (result) => {
+                        const id = result?.contract?.id || wizard.contractId;
+                        setWizard(null);
+                        await loadContracts();
+                        if (id) setContractId(id);
+                        await loadOrders();
+                        setMsg(`Contract ${id} saved`);
+                    }}
+                />
             )}
         </div>
     );

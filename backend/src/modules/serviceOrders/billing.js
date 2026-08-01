@@ -148,7 +148,7 @@ async function resolveTaxRate(pool, so, contract) {
     const policy = await getPolicy(pool, contract.id);
     if (policy?.sales_tax_exempt) return 0;
     if (policy?.sales_tax_rate != null) return Number(policy.sales_tax_rate);
-    const province = siteProvince(so.site_code) || contract.region_province;
+    const province = siteProvince(so.site_code, { soMeta: meta, contract }) || contract.region_province;
     const { rows: taxCfg } = await pool.query(`SELECT value FROM system_config WHERE key = 'region_tax'`);
     const regionRatesRaw = taxCfg.length ? parseConfigValue(taxCfg[0].value) : [];
     return provinceSalesTaxRate(province, Array.isArray(regionRatesRaw) ? regionRatesRaw : []);
@@ -209,7 +209,8 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year }) {
     const stWithholding = round2(provincialSt * ST_WITHHOLDING_RATE);
     const netReceivable = round2(grandTotal - incomeWht - stWithholding);
     const resources = resourcesFromLines(lines);
-    const province = siteProvince(so.site_code) || contract.region_province || null;
+    const soMeta = typeof so.meta === 'string' ? JSON.parse(so.meta || '{}') : (so.meta || {});
+    const province = siteProvince(so.site_code, { soMeta, contract }) || contract.region_province || null;
 
     return {
         serviceOrderId,

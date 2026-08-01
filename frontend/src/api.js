@@ -640,6 +640,13 @@ export const api = {
 
     // ── Fixed Value / Conservancy (PSO service orders) ─────────────────────────
     getFixedValueContracts: () => apiFetch('/api/fixed-value/contracts'),
+    getFixedValueContract: (contractId) => apiFetch(`/api/fixed-value/contracts/${encodeURIComponent(contractId)}`),
+    createFixedValueContract: (data) => apiFetch('/api/fixed-value/contracts', { method: 'POST', body: JSON.stringify(data) }),
+    updateFixedValueContract: (contractId, data) => apiFetch(`/api/fixed-value/contracts/${encodeURIComponent(contractId)}`, { method: 'PUT', body: JSON.stringify(data) }),
+    resyncPsoNorthZoneSeed: (confirm = true, syncEmployees = false) => apiFetch(
+        '/api/fixed-value/contracts/CTR-PSO-NORTH-ZONE/resync-seed',
+        { method: 'POST', body: JSON.stringify({ confirm, syncEmployees }) }
+    ),
     getFixedValueServiceOrders: (contractId) => apiFetch(`/api/fixed-value/service-orders?contractId=${encodeURIComponent(contractId)}`),
     getFixedValueServiceOrder: (id) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}`),
     upsertFixedValueServiceOrder: (id, data) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -731,4 +738,5 @@ export const api = {
     },
     sendFixedValueFocalEmail: (id, month, year, payload = {}) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/focals/email`, { method: 'POST', body: JSON.stringify({ month, year, ...payload }) }),
     seedPsoNorthZone: () => apiFetch('/api/fixed-value/seed-pso', { method: 'POST', body: '{}' }),
+    /** @deprecated prefer resyncPsoNorthZoneSeed */
 };
