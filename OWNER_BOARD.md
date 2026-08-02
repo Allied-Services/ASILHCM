@@ -53,6 +53,9 @@ You have a serious payroll engine and many working parts — but **no single aut
 - Chief operating system — owner audit + 30-day execution plan (this change)
 - BPO / PSO contract matching on staging (separate track — do not block)
 
+## JUST SHIPPED (2026-08-02)
+- **FV PSO July payroll headcount** — compute was only paying 4 people on `CTR-PSO-NORTH-ZONE` while attendance had 182 overrides on legacy contract_ids. Fixed on `main` (`e0af43e`); live run #117 = **185 HC**, Model A wages verified, net **8,090,438**.
+
 ---
 
 ## BLOCKED ON YOU
