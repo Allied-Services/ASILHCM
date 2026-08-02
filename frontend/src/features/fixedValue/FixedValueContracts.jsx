@@ -362,7 +362,7 @@ export default function FixedValueContracts({ user }) {
         setPayrollRun(result.run || null);
         setPayrollRows(Array.isArray(result.rows) ? result.rows : []);
         setPayrollWarnings(Array.isArray(result.warnings) ? result.warnings : []);
-        await loadPayrollRun();
+        await loadPayrollRun().catch(() => {});
         setMsg(`Payroll computed — ${result.headcount ?? result.rows?.length ?? 0} employees (all sites)`);
         setStep('payroll');
     });

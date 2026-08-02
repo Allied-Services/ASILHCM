@@ -57,9 +57,10 @@ function parseJsonField(val, fallback) {
 
 function normalizeClaimItems(raw) {
     const parsed = parseJsonField(raw, []);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && typeof parsed === 'object') return [parsed];
-    return [];
+    const list = Array.isArray(parsed)
+        ? parsed
+        : (parsed && typeof parsed === 'object' ? [parsed] : []);
+    return list.filter((item) => item && typeof item === 'object');
 }
 
 function aggregateClaimInputs(claims) {
@@ -70,8 +71,8 @@ function aggregateClaimInputs(claims) {
     let expense = 0;
     const claimIds = [];
     for (const claim of claims || []) {
-        claimIds.push(claim.id);
-        const items = normalizeClaimItems(claim.claimed_items);
+        if (claim?.id != null) claimIds.push(claim.id);
+        const items = normalizeClaimItems(claim?.claimed_items);
         if (claim.claim_type === 'overtime') {
             for (const item of items) {
                 ot1 += Number(item.ot1 || item.ot_1x || 0);
@@ -93,10 +94,68 @@ function aggregateClaimInputs(claims) {
 
 function classifyOtDate(date, holidayDateSet) {
     const d = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(d.getTime())) return 'ot2';
     const key = d.toISOString().slice(0, 10);
     if (holidayDateSet.has(key)) return 'ot3';
     if (d.getDay() === 0) return 'ot2';
     return 'ot2';
+}
+
+async function loadAttendanceBatch(pool, empIds, startDate, endStr) {
+    if (!empIds.length) return [];
+    const params = [empIds, startDate, endStr];
+    const where = `WHERE employee_id = ANY($1::text[]) AND date >= $2::date AND date <= $3::date`;
+    try {
+        const { rows } = await pool.query(
+            `SELECT employee_id, date::text AS date, status, hours, ot_hours, ot_rate
+             FROM attendance_records ${where}`,
+            params
+        );
+        return rows;
+    } catch (err) {
+        if (!/ot_rate/i.test(err.message || '')) throw err;
+        const { rows } = await pool.query(
+            `SELECT employee_id, date::text AS date, status, hours, ot_hours
+             FROM attendance_records ${where}`,
+            params
+        );
+        return rows;
+    }
+}
+
+async function persistPayrollRunRows(pool, runId, rowPayloads) {
+    if (!rowPayloads.length) return;
+    const CHUNK = 50;
+    for (let i = 0; i < rowPayloads.length; i += CHUNK) {
+        const chunk = rowPayloads.slice(i, i + CHUNK);
+        const runIds = chunk.map(() => runId);
+        const employeeIds = chunk.map((r) => r.employee_id);
+        const paidDays = chunk.map((r) => r.paid_days);
+        const workingDays = chunk.map((r) => r.working_days);
+        const ot2Hours = chunk.map((r) => r.ot2_hours);
+        const ot3Hours = chunk.map((r) => r.ot3_hours);
+        const inputs = chunk.map((r) => JSON.stringify({
+            ...r.inputs,
+            ot1_hours: r.ot1_hours,
+            source: r.source,
+        }));
+        const computed = chunk.map((r) => JSON.stringify(r.computed));
+        await pool.query(
+            `INSERT INTO payroll_run_rows (run_id, employee_id, paid_days, working_days, ot2_hours, ot3_hours, inputs, computed)
+             SELECT * FROM unnest($1::int[], $2::text[], $3::numeric[], $4::numeric[], $5::numeric[], $6::numeric[], $7::jsonb[], $8::jsonb[])`,
+            [runIds, employeeIds, paidDays, workingDays, ot2Hours, ot3Hours, inputs, computed]
+        );
+    }
+    const claimIds = [...new Set(
+        rowPayloads.flatMap((r) => (r.claimIds || []).map((id) => Number(id)).filter(Number.isFinite))
+    )];
+    if (claimIds.length) {
+        await pool.query(
+            `UPDATE employee_claims SET status = 'in_payroll_run', payroll_run_id = $1, updated_at = NOW()
+             WHERE id = ANY($2::int[])`,
+            [runId, claimIds]
+        );
+    }
 }
 
 async function generateInvoiceNumber(pool, year, month) {
@@ -330,12 +389,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
     const dedByEmp = new Map();
     const claimsByEmp = new Map();
     if (empIds.length) {
-        const { rows: allAtt } = await pool.query(
-            `SELECT employee_id, date::text AS date, status, hours, ot_hours, ot_rate
-             FROM attendance_records
-             WHERE employee_id = ANY($1::text[]) AND date >= $2::date AND date <= $3::date`,
-            [empIds, startDate, endStr]
-        );
+        const allAtt = await loadAttendanceBatch(pool, empIds, startDate, endStr);
         for (const r of allAtt) {
             if (!attByEmp.has(r.employee_id)) attByEmp.set(r.employee_id, []);
             attByEmp.get(r.employee_id).push(r);
@@ -551,21 +605,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
     }
 
     await pool.query(`DELETE FROM payroll_run_rows WHERE run_id = $1`, [run.id]);
-    for (const row of rowPayloads) {
-        await pool.query(
-            `INSERT INTO payroll_run_rows (run_id, employee_id, paid_days, working_days, ot2_hours, ot3_hours, inputs, computed)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-            [run.id, row.employee_id, row.paid_days, row.working_days, row.ot2_hours, row.ot3_hours,
-                JSON.stringify({ ...row.inputs, ot1_hours: row.ot1_hours, source: row.source }), JSON.stringify(row.computed)]
-        );
-        if (row.claimIds?.length) {
-            await pool.query(
-                `UPDATE employee_claims SET status = 'in_payroll_run', payroll_run_id = $1, updated_at = NOW()
-                 WHERE id = ANY($2::int[])`,
-                [run.id, row.claimIds]
-            );
-        }
-    }
+    await persistPayrollRunRows(pool, run.id, rowPayloads);
 
     const margin = totalBillable - totalPayrollCost;
 

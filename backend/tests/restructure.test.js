@@ -404,6 +404,14 @@ describe('aggregateClaimInputs', () => {
         expect(result.ot2).toBe(4);
         expect(result.claimIds).toEqual([3, 4, 5]);
     });
+
+    test('skips null entries inside claimed_items arrays', () => {
+        const result = aggregateClaimInputs([
+            { id: 6, claim_type: 'medical', claimed_items: [null, { amount: 500 }] },
+        ]);
+        expect(result.opd).toBe(500);
+        expect(result.claimIds).toEqual([6]);
+    });
 });
 
 describe('payroll run helpers', () => {
@@ -415,6 +423,7 @@ describe('payroll run helpers', () => {
         expect(classifyOtDate(new Date('2026-07-05'), holidays)).toBe('ot2'); // Sunday
         expect(classifyOtDate(new Date('2026-07-04'), holidays)).toBe('ot3'); // holiday
         expect(classifyOtDate(new Date('2026-07-06'), holidays)).toBe('ot2'); // Monday
+        expect(classifyOtDate('not-a-date', holidays)).toBe('ot2');
     });
 
     test('computePrSheetRow OT formula', () => {
