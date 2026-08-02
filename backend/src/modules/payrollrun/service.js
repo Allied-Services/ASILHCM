@@ -301,6 +301,92 @@ async function allocateRunToCosts(pool, runId) {
     return { processed: prRows.length, inserted };
 }
 
+/**
+ * Active employees eligible for a payroll run.
+ *
+ * Fixed Value / service-order contracts often keep historical World A
+ * contract_ids on the roster while attendance is applied via Drive sheets
+ * (resolve-by-employee-id). Payroll must still include those people when:
+ *   - they have fv_conservancy_attendance overrides for the period, or
+ *   - their site/location matches a service order under this contract,
+ *   - and they are not owned by a *different* Fixed Value contract.
+ */
+async function loadEmployeesForPayrollRun(pool, { contractId, month, year, policy }) {
+    const { isSoBillingModel } = require('../serviceOrders/sitesMeta');
+    const activeClause = `(e.active IS NULL OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
+                OR e.active::text = 'Yes')
+           AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($3, $2, 1))`;
+    const selectCols = `e.id, e.name, e.salary, e.doj, e.designation, e.site, e.location,
+                e.spouse_name, e.child1_name, e.child2_name`;
+
+    if (!isSoBillingModel(policy?.billing_model)) {
+        const { rows } = await pool.query(
+            `SELECT ${selectCols}
+             FROM employees e
+             WHERE (e.contract_id = $1 OR e.contract_name = $1)
+               AND ${activeClause}`,
+            [contractId, month, year]
+        );
+        return rows;
+    }
+
+    const { rows: nameRows } = await pool.query(
+        `SELECT contract_name FROM contracts WHERE id = $1`,
+        [contractId]
+    );
+    const contractName = nameRows[0]?.contract_name || null;
+
+    const { rows } = await pool.query(
+        `SELECT DISTINCT ${selectCols}
+         FROM employees e
+         WHERE ${activeClause}
+           AND (
+             e.contract_id = $1
+             OR ($4::text IS NOT NULL AND e.contract_name = $4)
+             OR UPPER(TRIM(COALESCE(e.site, ''))) IN (
+               SELECT UPPER(TRIM(so.site_code))
+               FROM service_orders so
+               WHERE so.contract_id = $1
+                 AND COALESCE(TRIM(so.site_code), '') <> ''
+             )
+             OR EXISTS (
+               SELECT 1 FROM service_orders so
+               WHERE so.contract_id = $1
+                 AND (
+                   e.location ILIKE '%' || so.site_code || '%'
+                   OR e.location ILIKE '%' || so.name || '%'
+                   OR so.name ILIKE '%' || NULLIF(TRIM(e.location), '') || '%'
+                 )
+             )
+             OR (
+               EXISTS (
+                 SELECT 1 FROM monthly_attendance_overrides mao
+                 WHERE mao.employee_id = e.id
+                   AND mao.period_month = $2
+                   AND mao.period_year = $3
+                   AND mao.source = 'fv_conservancy_attendance'
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM service_orders so_other
+                 WHERE so_other.contract_id = e.contract_id
+                   AND so_other.contract_id IS DISTINCT FROM $1
+               )
+             )
+             OR EXISTS (
+               SELECT 1 FROM so_deductions d
+               JOIN service_orders so ON so.id = d.service_order_id
+               WHERE d.employee_id = e.id
+                 AND so.contract_id = $1
+                 AND d.period_month = $2
+                 AND d.period_year = $3
+             )
+           )
+         ORDER BY e.site NULLS LAST, e.name`,
+        [contractId, month, year, contractName]
+    );
+    return rows;
+}
+
 async function computeRunForContract(pool, { contractId, month, year, workingDaysOverride }) {
     const payMonth = parseInt(month, 10);
     const payYear = parseInt(year, 10);
@@ -337,16 +423,9 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             ? Number(policy.standard_month_days || 30)
             : computeWorkingDays(year, month, holidayDateSet));
 
-    const { rows: employees } = await pool.query(
-        `SELECT id, name, salary, doj, designation, site, location,
-                spouse_name, child1_name, child2_name
-         FROM employees e
-         WHERE (e.contract_id = $1 OR e.contract_name = $1)
-           AND (e.active IS NULL OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
-                OR e.active::text = 'Yes')
-           AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($3, $2, 1))`,
-        [contractId, month, year]
-    );
+    const employees = await loadEmployeesForPayrollRun(pool, {
+        contractId, month, year, policy,
+    });
 
     const rateCards = await listRateCards(pool, contractId);
     const rateCardMap = buildRateCardMap(rateCards);
@@ -979,6 +1058,7 @@ module.exports = {
     deriveOtHours,
     applyBillingAmount,
     allocateRunToCosts,
+    loadEmployeesForPayrollRun,
     computeRunForContract,
     getPayrollRuns,
     patchRunRow,

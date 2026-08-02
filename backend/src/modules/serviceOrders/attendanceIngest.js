@@ -151,6 +151,27 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
             const absentDays = Number(row.absentDays) || 0;
             const expectedDays = Number(row.expectedDays) || 0;
 
+            // Stamp FV contract + canonical site_code onto the roster so World B
+            // payroll compute includes Drive-matched employees (legacy World A
+            // contract_ids otherwise drop them) and site rollups group correctly.
+            await client.query(
+                `UPDATE employees SET
+                   contract_id = $2,
+                   contract_name = COALESCE(
+                     (SELECT contract_name FROM contracts WHERE id = $2),
+                     contract_name
+                   ),
+                   site = COALESCE($3, site),
+                   location = COALESCE(NULLIF(TRIM(location), ''), $4, location)
+                 WHERE id = $1
+                   AND NOT EXISTS (
+                     SELECT 1 FROM service_orders so_other
+                     WHERE so_other.contract_id = employees.contract_id
+                       AND so_other.contract_id IS DISTINCT FROM $2
+                   )`,
+                [employeeId, so.contract_id, so.site_code || null, so.name || null]
+            );
+
             await client.query(
                 `INSERT INTO monthly_attendance_overrides
                  (employee_id, period_month, period_year, present_days, absent_days, working_days,
