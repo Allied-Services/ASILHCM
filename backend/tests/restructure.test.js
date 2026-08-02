@@ -392,6 +392,18 @@ describe('aggregateClaimInputs', () => {
         ]);
         expect(result).toEqual({ ot1: 0, ot2: 5, ot3: 2, opd: 3000, expense: 0, claimIds: [1, 2] });
     });
+
+    test('tolerates claimed_items object or empty object (Wafi/legacy shapes)', () => {
+        const result = aggregateClaimInputs([
+            { id: 3, claim_type: 'medical', claimed_items: { amount: 1200 } },
+            { id: 4, claim_type: 'expense', claimed_items: {} },
+            { id: 5, claim_type: 'overtime', claimed_items: '{"ot2":4}' },
+        ]);
+        expect(result.opd).toBe(1200);
+        expect(result.expense).toBe(0);
+        expect(result.ot2).toBe(4);
+        expect(result.claimIds).toEqual([3, 4, 5]);
+    });
 });
 
 describe('payroll run helpers', () => {
