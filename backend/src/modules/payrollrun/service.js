@@ -343,20 +343,13 @@ async function loadEmployeesForPayrollRun(pool, { contractId, month, year, polic
            AND (
              e.contract_id = $1
              OR ($4::text IS NOT NULL AND e.contract_name = $4)
-             OR UPPER(TRIM(COALESCE(e.site, ''))) IN (
-               SELECT UPPER(TRIM(so.site_code))
-               FROM service_orders so
-               WHERE so.contract_id = $1
-                 AND COALESCE(TRIM(so.site_code), '') <> ''
-             )
              OR EXISTS (
-               SELECT 1 FROM service_orders so
-               WHERE so.contract_id = $1
-                 AND (
-                   e.location ILIKE '%' || so.site_code || '%'
-                   OR e.location ILIKE '%' || so.name || '%'
-                   OR so.name ILIKE '%' || NULLIF(TRIM(e.location), '') || '%'
-                 )
+               SELECT 1 FROM so_deductions d
+               JOIN service_orders so ON so.id = d.service_order_id
+               WHERE d.employee_id = e.id
+                 AND so.contract_id = $1
+                 AND d.period_month = $2
+                 AND d.period_year = $3
              )
              OR (
                EXISTS (
@@ -371,14 +364,6 @@ async function loadEmployeesForPayrollRun(pool, { contractId, month, year, polic
                  WHERE so_other.contract_id = e.contract_id
                    AND so_other.contract_id IS DISTINCT FROM $1
                )
-             )
-             OR EXISTS (
-               SELECT 1 FROM so_deductions d
-               JOIN service_orders so ON so.id = d.service_order_id
-               WHERE d.employee_id = e.id
-                 AND so.contract_id = $1
-                 AND d.period_month = $2
-                 AND d.period_year = $3
              )
            )
          ORDER BY e.site NULLS LAST, e.name`,
