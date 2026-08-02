@@ -42,7 +42,15 @@ function registerPayrollRunRoutes(app, deps) {
             if (!result.ok) return res.status(400).json(result);
             res.json(result);
         } catch (err) {
-            handleRouteError(res, 'payrollrun.compute', err);
+            console.error('[payrollrun.compute]', err);
+            if (err.status === 400) {
+                return res.status(400).json({ error: err.message, code: err.code });
+            }
+            return res.status(500).json({
+                error: 'Internal server error',
+                code: 'COMPUTE_FAILED',
+                detail: err.message,
+            });
         }
     });
 
