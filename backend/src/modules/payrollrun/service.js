@@ -55,6 +55,13 @@ function parseJsonField(val, fallback) {
     return val;
 }
 
+function normalizeClaimItems(raw) {
+    const parsed = parseJsonField(raw, []);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object') return [parsed];
+    return [];
+}
+
 function aggregateClaimInputs(claims) {
     let ot1 = 0;
     let ot2 = 0;
@@ -64,7 +71,7 @@ function aggregateClaimInputs(claims) {
     const claimIds = [];
     for (const claim of claims || []) {
         claimIds.push(claim.id);
-        const items = parseJsonField(claim.claimed_items, []);
+        const items = normalizeClaimItems(claim.claimed_items);
         if (claim.claim_type === 'overtime') {
             for (const item of items) {
                 ot1 += Number(item.ot1 || item.ot_1x || 0);
@@ -236,7 +243,12 @@ async function allocateRunToCosts(pool, runId) {
 }
 
 async function computeRunForContract(pool, { contractId, month, year, workingDaysOverride }) {
-    const policy = await getPolicy(pool, contractId);
+    const payMonth = parseInt(month, 10);
+    const payYear = parseInt(year, 10);
+    const policyAsOf = Number.isFinite(payMonth) && Number.isFinite(payYear)
+        ? new Date(payYear, payMonth - 1, 15)
+        : new Date();
+    const policy = await getPolicy(pool, contractId, null, policyAsOf);
     if (!policy) return { ok: false, code: 'NO_POLICY', message: 'No contract policy configured.' };
 
     const { rows: contractRows } = await pool.query(
@@ -348,7 +360,10 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
              WHERE employee_id = ANY($1::text[]) AND status = 'focal_approved'
                AND period_month = $2 AND period_year = $3`,
             [empIds, month, year]
-        );
+        ).catch((err) => {
+            console.error('[payrollrun.compute] employee_claims batch load failed:', err.message);
+            return { rows: [] };
+        });
         for (const c of allClaims) {
             if (!claimsByEmp.has(c.employee_id)) claimsByEmp.set(c.employee_id, []);
             claimsByEmp.get(c.employee_id).push(c);
@@ -636,8 +651,8 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
     const bonusDisbursement = computeBonusDisbursement({
         salary: Number(row.salary || 0),
         doj: row.doj,
-        month: runRows[0].month,
-        year: runRows[0].year,
+        month: runRows[0].period_month,
+        year: runRows[0].period_year,
         bonusMonths: contractCosts.bonus_months,
         bonusMinMonths: contractCosts.bonus_min_months,
         disbursementMonth: contractCosts.bonus_disbursement_month,
