@@ -107,8 +107,12 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
 
     let bonusDisbursed = bonusAmount;
     let contractAutoBonus = false;
-    if (bonusMonths > 0 && bonusAmount === 0 && disbursementMo > 0 &&
-        typeof window !== 'undefined' && window.__payrollMonth) {
+    const isJuly2026Cutover = typeof window !== 'undefined'
+        && window.__payrollMonth === '2026-07';
+    // July 2026 WAFI: bonus comes from payroll_transactions.bonus_amount (accrual sheet), not contract formula.
+    if (!isJuly2026Cutover
+        && bonusMonths > 0 && bonusAmount === 0 && disbursementMo > 0
+        && typeof window !== 'undefined' && window.__payrollMonth) {
         const [pyear, pmonth] = String(window.__payrollMonth).split('-').map(Number);
         if (pmonth === disbursementMo) {
             contractAutoBonus = true;

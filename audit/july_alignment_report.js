@@ -43,7 +43,8 @@ function req(name) {
 }
 
 const { Pool } = req('pg');
-const { computeBonusDisbursement } = require(path.join(tempRoot, 'src', 'payroll', 'prSheetEngine'));
+const { resolvePayrollSheetBonus } = require(path.join(tempRoot, 'src', 'payroll', 'prSheetEngine'));
+const { loadBonusWorkingMap } = require(path.join(tempRoot, 'src', 'payroll', 'julyBonusAccrual'));
 
 const WAFI_CLIENT = 'Wafi Energy Pakistan Pvt Ltd';
 const TARGET_MONTH = 7;
@@ -166,9 +167,14 @@ async function loadHcm(pool) {
     return { employees, payrollMap };
 }
 
-function hcmBonusDisbursed(emp, pt, costs = {}) {
+function hcmBonusDisbursed(emp, pt, costs = {}, bonusMap) {
+    if (pt?.bonus_amount != null && pt.bonus_amount !== '') {
+        return Math.round(parseFloat(pt.bonus_amount) || 0);
+    }
     const c = costs || {};
-    return computeBonusDisbursement({
+    return resolvePayrollSheetBonus({
+        employeeId: emp.id,
+        contractId: emp.contract_id,
         salary: emp.salary,
         doj: emp.doj,
         month: TARGET_MONTH,
@@ -176,11 +182,11 @@ function hcmBonusDisbursed(emp, pt, costs = {}) {
         bonusMonths: c.bonus_months,
         bonusMinMonths: c.bonus_min_months,
         disbursementMonth: c.bonus_disbursement_month,
-        manualBonusAmount: pt?.bonus_amount,
+        bonusMap,
     });
 }
 
-function buildReport(excelRows, hcm) {
+function buildReport(excelRows, hcm, bonusMap) {
     const { employees, payrollMap } = hcm;
     const hcmIds = new Set(employees.map(e => normalizeId(e.id)));
     const excelIds = new Set(excelRows.map(r => r.employee_id));
@@ -194,6 +200,8 @@ function buildReport(excelRows, hcm) {
     let excelBonusTotal = 0;
     let hcmBonusTotal = 0;
     let matchCount = 0;
+    let bonusMatchCount = 0;
+    let bonusWithExcel = 0;
 
     const byContract = {};
 
@@ -215,7 +223,9 @@ function buildReport(excelRows, hcm) {
 
         const hcmNet = pt ? Math.round(parseFloat(pt.net) || 0) : null;
         const costs = emp?.contract_costs || {};
-        const bonusHcm = emp ? hcmBonusDisbursed(emp, pt, costs) : 0;
+        const bonusHcm = emp ? hcmBonusDisbursed(emp, pt, costs, bonusMap) : 0;
+
+        if (ex.bonus_excel > 0) bonusWithExcel += 1;
 
         if (hcmNet != null) {
             hcmNetTotal += hcmNet;
@@ -229,7 +239,21 @@ function buildReport(excelRows, hcm) {
         const netOk = netDelta != null && Math.abs(netDelta) <= TOLERANCE;
         const bonusOk = Math.abs(bonusDelta) <= TOLERANCE;
 
+        let explainNote = '';
+        if (!netOk && bonusOk) {
+            if (/^ASILFM\//i.test(ex.employee_id)) {
+                explainNote = 'FM staffing row: Excel uses FM partial-month rate; HCM master salary/engine differs';
+            } else {
+                explainNote = 'Bonus matches; net gap from base pay / OT / arrears / WHT engine vs Excel verify';
+            }
+        } else if (!netOk && !bonusOk) {
+            explainNote = 'Bonus and net both differ';
+        } else if (!netOk && ex.bonus_excel === 0 && bonusHcm === 0) {
+            explainNote = 'No bonus; net gap from attendance or salary components';
+        }
+
         if (netOk) matchCount += 1;
+        if (bonusOk && ex.bonus_excel > 0) bonusMatchCount += 1;
 
         if (!netOk || !bonusOk || hcmNet == null) {
             mismatches.push({
@@ -242,6 +266,7 @@ function buildReport(excelRows, hcm) {
                 excel_bonus: ex.bonus_excel,
                 hcm_bonus: bonusHcm,
                 bonus_delta: bonusDelta,
+                explain: explainNote,
                 in_hcm: !!pt,
                 in_master: !!emp,
             });
@@ -251,6 +276,9 @@ function buildReport(excelRows, hcm) {
 
     const excelOnly = [...excelIds].filter(id => !hcmIds.has(id));
     const hcmOnly = [...hcmIds].filter(id => !excelIds.has(id) && payrollMap[id]);
+
+    const explainedBase = mismatches.filter(m => m.explain && m.explain.startsWith('Bonus matches')).length;
+    const explainedFm = mismatches.filter(m => m.explain && m.explain.startsWith('FM staffing')).length;
 
     return {
         excelCount: excelRows.length,
@@ -264,6 +292,11 @@ function buildReport(excelRows, hcm) {
         bonusDeltaTotal: hcmBonusTotal - excelBonusTotal,
         matchCount,
         mismatchCount: excelRows.length - matchCount,
+        bonusMatchCount,
+        bonusWithExcel,
+        bonusMismatchCount: bonusWithExcel - bonusMatchCount,
+        explainedBaseEngine: explainedBase,
+        explainedFmStaffing: explainedFm,
         mismatches: mismatches.sort((a, b) => Math.abs(b.net_delta || 999999) - Math.abs(a.net_delta || 999999)),
         byContract,
         excelOnly,
@@ -289,6 +322,8 @@ function formatMd(report, label) {
     lines.push(`| HCM payroll_transactions July 2026 | ${report.hcmPayrollCount} |`);
     lines.push(`| Net pay matches (±${TOLERANCE}) | ${report.matchCount} |`);
     lines.push(`| Net pay mismatches | ${report.mismatchCount} |`);
+    lines.push(`| Bonus matches (Excel AB > 0, ±${TOLERANCE}) | ${report.bonusMatchCount} / ${report.bonusWithExcel} |`);
+    lines.push(`| Bonus mismatches (Excel AB > 0) | ${report.bonusMismatchCount} |`);
     lines.push(`| Excel-only (not in HCM master) | ${report.excelOnly.length} |`);
     lines.push(`| HCM payroll-only (not in Excel) | ${report.hcmOnly.length} |`);
     lines.push('');
@@ -297,9 +332,20 @@ function formatMd(report, label) {
     lines.push(`| | Excel | HCM | Delta |`);
     lines.push(`|---|------:|----:|------:|`);
     lines.push(`| Net pay | ${fmt(report.excelNetTotal)} | ${fmt(report.hcmNetTotal)} | ${fmt(report.netDeltaTotal)} |`);
-    lines.push(`| Bonus (Excel AB / HCM contract) | ${fmt(report.excelBonusTotal)} | ${fmt(report.hcmBonusTotal)} | ${fmt(report.bonusDeltaTotal)} |`);
+    lines.push(`| Bonus (Excel AB / HCM bonus_amount) | ${fmt(report.excelBonusTotal)} | ${fmt(report.hcmBonusTotal)} | ${fmt(report.bonusDeltaTotal)} |`);
     lines.push('');
-    lines.push(`**Target net total:** PKR 43,953,273`);
+    lines.push(`**Bonus alignment:** ${report.bonusMatchCount}/${report.bonusWithExcel} employees with Excel AB > 0 match within ±${TOLERANCE} PKR. Total bonus delta: ${fmt(report.bonusDeltaTotal)}.`);
+    lines.push('');
+    lines.push('## Explained gap summary (net pay)');
+    lines.push('');
+    lines.push(`| Category | Count |`);
+    lines.push(`|----------|------:|`);
+    lines.push(`| Net mismatches (total) | ${report.mismatchCount} |`);
+    lines.push(`| Bonus OK, base/engine gap | ${report.explainedBaseEngine} |`);
+    lines.push(`| FM staffing (ASILFM/*) partial-month | ${report.explainedFmStaffing} |`);
+    lines.push(`| Net matches (±${TOLERANCE}) | ${report.matchCount} |`);
+    lines.push('');
+    lines.push('_July 2026 bonus uses 12-month accrual sheet Total (+ SPL-420 override 105,000). FM contracts Apr disbursement = zero July bonus. Wafi BPO contract month 8 = payment timing only — bonus still on July payroll sheet._');
     lines.push('');
     lines.push('## By contract (Client BU)');
     lines.push('');
@@ -317,6 +363,7 @@ function formatMd(report, label) {
     lines.push('|----------|----------|----------:|--------:|------:|------------:|----------:|--------:|-------|');
     report.mismatches.slice(0, 50).forEach(m => {
         const notes = [];
+        if (m.explain) notes.push(m.explain);
         if (!m.in_master) notes.push('not in master');
         if (!m.in_hcm) notes.push('no payroll row');
         lines.push(`| ${m.employee_id} | ${m.contract} | ${fmt(m.excel_net)} | ${m.hcm_net != null ? fmt(m.hcm_net) : '—'} | ${m.net_delta != null ? fmt(m.net_delta) : '—'} | ${fmt(m.excel_bonus)} | ${fmt(m.hcm_bonus)} | ${fmt(m.bonus_delta)} | ${notes.join('; ')} |`);
@@ -352,17 +399,22 @@ function formatMd(report, label) {
     const excelRows = parseVerifyCsv(VERIFY_CSV);
     console.log(`Excel WAFI rows: ${excelRows.length}`);
 
+    const bonusMap = loadBonusWorkingMap();
+    console.log(`Bonus working sheet rows: ${bonusMap.size}`);
+
     const pool = new Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: true } });
     try {
         const hcm = await loadHcm(pool);
-        const report = buildReport(excelRows, hcm);
+        const report = buildReport(excelRows, hcm, bonusMap);
         const label = outPath.includes('FINAL') ? 'FINAL' : 'BASELINE';
         const md = formatMd(report, label);
         fs.writeFileSync(outPath, md, 'utf8');
         console.log(`Wrote ${outPath}`);
         console.log(`Excel net: ${fmt(report.excelNetTotal)} | HCM net: ${fmt(report.hcmNetTotal)} | Δ: ${fmt(report.netDeltaTotal)}`);
-        console.log(`Matches: ${report.matchCount}/${report.excelCount} | Mismatches: ${report.mismatchCount}`);
-        process.exit(report.mismatchCount === 0 && Math.abs(report.netDeltaTotal) <= report.excelCount ? 0 : 1);
+        console.log(`Matches: ${report.matchCount}/${report.excelCount} net | Bonus: ${report.bonusMatchCount}/${report.bonusWithExcel}`);
+        const bonusOk = report.bonusMismatchCount === 0;
+        const netOk = report.mismatchCount === 0 && Math.abs(report.netDeltaTotal) <= report.excelCount;
+        process.exit(bonusOk && netOk ? 0 : 1);
     } finally {
         await pool.end();
     }
