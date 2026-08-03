@@ -1520,6 +1520,7 @@ export default function PayrollSheet({ user }) {
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                     <AlertCircle size={14} color="#ef4444" />
                                                     <span style={{ fontWeight: 600, fontSize: '0.82rem', color: '#f87171' }}>{emp.name}</span>
+                                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{emp.id}</span>
                                                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{emp.designation}</span>
                                                 </div>
                                             </td>
@@ -1577,6 +1578,7 @@ export default function PayrollSheet({ user }) {
                                                             ) : null;
                                                         })()}
                                                     </div>
+                                                    <div style={{ fontSize: '0.68rem', color: 'var(--primary)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: '-0.02em', marginTop: '2px' }}>{emp.id}</div>
                                                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{emp.designation}</div>
                                                 </div>
                                             </div>

@@ -277,6 +277,30 @@ function buildReport(excelRows, hcm, bonusMap) {
     const excelOnly = [...excelIds].filter(id => !hcmIds.has(id));
     const hcmOnly = [...hcmIds].filter(id => !excelIds.has(id) && payrollMap[id]);
 
+    const excelBonusById = {};
+    excelRows.forEach((ex) => { excelBonusById[ex.employee_id] = ex.bonus_excel; });
+
+    const hcmBonusNoExcel = [];
+    let hcmBonusRowCount = 0;
+    for (const emp of employees) {
+        const eid = normalizeId(emp.id);
+        const pt = payrollMap[eid];
+        const costs = emp.contract_costs || {};
+        const bonusHcm = hcmBonusDisbursed(emp, pt, costs, bonusMap);
+        if (bonusHcm > 0) {
+            hcmBonusRowCount += 1;
+            const excelBonus = excelBonusById[eid] || 0;
+            if (excelBonus <= 0) {
+                hcmBonusNoExcel.push({
+                    employee_id: eid,
+                    name: emp.name,
+                    contract_id: emp.contract_id || '',
+                    hcm_bonus: bonusHcm,
+                });
+            }
+        }
+    }
+
     const explainedBase = mismatches.filter(m => m.explain && m.explain.startsWith('Bonus matches')).length;
     const explainedFm = mismatches.filter(m => m.explain && m.explain.startsWith('FM staffing')).length;
 
@@ -297,6 +321,8 @@ function buildReport(excelRows, hcm, bonusMap) {
         bonusMismatchCount: bonusWithExcel - bonusMatchCount,
         explainedBaseEngine: explainedBase,
         explainedFmStaffing: explainedFm,
+        hcmBonusRowCount,
+        hcmBonusNoExcel,
         mismatches: mismatches.sort((a, b) => Math.abs(b.net_delta || 999999) - Math.abs(a.net_delta || 999999)),
         byContract,
         excelOnly,
@@ -324,6 +350,8 @@ function formatMd(report, label) {
     lines.push(`| Net pay mismatches | ${report.mismatchCount} |`);
     lines.push(`| Bonus matches (Excel AB > 0, ±${TOLERANCE}) | ${report.bonusMatchCount} / ${report.bonusWithExcel} |`);
     lines.push(`| Bonus mismatches (Excel AB > 0) | ${report.bonusMismatchCount} |`);
+    lines.push(`| HCM rows with bonus > 0 (all active WAFI) | ${report.hcmBonusRowCount} |`);
+    lines.push(`| HCM bonus > 0 but Excel AB = 0 | ${report.hcmBonusNoExcel.length} |`);
     lines.push(`| Excel-only (not in HCM master) | ${report.excelOnly.length} |`);
     lines.push(`| HCM payroll-only (not in Excel) | ${report.hcmOnly.length} |`);
     lines.push('');
@@ -336,6 +364,23 @@ function formatMd(report, label) {
     lines.push('');
     lines.push(`**Bonus alignment:** ${report.bonusMatchCount}/${report.bonusWithExcel} employees with Excel AB > 0 match within ±${TOLERANCE} PKR. Total bonus delta: ${fmt(report.bonusDeltaTotal)}.`);
     lines.push('');
+    if (report.hcmBonusNoExcel.length) {
+        lines.push('## HCM bonus > 0 but Excel AB = 0 (223 vs 217 explanation)');
+        lines.push('');
+        lines.push('These employees show bonus on the Payroll Sheet but Excel July verify has zero Special Allowance (AB).');
+        lines.push('');
+        lines.push('| Employee ID | Name | Contract ID | HCM Bonus | Likely reason |');
+        lines.push('|-------------|------|-------------|----------:|---------------|');
+        report.hcmBonusNoExcel
+            .sort((a, b) => b.hcm_bonus - a.hcm_bonus)
+            .forEach((r) => {
+                let reason = 'On bonus working sheet; not in July Excel AB';
+                if (r.employee_id === 'ASIL/SPL-361/21') reason = 'Duplicate Rafae Kayani — deactivate 361; pay 420 only';
+                if (/^ASILFM\//i.test(r.employee_id)) reason = 'FM staffing — Excel AB zero; HCM should be zero';
+                lines.push(`| ${r.employee_id} | ${r.name} | ${r.contract_id} | ${fmt(r.hcm_bonus)} | ${reason} |`);
+            });
+        lines.push('');
+    }
     lines.push('## Explained gap summary (net pay)');
     lines.push('');
     lines.push(`| Category | Count |`);
