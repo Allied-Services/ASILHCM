@@ -23,6 +23,23 @@ function calendarWorkingDays(month, year) {
     }).filter(Boolean).length;
 }
 
+/** Active for payroll period — excludes explicit inactive; $1=month $2=year in hub queries. */
+function periodActiveEmployeeClause(alias = 'e') {
+    const a = alias;
+    return `(
+        LOWER(TRIM(${a}.active::text)) NOT IN ('no','false','0','inactive')
+        AND (
+            ${a}.active IS NULL
+            OR LOWER(TRIM(${a}.active::text)) IN ('yes','true','1','active','')
+            OR ${a}.active::text = 'Yes'
+        )
+        AND (
+            ${a}.last_working_day IS NULL
+            OR ${a}.last_working_day >= make_date($2, $1, 1)
+        )
+    )`;
+}
+
 /**
  * Active, non-resigned employees for period — 15 master columns.
  */
@@ -55,9 +72,7 @@ async function exportMonthlyHubCsv(pool, { month, year, client }) {
          FROM employees e
          LEFT JOIN monthly_attendance_overrides o
            ON o.employee_id = e.id AND o.period_month = $1 AND o.period_year = $2
-         WHERE (e.active IS NULL OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
-                OR e.active::text = 'Yes')
-           AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($2, $1, 1))
+         WHERE ${periodActiveEmployeeClause('e')}
            ${clientFilter}
          ORDER BY e.client, e.name`,
         params
@@ -467,9 +482,7 @@ async function getMonthlyHubList(pool, {
         filters += ` AND e.name ILIKE $${params.length}`;
     }
 
-    const activeWhere = `(e.active IS NULL OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
-        OR e.active::text = 'Yes')
-        AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($2, $1, 1))`;
+    const activeWhere = periodActiveEmployeeClause('e');
 
     let rows;
     try {

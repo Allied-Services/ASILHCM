@@ -313,8 +313,12 @@ async function allocateRunToCosts(pool, runId) {
  */
 async function loadEmployeesForPayrollRun(pool, { contractId, month, year, policy }) {
     const { isSoBillingModel } = require('../serviceOrders/sitesMeta');
-    const activeClause = `(e.active IS NULL OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
-                OR e.active::text = 'Yes')
+    const activeClause = `LOWER(TRIM(e.active::text)) NOT IN ('no','false','0','inactive')
+           AND (
+               e.active IS NULL
+               OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
+               OR e.active::text = 'Yes'
+           )
            AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($3, $2, 1))`;
     const selectCols = `e.id, e.name, e.salary, e.doj, e.designation, e.site, e.location,
                 e.spouse_name, e.child1_name, e.child2_name`;
