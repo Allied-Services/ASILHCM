@@ -365,7 +365,7 @@ function formatMd(report, label) {
     lines.push(`**Bonus alignment:** ${report.bonusMatchCount}/${report.bonusWithExcel} employees with Excel AB > 0 match within ±${TOLERANCE} PKR. Total bonus delta: ${fmt(report.bonusDeltaTotal)}.`);
     lines.push('');
     if (report.hcmBonusNoExcel.length) {
-        lines.push('## HCM bonus > 0 but Excel AB = 0 (223 vs 217 explanation)');
+        lines.push('## HCM bonus > 0 but Excel AB = 0 (218 vs 217 explanation)');
         lines.push('');
         lines.push('These employees show bonus on the Payroll Sheet but Excel July verify has zero Special Allowance (AB).');
         lines.push('');
