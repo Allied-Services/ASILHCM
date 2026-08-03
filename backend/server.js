@@ -3417,6 +3417,7 @@ app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
                 sales_tax:         parseFloat(r.sales_tax)         || 0,
                 total_invoice:     parseFloat(r.total_invoice)     || 0,
                 locked:            r.locked || false,
+                remarks:           r.remarks || '',
             })),
             locked,
             lockedBy:  rows[0]?.locked_by  || null,
@@ -3451,15 +3452,15 @@ app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer
                      other_deduction, advance_deduction, loan_deduction,
                      medical_ee, medical_sp, medical_ch1, medical_ch2,
                      gross, net, wht, eobi_ee, service_charges, sales_tax, total_invoice,
-                     created_by, updated_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,NOW())
+                     remarks, created_by, updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,NOW())
                 ON CONFLICT (employee_id, month, year) DO UPDATE SET
                     paid_days=$4, ot2_hrs=$5, ot3_hrs=$6, opd_claim=$7,
                     reimbursement=$8, arrears=$9, bonus_amount=$10, special_allowance=$11,
                     fuel_mobile=$12, other_deduction=$13, advance_deduction=$14, loan_deduction=$15,
                     medical_ee=$16, medical_sp=$17, medical_ch1=$18, medical_ch2=$19,
                     gross=$20, net=$21, wht=$22, eobi_ee=$23, service_charges=$24,
-                    sales_tax=$25, total_invoice=$26, updated_at=NOW()
+                    sales_tax=$25, total_invoice=$26, remarks=$27, updated_at=NOW()
                 RETURNING employee_id`,
                 [
                     parseInt(month), parseInt(year), employee_id,           // $1  $2  $3
@@ -3486,7 +3487,8 @@ app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer
                     parseFloat(calc.serviceCharges)  || 0,                  // $24 service_charges
                     parseFloat(calc.salesTax)        || 0,                  // $25 sales_tax
                     parseFloat(calc.totalInvoice)    || 0,                  // $26 total_invoice
-                    req.user?.email || 'system',                            // $27 created_by
+                    ov.remarks != null ? String(ov.remarks).slice(0, 2000) : null, // $27 remarks
+                    req.user?.email || 'system',                            // $28 created_by
                 ]
             );
             if (upserted.length) saved.push(upserted[0].employee_id);

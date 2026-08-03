@@ -106,10 +106,12 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const bonusAccrual   = bonusMonths > 0 ? Math.round(bonusMonths * grossSalary / 12) : 0;
 
     let bonusDisbursed = bonusAmount;
+    let contractAutoBonus = false;
     if (bonusMonths > 0 && bonusAmount === 0 && disbursementMo > 0 &&
         typeof window !== 'undefined' && window.__payrollMonth) {
         const [pyear, pmonth] = String(window.__payrollMonth).split('-').map(Number);
         if (pmonth === disbursementMo) {
+            contractAutoBonus = true;
             let monthsServed = 12;
             if (emp.doj) {
                 const doj        = new Date(emp.doj);
@@ -132,8 +134,11 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
         }
     }
 
+    // Excel "Special Allowance" maps to bonus for verification only — never stack on contract auto-bonus.
+    const effectiveSplAllow = contractAutoBonus && bonusDisbursed > 0 ? 0 : splAllow;
+
     // Gross Monthly: ALL cash paid to the employee, including bonus disbursement.
-    const grossMonthly = grossPay + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob + bonusDisbursed;
+    const grossMonthly = grossPay + otAmount + opdClaim + reimb + arrears + effectiveSplAllow + fuelMob + bonusDisbursed;
 
     // Breakdown display fields (used by BreakdownPanel — keep same names)
     const basicPaid  = grossPay;
@@ -181,7 +186,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     // grossForTPC: base gross WITHOUT the bonus lump-sum disbursement.
     // The client has already been provisioned for bonus via monthly bonusAccrual
     // (1/12 x salary). Using grossMonthly here would double-bill in April.
-    const grossForTPC = grossPay + otAmount + opdClaim + reimb + arrears + splAllow + fuelMob;
+    const grossForTPC = grossPay + otAmount + opdClaim + reimb + arrears + effectiveSplAllow + fuelMob;
     // SESSI: based on base gross (without bonus lump-sum)
     const sessi   = grossForTPC > 40000 ? 0 : Math.min(2400, Math.round(grossForTPC * 0.06));
     const overhead = parseFloat(cfg.overhead_per_employee || 0);
@@ -196,7 +201,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
 
     return {
         pd, ot2hrs, ot3hrs, ot2Amount, ot3Amount, basicPaid, hraPaid, convPaid, medPaid, otherPaid,
-        otAmount, opdClaim, reimb, arrears, splAllow, fuelMob, absenceDeduction, absentDays,
+        otAmount, opdClaim, reimb, arrears, splAllow: effectiveSplAllow, fuelMob, absenceDeduction, absentDays,
         grossMonthly, taxableMonthly, annualIncome,
         incomeTax, eobi_ee: eobi.employee, pfEE, otherDed, advanceDed, loanDed,
         totalDeductions, netPay, eobi_er: eobi.employer, sessi, eduCess,

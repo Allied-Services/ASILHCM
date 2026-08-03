@@ -112,8 +112,15 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
     const [errors, setErrors] = useState([]);
     const [parsed, setParsed] = useState([]);
 
-    // Only CNIC or ASIL Employee Code is required, rest are optional
-    const REQUIRED = ['CNIC', 'ASIL Employee Code'];
+    const REQUIRED = ['ASIL Employee Code'];
+
+    const normCode = (id) => String(id || '').trim().toUpperCase().replace(/\s+/g, '');
+    const nameSimilar = (a, b) => {
+        const x = String(a || '').toLowerCase().replace(/[^a-z]/g, '');
+        const y = String(b || '').toLowerCase().replace(/[^a-z]/g, '');
+        if (!x || !y) return true;
+        return x.includes(y.slice(0, 8)) || y.includes(x.slice(0, 8));
+    };
 
     const handleFile = (e) => {
         const f = e.target.files[0]; if (!f) return;
@@ -130,19 +137,27 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                 for (const ch of line) { if (ch === '"') inQ = !inQ; else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; } else cur += ch; }
                 vals.push(cur.trim());
                 const obj = {}; hdrs.forEach((h, j) => { obj[h] = vals[j] || ''; });
-                const cnic = obj['CNIC']; const empCode = obj['ASIL Employee Code'];
-                // Match by CNIC first, then by employee code (either is sufficient)
-                const match = employees.find(e => e.cnic === cnic) ||
-                              employees.find(e => e.id === empCode);
+                const empCode = obj['ASIL Employee Code'];
+                const match = employees.find(e => e.id === empCode)
+                    || employees.find(e => normCode(e.id) === normCode(empCode));
                 if (!match) {
-                    errs.push(`Row ${i + 2}: No employee found for CNIC ${cnic} / Code ${empCode}`);
+                    errs.push(`Row ${i + 2}: No employee found for code ${empCode}`);
                 } else {
-                    // Strip commas from formatted numbers e.g. "10,000" → 10000
+                    const csvName = obj['Emp Name'] || obj['Employee Name'] || '';
+                    if (csvName && !nameSimilar(csvName, match.name)) {
+                        errs.push(`Row ${i + 2}: Name warning for ${empCode} — CSV "${csvName}" vs HCM "${match.name}" (code match used)`);
+                    }
                     const n = (v) => parseFloat(String(v || '').replace(/,/g, '')) || 0;
-                    const presentDays = obj['Present Days'] !== undefined && obj['Present Days'] !== ''
-                        ? Math.min(n(obj['Present Days']) || workDays, workDays)
+                    const rawPresent = obj['Present Days'] !== undefined && obj['Present Days'] !== ''
+                        ? n(obj['Present Days'])
                         : workDays;
-                    const leaveDays = workDays - presentDays;
+                    if (rawPresent > workDays) {
+                        errs.push(`Row ${i + 2}: Present Days ${rawPresent} exceeds Working Days ${workDays} — not truncated`);
+                    }
+                    const presentDays = rawPresent;
+                    const leaveDays = Math.max(0, workDays - presentDays);
+                    // Special Allowance column is bonus verification in Excel — never import as special_allowance.
+                    // Bonus disbursement comes from contract auto-calc only.
                     rows.push({
                         empId:             match.id,
                         paid_days:         presentDays,
@@ -151,28 +166,22 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                         opd_claim:         n(obj['OPD']),
                         reimbursement:     n(obj['Expense Reimbursement']),
                         arrears:           n(obj['Arrears']),
-                        bonus_amount:      n(obj['Bonus Amount'] || obj['Bonus'] || obj['Bonus amount']),
-                        special_allowance: n(obj['Special Allowance']),
+                        bonus_amount:      0,
+                        special_allowance: 0,
                         fuel_mobile:       n(obj['Other Allowance Fuel | Mobile']),
                         other_deduction:   n(obj['Other Deduction']),
-                        contract_name:     obj['Contract Name'] || '',
-                        // Family coverage: read Spouse and Children counts from payroll CSV
-                        // These drive medical premium inclusion for spouse + children
-                        spouse_count:      n(obj['Spouse'] ?? obj['Spouse Count'] ?? 0),
-                        children_count:    n(obj['Children'] ?? obj['Children Count'] ?? 0),
-                        // Direct CSV medical total — used as fallback if contract has no medical rates set
-                        total_medical_csv: n(obj['Total Medical Coverage (Self & Family)'] || obj['Total Medical'] || 0),
+                        remarks:           String(obj['Remarks'] || '').trim(),
                     });
                     prev.push({
                         name: match.name, id: match.id,
                         presentDays, leaveDays,
                         ot2: obj['OT Hrs @ 2X'] || 0, ot3: obj['OT Hrs @ 3X'] || 0,
                         opd: n(obj['OPD']), reimb: n(obj['Expense Reimbursement']),
-                        arrears: n(obj['Arrears']), bonus: n(obj['Bonus']),
-                        splAllow: n(obj['Special Allowance']),
+                        arrears: n(obj['Arrears']),
+                        splAllow: 0,
                         fuelMob: n(obj['Other Allowance Fuel | Mobile']),
                         otherDed: n(obj['Other Deduction']),
-                        contractName: obj['Contract Name'] || '',
+                        remarks: obj['Remarks'] || '',
                     });
                 }
             });
@@ -183,12 +192,13 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
 
     const downloadTemplate = () => {
         downloadCSV('payroll_import_template.csv', [{
-            'CNIC': '42101-1234567-1', 'Staff Code': 'SEC-001', 'Month': 'March', 'Year': '2026',
-            'ASIL Employee Code': 'EMP-2026-201', 'Contract Name': 'Security Services LMT',
+            'Month': 'July', 'Year': '2026',
+            'ASIL Employee Code': 'ASIL/SPL-91/21', 'Emp Name': 'Muhammad Anees',
             'Present Days': '26',
             'OT Hrs @ 2X': '8', 'OT Hrs @ 3X': '0',
             'OPD': '0', 'Expense Reimbursement': '0', 'Arrears': '0',
             'Special Allowance': '0', 'Other Allowance Fuel | Mobile': '0', 'Other Deduction': '0',
+            'Remarks': '',
         }]);
     };
 
@@ -204,8 +214,9 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                 </div>
                 <div style={{ padding: '2rem' }}>
                     <div style={{ background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: '10px', padding: '1rem', marginBottom: '1.5rem', fontSize: '0.85rem' }}>
-                        <strong>Required:</strong> CNIC, ASIL Employee Code (either one is enough to match).<br />
-                        <strong>Optional:</strong> Present Days, OT Hrs @ 2X, OT Hrs @ 3X, OPD, Expense Reimbursement, Arrears, Bonus.<br />
+                        <strong>Required:</strong> ASIL Employee Code (primary match key).<br />
+                        <strong>Optional:</strong> Month, Year, Emp Name (fuzzy warn), Present Days, OT Hrs @ 2X/3X, OPD, Expense Reimbursement, Arrears, Fuel/Mobile, Other Deduction, Remarks.<br />
+                        <strong style={{ color: '#f59e0b' }}>Special Allowance:</strong> Not imported — bonus comes from contract settings only.<br />
                         <strong style={{ color: '#f59e0b' }}>Present Days:</strong> If less than Working Days ({workDays}), the difference is treated as unauthorized leave and salary is deducted. Notified leave = show full {workDays} days.
                     </div>
                     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
@@ -231,23 +242,22 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                             <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border)', maxHeight: '280px', overflowY: 'auto' }}>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                                     <thead style={{ background: 'var(--bg-dark)', position: 'sticky', top: 0 }}>
-                                        <tr>{['Employee', 'ID', 'Contract', 'Pres.Days', 'OT@2X','OT@3X','OPD','Reimb.','Arrears','Spl.Allow','Fuel/Mob','OtherDed'].map(h => <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>)}</tr>
+                                        <tr>{['Employee', 'ID', 'Pres.Days', 'OT@2X','OT@3X','OPD','Reimb.','Arrears','Fuel/Mob','OtherDed','Remarks'].map(h => <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>)}</tr>
                                     </thead>
                                     <tbody>
                                         {preview.map((r, i) => (
                                             <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: r.leaveDays > 0 ? 'rgba(239,68,68,0.05)' : undefined }}>
                                                 <td style={{ padding: '7px 8px', fontWeight: 600 }}>{r.name}</td>
                                                 <td style={{ padding: '7px 8px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.id}</td>
-                                                <td style={{ padding: '7px 8px', fontSize: '0.72rem', color: r.contractName ? 'var(--primary)' : 'var(--text-muted)' }}>{r.contractName || '—'}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{r.presentDays}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{r.ot2}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{r.ot3}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(r.opd)}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(r.reimb)}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmt(r.arrears)}</td>
-                                                <td style={{ padding: '7px 8px', textAlign: 'right', color: r.splAllow > 0 ? '#22c55e' : 'var(--text-muted)' }}>{fmt(r.splAllow)}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right', color: r.fuelMob > 0 ? '#22c55e' : 'var(--text-muted)' }}>{fmt(r.fuelMob)}</td>
                                                 <td style={{ padding: '7px 8px', textAlign: 'right', color: r.otherDed > 0 ? '#ef4444' : 'var(--text-muted)' }}>{fmt(r.otherDed)}</td>
+                                                <td style={{ padding: '7px 8px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.remarks || '—'}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -604,7 +614,8 @@ export default function PayrollSheet({ user }) {
 
             // 1. Build CONTRACT_MAP first
             const map = {};
-            (ctData.contracts || []).forEach(ct => {
+            const contractList = Array.isArray(ctData) ? ctData : (ctData?.contracts || []);
+            contractList.forEach(ct => {
                 const cfg = {
                     id:                  ct.id,
                     service_charges_pct: parseFloat(ct.financials?.service_charges_pct) || 0,
@@ -697,6 +708,7 @@ export default function PayrollSheet({ user }) {
                     ...(r.medical_sp  != null && parseFloat(r.medical_sp)  > 0 ? { medical_sp:  parseFloat(r.medical_sp)  } : {}),
                     ...(r.medical_ch1 != null && parseFloat(r.medical_ch1) > 0 ? { medical_ch1: parseFloat(r.medical_ch1) } : {}),
                     ...(r.medical_ch2 != null && parseFloat(r.medical_ch2) > 0 ? { medical_ch2: parseFloat(r.medical_ch2) } : {}),
+                    remarks:           r.remarks || '',
                 };
             });
             overridesRef.current = ov;     // keep ref in sync
@@ -767,6 +779,7 @@ export default function PayrollSheet({ user }) {
             advance_deduction: ov.advance_deduction ?? 0,
             loan_deduction:    ov.loan_deduction    ?? 0,
             bonus_amount:      ov.bonus_amount      ?? 0,
+            remarks:           ov.remarks           ?? '',
             medical_ee:        ov.medical_ee        ?? old.medEE  ?? 0,
             medical_sp:        ov.medical_sp        ?? old.medSP  ?? 0,
             medical_ch1:       ov.medical_ch1       ?? old.medCh1 ?? 0,
@@ -1083,6 +1096,7 @@ export default function PayrollSheet({ user }) {
                         other_deduction:   empOv.other_deduction   ?? 0,
                         advance_deduction: empOv.advance_deduction ?? 0,
                         loan_deduction:    empOv.loan_deduction    ?? 0,
+                        remarks:           empOv.remarks           ?? '',
                         spouse_count:      resolvedSpouseCount,
                         children_count:    resolvedChildrenCount,
                         // Save family medical with actual resolved amounts (never 0 when family exists)
