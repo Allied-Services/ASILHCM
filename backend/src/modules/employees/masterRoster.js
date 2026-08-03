@@ -349,6 +349,21 @@ function mergeEmployeePatch(existing, patch) {
     return out;
 }
 
+/**
+ * Master roster import wins on CNIC — clear the same CNIC from any other employee first.
+ */
+async function releaseCnicForEmployee(pool, cnic, keepEmployeeId) {
+    const normalized = cnic == null ? '' : String(cnic).trim();
+    if (!normalized || !keepEmployeeId) return [];
+    const { rows } = await pool.query(
+        `UPDATE employees SET cnic = NULL, updated_at = NOW()
+         WHERE cnic = $1 AND id <> $2
+         RETURNING id, name`,
+        [normalized, keepEmployeeId]
+    );
+    return rows;
+}
+
 async function importMasterRosterCsv(pool, { csvText, updatedBy }) {
     const { parse } = require('csv-parse/sync');
     const records = parse(csvText || '', {
@@ -392,6 +407,15 @@ async function importMasterRosterCsv(pool, { csvText, updatedBy }) {
         }
 
         try {
+            if (Object.prototype.hasOwnProperty.call(patch, 'cnic') && merged.cnic) {
+                const released = await releaseCnicForEmployee(pool, merged.cnic, code);
+                for (const r of released) {
+                    warnings.push({
+                        id: code,
+                        warning: `CNIC reassigned — cleared from ${r.id} (${r.name})`,
+                    });
+                }
+            }
             if (existing) {
                 const sets = [];
                 const vals = [code];
@@ -456,6 +480,7 @@ module.exports = {
     importMasterRosterCsv,
     csvRowToPatch,
     mergeEmployeePatch,
+    releaseCnicForEmployee,
     resolveRosterRefs: csvRowToPatch, // backward compat for tests
     isBlank,
     normHeader,
