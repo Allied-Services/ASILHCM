@@ -60,6 +60,42 @@ describe('Master Roster columns', () => {
         expect(patch.cnic).toBeUndefined();
         expect(patch.salary).toBeUndefined();
     });
+
+    test('importMasterRosterCsv releases CNIC from other employee before update', async () => {
+        const { importMasterRosterCsv } = require('../src/modules/employees/masterRoster');
+        const calls = [];
+        const pool = {
+            query: jest.fn(async (sql, params) => {
+                calls.push({ sql: String(sql), params });
+                if (sql.includes('FROM contracts c')) {
+                    return { rows: [] };
+                }
+                if (sql.includes('FROM clients')) {
+                    return { rows: [] };
+                }
+                if (sql.includes('SELECT * FROM employees WHERE id = $1')) {
+                    return { rows: [{ id: 'ASIL/SPL-97/21', name: 'Akhtar Ali', cnic: '11111-1111111-1' }] };
+                }
+                if (sql.includes('SET cnic = NULL')) {
+                    return { rows: [{ id: 'ASIL/OLD/21', name: 'Old Holder' }] };
+                }
+                if (sql.startsWith('UPDATE employees SET')) {
+                    return { rows: [{ id: 'ASIL/SPL-97/21', name: 'Akhtar Ali' }] };
+                }
+                return { rows: [] };
+            }),
+        };
+        const csv = 'ASIL Employee Code,Employee Name,CNIC Number\n'
+            + 'ASIL/SPL-97/21,Akhtar Ali,35202-1234567-1\n';
+        const result = await importMasterRosterCsv(pool, { csvText: csv });
+        expect(result.updated).toBe(1);
+        expect(result.errors).toHaveLength(0);
+        expect(pool.query).toHaveBeenCalledWith(
+            expect.stringContaining('SET cnic = NULL'),
+            ['35202-1234567-1', 'ASIL/SPL-97/21']
+        );
+        expect(result.warnings.some(w => w.warning.includes('CNIC reassigned'))).toBe(true);
+    });
 });
 
 describe('Model A — 30-day calendar basis', () => {
