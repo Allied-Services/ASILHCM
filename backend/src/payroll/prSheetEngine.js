@@ -1,6 +1,7 @@
 'use strict';
 
 const { calculateMonthlyIncomeTax, calculateEOBI } = require('../../taxEngine');
+const { resolveJuly2026WafiBonus } = require('./julyBonusAccrual');
 
 /**
  * Model A (30-day calendar basis):
@@ -121,6 +122,44 @@ function computeBonusDisbursement({
         return Math.round(bm * grossSalary * monthsServed / 12);
     }
     return 0;
+}
+
+/**
+ * Payroll Sheet bonus: July 2026 WAFI uses 12-month accrual sheet; else contract formula.
+ */
+function resolvePayrollSheetBonus({
+    employeeId,
+    contractId,
+    salary,
+    doj,
+    month,
+    year,
+    bonusMonths,
+    bonusMinMonths,
+    disbursementMonth,
+    manualBonusAmount,
+    bonusMap,
+}) {
+    const julyBonus = resolveJuly2026WafiBonus({
+        employeeId,
+        contractId,
+        month,
+        year,
+        manualBonusAmount,
+        bonusMap,
+    });
+    if (julyBonus != null) return julyBonus;
+
+    return computeBonusDisbursement({
+        salary,
+        doj,
+        month,
+        year,
+        bonusMonths,
+        bonusMinMonths,
+        disbursementMonth,
+        manualBonusAmount,
+    });
 }
 
 /**
@@ -278,5 +317,6 @@ module.exports = {
     computeOtRates,
     computeMedicalCoverage,
     computeBonusDisbursement,
+    resolvePayrollSheetBonus,
     isFamilyName,
 };
