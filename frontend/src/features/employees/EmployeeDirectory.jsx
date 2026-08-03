@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Download, Upload } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Download, Upload, FileUp } from 'lucide-react';
 import { api } from '../../api';
 
 /** Full employee master columns (mirrors backend export schema). */
@@ -73,6 +73,7 @@ export const MASTER_ROSTER_HEADERS = [
  * Full employee master export / partial-column import (blank-safe).
  */
 export default function EmployeeDirectoryToolbar({ onImported }) {
+    const fileInputRef = useRef(null);
     const [busy, setBusy] = useState(false);
     const [importText, setImportText] = useState('');
     const [showImport, setShowImport] = useState(false);
@@ -89,7 +90,7 @@ export default function EmployeeDirectoryToolbar({ onImported }) {
     };
 
     const importRoster = async () => {
-        if (!importText.trim()) return alert('Paste the employee master CSV first.');
+        if (!importText.trim()) return alert('Paste CSV text or choose a .csv file first.');
         setBusy(true);
         try {
             const r = await api.importMasterRoster({ csvText: importText });
@@ -99,6 +100,29 @@ export default function EmployeeDirectoryToolbar({ onImported }) {
             alert(e.message || 'Master roster import failed');
         }
         setBusy(false);
+    };
+
+    const onFileSelected = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!/\.csv$/i.test(file.name)) {
+            alert('Please choose a .csv file. In Excel: File → Save As → CSV UTF-8.');
+            e.target.value = '';
+            return;
+        }
+        setBusy(true);
+        try {
+            const text = await file.text();
+            setImportText(text);
+            setShowImport(true);
+            const r = await api.importMasterRoster({ csvText: text });
+            setResult(r);
+            if (onImported) onImported(r);
+        } catch (err) {
+            alert(err.message || 'File import failed');
+        }
+        setBusy(false);
+        e.target.value = '';
     };
 
     return (
@@ -134,6 +158,27 @@ export default function EmployeeDirectoryToolbar({ onImported }) {
                     <Upload size={16} />
                     Import Master Roster
                 </button>
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,text/csv"
+                    style={{ display: 'none' }}
+                    onChange={onFileSelected}
+                />
+                <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '8px',
+                        background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.45)',
+                        color: '#38bdf8', padding: '10px 18px', borderRadius: '10px',
+                        fontWeight: 700, fontSize: '0.88rem', cursor: busy ? 'wait' : 'pointer',
+                    }}
+                >
+                    <FileUp size={16} />
+                    Choose CSV File
+                </button>
             </div>
 
             {showImport && (
@@ -144,14 +189,15 @@ export default function EmployeeDirectoryToolbar({ onImported }) {
                     <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.5rem', lineHeight: 1.5 }}>
                         Match on <strong>ASIL Employee Code</strong>. You may import only the columns you have filled —
                         <strong> blank cells never overwrite</strong> existing database values.
-                        Supports the full {MASTER_ROSTER_HEADERS.length}-column master sheet or a partial update (e.g. Supervisor / Client Focal only).
+                        Use <strong>Choose CSV File</strong> for the full master sheet (Excel: Save As → CSV UTF-8),
+                        or paste a partial update below (e.g. Contract ID + Active only).
                         No SMS or email triggers on this import.
                     </div>
                     <textarea
                         value={importText}
                         onChange={e => setImportText(e.target.value)}
                         rows={6}
-                        placeholder={`ASIL Employee Code,Supervisor Email,Client Focal Email(s)\nASIL/PSO-001/25,manager@asil.com.pk,focal@client.com`}
+                        placeholder={`ASIL Employee Code,Contract ID,Contract Name,Active\nASIL/PSO-104/25,CTR-1773054204870,Conservancy Services KPK,No`}
                         style={{
                             width: '100%', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '0.8rem',
                             background: 'var(--bg-dark, #020617)', border: '1px solid var(--border, #1e293b)',

@@ -342,8 +342,12 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
                 spouse_name, child1_name, child2_name
          FROM employees e
          WHERE (e.contract_id = $1 OR e.contract_name = $1)
-           AND (e.active IS NULL OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
-                OR e.active::text = 'Yes')
+           AND LOWER(TRIM(e.active::text)) NOT IN ('no','false','0','inactive')
+           AND (
+               e.active IS NULL
+               OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
+               OR e.active::text = 'Yes'
+           )
            AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($3, $2, 1))`,
         [contractId, month, year]
     );
