@@ -116,6 +116,39 @@ function buildCcList({ contractFocalEmail }) {
     return [...cc];
 }
 
+function skipReasonMessage(reason, sendDetail) {
+    switch (reason) {
+        case 'emails_disabled':
+            return 'Email sending is turned off on the server (EMAILS_ENABLED=false on Render). Enable it to send verification emails.';
+        case 'no_mailer':
+            return 'Email service is not available on this server.';
+        case 'missing_key_or_recipients':
+            return 'Resend is not configured — add RESEND_API_KEY on the Render backend service.';
+        case 'send_failed':
+            return 'Resend rejected the email. Check Render logs for [sendAppEmail].';
+        case 'send_skipped':
+            return sendDetail?.reason === 'missing_key_or_recipients'
+                ? 'Resend is not configured — add RESEND_API_KEY on the Render backend service.'
+                : 'Email send was skipped by the mailer.';
+        default:
+            return reason ? String(reason) : 'Email was not sent.';
+    }
+}
+
+function summarizeSendOutcome(results, dryRun) {
+    const sent = results.filter((r) => r.ok).length;
+    const skipped = results.filter((r) => r.skipped).length;
+    const failed = results.filter((r) => r.ok === false).length;
+    let message = null;
+    if (sent === 0 && results.length) {
+        const first = results[0];
+        message = skipReasonMessage(first.reason || first.error, first.send);
+    } else if (sent === 0 && dryRun) {
+        message = 'No site available for dry run';
+    }
+    return { sent, skipped, failed, message };
+}
+
 async function sendVerificationEmails(pool, sendAppEmail, {
     contractId,
     month,
@@ -224,13 +257,27 @@ async function sendVerificationEmails(pool, sendAppEmail, {
             continue;
         }
 
-        if (process.env.EMAILS_ENABLED === 'false') {
+        if (!dryRun && process.env.EMAILS_ENABLED === 'false') {
             results.push({
                 serviceOrderId: so.id,
                 siteCode: so.site_code,
                 siteName: so.name,
                 skipped: true,
                 reason: 'emails_disabled',
+                subject: composed.subject,
+                intendedTo,
+                cc,
+            });
+            continue;
+        }
+
+        if (!process.env.RESEND_API_KEY) {
+            results.push({
+                serviceOrderId: so.id,
+                siteCode: so.site_code,
+                siteName: so.name,
+                skipped: true,
+                reason: 'missing_key_or_recipients',
                 subject: composed.subject,
                 intendedTo,
                 cc,
@@ -245,6 +292,20 @@ async function sendVerificationEmails(pool, sendAppEmail, {
                 subject: composed.subject,
                 html: composed.html,
             });
+            if (send?.skipped) {
+                results.push({
+                    serviceOrderId: so.id,
+                    siteCode: so.site_code,
+                    siteName: so.name,
+                    skipped: true,
+                    reason: send.reason || 'send_skipped',
+                    send,
+                    intendedTo,
+                    cc,
+                    subject: composed.subject,
+                });
+                continue;
+            }
             results.push({
                 serviceOrderId: so.id,
                 siteCode: so.site_code,
@@ -273,12 +334,10 @@ async function sendVerificationEmails(pool, sendAppEmail, {
         if (dryRun) break;
     }
 
-    const sent = results.filter((r) => r.ok).length;
-    const skipped = results.filter((r) => r.skipped).length;
-    const failed = results.filter((r) => r.ok === false).length;
+    const { sent, skipped, failed, message } = summarizeSendOutcome(results, dryRun);
 
     return {
-        ok: failed === 0,
+        ok: failed === 0 && sent > 0,
         dryRun,
         contractId,
         contractFocal: {
@@ -288,6 +347,7 @@ async function sendVerificationEmails(pool, sendAppEmail, {
         sent,
         skipped,
         failed,
+        message,
         results,
     };
 }
