@@ -738,6 +738,7 @@ export const api = {
         return { ok: true };
     },
     sendFixedValueFocalEmail: (id, month, year, payload = {}) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/focals/email`, { method: 'POST', body: JSON.stringify({ month, year, ...payload }) }),
+    sendFixedValueVerificationEmails: (contractId, month, year, payload = {}) => apiFetch(`/api/fixed-value/contracts/${encodeURIComponent(contractId)}/verification-emails`, { method: 'POST', body: JSON.stringify({ month, year, ...payload }) }),
     seedPsoNorthZone: () => apiFetch('/api/fixed-value/seed-pso', { method: 'POST', body: '{}' }),
     /** @deprecated prefer resyncPsoNorthZoneSeed */
 };

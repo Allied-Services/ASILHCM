@@ -66,14 +66,19 @@ function getResend() {
 }
 const EMAIL_FROM = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
 
-async function sendAppEmail({ to, subject, html }) {
+async function sendAppEmail({ to, subject, html, cc, bcc }) {
     const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
     const resend = getResend();
     if (!resend || !recipients.length) {
         return { skipped: true, reason: 'missing_key_or_recipients' };
     }
+    const ccList = (Array.isArray(cc) ? cc : cc ? [cc] : []).filter(Boolean);
+    const bccList = (Array.isArray(bcc) ? bcc : bcc ? [bcc] : []).filter(Boolean);
     try {
-        const result = await resend.emails.send({ from: EMAIL_FROM, to: recipients, subject, html });
+        const payload = { from: EMAIL_FROM, to: recipients, subject, html };
+        if (ccList.length) payload.cc = ccList;
+        if (bccList.length) payload.bcc = bccList;
+        const result = await resend.emails.send(payload);
         return { ok: true, result };
     } catch (err) {
         console.error('[sendAppEmail]', err);
@@ -412,14 +417,13 @@ app.get('/api/debug/bonus-check', requireAuth, requireRole('superadmin'), async 
     } catch (err) { console.error('[GET /api/debug/bonus-check]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-const { normalizeActiveValue } = require('./src/core/employeeActive');
 const nullDate = (d) => (d && d !== '' && d !== 'undefined') ? d : null;
 const toDateStr = d => !d ? '' : (d instanceof Date ? d.toISOString().slice(0,10) : String(d).slice(0,10));
 const nullNum = (n) => (n !== '' && n != null) ? parseFloat(n) || null : null;
 
 const empToDb = (e) => ({
     id: e.id || `ASIL-${Date.now()}`,
-    bu: e.bu || null, active: normalizeActiveValue(e.active),
+    bu: e.bu || null, active: e.active || 'Yes',
     client: e.client || null, client_bu: e.clientBU || null,
     dept: e.dept || null, designation: e.designation || null,
     location: e.location || null, site: e.site || null, province: e.province || null,
