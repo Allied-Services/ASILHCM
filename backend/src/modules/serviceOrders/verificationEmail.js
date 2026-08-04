@@ -146,7 +146,8 @@ async function sendVerificationEmails(pool, sendAppEmail, {
 
     const { rows: orders } = await pool.query(
         `SELECT id, site_code, name, meta FROM service_orders
-         WHERE contract_id = $1 AND active IS NOT FALSE
+         WHERE contract_id = $1
+           AND (status IS NULL OR LOWER(TRIM(status)) NOT IN ('inactive', 'cancelled'))
          ORDER BY name`,
         [contractId]
     );
