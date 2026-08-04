@@ -49,4 +49,34 @@ describe('verificationEmail', () => {
             'asmat.k.awan@psopk.com',
         ]));
     });
+
+    test('sendVerificationEmails loads service orders by status not missing active column', async () => {
+        const { sendVerificationEmails } = require('../src/modules/serviceOrders/verificationEmail');
+        const queries = [];
+        const pool = {
+            query: jest.fn(async (sql, params) => {
+                queries.push(String(sql));
+                if (sql.includes('FROM contracts')) {
+                    return { rows: [{ id: 'CTR-1', contract_name: 'Test', client_focal_name: null, client_focal_email: null }] };
+                }
+                if (sql.includes('FROM service_orders')) {
+                    expect(sql).not.toMatch(/\bactive\b/i);
+                    expect(sql).toMatch(/status/i);
+                    return { rows: [{ id: 'SO-1', site_code: 'TARUJABBA', name: 'Tarujabba', meta: {} }] };
+                }
+                return { rows: [] };
+            }),
+        };
+        const result = await sendVerificationEmails(pool, null, {
+            contractId: 'CTR-1',
+            month: 7,
+            year: 2026,
+            dryRun: true,
+            computeSoInvoice: jest.fn(async () => ({ siteName: 'Tarujabba', gross: 0, lineItems: [], deductions: [] })),
+            renderInvoiceHtml: jest.fn(() => '<p>x</p>'),
+        });
+        expect(result.results).toHaveLength(1);
+        expect(result.results[0].skipped).toBe(true);
+        expect(result.results[0].reason).toBe('no_mailer');
+    });
 });

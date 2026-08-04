@@ -540,7 +540,8 @@
     "id": "JUGLOT",
     "name": "Juglot Depot",
     "requiredAt": "Juglot (Depot)",
-    "taxRate": 0.16,
+    "taxRate": 0,
+    "province": "Gilgit Baltistan",
     "hasEquipment": true,
     "lineItems": [
       {

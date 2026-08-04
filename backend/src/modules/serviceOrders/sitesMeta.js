@@ -5,7 +5,7 @@ const SITE_PROVINCES = {
     CHAKPIRANA: 'Punjab',
     SIHALA: 'Punjab',
     FAQIRABAD: 'KPK',
-    JUGLOT: 'GB',
+    JUGLOT: 'Gilgit Baltistan',
     CHITRAL: 'KPK',
     TARUJABBA: 'KPK',
     SERAINOURANG: 'KPK',
