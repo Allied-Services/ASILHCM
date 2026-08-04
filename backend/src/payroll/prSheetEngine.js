@@ -4,9 +4,31 @@ const { calculateMonthlyIncomeTax, calculateEOBI } = require('../../taxEngine');
 const { resolveJuly2026WafiBonus } = require('./julyBonusAccrual');
 
 /**
- * Model A (30-day calendar basis):
+ * Calendar days in month (month 1–12). Returns null when month/year invalid.
+ */
+function calendarDaysInMonth(month, year) {
+    const m = Number(month);
+    const y = Number(year);
+    if (!m || !y || m < 1 || m > 12) return null;
+    return new Date(y, m, 0).getDate();
+}
+
+function resolveModelACalendarBasis(input = {}, policy = {}) {
+    if (input.calendarBasis != null && input.calendarBasis !== '') {
+        return Number(input.calendarBasis) || 30;
+    }
+    const fromPeriod = calendarDaysInMonth(
+        input.month ?? input.periodMonth,
+        input.year ?? input.periodYear,
+    );
+    if (fromPeriod) return fromPeriod;
+    return Number(policy.standard_month_days) || 30;
+}
+
+/**
+ * Model A (calendar-month basis):
  *   Absent Days (A) = explicit sheet absent when provided, else Expected − Present
- *   Basic payout   = Base Salary × ((30 − A) / 30)
+ *   Basic payout   = Base Salary × ((daysInMonth − A) / daysInMonth)
  * Sundays/holidays are paid rest — only unexcused absences reduce Present Days.
  * Conservancy sheets carry Total Absent explicitly; do not invent A from calendar WD − present.
  *
@@ -192,18 +214,19 @@ function computePrSheetRow(input, policy = {}) {
     let salaryForDays;
 
     if (useModelA) {
+        const calendarBasis = resolveModelACalendarBasis(input, policy);
         const expected = input.expectedDays
             ?? input.expected_days
             ?? input.workingDays
             ?? policy.standard_month_days
-            ?? 30;
+            ?? calendarBasis;
         modelA = computeModelABasis({
             presentDays: input.presentDays ?? input.present_days ?? paidDays,
             expectedDays: expected,
-            calendarBasis: 30,
+            calendarBasis,
             absentDays: input.absentDays ?? input.absent_days,
         });
-        workingDays = 30;
+        workingDays = calendarBasis;
         paidDays = modelA.modelAPaidDays;
         salaryForDays = input.salaryForDays != null
             ? Math.round(Number(input.salaryForDays))
@@ -314,6 +337,8 @@ function computePrSheetRow(input, policy = {}) {
 module.exports = {
     computePrSheetRow,
     computeModelABasis,
+    calendarDaysInMonth,
+    resolveModelACalendarBasis,
     computeOtRates,
     computeMedicalCoverage,
     computeBonusDisbursement,
