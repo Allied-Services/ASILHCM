@@ -412,13 +412,14 @@ app.get('/api/debug/bonus-check', requireAuth, requireRole('superadmin'), async 
     } catch (err) { console.error('[GET /api/debug/bonus-check]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
+const { normalizeActiveValue } = require('./src/core/employeeActive');
 const nullDate = (d) => (d && d !== '' && d !== 'undefined') ? d : null;
 const toDateStr = d => !d ? '' : (d instanceof Date ? d.toISOString().slice(0,10) : String(d).slice(0,10));
 const nullNum = (n) => (n !== '' && n != null) ? parseFloat(n) || null : null;
 
 const empToDb = (e) => ({
     id: e.id || `ASIL-${Date.now()}`,
-    bu: e.bu || null, active: e.active || 'Yes',
+    bu: e.bu || null, active: normalizeActiveValue(e.active),
     client: e.client || null, client_bu: e.clientBU || null,
     dept: e.dept || null, designation: e.designation || null,
     location: e.location || null, site: e.site || null, province: e.province || null,

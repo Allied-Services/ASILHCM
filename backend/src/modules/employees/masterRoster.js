@@ -1,6 +1,7 @@
 'use strict';
 
 const { parseDateOrNull } = require('../../core/dateParse');
+const { normalizeActiveValue } = require('../../core/employeeActive');
 
 /**
  * Full employee master roster — aligned with frontend MASTER_COLUMNS + operational fields.
@@ -295,6 +296,8 @@ function csvRowToPatch(row, maps, existing) {
         } else if (field.db === 'claim_authority') {
             const v = raw.trim();
             patch[field.db] = /^self$/i.test(v) ? 'SELF' : v.toLowerCase();
+        } else if (field.db === 'active') {
+            patch[field.db] = normalizeActiveValue(raw);
         } else {
             patch[field.db] = raw;
         }

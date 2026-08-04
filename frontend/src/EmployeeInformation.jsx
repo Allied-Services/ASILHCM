@@ -6,6 +6,7 @@ import EmployeeProfile from './EmployeeProfile';
 import EmployeeDirectoryToolbar from './features/employees/EmployeeDirectory';
 import EmploymentOrgCascade from './EmploymentOrgCascade';
 import { normalizeAsilBu } from './orgHierarchy';
+import { isEmployeeActive, activeStatusLabel, normalizeActiveValue } from './employeeActive';
 
 // ── Exact columns from Master Data.csv ───────────────────────────────────────
 export const MASTER_COLUMNS = [
@@ -141,7 +142,9 @@ export default function EmployeeInformation({ user }) {
             (e.id || '').toLowerCase().includes(q) ||
             (e.client || '').toLowerCase().includes(q) ||
             (e.designation || '').toLowerCase().includes(q);
-        const matchActive = filterActive === 'All' || (filterActive === 'Active' && e.active === 'Yes') || (filterActive === 'Inactive' && e.active === 'No');
+        const matchActive = filterActive === 'All'
+            || (filterActive === 'Active' && isEmployeeActive(e.active))
+            || (filterActive === 'Inactive' && !isEmployeeActive(e.active));
         const matchClient = filterClient === 'All' || e.client === filterClient;
         const matchLocation = filterLocation === 'All' || e.location === filterLocation;
         const matchDept = filterDept === 'All' || e.designation === filterDept;
@@ -213,7 +216,7 @@ export default function EmployeeInformation({ user }) {
                         _eosbType:    resolvedCt?.costs?.eosb_type          || 'None',
                         _svcChargePct:resolvedCt?.financials?.service_charges_pct || 0,
                         // ── Employment ──
-                        active:       getF(obj, 'Active', 'Status') || 'Yes',
+                        active:       normalizeActiveValue(getF(obj, 'Active', 'Status')),
                         client:       resolvedCt?.clientName || getF(obj, 'CLIENT NAME', 'Client Name', 'Client'),
                         clientBU:     getF(obj, 'Client Business Unit', 'Client BU', 'ClientBU'),
                         dept:         getF(obj, 'Department', 'Dept'),
@@ -349,7 +352,7 @@ export default function EmployeeInformation({ user }) {
         const lines = rows.map(e => [
             e.id, e.name, e.client, e.designation, e.location, e.province,
             e.contractName || e.bu || '',
-            e.salary, e.active === 'Yes' ? 'Active' : 'Inactive', e.cnic,
+            e.salary, activeStatusLabel(e.active), e.cnic,
             e.email, e.primaryContact, e.bankName, e.bankAccount
         ].map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(','));
         const csv = [headers.join(','), ...lines].join('\n');
@@ -755,7 +758,7 @@ export default function EmployeeInformation({ user }) {
                                     {emp.lastSalary && emp.lastSalary !== emp.salary && <div style={{ color: '#22c55e', fontSize: '0.76rem' }}>↑ Rs. {emp.lastSalary.toLocaleString()}</div>}
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem' }}>
-                                    <span style={{ background: emp.active === 'Yes' ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: emp.active === 'Yes' ? '#22c55e' : '#eab308', padding: '3px 10px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 600 }}>{emp.active === 'Yes' ? 'Active' : 'Inactive'}</span>
+                                    <span style={{ background: isEmployeeActive(emp.active) ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: isEmployeeActive(emp.active) ? '#22c55e' : '#eab308', padding: '3px 10px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 600 }}>{activeStatusLabel(emp.active)}</span>
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem' }} onClick={e => e.stopPropagation()}>
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -987,7 +990,7 @@ export default function EmployeeInformation({ user }) {
                                                                     {r.province ? <span style={{ background: 'rgba(56,189,248,0.1)', color: '#38bdf8', padding: '2px 7px', borderRadius: '6px', fontSize: '0.76rem', fontWeight: 600 }}>{r.province}</span> : '—'}
                                                                 </td>
                                                                 <td style={{ padding: '8px 12px' }}>Rs. {(r.salary || 0).toLocaleString()}</td>
-                                                                <td style={{ padding: '8px 12px' }}><span style={{ color: r.active === 'Yes' ? '#22c55e' : '#eab308' }}>{r.active}</span></td>
+                                                                <td style={{ padding: '8px 12px' }}><span style={{ color: isEmployeeActive(r.active) ? '#22c55e' : '#eab308' }}>{activeStatusLabel(r.active)}</span></td>
                                                             </tr>
                                                         ))}
                                                     </tbody>
