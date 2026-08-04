@@ -99,6 +99,7 @@ export default function FixedValueContracts({ user }) {
 
     const [invoicePack, setInvoicePack] = useState(null);
     const [registry, setRegistry] = useState([]);
+    const [emailResult, setEmailResult] = useState(null);
     const [wizard, setWizard] = useState(null); // { mode: 'create'|'edit', contractId? }
 
     const canWrite = ['superadmin', 'operations', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
@@ -386,6 +387,27 @@ export default function FixedValueContracts({ user }) {
         setInvoicePack(pack);
         await loadRegistry();
         setMsg(`Stamped ${result.count} site invoices`);
+    });
+
+    const handleDryRunVerificationEmail = () => runAction(async () => {
+        const result = await api.sendFixedValueVerificationEmails(contractId, month, year, { dryRun: true });
+        setEmailResult(result);
+        if (result.sent) {
+            setMsg(`Dry run sent — ${result.sent} site email${result.sent === 1 ? '' : 's'} to internal team (proforma + payroll PDF each)`);
+        } else {
+            const detail = result.results?.[0];
+            const why = result.message
+                || (detail?.reason ? `Not sent: ${detail.reason}` : null)
+                || 'Dry run completed — no emails sent';
+            setMsg(why);
+        }
+    });
+
+    const handleSendAllVerificationEmails = () => runAction(async () => {
+        if (!window.confirm('Send payroll & invoice verification email to every terminal with focal emails configured?')) return;
+        const result = await api.sendFixedValueVerificationEmails(contractId, month, year, { dryRun: false });
+        setEmailResult(result);
+        setMsg(`Verification emails sent: ${result.sent} · skipped ${result.skipped} · failed ${result.failed || 0}`);
     });
 
     const handleUpload = async (e) => {
@@ -893,6 +915,14 @@ export default function FixedValueContracts({ user }) {
                             onClick={() => downloadBlob(api.downloadFixedValueInvoicesExcel(contractId, month, year), 'invoices.xlsx')}>
                             <Download size={16} /> Invoice Excel
                         </button>
+                        <button type="button" className="btn-secondary" disabled={loading || !contractId || !canWrite}
+                            onClick={handleDryRunVerificationEmail}>
+                            <Mail size={16} /> Dry run (all sites → ASIL test)
+                        </button>
+                        <button type="button" className="btn-primary" disabled={loading || !contractId || !canWrite || !invoicePack}
+                            onClick={handleSendAllVerificationEmails}>
+                            <Mail size={16} /> Send verification emails (all sites)
+                        </button>
                         {selectedOrder && siteCode !== ALL_SITES && (
                             <button type="button" className="btn-secondary" disabled={loading} onClick={() => runAction(async () => {
                                 const preview = await api.computeFixedValueInvoice(selectedOrder.id, month, year);
@@ -952,6 +982,56 @@ export default function FixedValueContracts({ user }) {
                                     ))}
                                 </tbody>
                             </table>
+                        </div>
+                    )}
+
+                    {emailResult?.results?.length > 0 && (
+                        <div className="fv-panel" style={{ marginTop: 12, padding: 12, background: 'var(--surface-2)' }}>
+                            <h4 style={{ margin: '0 0 8px' }}>Email preview {emailResult.dryRun ? '(dry run — all sites)' : ''}</h4>
+                            <p className="fv-lead" style={{ margin: '0 0 8px' }}>
+                                {emailResult.dryRun ? (
+                                    <>Dry run CC: obaid.rana@asil.com.pk, huzaifa.rafaqat@asil.com.pk only (contract focal not copied)</>
+                                ) : (
+                                    <>
+                                        Contract focal CC: {emailResult.contractFocal?.name || '—'}
+                                        {emailResult.contractFocal?.email ? ` · ${emailResult.contractFocal.email}` : ''}
+                                        {' · '}Always CC: obaid.rana@asil.com.pk, huzaifa.rafaqat@asil.com.pk
+                                    </>
+                                )}
+                            </p>
+                            <div className="fv-table-wrap">
+                                <table className="fv-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Site</th>
+                                            <th>Status</th>
+                                            <th>Attachments</th>
+                                            <th>TO (sent)</th>
+                                            <th>Would go to (client)</th>
+                                            <th>Subject</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {emailResult.results.map((r) => (
+                                            <tr key={r.serviceOrderId || r.siteCode}>
+                                                <td>{r.siteName || r.siteCode}</td>
+                                                <td>{r.ok ? 'Sent' : r.skipped ? `Skipped (${r.reason})` : 'Failed'}</td>
+                                                <td style={{ fontSize: '0.75rem' }}>
+                                                    {(r.attachments || []).length
+                                                        ? r.attachments.join(', ')
+                                                        : r.pdfWarnings?.length
+                                                            ? `PDF issue (${r.pdfWarnings.join(', ')})`
+                                                            : '—'}
+                                                    {r.payrollHeadcount != null ? ` · ${r.payrollHeadcount} staff` : ''}
+                                                </td>
+                                                <td style={{ fontSize: '0.75rem' }}>{(r.to || []).join(', ') || '—'}</td>
+                                                <td style={{ fontSize: '0.75rem' }}>{(r.intendedTo || []).join(', ') || '—'}</td>
+                                                <td style={{ fontSize: '0.75rem' }}>{r.subject || '—'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
 
