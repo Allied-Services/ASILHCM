@@ -392,7 +392,7 @@ export default function FixedValueContracts({ user }) {
         setEmailResult(result);
         const site = result.results?.[0];
         if (result.sent) {
-            setMsg(`Dry run sent — sample for ${site?.siteName || 'one site'} to internal team (see preview below)`);
+            setMsg(`Dry run sent — sample for ${site?.siteName || 'one site'} to internal team (${(site?.attachments || []).length || 2} PDF attachments)`);
         } else {
             const detail = result.results?.[0];
             const why = result.message
@@ -992,6 +992,7 @@ export default function FixedValueContracts({ user }) {
                                         <tr>
                                             <th>Site</th>
                                             <th>Status</th>
+                                            <th>Attachments</th>
                                             <th>TO (sent)</th>
                                             <th>Would go to (client)</th>
                                             <th>Subject</th>
@@ -1002,6 +1003,14 @@ export default function FixedValueContracts({ user }) {
                                             <tr key={r.serviceOrderId || r.siteCode}>
                                                 <td>{r.siteName || r.siteCode}</td>
                                                 <td>{r.ok ? 'Sent' : r.skipped ? `Skipped (${r.reason})` : 'Failed'}</td>
+                                                <td style={{ fontSize: '0.75rem' }}>
+                                                    {(r.attachments || []).length
+                                                        ? r.attachments.join(', ')
+                                                        : r.pdfWarnings?.length
+                                                            ? `PDF issue (${r.pdfWarnings.join(', ')})`
+                                                            : '—'}
+                                                    {r.payrollHeadcount != null ? ` · ${r.payrollHeadcount} staff` : ''}
+                                                </td>
                                                 <td style={{ fontSize: '0.75rem' }}>{(r.to || []).join(', ') || '—'}</td>
                                                 <td style={{ fontSize: '0.75rem' }}>{(r.intendedTo || []).join(', ') || '—'}</td>
                                                 <td style={{ fontSize: '0.75rem' }}>{r.subject || '—'}</td>
