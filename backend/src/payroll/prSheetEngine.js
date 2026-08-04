@@ -254,7 +254,7 @@ function computePrSheetRow(input, policy = {}) {
 
     const whtExact = input.wht != null
         ? Number(input.wht)
-        : calculateMonthlyIncomeTax(gross, opd, expense);
+        : calculateMonthlyIncomeTax(gross, opd, expense, Math.round(arrears));
     const wht = Math.round(whtExact);
     const eobi = input.eobiEmployee != null
         ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI().employerShare }
@@ -309,6 +309,8 @@ function computePrSheetRow(input, policy = {}) {
         otherDeduction: Math.round(otherDeductionRaw),
         otherDeductionTotal: Math.round(otherDeduction),
         previousDues,
+        arrears: Math.round(arrears),
+        previousDues: Math.round(previousDues),
         modelA,
         paidDays,
         workingDays,
