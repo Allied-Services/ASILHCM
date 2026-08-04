@@ -55,6 +55,8 @@ function buildInitial(detail) {
             end_date: '',
             headcount: 0,
             region_province: 'Punjab',
+            client_focal_name: '',
+            client_focal_email: '',
             credit_days: 30,
             costs: { eobi: 400, life_insurance: 150, bonus_months: 0, eosb_type: 'Gratuity' },
             financials: { wht_pct: 15, service_charges_pct: 0, credit_cycle_days: 30 },
@@ -96,6 +98,8 @@ function buildInitial(detail) {
         end_date: detail.end_date ? String(detail.end_date).slice(0, 10) : '',
         headcount: detail.headcount || 0,
         region_province: detail.region_province || 'Punjab',
+        client_focal_name: detail.client_focal_name || '',
+        client_focal_email: detail.client_focal_email || '',
         credit_days: detail.credit_days || detail.policy_credit_days || 30,
         costs,
         financials,
@@ -268,6 +272,8 @@ export default function FixedValueContractWizard({
         end_date: form.end_date,
         headcount: Number(form.headcount) || 0,
         region_province: form.region_province,
+        client_focal_name: form.client_focal_name?.trim() || null,
+        client_focal_email: form.client_focal_email?.trim() || null,
         credit_days: Number(form.credit_days) || 30,
         costs: form.costs,
         financials: form.financials,
@@ -408,6 +414,12 @@ export default function FixedValueContractWizard({
                             <label>Headcount
                                 <input type="number" value={form.headcount} onChange={(e) => patch('headcount', Number(e.target.value))} />
                             </label>
+                            <label>Contract focal (client) — name
+                                <input value={form.client_focal_name} onChange={(e) => patch('client_focal_name', e.target.value)} placeholder="Ms. Asmat Awan" />
+                            </label>
+                            <label>Contract focal — email (always CC on verification emails)
+                                <input value={form.client_focal_email} onChange={(e) => patch('client_focal_email', e.target.value)} placeholder="Asmat.K.Awan@psopk.com" />
+                            </label>
                             <label>Product family
                                 <select value={form.meta.fv_product} onChange={(e) => {
                                     patch('meta.fv_product', e.target.value);
@@ -501,8 +513,8 @@ export default function FixedValueContractWizard({
                                         <label>Site tax rate
                                             <input type="number" step="0.01" value={s.meta.taxRate} onChange={(e) => setSite(idx, { ...s, meta: { ...s.meta, taxRate: Number(e.target.value) } })} />
                                         </label>
-                                        <label>Focal email
-                                            <input value={s.meta.focalEmail || ''} onChange={(e) => setSite(idx, { ...s, meta: { ...s.meta, focalEmail: e.target.value, focalEnabled: !!e.target.value } })} />
+                                        <label>Terminal focal email(s) — comma-separated TO
+                                            <input value={s.meta.focalEmail || ''} placeholder="first.last@psopk.com, second.last@psopk.com" onChange={(e) => setSite(idx, { ...s, meta: { ...s.meta, focalEmail: e.target.value, focalEnabled: !!e.target.value } })} />
                                         </label>
                                     </div>
                                     {form.sites.length > 1 && (

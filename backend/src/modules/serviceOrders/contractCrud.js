@@ -244,6 +244,8 @@ async function createFixedValueContract(pool, payload = {}, actor) {
         headcount = 0,
         region_province: regionProvince = 'Punjab',
         credit_days: creditDays = 30,
+        client_focal_name: clientFocalName = null,
+        client_focal_email: clientFocalEmail = null,
         costs = {},
         financials = {},
         meta = {},
@@ -297,8 +299,9 @@ async function createFixedValueContract(pool, payload = {}, actor) {
         await db.query(
             `INSERT INTO contracts
              (id, client_id, contract_name, location, service_type, headcount, status,
-              start_date, end_date, costs, financials, end_of_service, region_province, credit_days, meta)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+              start_date, end_date, costs, financials, end_of_service, region_province, credit_days, meta,
+              client_focal_name, client_focal_email)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
              ON CONFLICT (id) DO UPDATE SET
                client_id = EXCLUDED.client_id,
                contract_name = EXCLUDED.contract_name,
@@ -313,7 +316,9 @@ async function createFixedValueContract(pool, payload = {}, actor) {
                end_of_service = EXCLUDED.end_of_service,
                region_province = EXCLUDED.region_province,
                credit_days = EXCLUDED.credit_days,
-               meta = EXCLUDED.meta`,
+               meta = EXCLUDED.meta,
+               client_focal_name = COALESCE(EXCLUDED.client_focal_name, contracts.client_focal_name),
+               client_focal_email = COALESCE(EXCLUDED.client_focal_email, contracts.client_focal_email)`,
             [
                 id, clientId, contractName, location, serviceType, Number(headcount) || 0, status,
                 startDate, endDate,
@@ -323,6 +328,8 @@ async function createFixedValueContract(pool, payload = {}, actor) {
                 regionProvince,
                 Number(creditDays) || 30,
                 JSON.stringify(meta || {}),
+                clientFocalName || null,
+                clientFocalEmail || null,
             ]
         );
 
@@ -370,6 +377,8 @@ async function updateFixedValueContract(pool, contractId, payload = {}, actor) {
         status = existing.status,
         client_id: clientId = existing.client_id,
         end_of_service: endOfService = existing.end_of_service,
+        client_focal_name: clientFocalName = existing.client_focal_name,
+        client_focal_email: clientFocalEmail = existing.client_focal_email,
     } = payload;
 
     const prevMeta = typeof existing.meta === 'string'
@@ -398,7 +407,9 @@ async function updateFixedValueContract(pool, contractId, payload = {}, actor) {
                end_of_service = $12,
                region_province = $13,
                credit_days = $14,
-               meta = $15
+               meta = $15,
+               client_focal_name = $16,
+               client_focal_email = $17
              WHERE id = $1`,
             [
                 contractId, clientId, contractName, location, serviceType,
@@ -407,6 +418,8 @@ async function updateFixedValueContract(pool, contractId, payload = {}, actor) {
                 JSON.stringify(typeof financials === 'string' ? JSON.parse(financials) : (financials || {})),
                 endOfService, regionProvince, Number(creditDays) || 30,
                 JSON.stringify(meta || {}),
+                clientFocalName || null,
+                clientFocalEmail || null,
             ]
         );
 

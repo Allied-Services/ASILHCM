@@ -128,14 +128,19 @@ describe('serviceOrders — focal email subject', () => {
         const { subject, cc, signOff } = composeFocalEmail({
             siteName: 'Morgah Installation',
             siteCode: 'MORGAH',
-            month: 6,
+            month: 7,
             year: 2026,
             invoiceHtml: '<p>test</p>',
+            primaryEmail: 'focal.user@psopk.com',
+            intendedTo: ['focal.user@psopk.com'],
         });
-        expect(subject).toBe('Proforma Invoice & Monthly Payroll Report — Morgah Installation [June 2026]');
-        expect(cc).toEqual(['shahzaib@asil.com.pk']);
-        expect(signOff).toContain('SHAHZAIB');
-        expect(monthYearLabel(6, 2026)).toBe('June 2026');
+        expect(subject).toBe('Payroll & Invoice Verification for July 2026 — Morgah Installation');
+        expect(cc).toEqual(expect.arrayContaining([
+            'obaid.rana@asil.com.pk',
+            'huzaifa.rafaqat@asil.com.pk',
+        ]));
+        expect(signOff).toContain('Allied Services');
+        expect(monthYearLabel(7, 2026)).toBe('July 2026');
     });
 });
 

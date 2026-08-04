@@ -24,7 +24,12 @@ const {
     createFixedValueContract,
     updateFixedValueContract,
     composeFocalEmail,
+    composeVerificationEmail,
     sendFocalEmail,
+    sendVerificationEmails,
+    resolveSiteFocalEmails,
+    buildCcList,
+    parseEmailList,
     renderInvoiceHtml,
     applyAttendanceAllSites,
     computeInvoicesAllSites,
@@ -423,27 +428,65 @@ function registerServiceOrderRoutes(app, deps) {
             if (!so) return res.status(404).json({ error: 'Service order not found' });
             const month = parseInt(req.body.month, 10);
             const year = parseInt(req.body.year, 10);
+            const dryRun = !!req.body.dryRun;
             const computed = await computeSoInvoice(pool, { serviceOrderId: req.params.id, month, year });
             const invoiceHtml = renderInvoiceHtml({ computed }, { format: 'invoice_letterhead' });
-            const composed = composeFocalEmail({
+            const meta = typeof so.meta === 'string' ? JSON.parse(so.meta || '{}') : (so.meta || {});
+            const intendedTo = req.body.to ? parseEmailList(req.body.to) : resolveSiteFocalEmails(so);
+            const { rows: cRows } = await pool.query(
+                `SELECT client_focal_name, client_focal_email FROM contracts WHERE id = $1`,
+                [so.contract_id]
+            );
+            const cc = buildCcList({ contractFocalEmail: cRows[0]?.client_focal_email });
+            const composed = composeVerificationEmail({
                 siteName: so.name,
                 siteCode: so.site_code,
                 month,
                 year,
                 invoiceHtml,
-                payrollSummaryHtml: req.body.payrollSummaryHtml,
+                focalName: meta.focalName || meta.focal_name,
+                primaryEmail: intendedTo[0],
+                dryRun,
+                intendedTo,
             });
-            const meta = typeof so.meta === 'string' ? JSON.parse(so.meta || '{}') : (so.meta || {});
-            const to = req.body.to || (meta.focalEmail ? [meta.focalEmail] : []);
+            const to = dryRun
+                ? ['obaid.rana@asil.com.pk', 'huzaifa.rafaqat@asil.com.pk', 'shezad.mumtaz@asil.com.pk']
+                : intendedTo;
             const result = await sendFocalEmail(sendAppEmail, {
                 to,
                 subject: composed.subject,
                 html: composed.html,
-                cc: composed.cc,
+                cc,
             });
-            res.json({ ...composed, send: result, to });
+            if (logAudit) logAudit(req, dryRun ? 'FV_EMAIL_DRY_RUN' : 'FV_EMAIL', 'service_order', req.params.id);
+            res.json({ ...composed, send: result, to, intendedTo, cc, dryRun });
         } catch (err) {
             handleRouteError(res, 'fixed-value.focals.email', err);
+        }
+    });
+
+    app.post('/api/fixed-value/contracts/:contractId/verification-emails', requireAuth, writeRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            const result = await sendVerificationEmails(pool, sendAppEmail, {
+                contractId: req.params.contractId,
+                month,
+                year,
+                dryRun: !!req.body.dryRun,
+                siteCode: req.body.siteCode,
+                serviceOrderId: req.body.serviceOrderId,
+                computeSoInvoice,
+                renderInvoiceHtml,
+            });
+            if (logAudit) {
+                logAudit(req, req.body.dryRun ? 'FV_VERIFY_EMAIL_DRY_RUN' : 'FV_VERIFY_EMAIL_ALL', 'fixed_value_contract', req.params.contractId);
+            }
+            res.json(result);
+        } catch (err) {
+            if (err.status === 404) return res.status(404).json({ error: err.message });
+            if (err.status === 400) return res.status(400).json({ error: err.message });
+            handleRouteError(res, 'fixed-value.verification-emails', err);
         }
     });
 }
