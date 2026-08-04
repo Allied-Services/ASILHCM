@@ -45,9 +45,13 @@ function calculateSESSI(grossWage) {
  * @param {number} monthlyGross - Full gross (before deducting OPD/reimb)
  * @param {number} [monthlyOPD=0] - OPD claim amount (non-taxable)
  * @param {number} [monthlyReimb=0] - Expense reimbursement (non-taxable)
+ * @param {number} [monthlyArrears=0] - Back-pay arrears (non-taxable in payment month; trued up at year-end)
  */
-function calculateMonthlyIncomeTax(monthlyGross, monthlyOPD = 0, monthlyReimb = 0) {
-    const taxableMonthly = monthlyGross - (parseFloat(monthlyOPD) || 0) - (parseFloat(monthlyReimb) || 0);
+function calculateMonthlyIncomeTax(monthlyGross, monthlyOPD = 0, monthlyReimb = 0, monthlyArrears = 0) {
+    const taxableMonthly = monthlyGross
+        - (parseFloat(monthlyOPD) || 0)
+        - (parseFloat(monthlyReimb) || 0)
+        - (parseFloat(monthlyArrears) || 0);
     const annualSalary = Math.max(0, taxableMonthly) * 12;
     let annualTax = 0;
 

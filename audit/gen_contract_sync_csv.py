@@ -30,6 +30,11 @@ for r in rows[1:]:
         continue
     ex_cid = str(r[idx.get('Contract ID', '')] or '').strip()
     ex_active = str(r[idx.get('Active', '')] or '').strip()
+    ex_active_norm = ex_active.lower()
+    if ex_active_norm in ('yes', 'true', '1', 'active'):
+        ex_active = 'Yes'
+    elif ex_active_norm in ('no', 'false', '0', 'inactive'):
+        ex_active = 'No'
     ex_cname = str(r[idx.get('Contract Name', '')] or '').strip()
     if not ex_cid:
         continue

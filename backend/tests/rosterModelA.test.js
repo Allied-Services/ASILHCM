@@ -61,6 +61,19 @@ describe('Master Roster columns', () => {
         expect(patch.salary).toBeUndefined();
     });
 
+    test('master import normalizes Active=YES to Yes', () => {
+        const { csvRowToPatch } = require('../src/modules/employees/masterRoster');
+        const patch = csvRowToPatch(
+            {
+                'ASIL Employee Code': 'ASIL/PSO-187/25',
+                'Active': 'YES',
+            },
+            { ctByName: new Map(), ctById: new Map(), clientByName: new Map() },
+            { id: 'ASIL/PSO-187/25', name: 'Test', active: 'Yes' }
+        );
+        expect(patch.active).toBe('Yes');
+    });
+
     test('importMasterRosterCsv releases CNIC from other employee before update', async () => {
         const { importMasterRosterCsv } = require('../src/modules/employees/masterRoster');
         const calls = [];
@@ -98,8 +111,8 @@ describe('Master Roster columns', () => {
     });
 });
 
-describe('Model A — 30-day calendar basis', () => {
-    test('A = expected − present; payout = base × ((30 − A) / 30)', () => {
+describe('Model A — calendar-month basis', () => {
+    test('A = expected − present; payout = base × ((basis − A) / basis)', () => {
         const m = computeModelABasis({ presentDays: 24, expectedDays: 26, calendarBasis: 30 });
         expect(m.absentDays).toBe(2);
         expect(m.modelAPaidDays).toBe(28);
@@ -148,6 +161,21 @@ describe('Model A — 30-day calendar basis', () => {
         expect(row.modelA.absentDays).toBe(3);
         expect(row.modelA.absentSource).toBe('explicit');
         expect(row.salaryForDays).toBe(Math.round(30000 * (27 / 30)));
+    });
+
+    test('July 2026 — 2 absents on Rs. 47,000 → 29/31 × base (Ansar parity)', () => {
+        const row = computePrSheetRow({
+            newSalary: 47000,
+            absentDays: 2,
+            month: 7,
+            year: 2026,
+            modelA: true,
+        }, POLICY);
+        expect(row.modelA.absentDays).toBe(2);
+        expect(row.modelA.calendarBasis).toBe(31);
+        expect(row.salaryForDays).toBe(Math.round(47000 * (29 / 31)));
+        expect(row.eobiEmployee).toBe(400);
+        expect(row.netPay).toBe(row.gross - row.wht - 400);
     });
 
     test('OT 2X / 3X use Base / (26×8) × multiplier', () => {

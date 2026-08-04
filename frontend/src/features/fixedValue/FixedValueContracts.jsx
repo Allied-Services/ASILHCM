@@ -132,7 +132,7 @@ export default function FixedValueContracts({ user }) {
             const site = rowSiteCode(r) || 'UNKNOWN';
             if (!map.has(site)) {
                 map.set(site, {
-                    site, headcount: 0, wages: 0, arrears: 0, deductions: 0,
+                    site, headcount: 0, present: 0, absent: 0, wages: 0, arrears: 0, deductions: 0,
                     bonus: 0, ot: 0, eobi: 0, tax: 0, net: 0,
                     sessi: 0, life: 0, gross: 0,
                 });
@@ -140,6 +140,10 @@ export default function FixedValueContracts({ user }) {
             const s = map.get(site);
             const c = r.computed || {};
             s.headcount += 1;
+            const p = presentDays(r);
+            const a = absentDays(r);
+            if (p != null) s.present += p;
+            if (a != null) s.absent += a;
             s.wages += Number(c.salaryForDays || 0);
             s.arrears += rowArrears(r);
             s.deductions += rowDeductions(r);
@@ -157,11 +161,13 @@ export default function FixedValueContracts({ user }) {
     }, [payrollRows]);
 
     const emptyTotals = {
-        headcount: 0, wages: 0, arrears: 0, deductions: 0, bonus: 0, ot: 0,
+        headcount: 0, present: 0, absent: 0, wages: 0, arrears: 0, deductions: 0, bonus: 0, ot: 0,
         eobi: 0, tax: 0, net: 0, sessi: 0, life: 0, gross: 0,
     };
     const payrollTotals = useMemo(() => payrollBySite.reduce((a, s) => ({
         headcount: a.headcount + s.headcount,
+        present: a.present + s.present,
+        absent: a.absent + s.absent,
         wages: a.wages + s.wages,
         arrears: a.arrears + s.arrears,
         deductions: a.deductions + s.deductions,
@@ -768,7 +774,9 @@ export default function FixedValueContracts({ user }) {
                         <table className="fv-table">
                             <thead>
                                 <tr>
-                                    <th>Site</th><th className="num">HC</th><th className="num">Wages</th>
+                                    <th>Site</th><th className="num">HC</th>
+                                    <th className="num">Present</th><th className="num">Absent</th>
+                                    <th className="num">Wages</th>
                                     <th className="num">Arrears</th><th className="num">Deductions</th>
                                     <th className="num">Bonus</th><th className="num">OT</th>
                                     <th className="num">EOBI EE</th><th className="num">Tax</th><th className="num">Net</th>
@@ -782,6 +790,8 @@ export default function FixedValueContracts({ user }) {
                                                 onClick={() => setSiteCode(s.site)}>{s.site}</button>
                                         </td>
                                         <td className="num">{s.headcount}</td>
+                                        <td className="num">{fmt(s.present)}</td>
+                                        <td className="num">{fmt(s.absent)}</td>
                                         <td className="num">{fmt(s.wages)}</td>
                                         <td className="num">{fmt(s.arrears)}</td>
                                         <td className="num">{fmt(s.deductions)}</td>
@@ -797,6 +807,8 @@ export default function FixedValueContracts({ user }) {
                                 <tr>
                                     <td>Contract total</td>
                                     <td className="num">{payrollTotals.headcount}</td>
+                                    <td className="num">{fmt(payrollTotals.present)}</td>
+                                    <td className="num">{fmt(payrollTotals.absent)}</td>
                                     <td className="num">{fmt(payrollTotals.wages)}</td>
                                     <td className="num">{fmt(payrollTotals.arrears)}</td>
                                     <td className="num">{fmt(payrollTotals.deductions)}</td>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, FileText, CreditCard, Umbrella, Phone, Home, LogOut, Clock, CheckCircle, AlertCircle, Download, ChevronRight, MapPin, Briefcase, Mail, Shield } from 'lucide-react';
 import { api } from './api';
+import { activeStatusLabel } from './employeeActive';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 const PORTAL_TOKEN_KEY = 'asil_portal_token';
@@ -551,7 +552,7 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                     { title: 'Employment Details', fields: [
                                         ['Employee Code', emp.id], ['Business Unit', emp.bu], ['Client', emp.client], ['Department', emp.dept],
                                         ['Designation', emp.designation], ['Location', emp.location], ['Province', emp.province],
-                                        ['Date of Joining', fmtDate(emp.doj)], ['Employment Status', emp.active === 'Yes' ? 'Active' : 'Inactive'],
+                                        ['Date of Joining', fmtDate(emp.doj)], ['Employment Status', activeStatusLabel(emp.active)],
                                     ]},
                                     { title: 'Personal Information', fields: [
                                         ['Full Name', emp.name], ['Father\'s Name', emp.father_name], ['Mother\'s Name', emp.mother_name],

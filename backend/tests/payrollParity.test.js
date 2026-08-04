@@ -254,6 +254,21 @@ describe('Pillar 5 — Previous Dues', () => {
         }, POLICY);
         expect(row.gross).toBe(40000 + 2500 + 1000);
     });
+
+    test('arrears add to gross but are excluded from same-month WHT', () => {
+        const row = computePrSheetRow({
+            newSalary: 47000,
+            salaryForDays: 47000,
+            month: 7,
+            year: 2026,
+            modelA: true,
+            absentDays: 0,
+            arrears: 4548,
+        }, POLICY);
+        expect(row.gross).toBe(47000 + 4548);
+        expect(row.wht).toBe(0);
+        expect(row.netPay).toBe(row.gross - 400);
+    });
 });
 
 describe('Pillar 6 — Employee EOBI 400 PKR', () => {
@@ -331,15 +346,16 @@ describe('Pillar 7 — Pakistan tax deductions', () => {
         expect(row.lifeInsurance).toBe(150);
     });
 
-    test('engine WHT matches taxEngine with OPD/expense exclusions', () => {
+    test('engine WHT matches taxEngine with OPD/expense/arrears exclusions', () => {
         const row = computePrSheetRow({
             newSalary: 100000,
             paidDays: 30,
             workingDays: 30,
             opd: 2000,
             expense: 3000,
+            arrears: 5000,
         }, POLICY);
-        expect(row.wht).toBe(calculateMonthlyIncomeTax(row.gross, 2000, 3000));
+        expect(row.wht).toBe(calculateMonthlyIncomeTax(row.gross, 2000, 3000, 5000));
     });
 
     test('bonus disbursed in July when contract bonus_disbursement_month = 7', () => {

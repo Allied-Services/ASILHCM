@@ -616,18 +616,22 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             bonusDisbursement,
             ...inputs,
         };
-        // Model A (30-day calendar basis). Conservancy: wages = base × ((30 − absent) / 30)
+        // Model A (calendar-month basis). Conservancy: wages = base × ((daysInMonth − absent) / daysInMonth)
         // using explicit sheet absent — never invent absent from calendar WD − present.
+        const calendarDays = new Date(year, month, 0).getDate();
         if (absentDaysForModelA != null) {
             computeInput.absentDays = absentDaysForModelA;
-            computeInput.expectedDays = 30;
+            computeInput.expectedDays = calendarDays;
             computeInput.presentDays = presentDaysForModelA != null
                 ? presentDaysForModelA
-                : Math.max(0, 30 - absentDaysForModelA);
+                : Math.max(0, calendarDays - absentDaysForModelA);
         } else {
             computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
             computeInput.expectedDays = overrideWorkingDays ?? workingDays;
         }
+        computeInput.calendarBasis = calendarDays;
+        computeInput.month = month;
+        computeInput.year = year;
         computeInput.modelA = true;
         let computed = computePrSheetRow(computeInput, policy);
 
@@ -772,6 +776,8 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
         workingDays,
         presentDays: patch.presentDays != null ? Number(patch.presentDays) : paidDays,
         expectedDays: workingDays,
+        month: runRows[0].period_month,
+        year: runRows[0].period_year,
         modelA: true,
         ot1,
         ot2,

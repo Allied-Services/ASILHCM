@@ -15,6 +15,33 @@ function money(n) {
     return n == null || Number.isNaN(Number(n)) ? null : Math.round(Number(n) * 100) / 100;
 }
 
+function rowArrears(r) {
+    const c = r.computed || {};
+    return Number(c.arrears ?? r.inputs?.arrears ?? 0);
+}
+
+function rowDeductions(r) {
+    const c = r.computed || {};
+    if (c.otherDeductionTotal != null) return Number(c.otherDeductionTotal) || 0;
+    const other = Number(c.otherDeduction ?? r.inputs?.otherDeduction ?? r.inputs?.other_deduction ?? 0);
+    const leave = Number(c.leaveDeduction ?? r.inputs?.leaveDeduction ?? r.inputs?.leave_deduction ?? 0);
+    return other + leave;
+}
+
+function rowPresent(r) {
+    const p = r.inputs?.present_days ?? r.inputs?.presentDays ?? r.paid_days;
+    return p == null || p === '' ? null : Number(p);
+}
+
+function rowAbsent(r) {
+    const explicit = r.inputs?.absent_days ?? r.inputs?.absentDays;
+    if (explicit != null && explicit !== '') return Math.max(0, Number(explicit) || 0);
+    if (r.computed?.modelA?.absentSource === 'explicit' && r.computed?.modelA?.absentDays != null) {
+        return Math.max(0, Number(r.computed.modelA.absentDays) || 0);
+    }
+    return null;
+}
+
 async function buildPayrollWorkbook(pool, { contractId, month, year }) {
     const data = await getPayrollRuns(pool, { contractId, month, year });
     const rows = data.rows || [];
@@ -32,6 +59,8 @@ async function buildPayrollWorkbook(pool, { contractId, month, year }) {
         { header: 'Absent', key: 'absent', width: 10 },
         { header: 'Basic', key: 'basic', width: 12 },
         { header: 'Wages earned', key: 'wages', width: 14 },
+        { header: 'Arrears', key: 'arrears', width: 12 },
+        { header: 'Deductions', key: 'deductions', width: 12 },
         { header: 'EOBI EE', key: 'eobi', width: 10 },
         { header: 'SESSI ER', key: 'sessi', width: 10 },
         { header: 'Tax', key: 'tax', width: 10 },
@@ -45,8 +74,10 @@ async function buildPayrollWorkbook(pool, { contractId, month, year }) {
     const bySite = new Map();
     for (const r of rows) {
         const c = r.computed || {};
-        const present = r.inputs?.present_days ?? r.paid_days;
-        const absent = r.inputs?.absent_days ?? r.computed?.modelA?.absentDays;
+        const present = rowPresent(r);
+        const absent = rowAbsent(r);
+        const arrearsAmt = rowArrears(r);
+        const deductionsAmt = rowDeductions(r);
         detail.addRow({
             id: r.employee_id,
             name: r.employee_name,
@@ -56,6 +87,8 @@ async function buildPayrollWorkbook(pool, { contractId, month, year }) {
             absent: absent != null ? Number(absent) : null,
             basic: money(r.basic_salary ?? c.newSalary),
             wages: money(c.salaryForDays),
+            arrears: money(arrearsAmt),
+            deductions: money(deductionsAmt),
             eobi: money(c.eobiEmployee),
             sessi: money(c.sessiEmployer),
             tax: money(c.wht),
@@ -67,12 +100,17 @@ async function buildPayrollWorkbook(pool, { contractId, month, year }) {
         const site = String(r.site || 'UNKNOWN').toUpperCase();
         if (!bySite.has(site)) {
             bySite.set(site, {
-                site, headcount: 0, wages: 0, eobi: 0, sessi: 0, tax: 0, life: 0, net: 0, gross: 0,
+                site, headcount: 0, present: 0, absent: 0,
+                wages: 0, arrears: 0, deductions: 0, eobi: 0, sessi: 0, tax: 0, life: 0, net: 0, gross: 0,
             });
         }
         const s = bySite.get(site);
         s.headcount += 1;
+        if (present != null) s.present += present;
+        if (absent != null) s.absent += absent;
         s.wages += Number(c.salaryForDays || 0);
+        s.arrears += arrearsAmt;
+        s.deductions += deductionsAmt;
         s.eobi += Number(c.eobiEmployee || 0);
         s.sessi += Number(c.sessiEmployer || 0);
         s.tax += Number(c.wht || 0);
@@ -85,7 +123,11 @@ async function buildPayrollWorkbook(pool, { contractId, month, year }) {
     summary.columns = [
         { header: 'Site', key: 'site', width: 16 },
         { header: 'Headcount', key: 'headcount', width: 12 },
+        { header: 'Present (days)', key: 'present', width: 14 },
+        { header: 'Absent (days)', key: 'absent', width: 14 },
         { header: 'Wages', key: 'wages', width: 14 },
+        { header: 'Arrears', key: 'arrears', width: 12 },
+        { header: 'Deductions', key: 'deductions', width: 12 },
         { header: 'EOBI EE', key: 'eobi', width: 12 },
         { header: 'SESSI ER', key: 'sessi', width: 12 },
         { header: 'Tax', key: 'tax', width: 12 },
@@ -99,6 +141,8 @@ async function buildPayrollWorkbook(pool, { contractId, month, year }) {
         summary.addRow({
             ...s,
             wages: money(s.wages),
+            arrears: money(s.arrears),
+            deductions: money(s.deductions),
             eobi: money(s.eobi),
             sessi: money(s.sessi),
             tax: money(s.tax),
@@ -109,14 +153,23 @@ async function buildPayrollWorkbook(pool, { contractId, month, year }) {
     }
     const tot = siteRows.reduce((a, s) => {
         a.headcount += s.headcount;
-        a.wages += s.wages; a.eobi += s.eobi; a.sessi += s.sessi;
+        a.present += s.present;
+        a.absent += s.absent;
+        a.wages += s.wages;
+        a.arrears += s.arrears;
+        a.deductions += s.deductions;
+        a.eobi += s.eobi; a.sessi += s.sessi;
         a.tax += s.tax; a.life += s.life; a.gross += s.gross; a.net += s.net;
         return a;
-    }, { headcount: 0, wages: 0, eobi: 0, sessi: 0, tax: 0, life: 0, gross: 0, net: 0 });
+    }, { headcount: 0, present: 0, absent: 0, wages: 0, arrears: 0, deductions: 0, eobi: 0, sessi: 0, tax: 0, life: 0, gross: 0, net: 0 });
     const totRow = summary.addRow({
         site: 'CONTRACT TOTAL',
         headcount: tot.headcount,
+        present: tot.present,
+        absent: tot.absent,
         wages: money(tot.wages),
+        arrears: money(tot.arrears),
+        deductions: money(tot.deductions),
         eobi: money(tot.eobi),
         sessi: money(tot.sessi),
         tax: money(tot.tax),

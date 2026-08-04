@@ -66,14 +66,25 @@ function getResend() {
 }
 const EMAIL_FROM = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
 
-async function sendAppEmail({ to, subject, html }) {
+async function sendAppEmail({ to, subject, html, cc, bcc, attachments }) {
     const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
     const resend = getResend();
     if (!resend || !recipients.length) {
         return { skipped: true, reason: 'missing_key_or_recipients' };
     }
+    const ccList = (Array.isArray(cc) ? cc : cc ? [cc] : []).filter(Boolean);
+    const bccList = (Array.isArray(bcc) ? bcc : bcc ? [bcc] : []).filter(Boolean);
     try {
-        const result = await resend.emails.send({ from: EMAIL_FROM, to: recipients, subject, html });
+        const payload = { from: EMAIL_FROM, to: recipients, subject, html };
+        if (ccList.length) payload.cc = ccList;
+        if (bccList.length) payload.bcc = bccList;
+        if (attachments?.length) {
+            payload.attachments = attachments.map((a) => ({
+                filename: a.filename,
+                content: Buffer.isBuffer(a.content) ? a.content : Buffer.from(a.content),
+            }));
+        }
+        const result = await resend.emails.send(payload);
         return { ok: true, result };
     } catch (err) {
         console.error('[sendAppEmail]', err);
