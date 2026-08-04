@@ -394,7 +394,11 @@ export default function FixedValueContracts({ user }) {
         if (result.sent) {
             setMsg(`Dry run sent — sample for ${site?.siteName || 'one site'} to internal team (see preview below)`);
         } else {
-            setMsg(result.message || 'Dry run completed — no email sent');
+            const detail = result.results?.[0];
+            const why = result.message
+                || (detail?.reason ? `Not sent: ${detail.reason}` : null)
+                || 'Dry run completed — no email sent';
+            setMsg(why);
         }
     });
 

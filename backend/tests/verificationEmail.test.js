@@ -52,10 +52,8 @@ describe('verificationEmail', () => {
 
     test('sendVerificationEmails loads service orders by status not missing active column', async () => {
         const { sendVerificationEmails } = require('../src/modules/serviceOrders/verificationEmail');
-        const queries = [];
         const pool = {
-            query: jest.fn(async (sql, params) => {
-                queries.push(String(sql));
+            query: jest.fn(async (sql) => {
                 if (sql.includes('FROM contracts')) {
                     return { rows: [{ id: 'CTR-1', contract_name: 'Test', client_focal_name: null, client_focal_email: null }] };
                 }
@@ -67,7 +65,9 @@ describe('verificationEmail', () => {
                 return { rows: [] };
             }),
         };
-        const result = await sendVerificationEmails(pool, null, {
+        const prevKey = process.env.RESEND_API_KEY;
+        delete process.env.RESEND_API_KEY;
+        const result = await sendVerificationEmails(pool, jest.fn(), {
             contractId: 'CTR-1',
             month: 7,
             year: 2026,
@@ -75,8 +75,43 @@ describe('verificationEmail', () => {
             computeSoInvoice: jest.fn(async () => ({ siteName: 'Tarujabba', gross: 0, lineItems: [], deductions: [] })),
             renderInvoiceHtml: jest.fn(() => '<p>x</p>'),
         });
+        if (prevKey) process.env.RESEND_API_KEY = prevKey;
         expect(result.results).toHaveLength(1);
         expect(result.results[0].skipped).toBe(true);
-        expect(result.results[0].reason).toBe('no_mailer');
+        expect(result.results[0].reason).toBe('missing_key_or_recipients');
+        expect(result.message).toMatch(/RESEND_API_KEY/i);
+        expect(result.sent).toBe(0);
+    });
+
+    test('dry run ignores EMAILS_ENABLED=false', async () => {
+        const { sendVerificationEmails } = require('../src/modules/serviceOrders/verificationEmail');
+        const pool = {
+            query: jest.fn(async (sql) => {
+                if (sql.includes('FROM contracts')) {
+                    return { rows: [{ id: 'CTR-1', contract_name: 'Test', client_focal_name: null, client_focal_email: null }] };
+                }
+                if (sql.includes('FROM service_orders')) {
+                    return { rows: [{ id: 'SO-1', site_code: 'TARUJABBA', name: 'Tarujabba', meta: {} }] };
+                }
+                return { rows: [] };
+            }),
+        };
+        const prevEnabled = process.env.EMAILS_ENABLED;
+        const prevKey = process.env.RESEND_API_KEY;
+        process.env.EMAILS_ENABLED = 'false';
+        process.env.RESEND_API_KEY = 're_test_key';
+        const sendAppEmail = jest.fn(async () => ({ ok: true, result: { id: 'msg-1' } }));
+        const result = await sendVerificationEmails(pool, sendAppEmail, {
+            contractId: 'CTR-1',
+            month: 7,
+            year: 2026,
+            dryRun: true,
+            computeSoInvoice: jest.fn(async () => ({ siteName: 'Tarujabba', gross: 0, lineItems: [], deductions: [] })),
+            renderInvoiceHtml: jest.fn(() => '<p>x</p>'),
+        });
+        process.env.EMAILS_ENABLED = prevEnabled;
+        if (prevKey) process.env.RESEND_API_KEY = prevKey; else delete process.env.RESEND_API_KEY;
+        expect(sendAppEmail).toHaveBeenCalled();
+        expect(result.sent).toBe(1);
     });
 });
