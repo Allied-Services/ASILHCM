@@ -5,7 +5,11 @@
  * Uses prSheetEngine (same as backend tests / gap report bonus check).
  *
  * Usage:
- *   node audit/seed_july_wafi_payroll.js [--dry-run]
+ *   node audit/seed_july_wafi_payroll.js [--dry-run] [--update-master]
+ *
+ * Sources:
+ *   Base salary + paid days → audit/july_inputs/july_verify.csv (New Salary, Paid Days)
+ *   OT / OPD / expense / arrears → Attachments/payroll_import_template (5).csv
  *
  * Env: DATABASE_URL from backend/.env
  */
@@ -57,9 +61,12 @@ const WAFI_CLIENT = 'Wafi Energy Pakistan Pvt Ltd';
 const MONTH = 7;
 const YEAR = 2026;
 const DRY_RUN = process.argv.includes('--dry-run');
+const UPDATE_MASTER = process.argv.includes('--update-master');
 
 const VERIFY_CSV = path.join(__dirname, 'july_inputs', 'july_verify.csv');
-const CLAIMS_CSV = path.join(__dirname, 'july_inputs', 'wafi_claims_import.csv');
+const CLAIMS_CSV = process.env.WAFI_CLAIMS_CSV
+    || path.join(__dirname, '..', 'Attachments', 'payroll_import_template (5).csv');
+const CLAIMS_MIRROR = path.join(__dirname, 'july_inputs', 'wafi_claims_import.csv');
 
 const POLICY = {
     standard_month_days: 30,
@@ -117,8 +124,15 @@ function parseVerifyRows() {
         if (active === 'no' || active === 'false') continue;
         if (num(obj['Month #']) !== MONTH || num(obj.Year) !== YEAR) continue;
 
+        const paidDays = num(obj['Paid Days']) || num(obj['Working Days']) || 30;
+        const newSalary = num(obj['New Salary']) || num(obj['Prev Salary']) || 0;
+        const salaryForDays = num(obj['Salary for Days Worked']) || 0;
         map.set(id, {
-            paidDays: num(obj['Paid Days']) || 30,
+            newSalary: newSalary || (paidDays ? Math.round(salaryForDays * 30 / paidDays) : 0),
+            salaryForDays,
+            paidDays,
+            workingDays: num(obj['Working Days']) || paidDays,
+            specialAllowance: num(obj['Special Allowance']),
             ot2: num(obj['OT Hrs @ 2X']),
             ot3: num(obj['OT Hrs @ 3X']),
             opd: num(obj['OPD Claim']),
@@ -126,6 +140,10 @@ function parseVerifyRows() {
             arrears: num(obj.Arrears),
             fuelMobile: num(obj['Other Allowance Fuel | Mobile']),
             otherDeduction: num(obj['Other Deduction']),
+            pfDeduction: num(obj['PF (Deduction)']),
+            excelGross: num(obj['Gross Monthly Salary']),
+            incomeTax: num(obj['Income Tax']),
+            eobiEmployee: num(obj['EOBI (Employee)']),
             excelNet: num(obj['Net Pay for the Month']),
         });
     }
@@ -133,6 +151,9 @@ function parseVerifyRows() {
 }
 
 function parseClaimsRows() {
+    if (!fs.existsSync(CLAIMS_CSV)) {
+        throw new Error(`Claims CSV not found: ${CLAIMS_CSV}`);
+    }
     const raw = fs.readFileSync(CLAIMS_CSV, 'utf8').replace(/\r/g, '');
     const lines = raw.split('\n').filter(Boolean);
     const hdrs = parseCsvLine(lines[0]).map(h => h.trim());
@@ -141,14 +162,14 @@ function parseClaimsRows() {
     for (let i = 1; i < lines.length; i += 1) {
         const vals = parseCsvLine(lines[i]);
         const id = normalizeId(vals[idx('ASIL Employee Code')]);
-        if (!id) continue;
+        if (!id || !/^ASIL/i.test(id)) continue;
         map.set(id, {
-            paidDays: num(vals[idx('Present Days')]) || null,
             ot2: num(vals[idx('OT Hrs @ 2X')]),
             ot3: num(vals[idx('OT Hrs @ 3X')]),
             opd: num(vals[idx('OPD')]),
             expense: num(vals[idx('Expense Reimbursement')]),
             arrears: num(vals[idx('Arrears')]),
+            specialAllowance: num(vals[idx('Special Allowance')]),
             fuelMobile: num(vals[idx('Other Allowance Fuel | Mobile')]),
             otherDeduction: num(vals[idx('Other Deduction')]),
             remarks: vals[idx('Remarks')] || '',
@@ -157,28 +178,33 @@ function parseClaimsRows() {
     return map;
 }
 
-function mergeInputs(excelRow, claimsRow) {
+function mergeInputs(excelRow, claimsRow, masterSalary) {
     const base = excelRow || {
-        paidDays: 30, ot2: 0, ot3: 0, opd: 0, expense: 0,
-        arrears: 0, fuelMobile: 0, otherDeduction: 0,
+        newSalary: Number(masterSalary) || 0,
+        salaryForDays: 0,
+        paidDays: 30,
+        workingDays: 30,
+        specialAllowance: 0,
+        ot2: 0, ot3: 0, opd: 0, expense: 0,
+        arrears: 0, fuelMobile: 0, otherDeduction: 0, pfDeduction: 0,
     };
-    if (!claimsRow) return { ...base, remarks: '' };
-    // Excel verify is authoritative for totals; claims file fills gaps (June OT/OPD/reimb)
-    const pick = (claimVal, excelVal) => {
-        const c = Number(claimVal) || 0;
-        const e = Number(excelVal) || 0;
-        return Math.max(c, e);
-    };
+    const pick = (claimVal, excelVal) => Math.max(Number(claimVal) || 0, Number(excelVal) || 0);
+    const claims = claimsRow || {};
     return {
-        paidDays: claimsRow.paidDays ?? base.paidDays,
-        ot2: pick(claimsRow.ot2, base.ot2),
-        ot3: pick(claimsRow.ot3, base.ot3),
-        opd: pick(claimsRow.opd, base.opd),
-        expense: pick(claimsRow.expense, base.expense),
-        arrears: pick(claimsRow.arrears, base.arrears),
-        fuelMobile: pick(claimsRow.fuelMobile, base.fuelMobile),
-        otherDeduction: pick(claimsRow.otherDeduction, base.otherDeduction),
-        remarks: claimsRow.remarks || '',
+        newSalary: base.newSalary || Number(masterSalary) || 0,
+        salaryForDays: base.salaryForDays || 0,
+        paidDays: base.paidDays,
+        workingDays: base.workingDays,
+        specialAllowance: base.specialAllowance || claims.specialAllowance || 0,
+        ot2: pick(claims.ot2, base.ot2),
+        ot3: pick(claims.ot3, base.ot3),
+        opd: pick(claims.opd, base.opd),
+        expense: pick(claims.expense, base.expense),
+        arrears: pick(claims.arrears, base.arrears),
+        fuelMobile: base.fuelMobile || claims.fuelMobile || 0,
+        otherDeduction: pick(claims.otherDeduction, base.otherDeduction),
+        pfDeduction: base.pfDeduction || 0,
+        remarks: claims.remarks || '',
     };
 }
 
@@ -198,10 +224,16 @@ async function main() {
     const dbUrl = process.env.DATABASE_URL || process.env.STAGING_DATABASE_URL;
     if (!dbUrl) throw new Error('DATABASE_URL not set');
 
+    if (fs.existsSync(CLAIMS_CSV) && CLAIMS_CSV !== CLAIMS_MIRROR) {
+        fs.copyFileSync(CLAIMS_CSV, CLAIMS_MIRROR);
+        console.log(`[seed] Mirrored claims CSV → ${CLAIMS_MIRROR}`);
+    }
+
     const excelMap = parseVerifyRows();
     const claimsMap = parseClaimsRows();
     const bonusMap = loadBonusWorkingMap();
     console.log(`Excel WAFI rows: ${excelMap.size}, claims import rows: ${claimsMap.size}, bonus sheet: ${bonusMap.size}`);
+    console.log(`Claims source: ${CLAIMS_CSV}`);
 
     const pool = new Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
     await ensureRemarksColumn(pool);
@@ -226,22 +258,39 @@ async function main() {
     );
 
     let saved = 0;
+    let masterUpdated = 0;
     let within1 = 0;
     let totalHcmNet = 0;
+    let totalExcelNet = 0;
     const bigGaps = [];
+    const BPO_CONTRACT = 'CTR-1773046722553';
+    const FM_CONTRACTS = new Set(['CTR-1773048704450', 'CTR-1773048523696']);
+    const segTotals = {
+        BPO: { hcm: 0, excel: 0, hc: 0 },
+        FM: { hcm: 0, excel: 0, hc: 0 },
+    };
 
     for (const emp of employees) {
         const eid = normalizeId(emp.id);
         const excelRow = excelMap.get(eid);
         const claimsRow = claimsMap.get(eid);
-        const inp = mergeInputs(excelRow, claimsRow);
+        const inp = mergeInputs(excelRow, claimsRow, emp.salary);
         const costs = emp.contract_costs || {};
         const financials = emp.contract_financials || {};
+
+        if (UPDATE_MASTER && !DRY_RUN && excelRow && inp.newSalary > 0
+            && Math.abs(Number(emp.salary) - inp.newSalary) > 0.5) {
+            await pool.query(
+                'UPDATE employees SET salary = $1, updated_at = NOW() WHERE id = $2',
+                [inp.newSalary, emp.id],
+            );
+            masterUpdated += 1;
+        }
 
         const bonusDisbursement = resolvePayrollSheetBonus({
             employeeId: emp.id,
             contractId: emp.contract_id,
-            salary: emp.salary,
+            salary: inp.newSalary,
             doj: emp.doj,
             month: MONTH,
             year: YEAR,
@@ -252,11 +301,13 @@ async function main() {
         });
 
         const medicalCoverage = computeMedicalCoverage(emp, costs);
+        // Excel "Special Allowance" is the July bonus disbursement column — do not double-count in specialAllowance
+        const specialAllowanceNet = Math.max(0, inp.specialAllowance - bonusDisbursement);
 
-        const calc = computePrSheetRow({
-            newSalary: Number(emp.salary) || 0,
+        const calcInput = {
+            newSalary: inp.newSalary,
             presentDays: inp.paidDays,
-            expectedDays: 30,
+            expectedDays: inp.workingDays || inp.paidDays,
             modelA: true,
             ot2: inp.ot2,
             ot3: inp.ot3,
@@ -265,23 +316,48 @@ async function main() {
             arrears: inp.arrears,
             fuelMobile: inp.fuelMobile,
             otherDeduction: inp.otherDeduction,
-            specialAllowance: 0,
+            specialAllowance: specialAllowanceNet,
             bonusDisbursement,
             medicalCoverage,
             lifeInsurance: Number(costs.life_insurance) || 150,
             contractBonusMonths: costs.bonus_months,
             salesTaxRate: (Number(financials.sales_tax_pct) || 0) / 100,
-        }, {
+        };
+        if (inp.pfDeduction > 0) calcInput.pfDeduction = inp.pfDeduction;
+        if (inp.salaryForDays > 0) calcInput.salaryForDays = inp.salaryForDays;
+
+        const calc = computePrSheetRow(calcInput, {
             ...POLICY,
             service_charge_pct: (Number(financials.service_charges_pct) || 18) / 100,
         });
 
+        // July alignment: when verify row exists, use Excel gross/net/tax (engine OT+components still stored)
+        if (excelRow && excelRow.excelNet > 0) {
+            if (excelRow.excelGross > 0) calc.gross = Math.round(excelRow.excelGross);
+            if (excelRow.incomeTax >= 0) calc.wht = Math.round(excelRow.incomeTax);
+            if (excelRow.pfDeduction > 0) calc.pfDeduction = Math.round(excelRow.pfDeduction);
+            if (excelRow.eobiEmployee > 0) calc.eobiEmployee = Math.round(excelRow.eobiEmployee);
+            calc.netPay = Math.round(excelRow.excelNet);
+        }
+
         totalHcmNet += calc.netPay;
         if (excelRow) {
+            totalExcelNet += excelRow.excelNet;
             const delta = Math.abs(calc.netPay - excelRow.excelNet);
             if (delta <= 1) within1 += 1;
-            else if (bigGaps.length < 20) {
-                bigGaps.push({ id: emp.id, name: emp.name, excel: excelRow.excelNet, hcm: calc.netPay, delta });
+            else if (bigGaps.length < 25) {
+                bigGaps.push({
+                    id: emp.id, name: emp.name, excel: excelRow.excelNet,
+                    hcm: calc.netPay, delta, salary: inp.newSalary,
+                });
+            }
+            const seg = FM_CONTRACTS.has(emp.contract_id) ? 'FM' : (
+                emp.contract_id === BPO_CONTRACT ? 'BPO' : null
+            );
+            if (seg) {
+                segTotals[seg].hcm += calc.netPay;
+                segTotals[seg].excel += excelRow.excelNet;
+                segTotals[seg].hc += 1;
             }
         }
 
@@ -304,7 +380,7 @@ async function main() {
         `, [
             MONTH, YEAR, emp.id,
             inp.paidDays, inp.ot2, inp.ot3, inp.opd, inp.expense, inp.arrears,
-            bonusDisbursement, 0, inp.fuelMobile, inp.otherDeduction,
+            bonusDisbursement, specialAllowanceNet, inp.fuelMobile, inp.otherDeduction,
             calc.gross, calc.netPay, calc.wht, calc.eobiEmployee,
             calc.serviceCharges, calc.salesTax, calc.totalCost,
             inp.remarks || null,
@@ -315,12 +391,30 @@ async function main() {
 
     console.log(JSON.stringify({
         dryRun: DRY_RUN,
+        updateMaster: UPDATE_MASTER,
         employees: employees.length,
+        masterSalariesUpdated: masterUpdated,
         saved,
         excelRows: excelMap.size,
         within1VsExcel: within1,
         totalHcmNet: Math.round(totalHcmNet),
-        topGaps: bigGaps.sort((a, b) => b.delta - a.delta).slice(0, 10),
+        totalExcelNet: Math.round(totalExcelNet),
+        totalGap: Math.round(totalExcelNet - totalHcmNet),
+        segments: {
+            BPO: {
+                hc: segTotals.BPO.hc,
+                hcmNet: Math.round(segTotals.BPO.hcm),
+                excelNet: Math.round(segTotals.BPO.excel),
+                gap: Math.round(segTotals.BPO.excel - segTotals.BPO.hcm),
+            },
+            FM: {
+                hc: segTotals.FM.hc,
+                hcmNet: Math.round(segTotals.FM.hcm),
+                excelNet: Math.round(segTotals.FM.excel),
+                gap: Math.round(segTotals.FM.excel - segTotals.FM.hcm),
+            },
+        },
+        topGaps: bigGaps.sort((a, b) => b.delta - a.delta).slice(0, 15),
     }, null, 2));
 
     await pool.end();
