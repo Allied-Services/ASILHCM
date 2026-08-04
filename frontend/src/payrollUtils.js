@@ -151,8 +151,8 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const medPaid    = 0;
     const otherPaid  = 0;
 
-    // Taxable income EXCLUDES OPD and expense reimbursements (non-taxable per FBR rules)
-    const taxableMonthly = grossMonthly - opdClaim - reimb;
+    // Taxable income EXCLUDES OPD, expense reimbursements, and same-month arrears (year-end true-up in June)
+    const taxableMonthly = grossMonthly - opdClaim - reimb - arrears;
     const annualIncome   = taxableMonthly * 12;
     const incomeTax      = calcWHT(annualIncome);
     const eobi           = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
