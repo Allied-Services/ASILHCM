@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * Seed July 2026 WAFI payroll_transactions from HCM master + WAFI claims CSV.
- * Uses prSheetEngine (same as backend tests / gap report bonus check).
+ * Seed July 2026 WAFI payroll_transactions from July verify + claims import.
  *
  * Usage:
  *   node audit/seed_july_wafi_payroll.js [--dry-run] [--update-master]
  *
  * Sources:
  *   Base salary + paid days → audit/july_inputs/july_verify.csv (New Salary, Paid Days)
- *   OT / OPD / expense / arrears → Attachments/payroll_import_template (5).csv
+ *   OT / OPD / expense / arrears → Attachments/payroll_import_template (5).csv (mirrored to audit/july_inputs)
  *
  * Env: DATABASE_URL from backend/.env
  */
@@ -87,34 +86,51 @@ function normalizeId(id) {
     return String(id || '').trim().toUpperCase().replace(/\s+/g, '');
 }
 
-function parseCsvLine(line) {
-    const vals = [];
+/** Parse full CSV text — handles quoted fields with embedded newlines (e.g. bank account cells). */
+function parseCsvRecords(raw) {
+    const rows = [];
+    let row = [];
     let cur = '';
     let inQ = false;
-    for (const ch of line) {
-        if (ch === '"') inQ = !inQ;
-        else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; }
-        else cur += ch;
+    for (let i = 0; i < raw.length; i += 1) {
+        const ch = raw[i];
+        if (ch === '"') {
+            if (inQ && raw[i + 1] === '"') { cur += '"'; i += 1; }
+            else inQ = !inQ;
+        } else if (!inQ && ch === ',') {
+            row.push(cur.trim());
+            cur = '';
+        } else if (!inQ && (ch === '\n' || ch === '\r')) {
+            if (ch === '\r' && raw[i + 1] === '\n') i += 1;
+            row.push(cur.trim());
+            if (row.some((c) => c !== '')) rows.push(row);
+            row = [];
+            cur = '';
+        } else {
+            cur += ch;
+        }
     }
-    vals.push(cur.trim());
-    return vals;
+    if (cur.length || row.length) {
+        row.push(cur.trim());
+        if (row.some((c) => c !== '')) rows.push(row);
+    }
+    return rows;
 }
 
 function parseVerifyRows() {
-    const raw = fs.readFileSync(VERIFY_CSV, 'utf8').replace(/\r/g, '');
-    const lines = raw.split('\n').filter(Boolean);
-    let headerLine = lines[0];
-    let dataStart = 1;
-    if (!headerLine.includes('Net Pay for the Month') && lines.length > 1) {
-        headerLine = lines.slice(0, 2).join('').replace(/\n/g, '');
-        dataStart = 2;
+    const raw = fs.readFileSync(VERIFY_CSV, 'utf8').replace(/^\uFEFF/, '');
+    const records = parseCsvRecords(raw);
+    let hdrIdx = 0;
+    let hdrs = records[0].map((h) => h.replace(/"/g, '').trim());
+    if (!hdrs.some((h) => h.includes('Net Pay for the Month')) && records.length > 1) {
+        hdrs = records.slice(0, 2).flat().join('').replace(/"/g, '').split(',')
+            .map((h) => h.trim());
+        hdrIdx = 1;
     }
-    const hdrs = parseCsvLine(headerLine).map(h => h.replace(/"/g, '').trim());
-    const col = (n) => hdrs.findIndex(h => h === n || h.startsWith(n));
 
     const map = new Map();
-    for (let i = dataStart; i < lines.length; i += 1) {
-        const vals = parseCsvLine(lines[i]);
+    for (let i = hdrIdx + 1; i < records.length; i += 1) {
+        const vals = records[i];
         const obj = {};
         hdrs.forEach((h, j) => { obj[h] = vals[j] || ''; });
         const id = normalizeId(obj['ASIL Employee Code']);
@@ -151,16 +167,14 @@ function parseVerifyRows() {
 }
 
 function parseClaimsRows() {
-    if (!fs.existsSync(CLAIMS_CSV)) {
-        throw new Error(`Claims CSV not found: ${CLAIMS_CSV}`);
-    }
-    const raw = fs.readFileSync(CLAIMS_CSV, 'utf8').replace(/\r/g, '');
-    const lines = raw.split('\n').filter(Boolean);
-    const hdrs = parseCsvLine(lines[0]).map(h => h.trim());
+    const claimsPath = fs.existsSync(CLAIMS_CSV) ? CLAIMS_CSV : CLAIMS_MIRROR;
+    const raw = fs.readFileSync(claimsPath, 'utf8').replace(/^\uFEFF/, '');
+    const records = parseCsvRecords(raw);
+    const hdrs = records[0].map((h) => h.trim());
     const idx = (n) => hdrs.indexOf(n);
     const map = new Map();
-    for (let i = 1; i < lines.length; i += 1) {
-        const vals = parseCsvLine(lines[i]);
+    for (let i = 1; i < records.length; i += 1) {
+        const vals = records[i];
         const id = normalizeId(vals[idx('ASIL Employee Code')]);
         if (!id || !/^ASIL/i.test(id)) continue;
         map.set(id, {
@@ -233,7 +247,7 @@ async function main() {
     const claimsMap = parseClaimsRows();
     const bonusMap = loadBonusWorkingMap();
     console.log(`Excel WAFI rows: ${excelMap.size}, claims import rows: ${claimsMap.size}, bonus sheet: ${bonusMap.size}`);
-    console.log(`Claims source: ${CLAIMS_CSV}`);
+    console.log(`Claims source: ${fs.existsSync(CLAIMS_CSV) ? CLAIMS_CSV : CLAIMS_MIRROR}`);
 
     const pool = new Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
     await ensureRemarksColumn(pool);
@@ -265,10 +279,7 @@ async function main() {
     const bigGaps = [];
     const BPO_CONTRACT = 'CTR-1773046722553';
     const FM_CONTRACTS = new Set(['CTR-1773048704450', 'CTR-1773048523696']);
-    const segTotals = {
-        BPO: { hcm: 0, excel: 0, hc: 0 },
-        FM: { hcm: 0, excel: 0, hc: 0 },
-    };
+    const segTotals = { BPO: { hcm: 0, excel: 0, hc: 0 }, FM: { hcm: 0, excel: 0, hc: 0 } };
 
     for (const emp of employees) {
         const eid = normalizeId(emp.id);
@@ -301,7 +312,6 @@ async function main() {
         });
 
         const medicalCoverage = computeMedicalCoverage(emp, costs);
-        // Excel "Special Allowance" is the July bonus disbursement column — do not double-count in specialAllowance
         const specialAllowanceNet = Math.max(0, inp.specialAllowance - bonusDisbursement);
 
         const calcInput = {
@@ -331,7 +341,6 @@ async function main() {
             service_charge_pct: (Number(financials.service_charges_pct) || 18) / 100,
         });
 
-        // July alignment: when verify row exists, use Excel gross/net/tax (engine OT+components still stored)
         if (excelRow && excelRow.excelNet > 0) {
             if (excelRow.excelGross > 0) calc.gross = Math.round(excelRow.excelGross);
             if (excelRow.incomeTax >= 0) calc.wht = Math.round(excelRow.incomeTax);
@@ -345,7 +354,7 @@ async function main() {
             totalExcelNet += excelRow.excelNet;
             const delta = Math.abs(calc.netPay - excelRow.excelNet);
             if (delta <= 1) within1 += 1;
-            else if (bigGaps.length < 25) {
+            else if (bigGaps.length < 15) {
                 bigGaps.push({
                     id: emp.id, name: emp.name, excel: excelRow.excelNet,
                     hcm: calc.netPay, delta, salary: inp.newSalary,
@@ -414,7 +423,8 @@ async function main() {
                 gap: Math.round(segTotals.FM.excel - segTotals.FM.hcm),
             },
         },
-        topGaps: bigGaps.sort((a, b) => b.delta - a.delta).slice(0, 15),
+        rehanaInVerify: excelMap.has('ASIL/SPL-385/21'),
+        topGaps: bigGaps.sort((a, b) => b.delta - a.delta).slice(0, 10),
     }, null, 2));
 
     await pool.end();
