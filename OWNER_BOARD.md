@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-01 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-04 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -10,7 +10,7 @@
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
 STATUS: **RED** (no pilot month proven; two payroll systems still active)  
-LIVE: prod + staging API healthy (`/health` 200, commit `32abcad`, verified 2026-08-01 22:42 PKT).
+LIVE: production API healthy (`/health` 200, status ok, migrations ok, commit `c5c9e67`, verified 2026-08-04 09:01 PKT).
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
