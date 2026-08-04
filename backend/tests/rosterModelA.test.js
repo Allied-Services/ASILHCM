@@ -61,6 +61,19 @@ describe('Master Roster columns', () => {
         expect(patch.salary).toBeUndefined();
     });
 
+    test('master import normalizes Active=YES to Yes', () => {
+        const { csvRowToPatch } = require('../src/modules/employees/masterRoster');
+        const patch = csvRowToPatch(
+            {
+                'ASIL Employee Code': 'ASIL/PSO-187/25',
+                'Active': 'YES',
+            },
+            { ctByName: new Map(), ctById: new Map(), clientByName: new Map() },
+            { id: 'ASIL/PSO-187/25', name: 'Test', active: 'Yes' }
+        );
+        expect(patch.active).toBe('Yes');
+    });
+
     test('importMasterRosterCsv releases CNIC from other employee before update', async () => {
         const { importMasterRosterCsv } = require('../src/modules/employees/masterRoster');
         const calls = [];

@@ -4,6 +4,7 @@ import { ChevronLeft, Plus, X, Edit2, Save, TrendingUp, Calendar, Heart, Landmar
 import { api } from './api';
 import EmploymentOrgCascade from './EmploymentOrgCascade';
 import { normalizeAsilBu } from './orgHierarchy';
+import { activeStatusLabel } from './employeeActive';
 
 // ── Edit-form context (module-level) ─────────────────────────────────────────
 // Keeps EI / ERow / ECombo as STABLE module-level components so React never
@@ -620,7 +621,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                 {!isSuperAdmin && isEditing && <div style={{ background:'rgba(234,179,8,0.1)', border:'1px solid rgba(234,179,8,0.3)', borderRadius:'8px', padding:'0.6rem 1rem', fontSize:'0.84rem', color:'#eab308', marginBottom:'0.75rem' }}>🔒 Fields with lock icon can only be changed by an Administrator.</div>}
                 {!isEditing && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
                     <Card><STitle>Employment</STitle>
-                        {[['Employee Code', emp.id], ['ASIL BU', normalizeAsilBu(emp.bu) || emp.bu], ['Client', emp.client], ['Client BU', emp.clientBU], ['Department', emp.dept], ['Designation', emp.designation], ['Location', emp.location + ', ' + (emp.province || '')], ['Date of Joining', emp.doj], ['Last Working Day', emp.lastWorkingDay || '—'], ['Status', emp.active === 'Yes' ? 'Active' : 'Inactive']].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
+                        {[['Employee Code', emp.id], ['ASIL BU', normalizeAsilBu(emp.bu) || emp.bu], ['Client', emp.client], ['Client BU', emp.clientBU], ['Department', emp.dept], ['Designation', emp.designation], ['Location', emp.location + ', ' + (emp.province || '')], ['Date of Joining', emp.doj], ['Last Working Day', emp.lastWorkingDay || '—'], ['Status', activeStatusLabel(emp.active)]].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
                         <div style={{marginTop:'0.6rem',paddingTop:'0.6rem',borderTop:'1px dashed rgba(99,102,241,0.3)'}}>
                           <div style={{fontSize:'0.68rem',color:'#6366f1',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'4px'}}>Line Manager</div>
                           <Row label="Manager Name" value={emp.lineManagerName || '—'} />

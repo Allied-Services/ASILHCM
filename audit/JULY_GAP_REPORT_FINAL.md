@@ -1,6 +1,6 @@
 # July 2026 WAFI Payroll Gap Report — FINAL
 
-Generated: 2026-08-03T12:11:38.147Z
+Generated: 2026-08-03T14:19:36.720Z
 Scope: **Wafi Energy Pakistan Pvt Ltd** only
 Excel source: `audit/july_inputs/july_verify.csv`
 Target: 7/2026 net pay ± PKR 1 per employee
@@ -16,6 +16,8 @@ Target: 7/2026 net pay ± PKR 1 per employee
 | Net pay mismatches | 302 |
 | Bonus matches (Excel AB > 0, ±1) | 217 / 217 |
 | Bonus mismatches (Excel AB > 0) | 0 |
+| HCM rows with bonus > 0 (all active WAFI) | 218 |
+| HCM bonus > 0 but Excel AB = 0 | 1 |
 | Excel-only (not in HCM master) | 0 |
 | HCM payroll-only (not in Excel) | 1 |
 
@@ -27,6 +29,14 @@ Target: 7/2026 net pay ± PKR 1 per employee
 | Bonus (Excel AB / HCM bonus_amount) | 17,385,973 | 17,385,973 | 0 |
 
 **Bonus alignment:** 217/217 employees with Excel AB > 0 match within ±1 PKR. Total bonus delta: 0.
+
+## HCM bonus > 0 but Excel AB = 0 (223 vs 217 explanation)
+
+These employees show bonus on the Payroll Sheet but Excel July verify has zero Special Allowance (AB).
+
+| Employee ID | Name | Contract ID | HCM Bonus | Likely reason |
+|-------------|------|-------------|----------:|---------------|
+| ASIL/SPL-385/21 | Rehana Mansha | CTR-1773046722553 | 225,498 | On bonus working sheet; not in July Excel AB |
 
 ## Explained gap summary (net pay)
 

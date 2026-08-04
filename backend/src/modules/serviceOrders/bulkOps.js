@@ -4,6 +4,7 @@ const { listServiceOrders, getServiceOrder } = require('./crud');
 const { pullAttendanceForSite } = require('./driveAttendance');
 const { applyAttendance } = require('./attendanceIngest');
 const { computeSoInvoice, persistSoInvoice, listDeductions } = require('./billing');
+const { activeEmployeeSqlClause } = require('../../core/employeeActive');
 
 /**
  * Drive-pull + apply attendance for every service order under a contract.
@@ -158,7 +159,10 @@ async function attendanceStatusBySite(pool, { contractId, month, year }) {
              JOIN employees e ON e.id = o.employee_id
              WHERE o.period_month = $1 AND o.period_year = $2
                AND o.source = 'fv_conservancy_attendance'
-               AND (e.site = $3 OR e.location ILIKE $4)`,
+               AND (e.site = $3 OR e.location ILIKE $4)
+               AND ${activeEmployeeSqlClause('e', {
+                   lwdFloorSql: `make_date($2::int, $1::int, 1)`,
+               })}`,
             [month, year, so.site_code, `%${so.site_code}%`]
         );
         out.push({
