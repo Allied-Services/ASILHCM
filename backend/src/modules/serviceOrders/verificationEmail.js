@@ -117,9 +117,11 @@ function resolveSiteFocalEmails(so) {
     return parseEmailList(meta.focalEmail || meta.focal_emails || '');
 }
 
-function buildCcList({ contractFocalEmail }) {
+function buildCcList({ contractFocalEmail, includeContractFocal = true }) {
     const cc = new Set(ALLIED_CC.map((e) => e.toLowerCase()));
-    for (const em of parseEmailList(contractFocalEmail)) cc.add(em);
+    if (includeContractFocal) {
+        for (const em of parseEmailList(contractFocalEmail)) cc.add(em);
+    }
     return [...cc];
 }
 
@@ -182,7 +184,9 @@ async function sendVerificationEmails(pool, sendAppEmail, {
         throw err;
     }
     const contract = contracts[0];
-    const cc = buildCcList({ contractFocalEmail: contract.client_focal_email });
+    const cc = dryRun
+        ? buildCcList({ contractFocalEmail: contract.client_focal_email, includeContractFocal: false })
+        : buildCcList({ contractFocalEmail: contract.client_focal_email });
 
     const { rows: orders } = await pool.query(
         `SELECT id, site_code, name, meta FROM service_orders
@@ -193,20 +197,9 @@ async function sendVerificationEmails(pool, sendAppEmail, {
     );
 
     const results = [];
-    let targets = orders;
-
-    if (dryRun) {
-        let pick = null;
-        if (serviceOrderId) pick = orders.find((o) => String(o.id) === String(serviceOrderId));
-        if (!pick && siteCode) {
-            const code = String(siteCode).trim().toUpperCase();
-            pick = orders.find((o) => String(o.site_code || '').toUpperCase() === code);
-        }
-        if (!pick) pick = orders.find((o) => resolveSiteFocalEmails(o).length) || orders.find((o) => o.site_code === 'TARUJABBA') || orders[0];
-        targets = pick ? [pick] : [];
-    } else {
-        targets = orders.filter((o) => resolveSiteFocalEmails(o).length > 0);
-    }
+    const targets = dryRun
+        ? orders
+        : orders.filter((o) => resolveSiteFocalEmails(o).length > 0);
 
     if (!targets.length) {
         return {
@@ -215,7 +208,7 @@ async function sendVerificationEmails(pool, sendAppEmail, {
             sent: 0,
             skipped: orders.length,
             results: [],
-            message: dryRun ? 'No site available for dry run' : 'No sites with focal emails configured',
+            message: dryRun ? 'No sites on contract for dry run' : 'No sites with focal emails configured',
         };
     }
 
@@ -355,7 +348,6 @@ async function sendVerificationEmails(pool, sendAppEmail, {
             });
         }
 
-        if (dryRun) break;
     }
 
     const { sent, skipped, failed, message } = summarizeSendOutcome(results, dryRun);

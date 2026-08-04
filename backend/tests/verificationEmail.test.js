@@ -77,6 +77,12 @@ describe('verificationEmail', () => {
         ]));
     });
 
+    test('buildCcList can omit contract focal (dry run)', () => {
+        const cc = buildCcList({ contractFocalEmail: 'Asmat.K.Awan@psopk.com', includeContractFocal: false });
+        expect(cc).toEqual(['obaid.rana@asil.com.pk', 'huzaifa.rafaqat@asil.com.pk']);
+        expect(cc).not.toContain('asmat.k.awan@psopk.com');
+    });
+
     test('sendVerificationEmails loads service orders by status not missing active column', async () => {
         const { sendVerificationEmails } = require('../src/modules/serviceOrders/verificationEmail');
         const pool = {
@@ -147,5 +153,42 @@ describe('verificationEmail', () => {
         }));
         expect(result.sent).toBe(1);
         expect(result.results[0].attachments).toHaveLength(2);
+    });
+
+    test('dry run sends one email per site with contract focal excluded from CC', async () => {
+        const { sendVerificationEmails } = require('../src/modules/serviceOrders/verificationEmail');
+        const sites = [
+            { id: 'SO-1', site_code: 'CHAKPIRANA', name: 'Chakpirana', meta: {} },
+            { id: 'SO-2', site_code: 'TARUJABBA', name: 'Tarujabba', meta: {} },
+            { id: 'SO-3', site_code: 'JUGLOT', name: 'Juglot', meta: {} },
+        ];
+        const pool = {
+            query: jest.fn(async (sql) => {
+                if (sql.includes('FROM contracts')) {
+                    return { rows: [{ id: 'CTR-1', contract_name: 'Test', client_focal_name: 'Ms. Asmat Awan', client_focal_email: 'Asmat.K.Awan@psopk.com' }] };
+                }
+                if (sql.includes('FROM service_orders')) {
+                    return { rows: sites };
+                }
+                return { rows: [] };
+            }),
+        };
+        process.env.RESEND_API_KEY = 're_test_key';
+        const sendAppEmail = jest.fn(async () => ({ ok: true, result: { id: 'msg-1' } }));
+        const result = await sendVerificationEmails(pool, sendAppEmail, {
+            contractId: 'CTR-1',
+            month: 7,
+            year: 2026,
+            dryRun: true,
+            computeSoInvoice: jest.fn(async () => ({ siteName: 'X', gross: 0, lineItems: [], deductions: [] })),
+            renderInvoiceHtml: jest.fn(() => '<p>x</p>'),
+        });
+        expect(sendAppEmail).toHaveBeenCalledTimes(3);
+        expect(result.sent).toBe(3);
+        for (const call of sendAppEmail.mock.calls) {
+            expect(call[0].cc).toEqual(['obaid.rana@asil.com.pk', 'huzaifa.rafaqat@asil.com.pk']);
+            expect(call[0].cc).not.toContain('asmat.k.awan@psopk.com');
+            expect(call[0].attachments).toHaveLength(2);
+        }
     });
 });
