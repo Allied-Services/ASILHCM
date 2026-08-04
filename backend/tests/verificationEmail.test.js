@@ -1,5 +1,16 @@
 'use strict';
 
+jest.mock('../src/modules/serviceOrders/verificationAttachments', () => ({
+    buildVerificationPdfAttachments: jest.fn(async () => ({
+        attachments: [
+            { filename: 'Proforma_Invoice_TARUJABBA_July_2026.pdf', content: Buffer.from('invoice-pdf') },
+            { filename: 'Payroll_TARUJABBA_July_2026.pdf', content: Buffer.from('payroll-pdf') },
+        ],
+        warnings: [],
+        payrollHeadcount: 5,
+    })),
+}));
+
 const {
     parseEmailList,
     parseNameFromEmail,
@@ -7,6 +18,7 @@ const {
     composeVerificationEmail,
     buildCcList,
 } = require('../src/modules/serviceOrders/verificationEmail');
+const { buildVerificationPdfAttachments } = require('../src/modules/serviceOrders/verificationAttachments');
 
 describe('verificationEmail', () => {
     test('parseEmailList splits comma-separated addresses', () => {
@@ -23,7 +35,7 @@ describe('verificationEmail', () => {
             .toBe('Ms. Asmat Awan');
     });
 
-    test('composeVerificationEmail includes proforma disclaimer and dry-run banner', () => {
+    test('composeVerificationEmail lists PDF attachments when provided', () => {
         const { subject, html, salutation } = composeVerificationEmail({
             siteName: 'Tarujabba Depot',
             siteCode: 'TARUJABBA',
@@ -33,12 +45,27 @@ describe('verificationEmail', () => {
             focalName: 'Mr. Ali Khan',
             dryRun: true,
             intendedTo: ['ali.khan@psopk.com'],
+            attachmentNames: ['Proforma_Invoice_TARUJABBA_July_2026.pdf', 'Payroll_TARUJABBA_July_2026.pdf'],
         });
         expect(subject).toBe('Payroll & Invoice Verification for July 2026 — Tarujabba Depot');
         expect(salutation).toBe('Mr. Ali Khan');
         expect(html).toContain('DRY RUN');
         expect(html).toContain('proforma invoice');
-        expect(html).toContain('Assalam-o-Alaikum');
+        expect(html).toContain('Please find attached');
+        expect(html).toContain('Proforma_Invoice_TARUJABBA_July_2026.pdf');
+        expect(html).not.toContain('<p>INV</p>');
+    });
+
+    test('composeVerificationEmail falls back to inline invoice when no attachments', () => {
+        const { html } = composeVerificationEmail({
+            siteName: 'Tarujabba Depot',
+            siteCode: 'TARUJABBA',
+            month: 7,
+            year: 2026,
+            invoiceHtml: '<p>INV</p>',
+            dryRun: false,
+        });
+        expect(html).toContain('<p>INV</p>');
     });
 
     test('buildCcList always includes allied focals and contract focal', () => {
@@ -76,6 +103,7 @@ describe('verificationEmail', () => {
             renderInvoiceHtml: jest.fn(() => '<p>x</p>'),
         });
         if (prevKey) process.env.RESEND_API_KEY = prevKey;
+        expect(buildVerificationPdfAttachments).toHaveBeenCalled();
         expect(result.results).toHaveLength(1);
         expect(result.results[0].skipped).toBe(true);
         expect(result.results[0].reason).toBe('missing_key_or_recipients');
@@ -83,7 +111,7 @@ describe('verificationEmail', () => {
         expect(result.sent).toBe(0);
     });
 
-    test('dry run ignores EMAILS_ENABLED=false', async () => {
+    test('dry run ignores EMAILS_ENABLED=false and attaches PDFs', async () => {
         const { sendVerificationEmails } = require('../src/modules/serviceOrders/verificationEmail');
         const pool = {
             query: jest.fn(async (sql) => {
@@ -111,7 +139,13 @@ describe('verificationEmail', () => {
         });
         process.env.EMAILS_ENABLED = prevEnabled;
         if (prevKey) process.env.RESEND_API_KEY = prevKey; else delete process.env.RESEND_API_KEY;
-        expect(sendAppEmail).toHaveBeenCalled();
+        expect(sendAppEmail).toHaveBeenCalledWith(expect.objectContaining({
+            attachments: expect.arrayContaining([
+                expect.objectContaining({ filename: expect.stringMatching(/^Proforma_Invoice_/) }),
+                expect.objectContaining({ filename: expect.stringMatching(/^Payroll_/) }),
+            ]),
+        }));
         expect(result.sent).toBe(1);
+        expect(result.results[0].attachments).toHaveLength(2);
     });
 });

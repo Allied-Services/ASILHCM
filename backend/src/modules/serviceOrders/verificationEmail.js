@@ -1,6 +1,7 @@
 'use strict';
 
 const { MONTH_NAMES } = require('./attendanceParse');
+const { buildVerificationPdfAttachments } = require('./verificationAttachments');
 
 const ALLIED_CC = Object.freeze([
     'obaid.rana@asil.com.pk',
@@ -62,11 +63,13 @@ function composeVerificationEmail({
     primaryEmail,
     dryRun,
     intendedTo,
+    attachmentNames = [],
 }) {
     const period = monthYearLabel(month, year);
     const displaySite = siteName || siteCode || 'your terminal';
     const salutation = buildSalutation({ focalName, primaryEmail: primaryEmail || (intendedTo && intendedTo[0]) });
     const subject = `Payroll & Invoice Verification for ${period} — ${displaySite}`;
+    const hasAttachments = attachmentNames.length > 0;
 
     const dryRunBanner = dryRun
         ? `<div style="background:#fff3cd;border:1px solid #ffc107;padding:12px 16px;margin-bottom:20px;border-radius:6px;">
@@ -74,6 +77,11 @@ function composeVerificationEmail({
              <em>${(intendedTo || []).join(', ') || '— no client emails configured —'}</em>
            </div>`
         : '';
+
+    const attachmentBlock = hasAttachments
+        ? `<p>Please find attached:</p><ul>${attachmentNames.map((n) => `<li><strong>${n}</strong></li>`).join('')}</ul>`
+        : `<hr style="border:none;border-top:1px solid #e0e0e0;margin:24px 0;"/>
+           ${invoiceHtml || '<p><em>Invoice preview unavailable.</em></p>'}`;
 
     const html = `
       ${dryRunBanner}
@@ -87,13 +95,12 @@ function composeVerificationEmail({
         </p>
         <p>We would appreciate it if you could share your response at your earliest convenience.</p>
         <p>
-          Please note that the invoice below is a <strong>proforma invoice</strong>. The actual invoice will be
+          Please note that the attached invoice is a <strong>proforma invoice</strong>. The actual invoice will be
           sent with all necessary supporting documents; however, this forms the basis of the calculation.
         </p>
+        ${attachmentBlock}
         <p>In case of any changes proposed, please reply to us at your earliest.</p>
         <p>Thank you for your continued cooperation.</p>
-        <hr style="border:none;border-top:1px solid #e0e0e0;margin:24px 0;"/>
-        ${invoiceHtml || '<p><em>Invoice preview unavailable.</em></p>'}
         <p style="margin-top:24px;">
           Regards,<br/>
           <strong>Allied Services International (Pvt.) Ltd.</strong><br/>
@@ -231,6 +238,16 @@ async function sendVerificationEmails(pool, sendAppEmail, {
 
         const computed = await computeSoInvoice(pool, { serviceOrderId: so.id, month, year });
         const invoiceHtml = renderInvoiceHtml({ computed }, { format: 'invoice_letterhead' });
+        const { attachments, warnings: pdfWarnings, payrollHeadcount } = await buildVerificationPdfAttachments(pool, {
+            computed,
+            renderInvoiceHtml,
+            contractId,
+            month,
+            year,
+            siteCode: so.site_code,
+            siteName: so.name,
+        });
+        const attachmentNames = attachments.map((a) => a.filename);
         const composed = composeVerificationEmail({
             siteName: so.name,
             siteCode: so.site_code,
@@ -241,6 +258,7 @@ async function sendVerificationEmails(pool, sendAppEmail, {
             primaryEmail: intendedTo[0],
             dryRun,
             intendedTo,
+            attachmentNames,
         });
 
         if (!sendAppEmail) {
@@ -291,6 +309,7 @@ async function sendVerificationEmails(pool, sendAppEmail, {
                 cc,
                 subject: composed.subject,
                 html: composed.html,
+                attachments,
             });
             if (send?.skipped) {
                 results.push({
@@ -303,6 +322,8 @@ async function sendVerificationEmails(pool, sendAppEmail, {
                     intendedTo,
                     cc,
                     subject: composed.subject,
+                    attachments: attachmentNames,
+                    pdfWarnings,
                 });
                 continue;
             }
@@ -317,6 +338,9 @@ async function sendVerificationEmails(pool, sendAppEmail, {
                 cc,
                 subject: composed.subject,
                 send,
+                attachments: attachmentNames,
+                payrollHeadcount,
+                pdfWarnings,
             });
         } catch (err) {
             results.push({
