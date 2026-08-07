@@ -38,6 +38,10 @@ const {
     buildPayrollWorkbook,
     buildInvoiceWorkbook,
     workbookToBuffer,
+    getBillableConfirmationsForSo,
+    listContractBillableConfirmations,
+    saveBillableConfirmations,
+    saveContractBillableConfirmations,
 } = require('./service');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -282,6 +286,115 @@ function registerServiceOrderRoutes(app, deps) {
             res.json(summary);
         } catch (err) {
             handleRouteError(res, 'fixed-value.attendance.apply', err);
+        }
+    });
+
+    app.get('/api/fixed-value/service-orders/:id/billable-confirmations', requireAuth, readRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.query.month, 10);
+            const year = parseInt(req.query.year, 10);
+            if (!month || !year) return res.status(400).json({ error: 'month and year required' });
+            const result = await getBillableConfirmationsForSo(pool, req.params.id, month, year);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.billable.get', err);
+        }
+    });
+
+    app.put('/api/fixed-value/service-orders/:id/billable-confirmations', requireAuth, writeRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            if (!month || !year) return res.status(400).json({ error: 'month and year required' });
+            const result = await saveBillableConfirmations(pool, {
+                serviceOrderId: req.params.id,
+                month,
+                year,
+                lines: req.body.lines || [],
+                confirmAll: !!req.body.confirmAll,
+                actor: req.user?.email,
+            });
+            if (logAudit) logAudit(req, 'BILLABLE_CONFIRM', 'fixed_value_so', req.params.id);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.billable.save', err);
+        }
+    });
+
+    app.post('/api/fixed-value/service-orders/:id/billable-confirmations/confirm-all', requireAuth, writeRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            if (!month || !year) return res.status(400).json({ error: 'month and year required' });
+            const result = await saveBillableConfirmations(pool, {
+                serviceOrderId: req.params.id,
+                month,
+                year,
+                confirmAll: true,
+                actor: req.user?.email,
+            });
+            if (logAudit) logAudit(req, 'BILLABLE_CONFIRM_ALL', 'fixed_value_so', req.params.id);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.billable.confirmAll', err);
+        }
+    });
+
+    app.get('/api/fixed-value/contracts/:contractId/billable-confirmations', requireAuth, readRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.query.month, 10);
+            const year = parseInt(req.query.year, 10);
+            if (!month || !year) return res.status(400).json({ error: 'month and year required' });
+            const siteCodes = req.query.siteCodes
+                ? String(req.query.siteCodes).split(',').map((s) => s.trim()).filter(Boolean)
+                : undefined;
+            const result = await listContractBillableConfirmations(
+                pool, req.params.contractId, month, year, siteCodes
+            );
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.billable.contractGet', err);
+        }
+    });
+
+    app.put('/api/fixed-value/contracts/:contractId/billable-confirmations', requireAuth, writeRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            if (!month || !year) return res.status(400).json({ error: 'month and year required' });
+            const result = await saveContractBillableConfirmations(pool, {
+                contractId: req.params.contractId,
+                month,
+                year,
+                actor: req.user?.email,
+                confirmAll: !!req.body.confirmAll,
+                siteCodes: req.body.siteCodes,
+                sites: req.body.sites,
+            });
+            if (logAudit) logAudit(req, 'BILLABLE_CONFIRM', 'fixed_value_contract', req.params.contractId);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.billable.contractSave', err);
+        }
+    });
+
+    app.post('/api/fixed-value/contracts/:contractId/billable-confirmations/confirm-all', requireAuth, writeRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            if (!month || !year) return res.status(400).json({ error: 'month and year required' });
+            const result = await saveContractBillableConfirmations(pool, {
+                contractId: req.params.contractId,
+                month,
+                year,
+                actor: req.user?.email,
+                confirmAll: true,
+                siteCodes: req.body.siteCodes,
+            });
+            if (logAudit) logAudit(req, 'BILLABLE_CONFIRM_ALL', 'fixed_value_contract', req.params.contractId);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.billable.contractConfirmAll', err);
         }
     });
 

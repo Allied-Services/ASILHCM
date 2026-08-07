@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     MapPin, Upload, CloudDownload, Calculator, FileText, Shield,
     Mail, Database, RefreshCw, AlertCircle, CheckCircle, Download,
-    ExternalLink, Layers, Play, Plus, Pencil,
+    ExternalLink, Layers, Play, Plus, Pencil, ClipboardCheck,
 } from 'lucide-react';
 import { api } from '../../api';
 import FixedValueContractWizard from './FixedValueContractWizard';
@@ -57,6 +57,7 @@ const COLD_START_MSG = 'Staging server waking up (Render free tier) — usually 
 const STEPS = [
     { key: 'period', label: 'Period & Contract', icon: Layers },
     { key: 'attendance', label: 'Attendance', icon: Upload },
+    { key: 'billable', label: 'Confirm billable services', icon: ClipboardCheck },
     { key: 'payroll', label: 'Payroll', icon: Calculator },
     { key: 'invoice', label: 'Invoice', icon: FileText },
     { key: 'compliance', label: 'Statutory', icon: Shield },
@@ -98,6 +99,8 @@ export default function FixedValueContracts({ user }) {
     const [payrollWarnings, setPayrollWarnings] = useState([]);
 
     const [invoicePack, setInvoicePack] = useState(null);
+    const [billablePack, setBillablePack] = useState(null);
+    const [billableEdits, setBillableEdits] = useState({}); // { [soId]: { [lineId]: boolean } }
     const [registry, setRegistry] = useState([]);
     const [emailResult, setEmailResult] = useState(null);
     const [wizard, setWizard] = useState(null); // { mode: 'create'|'edit', contractId? }
@@ -183,14 +186,21 @@ export default function FixedValueContracts({ user }) {
     }), emptyTotals), [payrollBySite]);
 
     const attDoneCount = attStatus.filter(s => s.status === 'done').length;
+    const billableReviewedCount = billablePack?.reviewedCount || 0;
+    const billableSiteCount = billablePack?.siteCount || orders.length;
     const stepStatus = useMemo(() => ({
         period: contractId ? 'done' : 'not_started',
         attendance: attDoneCount === 0 ? 'not_started' : (attDoneCount >= orders.length && orders.length ? 'done' : 'ready'),
+        billable: billablePack?.allReviewed
+            ? 'done'
+            : (attDoneCount || contractId ? 'ready' : 'not_started'),
         payroll: payrollRows.length ? 'done' : (attDoneCount ? 'ready' : 'not_started'),
-        invoice: invoicePack?.sites?.length ? 'done' : (attDoneCount ? 'ready' : 'not_started'),
+        invoice: invoicePack?.sites?.length
+            ? 'done'
+            : (billablePack?.allReviewed ? 'ready' : 'not_started'),
         compliance: payrollRows.length ? 'ready' : 'not_started',
         export: (payrollRows.length || invoicePack?.sites?.length) ? 'ready' : 'not_started',
-    }), [contractId, attDoneCount, orders.length, payrollRows.length, invoicePack]);
+    }), [contractId, attDoneCount, orders.length, payrollRows.length, invoicePack, billablePack]);
 
     const loadContracts = useCallback(async () => {
         const rows = await api.getFixedValueContracts();
@@ -233,6 +243,24 @@ export default function FixedValueContracts({ user }) {
         const rows = await api.getFixedValueDeductions(selectedOrder.id, month, year);
         setDeductions(Array.isArray(rows) ? rows : []);
     }, [selectedOrder?.id, month, year]);
+
+    const loadBillableConfirmations = useCallback(async () => {
+        if (!contractId) {
+            setBillablePack(null);
+            setBillableEdits({});
+            return;
+        }
+        const pack = await api.getFixedValueBillableConfirmations(contractId, month, year);
+        setBillablePack(pack);
+        const edits = {};
+        for (const site of pack?.sites || []) {
+            edits[site.serviceOrderId] = {};
+            for (const line of site.lines || []) {
+                edits[site.serviceOrderId][line.lineId] = !!line.billable;
+            }
+        }
+        setBillableEdits(edits);
+    }, [contractId, month, year]);
 
     const loadHubOverrides = useCallback(async () => {
         if (!contractId || step !== 'attendance') {
@@ -301,6 +329,11 @@ export default function FixedValueContracts({ user }) {
     useEffect(() => {
         if (step === 'invoice' || step === 'export') loadRegistry().catch(() => {});
     }, [step, loadRegistry]);
+    useEffect(() => {
+        if (step === 'billable' || step === 'invoice') {
+            loadBillableConfirmations().catch((e) => setError(e.message || 'Failed to load billable confirmations'));
+        }
+    }, [step, loadBillableConfirmations]);
     useEffect(() => { loadDeductions().catch(() => {}); }, [loadDeductions]);
     useEffect(() => { loadHubOverrides().catch(() => {}); }, [loadHubOverrides]);
     useEffect(() => {
@@ -389,6 +422,52 @@ export default function FixedValueContracts({ user }) {
         setMsg(`Stamped ${result.count} site invoices`);
     });
 
+    const toggleBillableLine = (soId, lineId, checked) => {
+        setBillableEdits((prev) => ({
+            ...prev,
+            [soId]: { ...(prev[soId] || {}), [lineId]: checked },
+        }));
+    };
+
+    const handleSaveSiteBillable = (site, { confirmAll = false } = {}) => runAction(async () => {
+        if (confirmAll) {
+            await api.confirmAllFixedValueBillable(site.serviceOrderId, month, year);
+        } else {
+            const edits = billableEdits[site.serviceOrderId] || {};
+            const lines = (site.lines || []).map((l) => ({
+                lineId: l.lineId,
+                billable: edits[l.lineId] !== undefined ? !!edits[l.lineId] : !!l.billable,
+            }));
+            await api.saveFixedValueBillableConfirmations(site.serviceOrderId, month, year, lines);
+        }
+        await loadBillableConfirmations();
+        setMsg(confirmAll
+            ? `Confirmed all billable services for ${site.siteCode}`
+            : `Saved billable confirmations for ${site.siteCode}`);
+    });
+
+    const handleSaveAllBillable = ({ confirmAll = false } = {}) => runAction(async () => {
+        if (confirmAll) {
+            await api.confirmAllFixedValueBillableContract(contractId, month, year);
+        } else {
+            const sites = (billablePack?.sites || []).map((site) => {
+                const edits = billableEdits[site.serviceOrderId] || {};
+                return {
+                    serviceOrderId: site.serviceOrderId,
+                    lines: (site.lines || []).map((l) => ({
+                        lineId: l.lineId,
+                        billable: edits[l.lineId] !== undefined ? !!edits[l.lineId] : !!l.billable,
+                    })),
+                };
+            });
+            await api.saveFixedValueBillableConfirmationsAll(contractId, month, year, { sites });
+        }
+        await loadBillableConfirmations();
+        setMsg(confirmAll
+            ? 'Confirmed all billable services for every site this period'
+            : 'Saved billable confirmations for every site this period');
+    });
+
     const handleDryRunVerificationEmail = () => runAction(async () => {
         const result = await api.sendFixedValueVerificationEmails(contractId, month, year, { dryRun: true });
         setEmailResult(result);
@@ -449,7 +528,7 @@ export default function FixedValueContracts({ user }) {
             <div className="fv-ops-header">
                 <div>
                     <h2>Fixed Value / Conservancy</h2>
-                    <p>Stepped monthly ops — attendance → payroll (absent-driven) → invoices → exports.</p>
+                    <p>Stepped monthly ops — attendance → confirm billable services → payroll → invoices → exports.</p>
                 </div>
                 <div className="fv-ops-period">
                     <select value={contractId} onChange={e => setContractId(e.target.value)}>
@@ -734,8 +813,126 @@ export default function FixedValueContracts({ user }) {
                         </div>
                     )}
                     <div className="fv-actions">
-                        <button type="button" className="btn-primary" disabled={!attDoneCount} onClick={() => setStep('payroll')}>
+                        <button type="button" className="btn-primary" disabled={!attDoneCount} onClick={() => setStep('billable')}>
+                            Continue to Confirm billable services
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {step === 'billable' && (
+                <div className="fv-panel">
+                    <h3>3 · Confirm billable services</h3>
+                    <p className="fv-lead">
+                        Attendance proves manpower; an explicit monthly confirmation proves non-manpower is billable.
+                        Tick consumables, garbage, equipment, and other fixed lines that were provided this month.
+                        Defaults are <strong>off</strong> for a new month. Save even if you leave everything unchecked —
+                        invoices will not generate until each site has a saved confirmation for the period.
+                    </p>
+                    <div className="fv-kpi-grid">
+                        <div className="fv-kpi">
+                            <div className="label">Sites reviewed</div>
+                            <div className="value">{billableReviewedCount}/{billableSiteCount || 0}</div>
+                        </div>
+                        <div className="fv-kpi">
+                            <div className="label">Period</div>
+                            <div className="value">{month}/{year}</div>
+                        </div>
+                    </div>
+                    <div className="fv-actions">
+                        <button type="button" className="btn-primary" disabled={loading || !canWrite || !contractId}
+                            onClick={() => handleSaveAllBillable({ confirmAll: false })}>
+                            <ClipboardCheck size={16} /> Save confirmations (all sites)
+                        </button>
+                        <button type="button" className="btn-secondary" disabled={loading || !canWrite || !contractId}
+                            onClick={() => handleSaveAllBillable({ confirmAll: true })}>
+                            Confirm all billable (contract)
+                        </button>
+                        <button type="button" className="btn-secondary" disabled={loading || !contractId}
+                            onClick={() => runAction(loadBillableConfirmations, 'Billable checklist reloaded')}>
+                            <RefreshCw size={16} /> Reload
+                        </button>
+                    </div>
+
+                    {(billablePack?.sites || [])
+                        .filter((s) => siteCode === ALL_SITES || s.siteCode === siteCode)
+                        .map((site) => {
+                            const edits = billableEdits[site.serviceOrderId] || {};
+                            const lines = site.lines || [];
+                            return (
+                                <div key={site.serviceOrderId} style={{ marginTop: 16 }}>
+                                    <h4 style={{ margin: '0 0 8px' }}>
+                                        {site.siteName || site.siteCode}
+                                        <span className={`fv-chip ${site.reviewed ? 'done' : 'ready'}`} style={{ marginLeft: 8 }}>
+                                            {site.reviewed ? 'Saved for period' : 'Not saved yet'}
+                                        </span>
+                                    </h4>
+                                    {lines.length === 0 ? (
+                                        <p className="fv-lead">No non-manpower lines on this site — save once to acknowledge the period.</p>
+                                    ) : (
+                                        <div className="fv-table-wrap">
+                                            <table className="fv-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Billable</th>
+                                                        <th>Line</th>
+                                                        <th>Service</th>
+                                                        <th className="num">Monthly rate</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {lines.map((l) => {
+                                                        const checked = edits[l.lineId] !== undefined
+                                                            ? !!edits[l.lineId]
+                                                            : !!l.billable;
+                                                        return (
+                                                            <tr key={l.lineId}>
+                                                                <td>
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={checked}
+                                                                        disabled={!canWrite || loading}
+                                                                        onChange={(e) => toggleBillableLine(
+                                                                            site.serviceOrderId, l.lineId, e.target.checked
+                                                                        )}
+                                                                    />
+                                                                </td>
+                                                                <td>{l.lineNumber || l.lineId}</td>
+                                                                <td>{l.name}</td>
+                                                                <td className="num">{fmt(l.rate)}</td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                    <div className="fv-actions">
+                                        <button type="button" className="btn-secondary"
+                                            disabled={loading || !canWrite}
+                                            onClick={() => handleSaveSiteBillable(site)}>
+                                            Save this site
+                                        </button>
+                                        <button type="button" className="btn-secondary"
+                                            disabled={loading || !canWrite || !lines.length}
+                                            onClick={() => handleSaveSiteBillable(site, { confirmAll: true })}>
+                                            Confirm all billable (site)
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                    <div className="fv-actions">
+                        <button type="button" className="btn-primary"
+                            disabled={!billablePack?.allReviewed}
+                            onClick={() => setStep('payroll')}>
                             Continue to Payroll
+                        </button>
+                        <button type="button" className="btn-secondary"
+                            disabled={!billablePack?.allReviewed}
+                            onClick={() => setStep('invoice')}>
+                            Skip to Invoice
                         </button>
                     </div>
                 </div>
@@ -743,7 +940,7 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'payroll' && (
                 <div className="fv-panel">
-                    <h3>3 · Payroll (absent-driven)</h3>
+                    <h3>4 · Payroll (absent-driven)</h3>
                     <p className="fv-lead">
                         World B compute for the whole contract. Wages use Conservancy Model A:
                         <strong> paid factor = (30 − sheet absent) / 30</strong>. Present is shown from the sheet for audit; Absent must match attendance exactly.
@@ -897,17 +1094,24 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'invoice' && (
                 <div className="fv-panel">
-                    <h3>4 · Invoice</h3>
+                    <h3>5 · Invoice</h3>
                     <p className="fv-lead">
                         Conservancy SO methodology: gross line rates − absence shortage (resourceRate/30 × days absent)
                         + provincial ST. Income WHT &amp; 20% ST withholding are receivable-only — stamped grand is not reduced.
                         Rates aligned to Wafi portal (Punjab 16%, Sindh/KPK/Balochistan 15%).
+                        Non-manpower lines appear only when confirmed billable for this month — never silently invoice unconfirmed services.
+                        {!billablePack?.allReviewed && (
+                            <> <strong>Save Confirm billable services for every site before preview/stamp.</strong></>
+                        )}
                     </p>
                     <div className="fv-actions">
-                        <button type="button" className="btn-primary" disabled={loading || !contractId} onClick={handleComputeInvoicesAll}>
+                        <button type="button" className="btn-primary"
+                            disabled={loading || !contractId || !billablePack?.allReviewed}
+                            onClick={handleComputeInvoicesAll}>
                             <FileText size={16} /> Preview all-site invoices
                         </button>
-                        <button type="button" className="btn-secondary" disabled={loading || !canWrite || !invoicePack}
+                        <button type="button" className="btn-secondary"
+                            disabled={loading || !canWrite || !invoicePack || !billablePack?.allReviewed}
                             onClick={handlePersistInvoicesAll}>
                             Stamp all sites
                         </button>
@@ -1077,7 +1281,7 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'compliance' && (
                 <div className="fv-panel">
-                    <h3>5 · Statutory / Compliance</h3>
+                    <h3>6 · Statutory / Compliance</h3>
                     <p className="fv-lead">
                         Employer-cost rollup and employee statutory deductions from the computed payroll run —
                         ready for challan packs. SESSI/PESSI and life insurance are <strong>employer contributions</strong>
@@ -1104,7 +1308,7 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'export' && (
                 <div className="fv-panel">
-                    <h3>6 · Export &amp; Push</h3>
+                    <h3>7 · Export &amp; Push</h3>
                     <p className="fv-lead">
                         Working today: pretty Excel for payroll + invoice register, bank-file stub sheet, focal email per site.
                         One-click Xero push is on the roadmap.

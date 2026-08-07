@@ -13,6 +13,7 @@ const attendanceIngest = require('./attendanceIngest');
 const sitesMeta = require('./sitesMeta');
 const bulkOps = require('./bulkOps');
 const exportsXlsx = require('./exports');
+const billableConfirmations = require('./billableConfirmations');
 
 const {
     monthYearLabel,
@@ -65,6 +66,7 @@ module.exports = {
     ...bulkOps,
     ...exportsXlsx,
     ...contractCrud,
+    ...billableConfirmations,
     seedPsoNorthZone,
     resyncNorthZoneFromSeed,
     renderInvoiceHtml,
