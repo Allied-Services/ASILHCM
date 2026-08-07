@@ -6,6 +6,12 @@ const { parseConfigValue } = require('../../core/jsonConfig');
 const { getServiceOrder } = require('./crud');
 const { siteProvince, roleCount } = require('./sitesMeta');
 const { renderInvoiceHtml } = require('./invoiceHtml');
+const {
+    assertPeriodReviewed,
+    loadConfirmationMap,
+    filterLinesForInvoice,
+    buildBillableSnapshot,
+} = require('./billableConfirmations');
 
 const ST_WITHHOLDING_RATE = 0.20;
 
@@ -154,12 +160,16 @@ async function resolveTaxRate(pool, so, contract) {
     return provinceSalesTaxRate(province, Array.isArray(regionRatesRaw) ? regionRatesRaw : []);
 }
 
-async function computeSoInvoice(pool, { serviceOrderId, month, year }) {
+async function computeSoInvoice(pool, { serviceOrderId, month, year, requireConfirmations = true }) {
     const so = await getServiceOrder(pool, serviceOrderId);
     if (!so) {
         const err = new Error('Service order not found');
         err.status = 404;
         throw err;
+    }
+
+    if (requireConfirmations) {
+        await assertPeriodReviewed(pool, serviceOrderId, month, year);
     }
 
     const { rows: contractRows } = await pool.query(
@@ -179,7 +189,11 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year }) {
     const policy = await getPolicy(pool, contract.id);
     const whtPct = Number(policy?.income_tax_wht_pct ?? contract.financials?.wht_pct ?? 15) / 100;
 
-    const lines = so.lines || [];
+    const confirmationMap = await loadConfirmationMap(pool, serviceOrderId, month, year);
+    const allLines = so.lines || [];
+    const billableSnapshot = buildBillableSnapshot(allLines, confirmationMap);
+    // Manpower always; non-manpower only when confirmed billable for this period.
+    const lines = filterLinesForInvoice(allLines, confirmationMap);
     const grossLines = lines.map(l => {
         // SO seed JSON often stores quantity=12 (contract months) with monthly `rate`.
         // A period invoice always stamps one month = rate (not rate * contractMonths).
@@ -208,7 +222,7 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year }) {
     const incomeWht = round2(netTaxable * whtPct);
     const stWithholding = round2(provincialSt * ST_WITHHOLDING_RATE);
     const netReceivable = round2(grandTotal - incomeWht - stWithholding);
-    const resources = resourcesFromLines(lines);
+    const resources = resourcesFromLines(allLines);
     const soMeta = typeof so.meta === 'string' ? JSON.parse(so.meta || '{}') : (so.meta || {});
     const province = siteProvince(so.site_code, { soMeta, contract }) || contract.region_province || null;
 
@@ -225,6 +239,7 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year }) {
         periodMonth: month,
         periodYear: year,
         lineItems: grossLines,
+        billableSnapshot,
         deductions,
         gross,
         totalDeductions,
@@ -256,11 +271,25 @@ async function generateInvoiceNumber(pool, year, month) {
     return `${prefix}-${String(seq).padStart(4, '0')}`;
 }
 
+async function findExistingSoInvoice(pool, { contractId, serviceOrderId, month, year }) {
+    const { rows } = await pool.query(
+        `SELECT *
+         FROM client_invoices
+         WHERE contract_id = $1
+           AND period_month = $2
+           AND period_year = $3
+           AND (notes::jsonb->>'service_order_id') = $4
+         ORDER BY id DESC
+         LIMIT 1`,
+        [contractId, month, year, serviceOrderId]
+    );
+    return rows[0] || null;
+}
+
 async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy, poNumber }) {
-    const computed = await computeSoInvoice(pool, { serviceOrderId, month, year });
+    const computed = await computeSoInvoice(pool, { serviceOrderId, month, year, requireConfirmations: true });
     const policy = await getPolicy(pool, computed.contractId);
     const creditDays = Number(policy?.credit_days) || Number(computed.creditDays) || 30;
-    const invNo = await generateInvoiceNumber(pool, year, month);
 
     const lineItems = computed.lineItems.map(l => ({
         lineId: l.lineId,
@@ -288,6 +317,7 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
         net_receivable: computed.netReceivable,
         receivable_note: computed.receivableNote,
         tax_rate: computed.taxRate,
+        billable_confirmations: computed.billableSnapshot || [],
         deductions: (computed.deductions || []).map(d => ({
             id: d.id,
             line_id: d.line_id,
@@ -301,6 +331,53 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
         })),
     };
 
+    const existing = await findExistingSoInvoice(pool, {
+        contractId: computed.contractId,
+        serviceOrderId,
+        month,
+        year,
+    });
+
+    if (existing) {
+        const status = String(existing.status || '');
+        if (status.toLowerCase() !== 'draft') {
+            const err = new Error(
+                `Invoice ${existing.invoice_number} is ${status} — billable selections cannot rewrite a released invoice.`
+            );
+            err.status = 409;
+            err.code = 'INVOICE_NOT_EDITABLE';
+            err.details = { invoiceId: existing.id, status, invoiceNumber: existing.invoice_number };
+            throw err;
+        }
+
+        const { rows } = await pool.query(
+            `UPDATE client_invoices
+             SET line_items = $2,
+                 subtotal = $3,
+                 sales_tax = $4,
+                 wht = $5,
+                 grand_total = $6,
+                 notes = $7,
+                 po_number = COALESCE($8, po_number),
+                 due_date = (CURRENT_DATE + ($9 || ' days')::interval)::date
+             WHERE id = $1
+             RETURNING *`,
+            [
+                existing.id,
+                JSON.stringify(lineItems),
+                computed.netTaxable,
+                computed.provincialSt,
+                computed.incomeWht,
+                computed.grandTotal,
+                JSON.stringify(notesObj),
+                poNumber || null,
+                String(creditDays),
+            ]
+        );
+        return { invoice: rows[0], computed, updated: true };
+    }
+
+    const invNo = await generateInvoiceNumber(pool, year, month);
     const { rows } = await pool.query(
         `INSERT INTO client_invoices
          (invoice_number, client, contract, contract_id, period_month, period_year,
@@ -327,7 +404,7 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
     );
 
     const invoice = rows[0];
-    return { invoice, computed };
+    return { invoice, computed, updated: false };
 }
 
 async function listRegistry(pool, { contractId, month, year, siteCode } = {}) {

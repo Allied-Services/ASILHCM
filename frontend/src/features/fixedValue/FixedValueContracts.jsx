@@ -1,22 +1,22 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     MapPin, Upload, CloudDownload, Calculator, FileText, Shield,
     Mail, Database, RefreshCw, AlertCircle, CheckCircle, Download,
-    ExternalLink, Layers, Play, Plus, Pencil,
+    ExternalLink, Layers, Play, Plus, Pencil, ClipboardCheck,
 } from 'lucide-react';
 import { api } from '../../api';
 import FixedValueContractWizard from './FixedValueContractWizard';
 import './FixedValueOps.css';
 
 const ALL_SITES = '__ALL__';
-const fmt = (n) => (n == null || Number.isNaN(n)) ? '—' : Math.round(Number(n)).toLocaleString();
-const pct = (n) => (n == null || Number.isNaN(n)) ? '—' : `${(Number(n) * 100).toFixed(0)}%`;
+const fmt = (n) => (n == null || Number.isNaN(n)) ? 'â€”' : Math.round(Number(n)).toLocaleString();
+const pct = (n) => (n == null || Number.isNaN(n)) ? 'â€”' : `${(Number(n) * 100).toFixed(0)}%`;
 
 function rowSiteCode(r) {
     return String(r.site || '').trim().toUpperCase();
 }
 
-/** Sheet/override absent is authoritative; never invent from WD − present when known. */
+/** Sheet/override absent is authoritative; never invent from WD âˆ’ present when known. */
 function presentDays(r) {
     const p = r.inputs?.present_days ?? r.inputs?.presentDays ?? r.paid_days;
     return p == null || p === '' ? null : Number(p);
@@ -30,7 +30,7 @@ function absentDays(r) {
     return null;
 }
 
-/** Employee take-home fields — prefer computed, fall back to inputs for pre-patch rows. */
+/** Employee take-home fields â€” prefer computed, fall back to inputs for pre-patch rows. */
 function rowArrears(r) {
     const c = r.computed || {};
     const v = c.arrears ?? r.inputs?.arrears ?? r.inputs?.Arrears;
@@ -52,11 +52,12 @@ function rowOt(r) {
 
 const IS_STAGING = /staging/i.test(import.meta.env.VITE_API_URL || '')
     || (typeof window !== 'undefined' && /staging/i.test(window.location.hostname));
-const COLD_START_MSG = 'Staging server waking up (Render free tier) — usually 1–2 minutes…';
+const COLD_START_MSG = 'Staging server waking up (Render free tier) â€” usually 1â€“2 minutesâ€¦';
 
 const STEPS = [
     { key: 'period', label: 'Period & Contract', icon: Layers },
     { key: 'attendance', label: 'Attendance', icon: Upload },
+    { key: 'billable', label: 'Confirm billable services', icon: ClipboardCheck },
     { key: 'payroll', label: 'Payroll', icon: Calculator },
     { key: 'invoice', label: 'Invoice', icon: FileText },
     { key: 'compliance', label: 'Statutory', icon: Shield },
@@ -98,6 +99,8 @@ export default function FixedValueContracts({ user }) {
     const [payrollWarnings, setPayrollWarnings] = useState([]);
 
     const [invoicePack, setInvoicePack] = useState(null);
+    const [billablePack, setBillablePack] = useState(null);
+    const [billableEdits, setBillableEdits] = useState({}); // { [soId]: { [lineId]: boolean } }
     const [registry, setRegistry] = useState([]);
     const [emailResult, setEmailResult] = useState(null);
     const [wizard, setWizard] = useState(null); // { mode: 'create'|'edit', contractId? }
@@ -153,7 +156,7 @@ export default function FixedValueContracts({ user }) {
             s.eobi += Number(c.eobiEmployee || 0);
             s.tax += Number(c.wht || 0);
             s.net += Number(c.netPay || 0);
-            // Employer costs — for Statutory step only
+            // Employer costs â€” for Statutory step only
             s.sessi += Number(c.sessiEmployer || 0);
             s.life += Number(c.lifeInsurance || 0);
             s.gross += Number(c.gross || 0);
@@ -183,14 +186,21 @@ export default function FixedValueContracts({ user }) {
     }), emptyTotals), [payrollBySite]);
 
     const attDoneCount = attStatus.filter(s => s.status === 'done').length;
+    const billableReviewedCount = billablePack?.reviewedCount || 0;
+    const billableSiteCount = billablePack?.siteCount || orders.length;
     const stepStatus = useMemo(() => ({
         period: contractId ? 'done' : 'not_started',
         attendance: attDoneCount === 0 ? 'not_started' : (attDoneCount >= orders.length && orders.length ? 'done' : 'ready'),
+        billable: billablePack?.allReviewed
+            ? 'done'
+            : (attDoneCount || contractId ? 'ready' : 'not_started'),
         payroll: payrollRows.length ? 'done' : (attDoneCount ? 'ready' : 'not_started'),
-        invoice: invoicePack?.sites?.length ? 'done' : (attDoneCount ? 'ready' : 'not_started'),
+        invoice: invoicePack?.sites?.length
+            ? 'done'
+            : (billablePack?.allReviewed ? 'ready' : 'not_started'),
         compliance: payrollRows.length ? 'ready' : 'not_started',
         export: (payrollRows.length || invoicePack?.sites?.length) ? 'ready' : 'not_started',
-    }), [contractId, attDoneCount, orders.length, payrollRows.length, invoicePack]);
+    }), [contractId, attDoneCount, orders.length, payrollRows.length, invoicePack, billablePack]);
 
     const loadContracts = useCallback(async () => {
         const rows = await api.getFixedValueContracts();
@@ -233,6 +243,24 @@ export default function FixedValueContracts({ user }) {
         const rows = await api.getFixedValueDeductions(selectedOrder.id, month, year);
         setDeductions(Array.isArray(rows) ? rows : []);
     }, [selectedOrder?.id, month, year]);
+
+    const loadBillableConfirmations = useCallback(async () => {
+        if (!contractId) {
+            setBillablePack(null);
+            setBillableEdits({});
+            return;
+        }
+        const pack = await api.getFixedValueBillableConfirmations(contractId, month, year);
+        setBillablePack(pack);
+        const edits = {};
+        for (const site of pack?.sites || []) {
+            edits[site.serviceOrderId] = {};
+            for (const line of site.lines || []) {
+                edits[site.serviceOrderId][line.lineId] = !!line.billable;
+            }
+        }
+        setBillableEdits(edits);
+    }, [contractId, month, year]);
 
     const loadHubOverrides = useCallback(async () => {
         if (!contractId || step !== 'attendance') {
@@ -280,7 +308,7 @@ export default function FixedValueContracts({ user }) {
             const synced = saved?.payrollSync?.recomputed;
             setMsg(synced
                 ? `Saved overrides for ${r.name || r.employee_id} and refreshed draft payroll run #${saved.payrollSync.runId}.`
-                : `Saved overrides for ${r.name || r.employee_id}. ${saved?.payrollSync?.reason === 'RUN_LOCKED' ? 'Payroll run is locked — unlock/recompute manually.' : 'Open Payroll and recompute if figures look stale.'}`);
+                : `Saved overrides for ${r.name || r.employee_id}. ${saved?.payrollSync?.reason === 'RUN_LOCKED' ? 'Payroll run is locked â€” unlock/recompute manually.' : 'Open Payroll and recompute if figures look stale.'}`);
             await loadHubOverrides();
             if (synced) await loadPayrollRun().catch(() => {});
         } catch (e) {
@@ -301,6 +329,11 @@ export default function FixedValueContracts({ user }) {
     useEffect(() => {
         if (step === 'invoice' || step === 'export') loadRegistry().catch(() => {});
     }, [step, loadRegistry]);
+    useEffect(() => {
+        if (step === 'billable' || step === 'invoice') {
+            loadBillableConfirmations().catch((e) => setError(e.message || 'Failed to load billable confirmations'));
+        }
+    }, [step, loadBillableConfirmations]);
     useEffect(() => { loadDeductions().catch(() => {}); }, [loadDeductions]);
     useEffect(() => { loadHubOverrides().catch(() => {}); }, [loadHubOverrides]);
     useEffect(() => {
@@ -370,7 +403,7 @@ export default function FixedValueContracts({ user }) {
         setPayrollRows(Array.isArray(result.rows) ? result.rows : []);
         setPayrollWarnings(Array.isArray(result.warnings) ? result.warnings : []);
         await loadPayrollRun().catch(() => {});
-        setMsg(`Payroll computed — ${result.headcount ?? result.rows?.length ?? 0} employees (all sites)`);
+        setMsg(`Payroll computed â€” ${result.headcount ?? result.rows?.length ?? 0} employees (all sites)`);
         setStep('payroll');
     });
 
@@ -389,16 +422,62 @@ export default function FixedValueContracts({ user }) {
         setMsg(`Stamped ${result.count} site invoices`);
     });
 
+    const toggleBillableLine = (soId, lineId, checked) => {
+        setBillableEdits((prev) => ({
+            ...prev,
+            [soId]: { ...(prev[soId] || {}), [lineId]: checked },
+        }));
+    };
+
+    const handleSaveSiteBillable = (site, { confirmAll = false } = {}) => runAction(async () => {
+        if (confirmAll) {
+            await api.confirmAllFixedValueBillable(site.serviceOrderId, month, year);
+        } else {
+            const edits = billableEdits[site.serviceOrderId] || {};
+            const lines = (site.lines || []).map((l) => ({
+                lineId: l.lineId,
+                billable: edits[l.lineId] !== undefined ? !!edits[l.lineId] : !!l.billable,
+            }));
+            await api.saveFixedValueBillableConfirmations(site.serviceOrderId, month, year, lines);
+        }
+        await loadBillableConfirmations();
+        setMsg(confirmAll
+            ? `Confirmed all billable services for ${site.siteCode}`
+            : `Saved billable confirmations for ${site.siteCode}`);
+    });
+
+    const handleSaveAllBillable = ({ confirmAll = false } = {}) => runAction(async () => {
+        if (confirmAll) {
+            await api.confirmAllFixedValueBillableContract(contractId, month, year);
+        } else {
+            const sites = (billablePack?.sites || []).map((site) => {
+                const edits = billableEdits[site.serviceOrderId] || {};
+                return {
+                    serviceOrderId: site.serviceOrderId,
+                    lines: (site.lines || []).map((l) => ({
+                        lineId: l.lineId,
+                        billable: edits[l.lineId] !== undefined ? !!edits[l.lineId] : !!l.billable,
+                    })),
+                };
+            });
+            await api.saveFixedValueBillableConfirmationsAll(contractId, month, year, { sites });
+        }
+        await loadBillableConfirmations();
+        setMsg(confirmAll
+            ? 'Confirmed all billable services for every site this period'
+            : 'Saved billable confirmations for every site this period');
+    });
+
     const handleDryRunVerificationEmail = () => runAction(async () => {
         const result = await api.sendFixedValueVerificationEmails(contractId, month, year, { dryRun: true });
         setEmailResult(result);
         if (result.sent) {
-            setMsg(`Dry run sent — ${result.sent} site email${result.sent === 1 ? '' : 's'} to internal team (proforma + payroll PDF each)`);
+            setMsg(`Dry run sent â€” ${result.sent} site email${result.sent === 1 ? '' : 's'} to internal team (proforma + payroll PDF each)`);
         } else {
             const detail = result.results?.[0];
             const why = result.message
                 || (detail?.reason ? `Not sent: ${detail.reason}` : null)
-                || 'Dry run completed — no emails sent';
+                || 'Dry run completed â€” no emails sent';
             setMsg(why);
         }
     });
@@ -407,7 +486,7 @@ export default function FixedValueContracts({ user }) {
         if (!window.confirm('Send payroll & invoice verification email to every terminal with focal emails configured?')) return;
         const result = await api.sendFixedValueVerificationEmails(contractId, month, year, { dryRun: false });
         setEmailResult(result);
-        setMsg(`Verification emails sent: ${result.sent} · skipped ${result.skipped} · failed ${result.failed || 0}`);
+        setMsg(`Verification emails sent: ${result.sent} Â· skipped ${result.skipped} Â· failed ${result.failed || 0}`);
     });
 
     const handleUpload = async (e) => {
@@ -449,7 +528,7 @@ export default function FixedValueContracts({ user }) {
             <div className="fv-ops-header">
                 <div>
                     <h2>Fixed Value / Conservancy</h2>
-                    <p>Stepped monthly ops — attendance → payroll (absent-driven) → invoices → exports.</p>
+                    <p>Stepped monthly ops â€” attendance â†’ confirm billable services â†’ payroll â†’ invoices â†’ exports.</p>
                 </div>
                 <div className="fv-ops-period">
                     <select value={contractId} onChange={e => setContractId(e.target.value)}>
@@ -500,19 +579,19 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'period' && (
                 <div className="fv-panel">
-                    <h3>1 · Period & contract</h3>
+                    <h3>1 Â· Period & contract</h3>
                     <p className="fv-lead">
                         Select the billing month and Fixed Value contract. Site filter narrows drill-downs;
                         contract-level CTAs (bulk attendance, entire payroll, all-site invoices) always cover every depot.
                     </p>
                     {IS_STAGING && (
                         <div className="fv-cold-note">
-                            <strong>Staging note:</strong> Render free tier sleeps after ~10–20 min idle.
-                            The first request after wake can take 1–2 minutes — not a hang.
+                            <strong>Staging note:</strong> Render free tier sleeps after ~10â€“20 min idle.
+                            The first request after wake can take 1â€“2 minutes â€” not a hang.
                         </div>
                     )}
                     <div className="fv-kpi-grid">
-                        <div className="fv-kpi"><div className="label">Contract</div><div className="value" style={{ fontSize: '0.85rem' }}>{contractId || '—'}</div></div>
+                        <div className="fv-kpi"><div className="label">Contract</div><div className="value" style={{ fontSize: '0.85rem' }}>{contractId || 'â€”'}</div></div>
                         <div className="fv-kpi"><div className="label">Sites</div><div className="value">{orders.length}</div></div>
                         <div className="fv-kpi"><div className="label">Period</div><div className="value">{month}/{year}</div></div>
                         <div className="fv-kpi"><div className="label">Attendance done</div><div className="value">{attDoneCount}/{orders.length || 0}</div></div>
@@ -584,7 +663,7 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'attendance' && (
                 <div className="fv-panel">
-                    <h3>2 · Attendance</h3>
+                    <h3>2 Â· Attendance</h3>
                     <p className="fv-lead">
                         Primary CTA pulls every depot sheet from Drive and applies present/absent into
                         <code> monthly_attendance_overrides</code> + absence deductions. Per-site upload remains secondary.
@@ -601,7 +680,7 @@ export default function FixedValueContracts({ user }) {
                         <div>
                             <div className="fv-progress"><span style={{ width: `${(attProgress.done / Math.max(attProgress.total, 1)) * 100}%` }} /></div>
                             <p className="fv-lead" style={{ marginTop: 6 }}>
-                                {attProgress.done}/{attProgress.total}{attProgress.current ? ` — ${attProgress.current}` : ''}
+                                {attProgress.done}/{attProgress.total}{attProgress.current ? ` â€” ${attProgress.current}` : ''}
                             </p>
                         </div>
                     )}
@@ -625,9 +704,9 @@ export default function FixedValueContracts({ user }) {
                                         <tr key={r.siteCode}>
                                             <td>{r.siteCode}</td>
                                             <td>{r.ok ? 'OK' : (r.code || r.message || 'Pending')}</td>
-                                            <td className="num">{r.overrides ?? '—'}</td>
-                                            <td className="num">{r.deductions ?? '—'}</td>
-                                            <td>{r.fileName || '—'}</td>
+                                            <td className="num">{r.overrides ?? 'â€”'}</td>
+                                            <td className="num">{r.deductions ?? 'â€”'}</td>
+                                            <td>{r.fileName || 'â€”'}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -636,7 +715,7 @@ export default function FixedValueContracts({ user }) {
                     )}
 
                     <div className="fv-later">
-                        <strong>Secondary — single site</strong>
+                        <strong>Secondary â€” single site</strong>
                         {siteCode === ALL_SITES
                             ? ' Choose a site in the filter to upload/apply one Excel sheet.'
                             : ` Working on ${selectedOrder?.name || siteCode}.`}
@@ -650,7 +729,7 @@ export default function FixedValueContracts({ user }) {
                             <button type="button" className="btn-secondary" disabled={loading || !parsedRows.length} onClick={handleApplySite}>
                                 Apply to ledger
                             </button>
-                            <span className="fv-lead">Parsed rows: {parsedRows.length} · Deductions: {deductions.length}</span>
+                            <span className="fv-lead">Parsed rows: {parsedRows.length} Â· Deductions: {deductions.length}</span>
                         </div>
                     )}
                     {parsedRows.length > 0 && (
@@ -666,7 +745,7 @@ export default function FixedValueContracts({ user }) {
                         </div>
                     )}
                     <div className="fv-later" style={{ marginTop: '1rem' }}>
-                        <strong>Manual overrides</strong> (same <code>monthly_attendance_overrides</code> as Attendance → Monthly Report):
+                        <strong>Manual overrides</strong> (same <code>monthly_attendance_overrides</code> as Attendance â†’ Monthly Report):
                         OT hrs, Deduction against Leaves, Arrears, Other Deduction. Filter to a site above for a shorter list.
                     </div>
                     {hubOverrides.length > 0 && (
@@ -723,7 +802,7 @@ export default function FixedValueContracts({ user }) {
                                                     <button type="button" className="btn-secondary" style={{ padding: '2px 8px', fontSize: '0.75rem' }}
                                                         disabled={loading || hubSaving === r.employee_id || !canWrite}
                                                         onClick={() => saveHubRow(r)}>
-                                                        {hubSaving === r.employee_id ? '…' : 'Save'}
+                                                        {hubSaving === r.employee_id ? 'â€¦' : 'Save'}
                                                     </button>
                                                 </td>
                                             </tr>
@@ -734,8 +813,126 @@ export default function FixedValueContracts({ user }) {
                         </div>
                     )}
                     <div className="fv-actions">
-                        <button type="button" className="btn-primary" disabled={!attDoneCount} onClick={() => setStep('payroll')}>
+                        <button type="button" className="btn-primary" disabled={!attDoneCount} onClick={() => setStep('billable')}>
+                            Continue to Confirm billable services
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {step === 'billable' && (
+                <div className="fv-panel">
+                    <h3>3 Â· Confirm billable services</h3>
+                    <p className="fv-lead">
+                        Attendance proves manpower; an explicit monthly confirmation proves non-manpower is billable.
+                        Tick consumables, garbage, equipment, and other fixed lines that were provided this month.
+                        Defaults are <strong>off</strong> for a new month. Save even if you leave everything unchecked â€”
+                        invoices will not generate until each site has a saved confirmation for the period.
+                    </p>
+                    <div className="fv-kpi-grid">
+                        <div className="fv-kpi">
+                            <div className="label">Sites reviewed</div>
+                            <div className="value">{billableReviewedCount}/{billableSiteCount || 0}</div>
+                        </div>
+                        <div className="fv-kpi">
+                            <div className="label">Period</div>
+                            <div className="value">{month}/{year}</div>
+                        </div>
+                    </div>
+                    <div className="fv-actions">
+                        <button type="button" className="btn-primary" disabled={loading || !canWrite || !contractId}
+                            onClick={() => handleSaveAllBillable({ confirmAll: false })}>
+                            <ClipboardCheck size={16} /> Save confirmations (all sites)
+                        </button>
+                        <button type="button" className="btn-secondary" disabled={loading || !canWrite || !contractId}
+                            onClick={() => handleSaveAllBillable({ confirmAll: true })}>
+                            Confirm all billable (contract)
+                        </button>
+                        <button type="button" className="btn-secondary" disabled={loading || !contractId}
+                            onClick={() => runAction(loadBillableConfirmations, 'Billable checklist reloaded')}>
+                            <RefreshCw size={16} /> Reload
+                        </button>
+                    </div>
+
+                    {(billablePack?.sites || [])
+                        .filter((s) => siteCode === ALL_SITES || s.siteCode === siteCode)
+                        .map((site) => {
+                            const edits = billableEdits[site.serviceOrderId] || {};
+                            const lines = site.lines || [];
+                            return (
+                                <div key={site.serviceOrderId} style={{ marginTop: 16 }}>
+                                    <h4 style={{ margin: '0 0 8px' }}>
+                                        {site.siteName || site.siteCode}
+                                        <span className={`fv-chip ${site.reviewed ? 'done' : 'ready'}`} style={{ marginLeft: 8 }}>
+                                            {site.reviewed ? 'Saved for period' : 'Not saved yet'}
+                                        </span>
+                                    </h4>
+                                    {lines.length === 0 ? (
+                                        <p className="fv-lead">No non-manpower lines on this site â€” save once to acknowledge the period.</p>
+                                    ) : (
+                                        <div className="fv-table-wrap">
+                                            <table className="fv-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Billable</th>
+                                                        <th>Line</th>
+                                                        <th>Service</th>
+                                                        <th className="num">Monthly rate</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {lines.map((l) => {
+                                                        const checked = edits[l.lineId] !== undefined
+                                                            ? !!edits[l.lineId]
+                                                            : !!l.billable;
+                                                        return (
+                                                            <tr key={l.lineId}>
+                                                                <td>
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={checked}
+                                                                        disabled={!canWrite || loading}
+                                                                        onChange={(e) => toggleBillableLine(
+                                                                            site.serviceOrderId, l.lineId, e.target.checked
+                                                                        )}
+                                                                    />
+                                                                </td>
+                                                                <td>{l.lineNumber || l.lineId}</td>
+                                                                <td>{l.name}</td>
+                                                                <td className="num">{fmt(l.rate)}</td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                    <div className="fv-actions">
+                                        <button type="button" className="btn-secondary"
+                                            disabled={loading || !canWrite}
+                                            onClick={() => handleSaveSiteBillable(site)}>
+                                            Save this site
+                                        </button>
+                                        <button type="button" className="btn-secondary"
+                                            disabled={loading || !canWrite || !lines.length}
+                                            onClick={() => handleSaveSiteBillable(site, { confirmAll: true })}>
+                                            Confirm all billable (site)
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                    <div className="fv-actions">
+                        <button type="button" className="btn-primary"
+                            disabled={!billablePack?.allReviewed}
+                            onClick={() => setStep('payroll')}>
                             Continue to Payroll
+                        </button>
+                        <button type="button" className="btn-secondary"
+                            disabled={!billablePack?.allReviewed}
+                            onClick={() => setStep('invoice')}>
+                            Skip to Invoice
                         </button>
                     </div>
                 </div>
@@ -743,10 +940,10 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'payroll' && (
                 <div className="fv-panel">
-                    <h3>3 · Payroll (absent-driven)</h3>
+                    <h3>4 Â· Payroll (absent-driven)</h3>
                     <p className="fv-lead">
                         World B compute for the whole contract. Wages use Conservancy Model A:
-                        <strong> paid factor = (30 − sheet absent) / 30</strong>. Present is shown from the sheet for audit; Absent must match attendance exactly.
+                        <strong> paid factor = (30 âˆ’ sheet absent) / 30</strong>. Present is shown from the sheet for audit; Absent must match attendance exactly.
                         OT / Arrears / Leave Deduction / Other Deduction come from <code>monthly_attendance_overrides</code>.
                         Saving an override on Attendance (here or Monthly Report) auto-refreshes the draft payroll run.
                     </p>
@@ -762,7 +959,7 @@ export default function FixedValueContracts({ user }) {
                             <Download size={16} /> Excel
                         </button>
                         <span className="fv-lead" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <ExternalLink size={14} /> Lock / disburse: sidebar → Payroll Run
+                            <ExternalLink size={14} /> Lock / disburse: sidebar â†’ Payroll Run
                         </span>
                     </div>
 
@@ -771,7 +968,7 @@ export default function FixedValueContracts({ user }) {
                             <div className="fv-kpi fv-kpi-run">
                                 <div className="label">Payroll run #{payrollRun.id}</div>
                                 <p className="fv-kpi-help">
-                                    World B batch id for this contract/month; use this id in sidebar → Payroll Run
+                                    World B batch id for this contract/month; use this id in sidebar â†’ Payroll Run
                                     to lock/disburse. Not an invoice number.
                                 </p>
                             </div>
@@ -845,7 +1042,7 @@ export default function FixedValueContracts({ user }) {
                     </div>
 
                     <h4 style={{ margin: 0 }}>
-                        Detail {siteCode !== ALL_SITES ? `· ${siteCode}` : '· all sites'} ({filteredPayrollRows.length})
+                        Detail {siteCode !== ALL_SITES ? `Â· ${siteCode}` : 'Â· all sites'} ({filteredPayrollRows.length})
                     </h4>
                     <div className="fv-table-wrap">
                         <table className="fv-table">
@@ -868,11 +1065,11 @@ export default function FixedValueContracts({ user }) {
                                     return (
                                         <tr key={r.id || r.employee_id}>
                                             <td>{r.employee_id}</td>
-                                            <td>{r.employee_name || '—'}</td>
-                                            {siteCode === ALL_SITES && <td>{r.site || '—'}</td>}
-                                            <td>{r.designation || '—'}</td>
-                                            <td className="num">{presentDays(r) ?? '—'}</td>
-                                            <td className="num">{absentDays(r) ?? '—'}</td>
+                                            <td>{r.employee_name || 'â€”'}</td>
+                                            {siteCode === ALL_SITES && <td>{r.site || 'â€”'}</td>}
+                                            <td>{r.designation || 'â€”'}</td>
+                                            <td className="num">{presentDays(r) ?? 'â€”'}</td>
+                                            <td className="num">{absentDays(r) ?? 'â€”'}</td>
                                             <td className="num">{fmt(r.basic_salary)}</td>
                                             <td className="num">{fmt(c.salaryForDays)}</td>
                                             <td className="num">{fmt(rowArrears(r))}</td>
@@ -882,7 +1079,7 @@ export default function FixedValueContracts({ user }) {
                                             <td className="num">{fmt(c.eobiEmployee)}</td>
                                             <td className="num">{fmt(c.wht)}</td>
                                             <td className="num">{fmt(c.netPay)}</td>
-                                            <td>{r.source || '—'}</td>
+                                            <td>{r.source || 'â€”'}</td>
                                         </tr>
                                     );
                                 })}
@@ -897,17 +1094,24 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'invoice' && (
                 <div className="fv-panel">
-                    <h3>4 · Invoice</h3>
+                    <h3>5 Â· Invoice</h3>
                     <p className="fv-lead">
-                        Conservancy SO methodology: gross line rates − absence shortage (resourceRate/30 × days absent)
-                        + provincial ST. Income WHT &amp; 20% ST withholding are receivable-only — stamped grand is not reduced.
+                        Conservancy SO methodology: gross line rates âˆ’ absence shortage (resourceRate/30 Ã— days absent)
+                        + provincial ST. Income WHT &amp; 20% ST withholding are receivable-only â€” stamped grand is not reduced.
                         Rates aligned to Wafi portal (Punjab 16%, Sindh/KPK/Balochistan 15%).
+                        Non-manpower lines appear only when confirmed billable for this month â€” never silently invoice unconfirmed services.
+                        {!billablePack?.allReviewed && (
+                            <> <strong>Save Confirm billable services for every site before preview/stamp.</strong></>
+                        )}
                     </p>
                     <div className="fv-actions">
-                        <button type="button" className="btn-primary" disabled={loading || !contractId} onClick={handleComputeInvoicesAll}>
+                        <button type="button" className="btn-primary"
+                            disabled={loading || !contractId || !billablePack?.allReviewed}
+                            onClick={handleComputeInvoicesAll}>
                             <FileText size={16} /> Preview all-site invoices
                         </button>
-                        <button type="button" className="btn-secondary" disabled={loading || !canWrite || !invoicePack}
+                        <button type="button" className="btn-secondary"
+                            disabled={loading || !canWrite || !invoicePack || !billablePack?.allReviewed}
                             onClick={handlePersistInvoicesAll}>
                             Stamp all sites
                         </button>
@@ -917,14 +1121,14 @@ export default function FixedValueContracts({ user }) {
                         </button>
                         <button type="button" className="btn-secondary" disabled={loading || !contractId || !canWrite}
                             onClick={handleDryRunVerificationEmail}>
-                            <Mail size={16} /> Dry run (all sites → ASIL test)
+                            <Mail size={16} /> Dry run (all sites â†’ ASIL test)
                         </button>
                         <button type="button" className="btn-primary" disabled={loading || !contractId || !canWrite || !invoicePack}
                             onClick={handleSendAllVerificationEmails}>
                             <Mail size={16} /> Send verification emails (all sites)
                         </button>
                         {selectedOrder && siteCode !== ALL_SITES && (
-                            <button type="button" className="btn-secondary" disabled={loading} onClick={() => runAction(async () => {
+                            <button type="button" className="btn-secondary" disabled={loading || !billablePack?.allReviewed} onClick={() => runAction(async () => {
                                 const preview = await api.computeFixedValueInvoice(selectedOrder.id, month, year);
                                 setInvoicePack({
                                     sites: [preview],
@@ -968,10 +1172,10 @@ export default function FixedValueContracts({ user }) {
                                     {invoicePack.sites.map(s => (
                                         <tr key={s.siteCode || s.serviceOrderId}>
                                             <td>
-                                                {s.siteName || s.siteCode || '—'}
-                                                {s.resources != null ? ` · ${s.resources} res` : ''}
+                                                {s.siteName || s.siteCode || 'â€”'}
+                                                {s.resources != null ? ` Â· ${s.resources} res` : ''}
                                             </td>
-                                            <td>{s.province || '—'}</td>
+                                            <td>{s.province || 'â€”'}</td>
                                             <td className="num">{fmt(s.gross)}</td>
                                             <td className="num">{fmt(s.totalDeductions)}</td>
                                             <td className="num">{fmt(s.provincialSt)}</td>
@@ -987,15 +1191,15 @@ export default function FixedValueContracts({ user }) {
 
                     {emailResult?.results?.length > 0 && (
                         <div className="fv-panel" style={{ marginTop: 12, padding: 12, background: 'var(--surface-2)' }}>
-                            <h4 style={{ margin: '0 0 8px' }}>Email preview {emailResult.dryRun ? '(dry run — all sites)' : ''}</h4>
+                            <h4 style={{ margin: '0 0 8px' }}>Email preview {emailResult.dryRun ? '(dry run â€” all sites)' : ''}</h4>
                             <p className="fv-lead" style={{ margin: '0 0 8px' }}>
                                 {emailResult.dryRun ? (
                                     <>Dry run CC: obaid.rana@asil.com.pk, huzaifa.rafaqat@asil.com.pk only (contract focal not copied)</>
                                 ) : (
                                     <>
-                                        Contract focal CC: {emailResult.contractFocal?.name || '—'}
-                                        {emailResult.contractFocal?.email ? ` · ${emailResult.contractFocal.email}` : ''}
-                                        {' · '}Always CC: obaid.rana@asil.com.pk, huzaifa.rafaqat@asil.com.pk
+                                        Contract focal CC: {emailResult.contractFocal?.name || 'â€”'}
+                                        {emailResult.contractFocal?.email ? ` Â· ${emailResult.contractFocal.email}` : ''}
+                                        {' Â· '}Always CC: obaid.rana@asil.com.pk, huzaifa.rafaqat@asil.com.pk
                                     </>
                                 )}
                             </p>
@@ -1021,12 +1225,12 @@ export default function FixedValueContracts({ user }) {
                                                         ? r.attachments.join(', ')
                                                         : r.pdfWarnings?.length
                                                             ? `PDF issue (${r.pdfWarnings.join(', ')})`
-                                                            : '—'}
-                                                    {r.payrollHeadcount != null ? ` · ${r.payrollHeadcount} staff` : ''}
+                                                            : 'â€”'}
+                                                    {r.payrollHeadcount != null ? ` Â· ${r.payrollHeadcount} staff` : ''}
                                                 </td>
-                                                <td style={{ fontSize: '0.75rem' }}>{(r.to || []).join(', ') || '—'}</td>
-                                                <td style={{ fontSize: '0.75rem' }}>{(r.intendedTo || []).join(', ') || '—'}</td>
-                                                <td style={{ fontSize: '0.75rem' }}>{r.subject || '—'}</td>
+                                                <td style={{ fontSize: '0.75rem' }}>{(r.to || []).join(', ') || 'â€”'}</td>
+                                                <td style={{ fontSize: '0.75rem' }}>{(r.intendedTo || []).join(', ') || 'â€”'}</td>
+                                                <td style={{ fontSize: '0.75rem' }}>{r.subject || 'â€”'}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -1052,13 +1256,13 @@ export default function FixedValueContracts({ user }) {
                                     <tr><td colSpan={5} style={{ color: 'var(--text-muted)' }}>No stamped invoices for this period yet.</td></tr>
                                 ) : registry.map(inv => {
                                     const notes = inv.notes && typeof inv.notes === 'object' ? inv.notes : null;
-                                    const siteLabel = inv.site_name || notes?.site_name || inv.site_code || notes?.site_code || '—';
+                                    const siteLabel = inv.site_name || notes?.site_name || inv.site_code || notes?.site_code || 'â€”';
                                     const resources = inv.resources ?? notes?.resources;
                                     return (
                                         <tr key={inv.id}>
                                             <td>{inv.invoice_number}</td>
                                             <td title={inv.site_code || notes?.site_code || ''}>{siteLabel}</td>
-                                            <td className="num">{resources != null ? resources : '—'}</td>
+                                            <td className="num">{resources != null ? resources : 'â€”'}</td>
                                             <td className="num">{fmt(inv.grand_total)}</td>
                                             <td>
                                                 {PRINT_FORMATS.map(f => (
@@ -1077,9 +1281,9 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'compliance' && (
                 <div className="fv-panel">
-                    <h3>5 · Statutory / Compliance</h3>
+                    <h3>6 Â· Statutory / Compliance</h3>
                     <p className="fv-lead">
-                        Employer-cost rollup and employee statutory deductions from the computed payroll run —
+                        Employer-cost rollup and employee statutory deductions from the computed payroll run â€”
                         ready for challan packs. SESSI/PESSI and life insurance are <strong>employer contributions</strong>
                         (not deducted from employee net). CPR freeze &amp; provincial sales-tax packs are <strong>Next</strong> on the roadmap.
                     </p>
@@ -1091,7 +1295,7 @@ export default function FixedValueContracts({ user }) {
                         <div className="fv-kpi"><div className="label">Life insurance (employer)</div><div className="value">{fmt(payrollTotals.life)}</div></div>
                     </div>
                     <div className="fv-later">
-                        <strong>Later:</strong> EOBI/SESSI challan Excel packs · BRA/SRB/KPRA/PRA ST annexures · CPR reference freeze before invoice stamp.
+                        <strong>Later:</strong> EOBI/SESSI challan Excel packs Â· BRA/SRB/KPRA/PRA ST annexures Â· CPR reference freeze before invoice stamp.
                     </div>
                     <div className="fv-actions">
                         <button type="button" className="btn-secondary" disabled={!payrollRows.length}
@@ -1104,7 +1308,7 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'export' && (
                 <div className="fv-panel">
-                    <h3>6 · Export &amp; Push</h3>
+                    <h3>7 Â· Export &amp; Push</h3>
                     <p className="fv-lead">
                         Working today: pretty Excel for payroll + invoice register, bank-file stub sheet, focal email per site.
                         One-click Xero push is on the roadmap.
@@ -1126,12 +1330,12 @@ export default function FixedValueContracts({ user }) {
                         )}
                     </div>
                     <div className="fv-later">
-                        <strong>Bank file:</strong> included as sheet “Bank file (format TBD)” inside the payroll workbook
+                        <strong>Bank file:</strong> included as sheet â€œBank file (format TBD)â€ inside the payroll workbook
                         (Employee ID, Name, Bank, Account, IBAN, Net Pay, Payment Ref).
                     </div>
                     <div className="fv-later">
-                        <strong>One-click later:</strong> Fetch Attendance → Build Payroll → Bank File → Invoices → Xero →
-                        EOBI/SESSI challans → Sales tax by authority → email focals.
+                        <strong>One-click later:</strong> Fetch Attendance â†’ Build Payroll â†’ Bank File â†’ Invoices â†’ Xero â†’
+                        EOBI/SESSI challans â†’ Sales tax by authority â†’ email focals.
                     </div>
                 </div>
             )}
@@ -1154,3 +1358,4 @@ export default function FixedValueContracts({ user }) {
         </div>
     );
 }
+

@@ -681,6 +681,28 @@ export const api = {
     getFixedValueAttendanceStatus: (contractId, month, year) => apiFetch(
         `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/attendance/status?month=${month}&year=${year}`
     ),
+    getFixedValueBillableConfirmations: (contractId, month, year) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/billable-confirmations?month=${month}&year=${year}`
+    ),
+    getFixedValueSiteBillableConfirmations: (id, month, year) => apiFetch(
+        `/api/fixed-value/service-orders/${encodeURIComponent(id)}/billable-confirmations?month=${month}&year=${year}`
+    ),
+    saveFixedValueBillableConfirmations: (id, month, year, lines) => apiFetch(
+        `/api/fixed-value/service-orders/${encodeURIComponent(id)}/billable-confirmations`,
+        { method: 'PUT', body: JSON.stringify({ month, year, lines }) }
+    ),
+    confirmAllFixedValueBillable: (id, month, year) => apiFetch(
+        `/api/fixed-value/service-orders/${encodeURIComponent(id)}/billable-confirmations/confirm-all`,
+        { method: 'POST', body: JSON.stringify({ month, year }) }
+    ),
+    saveFixedValueBillableConfirmationsAll: (contractId, month, year, payload = {}) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/billable-confirmations`,
+        { method: 'PUT', body: JSON.stringify({ month, year, ...payload }) }
+    ),
+    confirmAllFixedValueBillableContract: (contractId, month, year, siteCodes) => apiFetch(
+        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/billable-confirmations/confirm-all`,
+        { method: 'POST', body: JSON.stringify({ month, year, siteCodes }) }
+    ),
     computeFixedValueInvoice: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/invoice/compute`, { method: 'POST', body: JSON.stringify({ month, year }) }),
     persistFixedValueInvoice: (id, month, year, poNumber) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/invoice/persist`, { method: 'POST', body: JSON.stringify({ month, year, poNumber }) }),
     computeFixedValueInvoicesAll: (contractId, month, year, siteCodes) => apiFetch(

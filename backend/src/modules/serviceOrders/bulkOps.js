@@ -4,6 +4,7 @@ const { listServiceOrders, getServiceOrder } = require('./crud');
 const { pullAttendanceForSite } = require('./driveAttendance');
 const { applyAttendance } = require('./attendanceIngest');
 const { computeSoInvoice, persistSoInvoice, listDeductions } = require('./billing');
+const { assertContractConfirmations } = require('./billableConfirmations');
 const { activeEmployeeSqlClause } = require('../../core/employeeActive');
 
 /**
@@ -85,6 +86,7 @@ async function applyAttendanceAllSites(pool, { contractId, month, year, actor, s
 }
 
 async function computeInvoicesAllSites(pool, { contractId, month, year, siteCodes }) {
+    await assertContractConfirmations(pool, contractId, month, year, siteCodes);
     const orders = await listServiceOrders(pool, { contractId });
     const filtered = Array.isArray(siteCodes) && siteCodes.length
         ? orders.filter((o) => siteCodes.includes(o.site_code))
@@ -125,6 +127,7 @@ async function computeInvoicesAllSites(pool, { contractId, month, year, siteCode
 }
 
 async function persistInvoicesAllSites(pool, { contractId, month, year, generatedBy, siteCodes }) {
+    await assertContractConfirmations(pool, contractId, month, year, siteCodes);
     const orders = await listServiceOrders(pool, { contractId });
     const filtered = Array.isArray(siteCodes) && siteCodes.length
         ? orders.filter((o) => siteCodes.includes(o.site_code))

@@ -68,7 +68,7 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 ## Fixed Value / Conservancy (PSO service orders)
 
 Module: `backend/src/modules/serviceOrders/` — mounted at `/api/fixed-value/*`.
-UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops workflow (Period → Attendance → Payroll → Invoice → Statutory → Export) plus **create/edit wizard** (`FixedValueContractWizard.jsx`).
+UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops workflow (Period → Attendance → Confirm billable services → Payroll → Invoice → Statutory → Export) plus **create/edit wizard** (`FixedValueContractWizard.jsx`).
 
 | Item | Detail |
 |---|---|
@@ -79,6 +79,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Billing model | `service_order_deduction` on `contract_policies` |
 | Contract meta | `contracts.meta` JSONB — `fv_product`, external SO #, SLA/retention text, security deposit |
 | Monthly qty default | `1` per service order line (annual months stored in meta) |
+| Non-manpower billable confirm | Ops must save a monthly checklist per site for is_manpower_dependent = false lines (default off). Invoice includes those lines only when confirmed billable. Manpower still attendance/absence-driven. Tables: so_billable_period_reviews, so_line_billable_confirmations. Invoice generate blocked until each site has a saved period review (all-unchecked allowed). Draft invoices may recalculate; released invoices are never rewritten. Stamp snapshots selection into client_invoices.notes.billable_confirmations. |
 | Absence deduction (invoice) | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` |
 | Payroll wages (Conservancy) | Model A: `salary × ((30 − sheet_absent) / 30)`; Absent column = explicit sheet `days_absent` (not WD − present) |
 | Attendance ingest | Excel sheet `"{MonthName} {year}"` or Google Drive folder `DRIVE_ATTENDANCE_FOLDER_ID`; override stores `present_days` + `absent_days` |
@@ -94,7 +95,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 
 **Routes (summary):**
 - Contract CRUD: `GET/POST /api/fixed-value/contracts`, `GET/PUT .../contracts/:id`, `POST .../CTR-PSO-NORTH-ZONE/resync-seed` (superadmin, `{confirm:true}`)
-- Per site: attendance upload/drive/apply, invoice compute/persist, deductions, focal email
+- Per site: attendance upload/drive/apply, billable confirmations, invoice compute/persist, deductions, focal email
 - Contract bulk: `POST .../contracts/:id/attendance/apply-all`, `GET .../attendance/status`, `POST .../invoices/compute-all`, `POST .../invoices/persist-all`
 - Exports (ExcelJS): `GET .../exports/payroll.xlsx`, `GET .../exports/invoices.xlsx` (payroll workbook includes “Bank file (format TBD)” sheet)
 - World B payroll: `POST /api/payroll-runs/compute` (entire contract); FV UI shows by-site summary
