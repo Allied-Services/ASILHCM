@@ -607,6 +607,11 @@ export const api = {
     portalClaimsManualImport: (data) => apiFetch('/api/portal-claims/manual-override/import', { method: 'POST', body: JSON.stringify(data) }),
     portalClaimsEligible: () => apiFetch('/api/portal-claims/eligible'),
     portalClaimsResetSample: () => apiFetch('/api/portal-claims/admin/reset-sample', { method: 'POST' }),
+    portalClaimsFlushSample: (data) => apiFetch('/api/portal-claims/admin/flush-sample', { method: 'POST', body: JSON.stringify(data || {}) }),
+    portalClaimsEligibilityRules: () => apiFetch('/api/portal-claims/eligibility-rules'),
+    portalClaimsSaveEligibilityRule: (data) => apiFetch('/api/portal-claims/eligibility-rules', { method: 'PUT', body: JSON.stringify(data) }),
+    portalClaimsPreviewEligibilityRule: (id) => apiFetch(`/api/portal-claims/eligibility-rules/${id}/preview`),
+    portalClaimsEmployeeCategory: (id) => apiFetch(`/api/portal-claims/employee/${encodeURIComponent(id)}/category`),
     getReceipts: (q = {}) => apiFetch('/api/ar/receipts?' + new URLSearchParams(q).toString()),
 
   // ── Xero bill import / billable invoicing ────────────────────────────────────

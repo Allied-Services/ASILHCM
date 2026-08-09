@@ -1,17 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
 
-const TEST_FILLERS = [
-  'shezad.mumtaz@asil.com.pk',
-  'rabia.bhutto@asil.com.pk',
-  'laiba.mughal@asil.com.pk',
-];
-const TEST_APPROVER = 'huzaifa.rafaqat@asil.com.pk';
+const SHEZAD_TEST = 'shezad.mumtaz@asil.com.pk';
 
 export default function PortalClaimsHub({ user }) {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
+  const [campaignMode, setCampaignMode] = useState('sample');
   const [channel, setChannel] = useState('');
   const [claims, setClaims] = useState([]);
   const [msg, setMsg] = useState('');
@@ -27,6 +23,28 @@ export default function PortalClaimsHub({ user }) {
   });
   const [ovPreview, setOvPreview] = useState(null);
   const [expanded, setExpanded] = useState({});
+  const [rules, setRules] = useState([]);
+  const [eligibleCount, setEligibleCount] = useState(null);
+  const [rulePreview, setRulePreview] = useState(null);
+  const [editingRule, setEditingRule] = useState(null);
+
+  const loadRules = useCallback(async () => {
+    try {
+      const d = await api.portalClaimsEligibilityRules();
+      setRules(d.rules || []);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadRules(); }, [loadRules]);
+
+  const loadEligible = useCallback(async () => {
+    try {
+      const d = await api.portalClaimsEligible();
+      setEligibleCount((d.employees || []).length);
+    } catch { setEligibleCount(null); }
+  }, []);
+
+  useEffect(() => { loadEligible(); }, [loadEligible]);
 
   const load = useCallback(async () => {
     setErr('');
@@ -42,20 +60,37 @@ export default function PortalClaimsHub({ user }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const runSampleCampaign = async (dryRun) => {
+  const runCampaign = async (dryRun, opts = {}) => {
     setBusy(true); setMsg(''); setErr('');
     try {
-      const d = await api.portalClaimsCampaign({
+      const payload = {
         month, year, dryRun,
-        onlyEmails: TEST_FILLERS,
-      });
+        campaignMode,
+        testPackFour: !!opts.testPackFour,
+      };
+      const d = await api.portalClaimsCampaign(payload);
       setPeriodId(d.period?.id || null);
       setMsg(dryRun
-        ? `Dry-run: ${d.fillerCount} fillers / ${d.employeeCount} employees. Skipped: ${d.skipped?.length || 0}`
-        : `Campaign sent to ${d.invites?.filter(i => i.ok).length || 0} filler(s). Check inboxes.`);
-      if (!dryRun && d.invites) {
-        console.log('[PortalClaims] invite links', d.invites);
-      }
+        ? `Dry-run (${campaignMode}): ${d.fillerCount} packs / ${d.employeeCount} employees. Skipped: ${d.skipped?.length || 0}`
+        : `${campaignMode.toUpperCase()} campaign sent — ${d.invites?.filter(i => i.ok).length || 0} email(s). ${campaignMode === 'sample' ? `Check ${SHEZAD_TEST}` : ''}`);
+      if (!dryRun && d.invites) console.log('[PortalClaims] invites', d.invites);
+      await load();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const flushSample = async () => {
+    if (!window.confirm('Delete all SAMPLE-mode portal claim periods for Wafi? This cannot be undone.')) return;
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const claimMonth = month > 1 ? month - 1 : 12;
+      const claimYear = month > 1 ? year : year - 1;
+      const d = await api.portalClaimsFlushSample({ claimMonth, claimYear, client: 'wafi' });
+      setMsg(`Flushed ${d.deletedPeriods || 0} sample period(s).`);
+      setPeriodId(null);
       await load();
     } catch (e) {
       setErr(e.message);
@@ -144,7 +179,7 @@ export default function PortalClaimsHub({ user }) {
     <div style={{ padding: '1.25rem' }}>
       <h2 style={{ margin: '0 0 4px' }}>Claims</h2>
       <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
-        Portal claims + manual ADD OT / CLAIMS. Test fillers: {TEST_FILLERS.join(', ')} · Approver: {TEST_APPROVER}
+        Portal Claims — Wafi August rollout. Eligible employees: {eligibleCount ?? '…'} · Sample emails → {SHEZAD_TEST}
       </p>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: -4, maxWidth: 820, lineHeight: 1.5 }}>
         Approver emails (default <strong>immediate</strong> on each submit): same stable link all month shows outstanding + already decided.
@@ -168,17 +203,115 @@ export default function PortalClaimsHub({ user }) {
         <button type="button" className="btn-secondary" onClick={exportTieout}>Export claims→payroll</button>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
-        <button type="button" className="btn-secondary" disabled={busy} onClick={() => runSampleCampaign(true)}>Dry-run sample campaign</button>
-        <button type="button" className="btn-primary" disabled={busy} onClick={() => runSampleCampaign(false)}>Send sample invites (3 fillers)</button>
-        <button type="button" className="btn-secondary" disabled={busy} onClick={notifyApprovers}>Email Huzaifa approval pack</button>
-        {user?.role === 'superadmin' && (
-          <button type="button" className="btn-secondary" disabled={busy} onClick={resetSample} style={{ borderColor: '#b91c1c', color: '#fca5a5' }}>
-            Reset sample test data
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, padding: '12px 14px', background: 'rgba(56,189,248,0.08)', borderRadius: 10, border: '1px solid rgba(56,189,248,0.2)' }}>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>Campaign mode:</span>
+        {['sample', 'actual'].map(m => (
+          <button key={m} type="button" onClick={() => setCampaignMode(m)}
+            style={{
+              padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13,
+              border: campaignMode === m ? '2px solid #38bdf8' : '1px solid var(--border)',
+              background: campaignMode === m ? 'rgba(56,189,248,0.15)' : 'transparent',
+              color: campaignMode === m ? '#38bdf8' : 'var(--text-muted)',
+            }}>
+            {m.toUpperCase()}
           </button>
+        ))}
+        {campaignMode === 'sample' && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>All emails → Shezad · no payroll write · no confirmation emails</span>}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+        <button type="button" className="btn-secondary" disabled={busy} onClick={() => runCampaign(true)}>Dry-run campaign</button>
+        <button type="button" className="btn-primary" disabled={busy} onClick={() => runCampaign(false)}>
+          Launch {campaignMode.toUpperCase()} campaign
+        </button>
+        {campaignMode === 'sample' && (
+          <button type="button" className="btn-secondary" disabled={busy} onClick={() => runCampaign(false, { testPackFour: true })}>
+            Send 4-routing test pack
+          </button>
+        )}
+        <button type="button" className="btn-secondary" disabled={busy} onClick={notifyApprovers}>Notify approvers</button>
+        {user?.role === 'superadmin' && (
+          <>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={resetSample}>Reset legacy sample employees</button>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={flushSample} style={{ borderColor: '#b91c1c', color: '#fca5a5' }}>
+              Flush SAMPLE Wafi data
+            </button>
+          </>
         )}
         {periodId && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>periodId={periodId}</span>}
       </div>
+
+      {rules.length > 0 && (
+        <div style={{ marginBottom: 20, padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Eligibility rules</div>
+          {rules.map(r => (
+            <div key={r.id} style={{ fontSize: 13, marginBottom: 10, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <strong style={{ color: 'var(--text)' }}>{r.name}</strong>
+                {r.client_pattern ? <span>· client ~ {r.client_pattern}</span> : null}
+                {(r.dept_exclude || []).length ? <span>· exclude: {r.dept_exclude.join(', ')}</span> : null}
+                {!r.active ? <span style={{ color: '#fca5a5' }}>(inactive)</span> : null}
+                <button type="button" className="btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }}
+                  onClick={async () => {
+                    try {
+                      const d = await api.portalClaimsPreviewEligibilityRule(r.id);
+                      setRulePreview({ ruleId: r.id, name: r.name, ...d });
+                    } catch (e) { setErr(e.message); }
+                  }}>Preview matches</button>
+                {(user?.role === 'superadmin' || user?.role === 'finance_manager') && (
+                  <button type="button" className="btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }}
+                    onClick={() => setEditingRule({ ...r, dept_exclude_str: (r.dept_exclude || []).join(', ') })}>Edit</button>
+                )}
+              </div>
+            </div>
+          ))}
+          {rulePreview && (
+            <div style={{ marginTop: 8, padding: 10, background: 'var(--bg-dark)', borderRadius: 8, fontSize: 12 }}>
+              <strong>{rulePreview.name}</strong> matches <strong>{rulePreview.count}</strong> active employee(s).
+              {(rulePreview.employees || []).length > 0 && (
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                  {rulePreview.employees.slice(0, 10).map(e => (
+                    <li key={e.id}>{e.id} — {e.name} ({e.dept || '—'})</li>
+                  ))}
+                </ul>
+              )}
+              <button type="button" className="btn-secondary" style={{ marginTop: 8, padding: '4px 10px', fontSize: 11 }} onClick={() => setRulePreview(null)}>Close</button>
+            </div>
+          )}
+          {editingRule && (
+            <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-dark)', borderRadius: 8 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Edit rule</div>
+              <div style={{ display: 'grid', gap: 8, maxWidth: 480 }}>
+                <input value={editingRule.name} onChange={e => setEditingRule(x => ({ ...x, name: e.target.value }))} placeholder="Name" style={fieldInp} />
+                <input value={editingRule.client_pattern || ''} onChange={e => setEditingRule(x => ({ ...x, client_pattern: e.target.value }))} placeholder="Client pattern (e.g. wafi)" style={fieldInp} />
+                <input value={editingRule.dept_exclude_str || ''} onChange={e => setEditingRule(x => ({ ...x, dept_exclude_str: e.target.value }))} placeholder="Exclude depts (comma-separated)" style={fieldInp} />
+                <label style={{ fontSize: 13 }}><input type="checkbox" checked={editingRule.active !== false} onChange={e => setEditingRule(x => ({ ...x, active: e.target.checked }))} /> Active</label>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button type="button" className="btn-primary" disabled={busy} onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await api.portalClaimsSaveEligibilityRule({
+                      id: editingRule.id,
+                      name: editingRule.name,
+                      priority: editingRule.priority,
+                      active: editingRule.active !== false,
+                      client_pattern: editingRule.client_pattern,
+                      dept_exclude: (editingRule.dept_exclude_str || '').split(',').map(s => s.trim()).filter(Boolean),
+                      eligible: editingRule.eligible !== false,
+                    });
+                    setEditingRule(null);
+                    await loadRules();
+                    setMsg('Eligibility rule saved.');
+                  } catch (e) { setErr(e.message); }
+                  finally { setBusy(false); }
+                }}>Save</button>
+                <button type="button" className="btn-secondary" onClick={() => setEditingRule(null)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ overflowX: 'auto', marginBottom: 28 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>

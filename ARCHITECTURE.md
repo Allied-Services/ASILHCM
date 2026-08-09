@@ -118,7 +118,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Wafi roster refresh | `node scripts/wafi_roster_refresh.js --csv "<path>" --dry-run` (apply only on staging with `STAGING_DATABASE_URL`) |
 | Wafi claim routing | `claim_authority` → focal input; `line_manager_email` → LM approve; `GET/POST /api/wafi-claims/focal-action`, `lm-action` |
 | Approval gate | `verify` / `stage-payroll` require `approval_state` ∈ `{ready_for_hcm, legacy_bypass}`; post-Jul-2026 sessions with null state blocked when chain enabled |
-| Portal claims (Wafi) | Filler = `claim_authority`; approver = `line_manager_email` when both named (else `supervisor_email` legacy). No second focal-then-LM state machine — email Excel path is authoritative for Wafi |
+| Portal claims (Wafi) | **August rollout:** `claim_eligibility_rules` (UI-editable; seed: Wafi minus FM). Routing matrix in `claimsEligibility.js` — Focal+LM, Focal only, Employee+LM, Employee+ASIL (Huzaifa fallback). `portal_claim_periods.campaign_mode` = `sample` \| `actual` (SAMPLE redirects all mail to `CLAIMS_SAMPLE_EMAIL`, blocks payroll injection). Hub: `PortalClaimsHub.jsx`. Flush: `node backend/scripts/flush_portal_claims_sample.js`. E2E: `docs/PORTAL_CLAIMS_AUGUST_E2E.md`. Legacy Wafi Gmail intake gated by `wafi_gmail_intake_enabled=false`. |
 
 ---
 
