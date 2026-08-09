@@ -138,8 +138,8 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
         }
     }
 
-    // Excel "Special Allowance" maps to bonus for verification only — never stack on contract auto-bonus.
-    const effectiveSplAllow = contractAutoBonus && bonusDisbursed > 0 ? 0 : splAllow;
+    // Excel "Special Allowance" is the bonus column — never stack on bonus_amount.
+    const effectiveSplAllow = bonusAmount > 0 ? 0 : (contractAutoBonus && bonusDisbursed > 0 ? 0 : splAllow);
 
     // Gross Monthly: ALL cash paid to the employee, including bonus disbursement.
     const grossMonthly = grossPay + otAmount + opdClaim + reimb + arrears + effectiveSplAllow + fuelMob + bonusDisbursed;
