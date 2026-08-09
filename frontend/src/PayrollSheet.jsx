@@ -7,6 +7,7 @@ import {
     calcWHT, calcEOBI_fn, calcGratuityMonthly, calcPF_fn, COMPANY,
 } from './payrollUtils';
 import { api } from './api';
+import { claimsBadgeStyle } from './utils/claimsRouting';
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1579,6 +1580,14 @@ export default function PayrollSheet({ user }) {
                                                         })()}
                                                     </div>
                                                     <div style={{ fontSize: '0.68rem', color: 'var(--primary)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: '-0.02em', marginTop: '2px' }}>{emp.id}</div>
+                                                    {String(emp.client || '').toLowerCase().includes('wafi') && (() => {
+                                                        const b = claimsBadgeStyle(emp);
+                                                        return (
+                                                            <span title={b.tooltip} style={{ fontSize: '0.6rem', fontWeight: 700, color: b.tone, background: `${b.tone}22`, border: `1px solid ${b.tone}55`, borderRadius: '4px', padding: '1px 5px', marginTop: '3px', display: 'inline-block' }}>
+                                                                {b.category}
+                                                            </span>
+                                                        );
+                                                    })()}
                                                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{emp.designation}</div>
                                                 </div>
                                             </div>

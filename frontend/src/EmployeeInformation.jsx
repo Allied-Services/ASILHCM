@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Users, Search, Plus, Filter, Upload, Download, CheckCircle, X,
          ChevronDown, Mail, MessageCircle } from 'lucide-react';
 import { api } from './api';
+import { claimsBadgeStyle } from './utils/claimsRouting';
 import EmployeeProfile from './EmployeeProfile';
 import EmployeeDirectoryToolbar from './features/employees/EmployeeDirectory';
 import EmploymentOrgCascade from './EmploymentOrgCascade';
@@ -740,6 +741,14 @@ export default function EmployeeInformation({ user }) {
                                 <td style={{ padding: '0.85rem 1rem' }}>
                                     <div style={{ fontWeight: 500, lineHeight: 1.2 }}>{emp.client}</div>
                                     <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{emp.dept}</div>
+                                    {String(emp.client || '').toLowerCase().includes('wafi') && (() => {
+                                        const b = claimsBadgeStyle(emp);
+                                        return (
+                                            <span title={b.tooltip} style={{ fontSize: '0.68rem', fontWeight: 700, color: b.tone, marginTop: '4px', display: 'inline-block' }}>
+                                                {b.category}
+                                            </span>
+                                        );
+                                    })()}
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>{emp.designation}</td>
                                 <td style={{ padding: '0.85rem 1rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{emp.location}</td>

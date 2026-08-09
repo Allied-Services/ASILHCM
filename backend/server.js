@@ -9580,8 +9580,20 @@ if (require.main === module) app.listen(PORT, async () => {
         // ═══ Start Email Claims Listener Service ══════════════════════════════
         startEmailClaimsService(pool);
 
-        // ═══ Start Wafi Claims Service ════════════════════════════════════════
-        startWafiClaimsService(pool);
+        // ═══ Start Wafi Claims Service (gated — Portal Claims is canonical Aug 2026+) ═══
+        pool.query(`SELECT value FROM system_config WHERE key = 'wafi_gmail_intake_enabled'`)
+            .then(({ rows }) => {
+                const v = rows[0]?.value;
+                const enabled = v === true || v === 'true';
+                if (enabled) {
+                    startWafiClaimsService(pool);
+                } else {
+                    console.log('[wafi-claims] Gmail intake disabled (wafi_gmail_intake_enabled=false). Portal Claims is canonical.');
+                }
+            })
+            .catch((err) => {
+                console.error('[wafi-claims] Gmail intake config read failed — intake stays OFF:', err.message);
+            });
 
         // ═══ Phase 2 Operations Scheduler ═════════════════════════════════════
         startOperationsScheduler({
