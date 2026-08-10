@@ -417,6 +417,9 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                     {/* ── PAYSLIPS ─────────────────────────────────────── */}
                     {activeTab === 'payslips' && (
                         <div>
+                            <div style={{ background: '#fef3c7', color: '#92400e', padding: '12px 16px', borderRadius: 10, marginBottom: '1rem', fontSize: '0.85rem' }}>
+                                <strong>TRIAL MODE</strong> — Payslips are in trial until November 2026. If anything looks wrong, report to ops-support@asil.com.pk.
+                            </div>
                             <h2 style={{ margin: '0 0 1.5rem', fontSize: '1.2rem', fontWeight: 800 }}>My Payslips</h2>
                             {payslips.length === 0 ? <div style={{ color: '#475569', padding: '3rem', textAlign: 'center' }}>No payslip records found.</div> : (
                                 <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', overflow: 'hidden' }}>
@@ -438,14 +441,11 @@ function PortalDashboard({ token, empBasic, onLogout }) {
                                                 </div>
                                                 <button
                                                     onClick={() => {
-                                                        const url = `${API}/api/payslip/${encodeURIComponent(emp.id)}/${p.month}/${p.year}`;
-                                                        fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-                                                            .then(r => { if (!r.ok) throw new Error('Could not load payslip'); return r.text(); })
-                                                            .then(html => { const w = window.open('', '_blank'); w.document.write(html); w.document.close(); })
-                                                            .catch(() => alert('Could not load payslip'));
+                                                        api.downloadPayslipPdf(emp.id, p.month, p.year, token)
+                                                            .catch(() => alert('Payslip not available yet. Open with CNIC password after HR sends payslips.'));
                                                     }}
                                                     style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.2)', color: '#38bdf8', padding: '7px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-                                                    <Download size={13} /> View / Print
+                                                    <Download size={13} /> Download PDF
                                                 </button>
                                             </div>
                                         </div>

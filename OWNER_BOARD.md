@@ -50,7 +50,7 @@ You have a serious payroll engine and many working parts — but **no single aut
 ---
 
 ## IN PROGRESS
-- FV Confirm billable services step (feature branch eat/fv-billable-confirm) — non-manpower monthly checklist before invoice
+- Payslip delivery system (World A) — PDF + CNIC password, email/SMS/portal, support cases (`fix/payslip-delivery-system`)
 - Chief operating system — owner audit + 30-day execution plan (this change)
 - BPO / PSO contract matching on staging (separate track — do not block)
 

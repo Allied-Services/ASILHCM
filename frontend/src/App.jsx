@@ -13,6 +13,7 @@ import BillingProcurement from './BillingProcurement';
 import InvoiceSection from './InvoiceSection';
 import AccountsPayable from './AccountsPayable';
 import EmployeePortal from './EmployeePortal';
+import PayslipLinkPage from './PayslipLinkPage';
 import ClientCMMSPortal from './ClientCMMSPortal';
 import LoginScreen from './LoginScreen';
 import { api, getArchiveMode, setArchiveMode } from './api';
@@ -93,7 +94,8 @@ function isPublicMagicPath(pathname, search = '') {
     pathname === '/portal' || pathname === '/portal/' ||
     pathname === '/cmms' || pathname === '/cmms/' ||
     pathname === '/claims-fill' || pathname.startsWith('/claims-fill/') ||
-    pathname === '/claims-approve' || pathname.startsWith('/claims-approve/')
+    pathname === '/claims-approve' || pathname.startsWith('/claims-approve/') ||
+    /^\/p\/[^/]+\/?$/.test(pathname)
   );
 }
 
@@ -105,6 +107,7 @@ function App() {
   const claimsFillPath = asilClaims === 'fill' || pathname === '/claims-fill' || pathname.startsWith('/claims-fill/');
   const claimsApprovePath = asilClaims === 'approve' || pathname === '/claims-approve' || pathname.startsWith('/claims-approve/');
   const cmmsPath = pathname === '/cmms' || pathname === '/cmms/';
+  const payslipLinkMatch = pathname.match(/^\/p\/([^/]+)\/?$/);
 
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showESS, setShowESS] = useState(false);
@@ -232,6 +235,7 @@ function App() {
     }
   };
 
+  if (payslipLinkMatch) return <PayslipLinkPage token={payslipLinkMatch[1]} />;
   if (portalPath) return <EmployeePortal />;
   if (claimsFillPath) return <ClaimsFillPage />;
   if (claimsApprovePath) return <ClaimsApprovePage />;

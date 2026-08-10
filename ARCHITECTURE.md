@@ -68,7 +68,7 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 ## Fixed Value / Conservancy (PSO service orders)
 
 Module: `backend/src/modules/serviceOrders/` — mounted at `/api/fixed-value/*`.
-UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops workflow (Period → Attendance → Confirm billable services → Payroll → Invoice → Statutory → Export) plus **create/edit wizard** (`FixedValueContractWizard.jsx`).
+UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops workflow (Period → Attendance → Payroll → Invoice → Statutory → Export) plus **create/edit wizard** (`FixedValueContractWizard.jsx`).
 
 | Item | Detail |
 |---|---|
@@ -79,8 +79,6 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Billing model | `service_order_deduction` on `contract_policies` |
 | Contract meta | `contracts.meta` JSONB — `fv_product`, external SO #, SLA/retention text, security deposit |
 | Monthly qty default | `1` per service order line (annual months stored in meta) |
-| Non-manpower billable confirm | Ops must save a monthly checklist per site for is_manpower_dependent = false lines (default off). **All non-manpower lines always appear on the invoice**; unchecked → QTY 0 / Amount 0; checked → QTY 1 at full monthly rate. Manpower still attendance/absence-driven. Tables: so_billable_period_reviews, so_line_billable_confirmations. Invoice generate blocked until each site has a saved period review (all-unchecked allowed). Stamp / regenerate refreshes line_items + totals for FV invoices in Draft/Raised/Sent (preserves invoice_number); Paid/Voided blocked. Snapshot in client_invoices.notes.billable_confirmations. |
-| FV invoice number edit | Registry inline edit → `PATCH /api/fixed-value/invoices/:id/invoice-number` (uniqueness check). Prints use stored `client_invoices.invoice_number`. |
 | Absence deduction (invoice) | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` |
 | Payroll wages (Conservancy) | Model A: `salary × ((30 − sheet_absent) / 30)`; Absent column = explicit sheet `days_absent` (not WD − present) |
 | Attendance ingest | Excel sheet `"{MonthName} {year}"` or Google Drive folder `DRIVE_ATTENDANCE_FOLDER_ID`; override stores `present_days` + `absent_days` |
@@ -96,11 +94,11 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 
 **Routes (summary):**
 - Contract CRUD: `GET/POST /api/fixed-value/contracts`, `GET/PUT .../contracts/:id`, `POST .../CTR-PSO-NORTH-ZONE/resync-seed` (superadmin, `{confirm:true}`)
-- Per site: attendance upload/drive/apply, billable confirmations, invoice compute/persist, deductions, focal email
+- Per site: attendance upload/drive/apply, invoice compute/persist, deductions, focal email
 - Contract bulk: `POST .../contracts/:id/attendance/apply-all`, `GET .../attendance/status`, `POST .../invoices/compute-all`, `POST .../invoices/persist-all`
 - Exports (ExcelJS): `GET .../exports/payroll.xlsx`, `GET .../exports/invoices.xlsx` (payroll workbook includes “Bank file (format TBD)” sheet)
 - World B payroll: `POST /api/payroll-runs/compute` (entire contract); FV UI shows by-site summary
-- Also: registry, print (`/invoices/:id/print?format=`), invoice number (`PATCH /invoices/:id/invoice-number`), deprecated seed alias (`POST /seed-pso`)
+- Also: registry, print (`/invoices/:id/print?format=`), deprecated seed alias (`POST /seed-pso`)
 
 **Seed / data ops:**
 - North Zone: `node scripts/seed_pso_north_zone.js` or `POST .../resync-seed` (UI source of truth; seed is optional re-sync)
@@ -121,6 +119,18 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Wafi claim routing | `claim_authority` → focal input; `line_manager_email` → LM approve; `GET/POST /api/wafi-claims/focal-action`, `lm-action` |
 | Approval gate | `verify` / `stage-payroll` require `approval_state` ∈ `{ready_for_hcm, legacy_bypass}`; post-Jul-2026 sessions with null state blocked when chain enabled |
 | Portal claims (Wafi) | **August rollout:** `claim_eligibility_rules` (UI-editable; seed: Wafi minus FM). Routing matrix in `claimsEligibility.js` — Focal+LM, Focal only, Employee+LM, Employee+ASIL (Huzaifa fallback). `portal_claim_periods.campaign_mode` = `sample` \| `actual` (SAMPLE redirects all mail to `CLAIMS_SAMPLE_EMAIL`, blocks payroll injection). Hub: `PortalClaimsHub.jsx`. Flush: `node backend/scripts/flush_portal_claims_sample.js`. E2E: `docs/PORTAL_CLAIMS_AUGUST_E2E.md`. Legacy Wafi Gmail intake gated by `wafi_gmail_intake_enabled=false`. |
+
+---
+
+## Payslip delivery (World A — Aug 2026)
+
+| Item | Detail |
+|---|---|
+| Module | `backend/src/modules/payslip/` — single PDF per employee/month, CNIC password, ASIL logo |
+| Gate | Month fully locked + AP payment batch confirmed; send by **finance_manager** or **superadmin** only |
+| Channels | Email (PDF attach), SMS (7-day link `/p/:token`), portal download |
+| Support | `POST /api/payslip/support-case` → ops-support@asil.com.pk; resolve notifies employee email+SMS |
+| Migration | `20260810180000_payslip_delivery.js` — run `npm run migrate` on staging before deploy |
 
 ---
 

@@ -38,7 +38,7 @@ export default function LoginScreen({ error }) {
             }}>
                 {/* Logo */}
                 <img
-                    src="/asil-logo.png"
+                    src="/asil-logo.svg"
                     alt="ASIL"
                     style={{ height: '64px', objectFit: 'contain', marginBottom: '28px' }}
                     onError={(e) => { e.target.style.display = 'none'; }}
