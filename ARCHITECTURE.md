@@ -79,7 +79,8 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Billing model | `service_order_deduction` on `contract_policies` |
 | Contract meta | `contracts.meta` JSONB — `fv_product`, external SO #, SLA/retention text, security deposit |
 | Monthly qty default | `1` per service order line (annual months stored in meta) |
-| Non-manpower billable confirm | Ops must save a monthly checklist per site for is_manpower_dependent = false lines (default off). Invoice includes those lines only when confirmed billable. Manpower still attendance/absence-driven. Tables: so_billable_period_reviews, so_line_billable_confirmations. Invoice generate blocked until each site has a saved period review (all-unchecked allowed). Draft invoices may recalculate; released invoices are never rewritten. Stamp snapshots selection into client_invoices.notes.billable_confirmations. |
+| Non-manpower billable confirm | Ops must save a monthly checklist per site for is_manpower_dependent = false lines (default off). **All non-manpower lines always appear on the invoice**; unchecked → QTY 0 / Amount 0; checked → QTY 1 at full monthly rate. Manpower still attendance/absence-driven. Tables: so_billable_period_reviews, so_line_billable_confirmations. Invoice generate blocked until each site has a saved period review (all-unchecked allowed). Stamp / regenerate refreshes line_items + totals for FV invoices in Draft/Raised/Sent (preserves invoice_number); Paid/Voided blocked. Snapshot in client_invoices.notes.billable_confirmations. |
+| FV invoice number edit | Registry inline edit → `PATCH /api/fixed-value/invoices/:id/invoice-number` (uniqueness check). Prints use stored `client_invoices.invoice_number`. |
 | Absence deduction (invoice) | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` |
 | Payroll wages (Conservancy) | Model A: `salary × ((30 − sheet_absent) / 30)`; Absent column = explicit sheet `days_absent` (not WD − present) |
 | Attendance ingest | Excel sheet `"{MonthName} {year}"` or Google Drive folder `DRIVE_ATTENDANCE_FOLDER_ID`; override stores `present_days` + `absent_days` |
@@ -99,7 +100,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 - Contract bulk: `POST .../contracts/:id/attendance/apply-all`, `GET .../attendance/status`, `POST .../invoices/compute-all`, `POST .../invoices/persist-all`
 - Exports (ExcelJS): `GET .../exports/payroll.xlsx`, `GET .../exports/invoices.xlsx` (payroll workbook includes “Bank file (format TBD)” sheet)
 - World B payroll: `POST /api/payroll-runs/compute` (entire contract); FV UI shows by-site summary
-- Also: registry, print (`/invoices/:id/print?format=`), deprecated seed alias (`POST /seed-pso`)
+- Also: registry, print (`/invoices/:id/print?format=`), invoice number (`PATCH /invoices/:id/invoice-number`), deprecated seed alias (`POST /seed-pso`)
 
 **Seed / data ops:**
 - North Zone: `node scripts/seed_pso_north_zone.js` or `POST .../resync-seed` (UI source of truth; seed is optional re-sync)

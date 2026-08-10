@@ -9,11 +9,14 @@ const { renderInvoiceHtml } = require('./invoiceHtml');
 const {
     assertPeriodReviewed,
     loadConfirmationMap,
-    filterLinesForInvoice,
+    mapLinesForInvoice,
     buildBillableSnapshot,
 } = require('./billableConfirmations');
 
 const ST_WITHHOLDING_RATE = 0.20;
+
+/** FV invoices in these statuses may regenerate line_items/totals (preserve invoice_number). */
+const FV_REGENERATABLE_STATUSES = new Set(['draft', 'raised', 'sent']);
 
 function round2(n) {
     return Math.round(Number(n || 0) * 100) / 100;
@@ -192,24 +195,20 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year, requireConf
     const confirmationMap = await loadConfirmationMap(pool, serviceOrderId, month, year);
     const allLines = so.lines || [];
     const billableSnapshot = buildBillableSnapshot(allLines, confirmationMap);
-    // Manpower always; non-manpower only when confirmed billable for this period.
-    const lines = filterLinesForInvoice(allLines, confirmationMap);
-    const grossLines = lines.map(l => {
-        // SO seed JSON often stores quantity=12 (contract months) with monthly `rate`.
-        // A period invoice always stamps one month = rate (not rate * contractMonths).
-        const rate = Number(l.rate || 0);
-        const billQty = 1;
-        return {
-            lineId: l.id,
-            description: l.name,
-            quantity: billQty,
-            rate,
-            amount: round2(rate * billQty),
-            isManpowerDependent: l.is_manpower_dependent,
-            roles: l.roles || [],
-            contractQuantity: l.quantity != null ? Number(l.quantity) : null,
-        };
-    });
+    // All lines listed; unchecked non-manpower → qty 0 / amount 0 (still visible on invoice).
+    // SO seed JSON often stores quantity=12 (contract months) with monthly `rate`.
+    // A period invoice always stamps one month = rate (not rate * contractMonths) when billable.
+    const grossLines = mapLinesForInvoice(allLines, confirmationMap).map(({ line: l, billable, quantity, rate, amount }) => ({
+        lineId: l.id,
+        description: l.name,
+        quantity,
+        rate,
+        amount: round2(amount),
+        billable,
+        isManpowerDependent: !!(l.is_manpower_dependent || l.isManpowerDependent),
+        roles: l.roles || [],
+        contractQuantity: l.quantity != null ? Number(l.quantity) : null,
+    }));
     const gross = round2(grossLines.reduce((s, l) => s + l.amount, 0));
 
     const deductions = await listDeductions(pool, serviceOrderId, month, year);
@@ -298,6 +297,7 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
         amount: l.amount,
         quantity: l.quantity,
         rate: l.rate,
+        billable: l.billable !== false && Number(l.quantity) > 0,
         isManpowerDependent: !!l.isManpowerDependent,
         roles: l.roles || [],
     }));
@@ -340,9 +340,9 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
 
     if (existing) {
         const status = String(existing.status || '');
-        if (status.toLowerCase() !== 'draft') {
+        if (!FV_REGENERATABLE_STATUSES.has(status.toLowerCase())) {
             const err = new Error(
-                `Invoice ${existing.invoice_number} is ${status} — billable selections cannot rewrite a released invoice.`
+                `Invoice ${existing.invoice_number} is ${status} — regenerate is blocked for Paid/Voided. Void and re-stamp, or edit while Draft/Raised/Sent.`
             );
             err.status = 409;
             err.code = 'INVOICE_NOT_EDITABLE';
@@ -350,6 +350,7 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
             throw err;
         }
 
+        // Regenerate line_items + totals; preserve invoice_number (user may have edited it).
         const { rows } = await pool.query(
             `UPDATE client_invoices
              SET line_items = $2,
@@ -359,7 +360,8 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
                  grand_total = $6,
                  notes = $7,
                  po_number = COALESCE($8, po_number),
-                 due_date = (CURRENT_DATE + ($9 || ' days')::interval)::date
+                 due_date = (CURRENT_DATE + ($9 || ' days')::interval)::date,
+                 updated_at = NOW()
              WHERE id = $1
              RETURNING *`,
             [
@@ -442,6 +444,80 @@ async function listRegistry(pool, { contractId, month, year, siteCode } = {}) {
     return rows.map((r) => enrichInvoiceRow(r, soById));
 }
 
+/**
+ * Update invoice_number on an FV client_invoice. Prints read stored number.
+ * Uniqueness enforced against client_invoices.invoice_number.
+ */
+async function updateFvInvoiceNumber(pool, invoiceId, invoiceNumber) {
+    const id = parseInt(invoiceId, 10);
+    const next = String(invoiceNumber || '').trim();
+    if (!id || !next) {
+        const err = new Error('invoice id and invoice_number are required');
+        err.status = 400;
+        err.code = 'INVALID_INVOICE_NUMBER';
+        throw err;
+    }
+    if (next.length > 64) {
+        const err = new Error('invoice_number is too long (max 64)');
+        err.status = 400;
+        err.code = 'INVALID_INVOICE_NUMBER';
+        throw err;
+    }
+
+    const { rows: existing } = await pool.query(
+        `SELECT id, invoice_number, status, notes FROM client_invoices WHERE id = $1`,
+        [id]
+    );
+    if (!existing.length) {
+        const err = new Error('Invoice not found');
+        err.status = 404;
+        err.code = 'INVOICE_NOT_FOUND';
+        throw err;
+    }
+    const inv = existing[0];
+    const notes = parseInvoiceNotes(inv.notes);
+    const isFv = notes.source === 'fixed_value_service_order'
+        || !!notes.service_order_id
+        || String(inv.notes || '').includes('fixed_value_service_order');
+    if (!isFv) {
+        const err = new Error('Only Fixed Value invoices can be renumbered from this registry');
+        err.status = 400;
+        err.code = 'NOT_FV_INVOICE';
+        throw err;
+    }
+    if (String(inv.status || '').toLowerCase() === 'voided') {
+        const err = new Error('Cannot edit invoice number on a Voided invoice');
+        err.status = 409;
+        err.code = 'INVOICE_NOT_EDITABLE';
+        throw err;
+    }
+
+    if (String(inv.invoice_number) === next) {
+        return inv;
+    }
+
+    const { rows: clash } = await pool.query(
+        `SELECT id FROM client_invoices WHERE invoice_number = $1 AND id <> $2 LIMIT 1`,
+        [next, id]
+    );
+    if (clash.length) {
+        const err = new Error(`Invoice number ${next} is already in use`);
+        err.status = 409;
+        err.code = 'INVOICE_NUMBER_TAKEN';
+        err.details = { invoiceNumber: next, existingId: clash[0].id };
+        throw err;
+    }
+
+    const { rows } = await pool.query(
+        `UPDATE client_invoices
+         SET invoice_number = $2, updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [id, next]
+    );
+    return rows[0];
+}
+
 async function printInvoiceHtml(pool, invoiceRow, format) {
     const soId = parseInvoiceNotes(invoiceRow.notes).service_order_id;
     const soById = await loadServiceOrdersByIds(pool, soId ? [soId] : []);
@@ -511,10 +587,12 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
 
 module.exports = {
     ST_WITHHOLDING_RATE,
+    FV_REGENERATABLE_STATUSES,
     listDeductions,
     addManualDeduction,
     computeSoInvoice,
     persistSoInvoice,
+    updateFvInvoiceNumber,
     listRegistry,
     printInvoiceHtml,
     resolveTaxRate,
