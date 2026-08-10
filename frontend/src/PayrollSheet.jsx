@@ -627,6 +627,8 @@ export default function PayrollSheet({ user }) {
     const [addClaimsMsg, setAddClaimsMsg] = useState('');
 
     const isSuperAdmin = user?.role === 'superadmin';
+    const canManageLock = isSuperAdmin || user?.role === 'finance_approver';
+    const canSendPayslips = isSuperAdmin || user?.role === 'finance_manager';
     const [PROVINCE_RATES, setPROVINCE_RATES] = useState([]); // from System Config Tax by Region
     const [invoiceStatus, setInvoiceStatus] = useState({ invoicedClients: [], invoicedContracts: [] });
 
@@ -1207,9 +1209,6 @@ export default function PayrollSheet({ user }) {
         } catch (e) { console.warn('Import save failed:', e.message); }
     };
 
-
-    const canManageLock = isSuperAdmin || user?.role === 'finance_approver';
-    const canSendPayslips = isSuperAdmin || user?.role === 'finance_manager';
 
     const handleLock = async () => {
         const toLock = rows.filter(r => !lockedIds.has(r.emp.id)).map(r => r.emp.id);
