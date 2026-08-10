@@ -1,6 +1,7 @@
 'use strict';
 
-const { computePrSheetRow, computeMedicalCoverage, computeBonusDisbursement } = require('../../payroll/prSheetEngine');
+const { computePrSheetRow, computeMedicalCoverage, resolvePayrollSheetBonus } = require('../../payroll/prSheetEngine');
+const { loadBonusWorkingMap } = require('../../payroll/julyBonusAccrual');
 const { getPolicy } = require('../constraints/service');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { provinceSalesTaxRate } = require('../../core/regionTax');
@@ -447,6 +448,14 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
     let totalServiceCharges = 0;
     let totalSalesTax = 0;
     let totalInvoice = 0;
+    let bonusMap = null;
+    if (Number(month) === 7 && Number(year) === 2026) {
+        try {
+            bonusMap = loadBonusWorkingMap();
+        } catch (err) {
+            console.error('[payrollrun.compute] July 2026 bonus accrual CSV not loaded:', err.message);
+        }
+    }
     let totalBillable = 0;
     let hasRateCardBilling = false;
 
@@ -592,7 +601,9 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         const effectiveSalary = (ov && ov.salary_override != null && Number(ov.salary_override) > 0)
             ? Number(ov.salary_override)
             : Number(emp.salary || 0);
-        const bonusDisbursement = computeBonusDisbursement({
+        const bonusDisbursement = resolvePayrollSheetBonus({
+            employeeId: emp.id,
+            contractId,
             salary: effectiveSalary,
             doj: emp.doj,
             month,
@@ -601,6 +612,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             bonusMinMonths: contractCosts.bonus_min_months,
             disbursementMonth: contractCosts.bonus_disbursement_month,
             manualBonusAmount: ov?.bonus_amount,
+            bonusMap,
         });
         const computeInput = {
             newSalary: effectiveSalary,
@@ -616,23 +628,26 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             bonusDisbursement,
             ...inputs,
         };
-        // Model A (calendar-month basis). Conservancy: wages = base × ((daysInMonth − absent) / daysInMonth)
-        // using explicit sheet absent — never invent absent from calendar WD − present.
-        const calendarDays = new Date(year, month, 0).getDate();
-        if (absentDaysForModelA != null) {
-            computeInput.absentDays = absentDaysForModelA;
-            computeInput.expectedDays = calendarDays;
-            computeInput.presentDays = presentDaysForModelA != null
-                ? presentDaysForModelA
-                : Math.max(0, calendarDays - absentDaysForModelA);
+        // Model A (30-day calendar basis) for full months / conservancy absent rows.
+        // Partial-month joiners/exits prorate on working days (matches Excel verify).
+        const useModelA = absentDaysForModelA != null || paidDays >= effectiveWorkingDays;
+        if (useModelA) {
+            if (absentDaysForModelA != null) {
+                computeInput.absentDays = absentDaysForModelA;
+                computeInput.expectedDays = 30;
+                computeInput.presentDays = presentDaysForModelA != null
+                    ? presentDaysForModelA
+                    : Math.max(0, 30 - absentDaysForModelA);
+            } else {
+                computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
+                computeInput.expectedDays = overrideWorkingDays ?? workingDays;
+            }
+            computeInput.modelA = true;
         } else {
-            computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
-            computeInput.expectedDays = overrideWorkingDays ?? workingDays;
+            computeInput.paidDays = paidDays;
+            computeInput.workingDays = effectiveWorkingDays;
+            computeInput.modelA = false;
         }
-        computeInput.calendarBasis = calendarDays;
-        computeInput.month = month;
-        computeInput.year = year;
-        computeInput.modelA = true;
         let computed = computePrSheetRow(computeInput, policy);
 
         const designation = (emp.designation || '').toLowerCase().trim();
@@ -760,25 +775,32 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
     const workingDays = patch.workingDays != null
         ? Number(patch.workingDays)
         : Number(row.working_days || policy?.standard_month_days || 30);
-    const bonusDisbursement = computeBonusDisbursement({
+    const periodMonth = runRows[0].period_month;
+    const periodYear = runRows[0].period_year;
+    let bonusMap = null;
+    if (Number(periodMonth) === 7 && Number(periodYear) === 2026) {
+        try {
+            bonusMap = loadBonusWorkingMap();
+        } catch (err) {
+            console.error('[payrollrun.patch] July 2026 bonus accrual CSV not loaded:', err.message);
+        }
+    }
+    const bonusDisbursement = resolvePayrollSheetBonus({
+        employeeId: row.employee_id,
+        contractId: runRows[0].contract_id,
         salary: Number(row.salary || 0),
         doj: row.doj,
-        month: runRows[0].period_month,
-        year: runRows[0].period_year,
+        month: periodMonth,
+        year: periodYear,
         bonusMonths: contractCosts.bonus_months,
         bonusMinMonths: contractCosts.bonus_min_months,
         disbursementMonth: contractCosts.bonus_disbursement_month,
         manualBonusAmount: patch.bonus_amount ?? prevInputs.bonus_amount,
+        bonusMap,
     });
-    let computed = computePrSheetRow({
+    const useModelA = paidDays >= workingDays;
+    const computeInput = {
         newSalary: Number(row.salary || 0),
-        paidDays,
-        workingDays,
-        presentDays: patch.presentDays != null ? Number(patch.presentDays) : paidDays,
-        expectedDays: workingDays,
-        month: runRows[0].period_month,
-        year: runRows[0].period_year,
-        modelA: true,
         ot1,
         ot2,
         ot3,
@@ -786,7 +808,17 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
         contractBonusMonths: contractCosts.bonus_months,
         bonusDisbursement,
         ...inputs,
-    }, policy || {});
+    };
+    if (useModelA) {
+        computeInput.presentDays = patch.presentDays != null ? Number(patch.presentDays) : paidDays;
+        computeInput.expectedDays = workingDays;
+        computeInput.modelA = true;
+    } else {
+        computeInput.paidDays = paidDays;
+        computeInput.workingDays = workingDays;
+        computeInput.modelA = false;
+    }
+    let computed = computePrSheetRow(computeInput, policy || {});
 
     const rateCards = await listRateCards(pool, runRows[0].contract_id);
     const rateCardMap = buildRateCardMap(rateCards);

@@ -9,6 +9,11 @@ const FM_CONTRACT_IDS = new Set([
     'CTR-1773048523696',
 ]);
 
+/** Wafi BPO headcount — July 2026 bonus from 12-month accrual sheet. */
+const WAFI_BPO_CONTRACT_IDS = new Set([
+    'CTR-1773046722553',
+]);
+
 const SPL420_OVERRIDE_ID = 'ASIL/SPL-420/21';
 const SPL420_OVERRIDE_AMOUNT = 105000;
 
@@ -96,6 +101,13 @@ function clearBonusWorkingCache() {
     cachedCsvPath = null;
 }
 
+function isWafiBpoJulyContext({ employeeId, contractId }) {
+    if (contractId && WAFI_BPO_CONTRACT_IDS.has(String(contractId).trim())) {
+        return true;
+    }
+    return /^ASIL\/SPL-/i.test(normalizeEmployeeId(employeeId));
+}
+
 /**
  * July 2026 WAFI bonus from 12-month accrual sheet (+ owner overrides).
  * Returns null when cutover rules do not apply (caller falls back to contract formula).
@@ -109,6 +121,10 @@ function resolveJuly2026WafiBonus({
     bonusMap,
 }) {
     if (Number(month) !== JULY_CUTOVER_MONTH || Number(year) !== JULY_CUTOVER_YEAR) {
+        return null;
+    }
+
+    if (!isWafiBpoJulyContext({ employeeId, contractId })) {
         return null;
     }
 
@@ -145,6 +161,7 @@ function loadJulyBonusAmount(employeeId, opts = {}) {
 
 module.exports = {
     FM_CONTRACT_IDS,
+    WAFI_BPO_CONTRACT_IDS,
     SPL420_OVERRIDE_ID,
     SPL420_OVERRIDE_AMOUNT,
     JULY_CUTOVER_MONTH,
