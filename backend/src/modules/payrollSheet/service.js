@@ -171,7 +171,7 @@ async function loadSheetEmployees(pool, { year, month, client, contractId, emplo
     const { rows } = await pool.query(
         `SELECT e.id, e.name, e.salary, e.doj, e.contract_id, e.client, e.designation,
                 e.spouse_name, e.child1_name, e.child2_name, e.location,
-                c.costs AS contract_costs, c.financials AS contract_financials, c.name AS contract_name
+                c.costs AS contract_costs, c.financials AS contract_financials, c.contract_name AS contract_name
          FROM employees e
          LEFT JOIN contracts c ON c.id::text = e.contract_id::text
          WHERE ${clauses.join(' AND ')}
