@@ -1,6 +1,6 @@
 'use strict';
 
-const { calculateMonthlyIncomeTax, calculateEOBI } = require('../../taxEngine');
+const { calculateMonthlyIncomeTax, calculateJuly2026WafiMonthlyIncomeTax, calculateEOBI } = require('../../taxEngine');
 const { resolveJuly2026WafiBonus } = require('./julyBonusAccrual');
 
 /**
@@ -254,7 +254,9 @@ function computePrSheetRow(input, policy = {}) {
 
     const whtExact = input.wht != null
         ? Number(input.wht)
-        : calculateMonthlyIncomeTax(gross, opd, expense, Math.round(arrears));
+        : (input.julyWafiTax
+            ? calculateJuly2026WafiMonthlyIncomeTax(gross, bonusDisbursed, opd, expense, Math.round(arrears))
+            : calculateMonthlyIncomeTax(gross, opd, expense, Math.round(arrears)));
     const wht = Math.round(whtExact);
     const eobi = input.eobiEmployee != null
         ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI().employerShare }
