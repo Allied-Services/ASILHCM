@@ -573,6 +573,9 @@ export default function PayrollSheet({ user }) {
     const [bulkSMSMsg, setBulkSMSMsg] = useState('');
     const [bulkSMSSending, setBulkSMSSending] = useState(false);
     const [bulkSMSResult, setBulkSMSResult] = useState(null);
+    const [payslipReadiness, setPayslipReadiness] = useState(null);
+    const [showSendPayslips, setShowSendPayslips] = useState(false);
+    const [sendPayslipConfirm, setSendPayslipConfirm] = useState(false);
     const [showAddClaims, setShowAddClaims] = useState(false);
     const [addClaimsForm, setAddClaimsForm] = useState({
         employeeId: '', ot1Hours: 0, ot2Hours: 0, ot3Hours: 0,
@@ -898,18 +901,21 @@ export default function PayrollSheet({ user }) {
         }
     };
 
-    // Send payslips by email
+    // Send payslips (PDF email + SMS) — only after lock + bank paid
     const [sendingEmails, setSendingEmails] = React.useState(false);
     const [emailResult, setEmailResult] = React.useState(null);
     const sendPayslipEmails = async () => {
         const targets = selectedIds.size > 0 ? [...selectedIds] : [];
-        if (!window.confirm(`Send salary slip emails to ${targets.length ? targets.length + ' selected' : 'ALL'} employees for ${month}?`)) return;
         setSendingEmails(true); setEmailResult(null);
         try {
             const [yr2, mo2] = month.split('-');
-            const d = await api.sendPayslipEmails(yr2, mo2, targets);
+            const d = await api.sendPayslipEmails(yr2, mo2, { employeeIds: targets, confirm: true });
             if (d.error) throw new Error(d.error);
-            setEmailResult({ ok: true, msg: `✅ Sent to ${d.sent} employee(s)${d.failed?.length ? ` (⚠️ ${d.failed.length} failed)` : ''}.` });
+            const msg = `✅ Delivered ${d.sent}/${d.total} — email: ${d.emailCount}, SMS: ${d.smsCount}${d.failed?.length ? `, failed: ${d.failed.length}` : ''}.`;
+            setEmailResult({ ok: true, msg });
+            setShowSendPayslips(false);
+            setSendPayslipConfirm(false);
+            api.getPayslipReadiness(yr2, mo2).then(setPayslipReadiness).catch(() => {});
         } catch(e) { setEmailResult({ ok: false, msg: '❌ ' + e.message }); }
         setSendingEmails(false);
     };
@@ -951,6 +957,14 @@ export default function PayrollSheet({ user }) {
     const isLocked = filtered.length > 0 && filtered.every(e => lockedIds.has(e.id));
     // Partial lock = some but not all locked in current view
     const isPartiallyLocked = !isLocked && filtered.some(e => lockedIds.has(e.id));
+
+    useEffect(() => {
+        if (!canSendPayslips || !month) return;
+        const [yr2, mo2] = month.split('-');
+        api.getPayslipReadiness(yr2, mo2)
+            .then(setPayslipReadiness)
+            .catch(() => setPayslipReadiness(null));
+    }, [month, canSendPayslips, lockedIds.size, payslipReadiness?.paid]);
 
     // Contract cfg lookup: ID first (exact), then name, then client fuzzy fallback
     const rows = filtered.map(emp => {
@@ -1118,6 +1132,7 @@ export default function PayrollSheet({ user }) {
 
 
     const canManageLock = isSuperAdmin || user?.role === 'finance_approver';
+    const canSendPayslips = isSuperAdmin || user?.role === 'finance_manager';
 
     const handleLock = async () => {
         const toLock = rows.filter(r => !lockedIds.has(r.emp.id)).map(r => r.emp.id);
@@ -1308,12 +1323,17 @@ export default function PayrollSheet({ user }) {
                         style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? '#22c55e' : 'var(--primary)', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                         <Download size={15} /> Export <ChevronDown size={14} />
                     </button>
-                    {canManageLock && !isLocked && (
+                    {canSendPayslips && payslipReadiness?.canSend && (
                         <>
                             {emailResult && <span style={{ fontSize: '0.8rem', color: emailResult.ok ? '#22c55e' : '#ef4444', marginRight: '0.5rem' }}>{emailResult.msg}</span>}
-                            <button onClick={sendPayslipEmails} disabled={sendingEmails} style={{ background: '#7c3aed', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', opacity: sendingEmails ? 0.6 : 1 }}>
-                                {sendingEmails ? '📧 Sending...' : '📧 Send Payslips'}
+                            <button onClick={() => { setShowSendPayslips(true); setSendPayslipConfirm(false); }} disabled={sendingEmails || payslipReadiness?.alreadySent}
+                                style={{ background: '#7c3aed', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', opacity: sendingEmails ? 0.6 : 1 }}>
+                                {sendingEmails ? '📧 Sending...' : payslipReadiness?.alreadySent ? '📧 Payslips Sent' : '📧 Send Payslips'}
                             </button>
+                        </>
+                    )}
+                    {canManageLock && !isLocked && (
+                        <>
                             <button onClick={handleLock} title={`Lock ${rows.length} visible employee(s)`} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f59e0b', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                                 <Lock size={15} /> Lock Payroll ({rows.length})
                             </button>
@@ -1374,6 +1394,44 @@ export default function PayrollSheet({ user }) {
                         style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.82rem' }}>
                         Clear Selection
                     </button>
+                </div>
+            )}
+
+            {/* Send Payslips Modal */}
+            {showSendPayslips && payslipReadiness && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '2rem' }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '560px' }}>
+                        <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
+                            <h3 style={{ margin: 0 }}>Send Payslips — {month}</h3>
+                            <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                Password-protected PDF (CNIC, no dashes) via email + SMS link (7 days).
+                            </p>
+                        </div>
+                        <div style={{ padding: '1.5rem 2rem', fontSize: '0.88rem' }}>
+                            <div style={{ background: '#fef3c7', color: '#92400e', padding: '10px 12px', borderRadius: 8, marginBottom: '1rem', fontSize: '0.82rem' }}>
+                                <strong>TRIAL MODE</strong> until Nov 2026 — employees should report issues to ops-support@asil.com.pk
+                            </div>
+                            <ul style={{ margin: '0 0 1rem', paddingLeft: '1.2rem', lineHeight: 1.6 }}>
+                                <li>{payslipReadiness.employeeCount} locked employees</li>
+                                <li>{payslipReadiness.withEmail} with email</li>
+                                <li>{payslipReadiness.withPhone} with phone (SMS link)</li>
+                                {payslipReadiness.missingCnic?.length > 0 && (
+                                    <li style={{ color: '#f87171' }}>{payslipReadiness.missingCnic.length} missing CNIC (will be skipped)</li>
+                                )}
+                            </ul>
+                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={sendPayslipConfirm} onChange={e => setSendPayslipConfirm(e.target.checked)} />
+                                <span>I confirm payroll is locked, bank-paid, and ready to send payslips.</span>
+                            </label>
+                        </div>
+                        <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                            <button type="button" onClick={() => setShowSendPayslips(false)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                            <button type="button" onClick={sendPayslipEmails} disabled={!sendPayslipConfirm || sendingEmails}
+                                style={{ background: !sendPayslipConfirm ? '#555' : '#7c3aed', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: !sendPayslipConfirm ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
+                                {sendingEmails ? 'Sending…' : 'Send Payslips'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 

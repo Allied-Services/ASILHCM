@@ -4121,140 +4121,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
     } catch (err) { console.error('[GET /api/payroll/:year/:month/export]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ Send payslips by email Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
-app.post('/api/payroll/:year/:month/send-payslips', requireAuth, async (req, res) => {
-    try {
-        const { year, month } = req.params;
-        const { employeeIds = [] } = req.body; // [] = all
-        const yrInt = parseInt(year), moInt = parseInt(month);
-        const monthName = new Date(2000, moInt-1, 1).toLocaleString('en-PK', { month: 'long' });
-
-        if (!process.env.RESEND_API_KEY) {
-            return res.status(503).json({ error: 'RESEND_API_KEY not configured in Render environment.' });
-        }
-
-        let empQuery = "SELECT * FROM employees WHERE email IS NOT NULL AND email != ''";
-        const params = [];
-        if (employeeIds.length) {
-            empQuery += ` AND id = ANY($1)`;
-            params.push(employeeIds);
-        }
-        const [empRes, payRes, splitRes] = await Promise.all([
-            pool.query(empQuery, params),
-            pool.query('SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2', [yrInt, moInt]),
-            pool.query(`SELECT value FROM system_config WHERE key='payslip_salary_split'`).catch(() => ({ rows: [] })),
-        ]);
-        const payMap = {};
-        payRes.rows.forEach(p => { payMap[p.employee_id] = p; });
-        // Display-only split (does NOT affect tax/EOBI) — see System Config > Payslip Split.
-        const split = splitRes.rows[0]?.value || { basic: 60, hra: 20, conveyance: 10, medical: 7, other: 3 };
-        const splitPct = k => (parseFloat(split[k]) || 0) / 100;
-
-        // WHT fallback now uses taxEngine.js (was an inline duplicate with stale 2024
-        // slab rates — see AGENTS.md §3.2. Fixed 2026-07-20, matches the same fix in
-        // the individual payslip route above.)
-        const fmt = v => Math.round(v||0).toLocaleString('en-PK');
-
-        let sent = 0, failed = [];
-        for (const emp of empRes.rows) {
-            if (!emp.email) continue;
-            const pay = payMap[emp.id];
-            const gross = parseFloat(emp.salary)||0;
-            const WD = 26, pd = parseFloat(pay?.paid_days ?? WD);
-            const ratio = pd / WD;
-            const grossM = Math.round(gross * ratio);
-            const wht = pay?.wht && parseFloat(pay.wht)>0 ? Math.round(parseFloat(pay.wht)) : calculateMonthlyIncomeTax(grossM);
-            const eobi = 400;
-            const adv  = Math.round(parseFloat(pay?.advance_deduction||0));
-            const loan = Math.round(parseFloat(pay?.loan_deduction||0));
-            // PF: gross/24 Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ ONLY when Provident Fund scheme (eosb_type in contract costs)
-            // pf_enrolled is NOT a DB column on employees Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ use emp._eosb_type enriched above
-            const pfDedEmail = emp._isPF ? Math.round(gross / 24) : 0;
-            // netPay computed after pfDedEmail is known
-            const html = `
-<!DOCTYPE html><html><head><meta charset="UTF-8">
-<style>
-  body{font-family:Arial,sans-serif;font-size:13px;color:#333;background:#f5f5f5;margin:0;padding:20px}
-  .card{background:#fff;max-width:600px;margin:0 auto;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1)}
-  .header{background:#1e3a5f;color:#fff;padding:24px 28px}
-  .header h2{margin:0 0 4px;font-size:20px}
-  .header p{margin:0;opacity:.8;font-size:12px}
-  .body{padding:24px 28px}
-  .greeting{font-size:15px;margin-bottom:16px;color:#1e3a5f}
-  .slip{border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;margin:16px 0}
-  .slip-title{background:#f0f4f8;padding:10px 16px;font-weight:bold;font-size:13px;color:#1e3a5f;border-bottom:1px solid #e0e0e0}
-  table{width:100%;border-collapse:collapse}
-  td{padding:8px 16px;font-size:12px;border-bottom:1px solid #f0f0f0}
-  td:last-child{text-align:right;font-weight:600}
-  .total-row td{background:#f8fafc;font-weight:bold;font-size:13px;color:#1e3a5f}
-  .net-row td{background:#1e3a5f;color:#fff;font-weight:bold;font-size:14px}
-  .footer{padding:20px 28px;font-size:11px;color:#888;border-top:1px solid #eee;text-align:center}
-</style></head><body>
-<div class="card">
-  <div class="header">
-    <h2>Salary Slip Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ ${monthName} ${year}</h2>
-    <p>Allied Services International (Pvt.) Ltd.</p>
-  </div>
-  <div class="body">
-    <p class="greeting">Dear ${emp.name},</p>
-    <p>We are pleased to inform you that your salary for the month of <strong>${monthName} ${year}</strong> has been processed and sent to your bank for payment. The amount should reflect in your account shortly.</p>
-    <p>Please find below a summary of your salary details:</p>
-    <div class="slip">
-      <div class="slip-title">EARNINGS</div>
-      <table>
-        <tr><td>Basic Salary</td><td>Rs. ${fmt(gross*splitPct('basic')*ratio)}</td></tr>
-        <tr><td>House Rent Allowance</td><td>Rs. ${fmt(gross*splitPct('hra')*ratio)}</td></tr>
-        <tr><td>Conveyance</td><td>Rs. ${fmt(gross*splitPct('conveyance')*ratio)}</td></tr>
-        <tr><td>Medical Allowance</td><td>Rs. ${fmt(gross*splitPct('medical')*ratio)}</td></tr>
-        ${pay?.arrears > 0 ? `<tr><td>Arrears</td><td>Rs. ${fmt(pay.arrears)}</td></tr>` : ''}
-        ${pay?.bonus_amount > 0 ? `<tr><td>Bonus</td><td>Rs. ${fmt(pay.bonus_amount)}</td></tr>` : ''}
-        <tr class="total-row"><td>Gross Earnings</td><td>Rs. ${fmt(grossM)}</td></tr>
-      </table>
-    </div>
-    <div class="slip">
-      <div class="slip-title">DEDUCTIONS</div>
-      <table>
-        <tr><td>Income Tax (WHT)</td><td>Rs. ${fmt(wht)}</td></tr>
-        <tr><td>EOBI</td><td>Rs. ${fmt(eobi)}</td></tr>
-        ${adv > 0 ? `<tr><td>Advance Recovery</td><td>Rs. ${fmt(adv)}</td></tr>` : ''}
-        ${loan > 0 ? `<tr><td>Loan Installment</td><td>Rs. ${fmt(loan)}</td></tr>` : ''}
-        <tr class="total-row"><td>Total Deductions</td><td>Rs. ${fmt(wht+eobi+adv+loan)}</td></tr>
-      </table>
-    </div>
-    <table><tr class="net-row"><td>NET SALARY PAYABLE</td><td>Rs. ${fmt(netPay)}</td></tr></table>
-    <br>
-    <p>If you have any queries regarding your salary, please contact the HR department at <a href="mailto:hr@asil.com.pk">hr@asil.com.pk</a>.</p>
-    <p>Warm regards,<br><strong>HR Department</strong><br>Allied Services International (Pvt.) Ltd.</p>
-  </div>
-  <div class="footer">This is an automated email. Please do not reply directly to this message.</div>
-</div>
-</body></html>`;
-
-            const netPayFinal = grossM - wht - eobi - pfDedEmail - adv - loan;
-
-            const emailHtml = html
-                .replace('${fmt(netPay)}', fmt(netPayFinal))
-                .replace('${fmt(wht+eobi+adv+loan)}', fmt(wht+eobi+pfDedEmail+adv+loan));
-
-            try {
-                const resend = getResend();
-                if (!resend) {
-                    failed.push({ id: emp.id, name: emp.name, err: 'RESEND_API_KEY not configured' });
-                    continue;
-                }
-                await resend.emails.send({
-                    from: EMAIL_FROM,
-                    to: emp.email,
-                    subject: `Salary Slip Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ ${monthName} ${year} | Allied Services International`,
-                    html: emailHtml,
-                });
-                sent++;
-
-            } catch (e) { failed.push({ id: emp.id, name: emp.name, err: e.message }); }
-        }
-        res.json({ ok: true, sent, failed, total: empRes.rows.length });
-    } catch (err) { console.error('[POST /api/payroll/:year/:month/send-payslips]', err); res.status(500).json({ error: 'Internal server error' }); }
-});
+// POST /api/payroll/:year/:month/send-payslips — moved to src/modules/payslip/routes.js (gated PDF delivery)
 
 // Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 // XERO INTEGRATION
@@ -4712,6 +4579,12 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
                 ON CONFLICT (batch_id, employee_id) DO NOTHING
             `, [plBatch, plEmpIds, plNames, plAmounts, plRefs, plBanks, plAccts]);
         }
+
+        await pool.query(
+            `UPDATE payroll_transactions SET paid_on = COALESCE(paid_on, $3::date), status = 'Paid'
+             WHERE year = $1 AND month = $2 AND locked = TRUE`,
+            [yr, mo, payment_date || new Date().toISOString().slice(0, 10)]
+        );
 
         // Optional Xero push
         let xeroResult = null;

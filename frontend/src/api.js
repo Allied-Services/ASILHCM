@@ -240,8 +240,45 @@ export const api = {
 
     // ── Payslips ──────────────────────────────────────────────────────────────
     getPayslipUrl: (empId, month, year) => `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}`,
-    sendPayslipEmails: (year, month, employeeIds = []) =>
-        apiFetch(`/api/payroll/${year}/${month}/send-payslips`, { method: 'POST', body: JSON.stringify({ employeeIds }) }),
+    getPayslipReadiness: (year, month) => apiFetch(`/api/payroll/${year}/${month}/payslip-readiness`),
+    sendPayslipEmails: (year, month, { employeeIds = [], confirm = true, forceResend = false } = {}) =>
+        apiFetch(`/api/payroll/${year}/${month}/send-payslips`, {
+            method: 'POST',
+            body: JSON.stringify({ employeeIds, confirm, forceResend }),
+        }),
+    downloadPayslipPdf: (empId, month, year, portalToken = null) => {
+        const token = portalToken || localStorage.getItem('asil_hcm_token');
+        const url = `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}/download`;
+        return fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+            .then(async (r) => {
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.error || `HTTP ${r.status}`);
+                }
+                const blob = await r.blob();
+                const cd = r.headers.get('Content-Disposition') || '';
+                const match = cd.match(/filename="?([^"]+)"?/i);
+                const filename = match?.[1] || `PaySlip_${empId}_${month}_${year}.pdf`;
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(a.href);
+            });
+    },
+    createPayslipSupportCase: (payload, portalToken = null) => {
+        const token = portalToken || localStorage.getItem('asil_hcm_token');
+        return fetch(`${API}/api/payslip/support-case`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify(payload),
+        }).then(r => r.json());
+    },
     openPayslip:   (empId, month, year) => {
         const token = localStorage.getItem('asil_hcm_token');
         // URL-encode employee ID to handle IDs with slashes or special characters
