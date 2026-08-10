@@ -196,8 +196,8 @@ function registerPortalClaimsRoutes(app, deps) {
     app.post('/api/portal-claims/campaign', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
         try {
             const now = new Date();
-            const campaignMonth = parseInt(req.body?.month || now.getMonth() + 1, 10);
-            const campaignYear = parseInt(req.body?.year || now.getFullYear(), 10);
+            const claimMonth = parseInt(req.body?.claimMonth || req.body?.month || now.getMonth(), 10);
+            const claimYear = parseInt(req.body?.claimYear || req.body?.year || now.getFullYear(), 10);
             const dryRun = !!req.body?.dryRun;
             const onlyEmails = Array.isArray(req.body?.onlyEmails) ? req.body.onlyEmails : null;
             const campaignMode = String(req.body?.campaignMode || 'sample').toLowerCase() === 'actual' ? 'actual' : 'sample';
@@ -213,7 +213,7 @@ function registerPortalClaimsRoutes(app, deps) {
             }
 
             const result = await portal.createCampaign(pool, {
-                campaignMonth, campaignYear, sendAppEmail, dryRun, onlyEmails, campaignMode, testPackFour,
+                claimMonth, claimYear, sendAppEmail, dryRun, onlyEmails, campaignMode, testPackFour,
             });
             res.json(result);
         } catch (err) {
@@ -336,6 +336,29 @@ function registerPortalClaimsRoutes(app, deps) {
             res.json(cat);
         } catch (err) {
             handleRouteError(res, 'portalClaims.employeeCategory', err);
+        }
+    });
+
+    app.get('/api/claims/policy/:contractId', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'operations', 'payroll_initiator'), async (req, res) => {
+        try {
+            const policy = await portal.getClaimsPolicy(pool, req.params.contractId);
+            res.json(policy);
+        } catch (err) {
+            handleRouteError(res, 'claims.policyGet', err);
+        }
+    });
+
+    app.put('/api/claims/policy/:contractId', requireAuth, requireRole('superadmin', 'finance_manager'), async (req, res) => {
+        try {
+            const row = await portal.upsertClaimsPolicy(pool, req.params.contractId, req.body || {});
+            res.json({
+                claims_pay_timing: row.claims_pay_timing,
+                submit_deadline_day: row.submit_deadline_day,
+                approve_deadline_day: row.approve_deadline_day,
+            });
+        } catch (err) {
+            if (err.status === 400) return res.status(400).json({ error: err.message });
+            handleRouteError(res, 'claims.policyPut', err);
         }
     });
 

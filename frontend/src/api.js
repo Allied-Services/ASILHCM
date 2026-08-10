@@ -612,6 +612,8 @@ export const api = {
     portalClaimsSaveEligibilityRule: (data) => apiFetch('/api/portal-claims/eligibility-rules', { method: 'PUT', body: JSON.stringify(data) }),
     portalClaimsPreviewEligibilityRule: (id) => apiFetch(`/api/portal-claims/eligibility-rules/${id}/preview`),
     portalClaimsEmployeeCategory: (id) => apiFetch(`/api/portal-claims/employee/${encodeURIComponent(id)}/category`),
+    getClaimsPolicy: (contractId) => apiFetch(`/api/claims/policy/${encodeURIComponent(contractId)}`),
+    updateClaimsPolicy: (contractId, d) => apiFetch(`/api/claims/policy/${encodeURIComponent(contractId)}`, { method: 'PUT', body: JSON.stringify(d) }),
     getReceipts: (q = {}) => apiFetch('/api/ar/receipts?' + new URLSearchParams(q).toString()),
 
   // ── Xero bill import / billable invoicing ────────────────────────────────────
@@ -686,28 +688,6 @@ export const api = {
     getFixedValueAttendanceStatus: (contractId, month, year) => apiFetch(
         `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/attendance/status?month=${month}&year=${year}`
     ),
-    getFixedValueBillableConfirmations: (contractId, month, year) => apiFetch(
-        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/billable-confirmations?month=${month}&year=${year}`
-    ),
-    getFixedValueSiteBillableConfirmations: (id, month, year) => apiFetch(
-        `/api/fixed-value/service-orders/${encodeURIComponent(id)}/billable-confirmations?month=${month}&year=${year}`
-    ),
-    saveFixedValueBillableConfirmations: (id, month, year, lines) => apiFetch(
-        `/api/fixed-value/service-orders/${encodeURIComponent(id)}/billable-confirmations`,
-        { method: 'PUT', body: JSON.stringify({ month, year, lines }) }
-    ),
-    confirmAllFixedValueBillable: (id, month, year) => apiFetch(
-        `/api/fixed-value/service-orders/${encodeURIComponent(id)}/billable-confirmations/confirm-all`,
-        { method: 'POST', body: JSON.stringify({ month, year }) }
-    ),
-    saveFixedValueBillableConfirmationsAll: (contractId, month, year, payload = {}) => apiFetch(
-        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/billable-confirmations`,
-        { method: 'PUT', body: JSON.stringify({ month, year, ...payload }) }
-    ),
-    confirmAllFixedValueBillableContract: (contractId, month, year, siteCodes) => apiFetch(
-        `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/billable-confirmations/confirm-all`,
-        { method: 'POST', body: JSON.stringify({ month, year, siteCodes }) }
-    ),
     computeFixedValueInvoice: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/invoice/compute`, { method: 'POST', body: JSON.stringify({ month, year }) }),
     persistFixedValueInvoice: (id, month, year, poNumber) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/invoice/persist`, { method: 'POST', body: JSON.stringify({ month, year, poNumber }) }),
     computeFixedValueInvoicesAll: (contractId, month, year, siteCodes) => apiFetch(
@@ -765,7 +745,6 @@ export const api = {
         return { ok: true };
     },
     sendFixedValueFocalEmail: (id, month, year, payload = {}) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/focals/email`, { method: 'POST', body: JSON.stringify({ month, year, ...payload }) }),
-    sendFixedValueVerificationEmails: (contractId, month, year, payload = {}) => apiFetch(`/api/fixed-value/contracts/${encodeURIComponent(contractId)}/verification-emails`, { method: 'POST', body: JSON.stringify({ month, year, ...payload }) }),
     seedPsoNorthZone: () => apiFetch('/api/fixed-value/seed-pso', { method: 'POST', body: '{}' }),
     /** @deprecated prefer resyncPsoNorthZoneSeed */
 };

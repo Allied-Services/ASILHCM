@@ -131,6 +131,58 @@ function LeavePolicyEditor({ contractId }) {
     );
 }
 
+function ClaimsPolicyEditor({ contractId }) {
+    const [policy, setPolicy] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const [savedMsg, setSavedMsg] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        api.getClaimsPolicy(contractId).then(d => { if (!cancelled) setPolicy(d); }).catch(() => {});
+        return () => { cancelled = true; };
+    }, [contractId]);
+
+    if (!policy) return null;
+
+    const save = async () => {
+        setSaving(true); setSavedMsg('');
+        try {
+            const saved = await api.updateClaimsPolicy(contractId, policy);
+            setPolicy(saved);
+            setSavedMsg('Saved.');
+        } catch (err) { setSavedMsg('Save failed: ' + err.message); }
+        setSaving(false);
+    };
+
+    return (
+        <div style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '10px', padding: '1rem', marginTop: '1rem' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#818cf8', marginBottom: '0.75rem' }}>Claims Pay Timing</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                <FRow label="When claims pay">
+                    <select value={policy.claims_pay_timing || 'following_month'} onChange={e => setPolicy(p => ({ ...p, claims_pay_timing: e.target.value }))}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }}>
+                        <option value="following_month">Following month salary (Wafi default)</option>
+                        <option value="same_month">Same month salary</option>
+                    </select>
+                </FRow>
+                <FRow label="Submit deadline (day)">
+                    <FInput type="number" value={policy.submit_deadline_day ?? 17} onChange={e => setPolicy(p => ({ ...p, submit_deadline_day: parseInt(e.target.value, 10) || 17 }))} ph="17" />
+                </FRow>
+                <FRow label="LM approve by (day)">
+                    <FInput type="number" value={policy.approve_deadline_day ?? 22} onChange={e => setPolicy(p => ({ ...p, approve_deadline_day: parseInt(e.target.value, 10) || 22 }))} ph="22" />
+                </FRow>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.75rem' }}>
+                <button type="button" onClick={save} disabled={saving} className="btn-secondary" style={{ padding: '0.5rem 1rem' }}>{saving ? 'Saving…' : 'Save Claims Policy'}</button>
+                {savedMsg && <span style={{ fontSize: '0.78rem', color: savedMsg.startsWith('Save failed') ? '#ef4444' : '#22c55e' }}>{savedMsg}</span>}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                Wafi: July claims submitted by 17 July → paid with August salary. August claims → September salary, and so on.
+            </div>
+        </div>
+    );
+}
+
 function ContractEditor({ contract, onSave, onCancel, allClients = [], currentClientId }) {
     const [c, setC] = useState({ ...EMPTY_CONTRACT, ...contract, costs: { ...EMPTY_CONTRACT.costs, ...(contract?.costs || {}) }, financials: { ...EMPTY_CONTRACT.financials, ...(contract?.financials || {}) }, assignedClientId: currentClientId });
 
@@ -185,6 +237,7 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                         <FRow label="Client Focal Email"><FInput value={c.clientFocalEmail || ''} onChange={e => set('clientFocalEmail', e.target.value)} ph="client@company.com" /></FRow>
                     </div>
                     {contract?.id && <LeavePolicyEditor contractId={contract.id} />}
+                    {contract?.id && <ClaimsPolicyEditor contractId={contract.id} />}
                 </div>
 
                 {/* Per-Head Costs */}

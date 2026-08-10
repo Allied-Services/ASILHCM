@@ -2,7 +2,7 @@
 'use strict';
 /**
  * Send SAMPLE 4-routing test pack — all mail goes to CLAIMS_SAMPLE_EMAIL only.
- * Usage: CLAIMS_SAMPLE_EMAIL=shezad@gmail.com node backend/scripts/send_claims_sample_test_pack.js --month=7 --year=2026
+ * Usage: CLAIMS_SAMPLE_EMAIL=shezad@gmail.com node backend/scripts/send_claims_sample_test_pack.js --claim-month=7 --claim-year=2026
  */
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const { Pool } = require('pg');
@@ -37,17 +37,15 @@ async function main() {
     }
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL required');
 
-    const month = parseInt(arg('month') || '7', 10);
-    const year = parseInt(arg('year') || '2026', 10);
+    const claimMonth = parseInt(arg('claim-month') || arg('month') || '7', 10);
+    const claimYear = parseInt(arg('claim-year') || arg('year') || '2026', 10);
     const dryRun = process.argv.includes('--dry-run');
 
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     try {
-        console.log(`SAMPLE test pack claim month ${month}/${year} dryRun=${dryRun} → ${process.env.CLAIMS_SAMPLE_EMAIL}`);
+        console.log(`SAMPLE test pack claim month ${claimMonth}/${claimYear} dryRun=${dryRun} → ${process.env.CLAIMS_SAMPLE_EMAIL}`);
         const result = await createCampaign(pool, {
-            campaignMonth: month,
-            campaignYear: year,
-            sendAppEmail: dryRun ? null : sendAppEmail,
+            claimMonth, claimYear, sendAppEmail: dryRun ? null : sendAppEmail,
             dryRun,
             campaignMode: 'sample',
             testPackFour: true,

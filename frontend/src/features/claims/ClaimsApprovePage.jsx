@@ -77,7 +77,8 @@ export default function ClaimsApprovePage() {
         <h1 style={{ margin: '4px 0 8px', fontSize: '1.55rem', color: '#0f172a', fontWeight: 700 }}>Approve Claims</h1>
         <p style={{ margin: 0, color: '#334155', lineHeight: 1.55, maxWidth: 720 }}>
           Claim month <strong>{data.period.claim_month}/{data.period.claim_year}</strong>
-          {' · '}Approve by day 25 · Settlement in payroll for <strong>{settle}</strong>
+          {' · '}LM approve by day <strong>{data.period.approve_deadline_day || 22}</strong>
+          {' · '}Settlement in payroll for <strong>{settle}</strong>
         </p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
           <Stat label="Pending" value={data.completion.pending} tone="#b45309" />
@@ -87,7 +88,7 @@ export default function ClaimsApprovePage() {
         </div>
         <p style={{ margin: '12px 0 0', color: '#64748b', fontSize: 13, lineHeight: 1.5, maxWidth: 720 }}>
           This link stays the same all month. Outstanding claims remain here until you decide.
-          After day 25 the window closes; anything still pending rolls to the next month’s cycle.
+          After day {data.period.approve_deadline_day || 22} the approval window closes; anything still pending rolls to the next month’s cycle.
         </p>
       </header>
 

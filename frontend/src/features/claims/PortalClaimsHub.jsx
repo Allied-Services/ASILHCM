@@ -5,8 +5,14 @@ const SHEZAD_TEST = 'shezad.mumtaz@asil.com.pk';
 
 export default function PortalClaimsHub({ user }) {
   const now = new Date();
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(() => {
+    const n = new Date();
+    return n.getMonth() === 0 ? 12 : n.getMonth();
+  });
+  const [year, setYear] = useState(() => {
+    const n = new Date();
+    return n.getMonth() === 0 ? n.getFullYear() - 1 : n.getFullYear();
+  });
   const [campaignMode, setCampaignMode] = useState('sample');
   const [channel, setChannel] = useState('');
   const [claims, setClaims] = useState([]);
@@ -86,9 +92,7 @@ export default function PortalClaimsHub({ user }) {
     if (!window.confirm('Delete all SAMPLE-mode portal claim periods for Wafi? This cannot be undone.')) return;
     setBusy(true); setErr(''); setMsg('');
     try {
-      const claimMonth = month > 1 ? month - 1 : 12;
-      const claimYear = month > 1 ? year : year - 1;
-      const d = await api.portalClaimsFlushSample({ claimMonth, claimYear, client: 'wafi' });
+      const d = await api.portalClaimsFlushSample({ claimMonth: month, claimYear: year, client: 'wafi' });
       setMsg(`Flushed ${d.deletedPeriods || 0} sample period(s).`);
       setPeriodId(null);
       await load();
@@ -191,8 +195,9 @@ export default function PortalClaimsHub({ user }) {
       {msg && <div style={{ color: '#15803d', marginBottom: 10 }}>{msg}</div>}
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
-        <label>Month <input type="number" min={1} max={12} value={month} onChange={e => setMonth(+e.target.value)} style={{ width: 60 }} /></label>
+        <label>Claim month <input type="number" min={1} max={12} value={month} onChange={e => setMonth(+e.target.value)} style={{ width: 60 }} title="Month work was done (e.g. 7 = July)" /></label>
         <label>Year <input type="number" value={year} onChange={e => setYear(+e.target.value)} style={{ width: 80 }} /></label>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Submit by day 17 · LM approve by day 22 · paid following month</span>
         <select value={channel} onChange={e => setChannel(e.target.value)}>
           <option value="">All channels</option>
           <option value="portal">Portal only</option>
