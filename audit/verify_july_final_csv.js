@@ -101,7 +101,7 @@ function computeRow(excel, bonusDisbursement) {
         specialAllowance: 0,
         pfDeduction: excel.excelPf,
         eobiEmployee: excel.excelEobi,
-        julyWafiTax: true,
+        excludeBonusFromWht: true,
     };
     if (useModelA) {
         return computePrSheetRow({

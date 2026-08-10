@@ -626,7 +626,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             medicalCoverage: computeMedicalCoverage(emp, contractCosts),
             contractBonusMonths: contractCosts.bonus_months,
             bonusDisbursement,
-            julyWafiTax: Number(month) === 7 && Number(year) === 2026
+            excludeBonusFromWht: Number(month) === 7 && Number(year) === 2026
                 && isWafiBpoJulyContext({ employeeId: emp.id, contractId }),
             ...inputs,
         };
@@ -809,7 +809,7 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
         salesTaxRate: 0.18,
         contractBonusMonths: contractCosts.bonus_months,
         bonusDisbursement,
-        julyWafiTax: Number(periodMonth) === 7 && Number(periodYear) === 2026
+        excludeBonusFromWht: Number(periodMonth) === 7 && Number(periodYear) === 2026
             && isWafiBpoJulyContext({ employeeId: row.employee_id, contractId: runRows[0].contract_id }),
         ...inputs,
     };
