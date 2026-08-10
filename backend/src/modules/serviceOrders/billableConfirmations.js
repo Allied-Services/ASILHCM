@@ -20,27 +20,57 @@ function confirmationMapFromRows(rows) {
     return map;
 }
 
+/** True when the line contributes a charged amount (manpower always; non-manpower when confirmed). */
 function isLineIncludedOnInvoice(line, confirmationMap) {
     if (line.is_manpower_dependent || line.isManpowerDependent) return true;
     const c = confirmationMap.get(Number(line.id));
     return !!(c && c.billable);
 }
 
+/** Billable qty for a period invoice: 1 when charged, 0 when listed but unchecked. */
+function invoiceQuantityForLine(line, confirmationMap) {
+    return isLineIncludedOnInvoice(line, confirmationMap) ? 1 : 0;
+}
+
+/**
+ * All SO lines stay on the invoice (owner: unchecked non-manpower still visible).
+ * Charged lines keep qty 1; unchecked non-manpower stamp qty 0.
+ * @deprecated name kept for callers — no longer omits lines.
+ */
 function filterLinesForInvoice(lines, confirmationMap) {
-    return (lines || []).filter((l) => isLineIncludedOnInvoice(l, confirmationMap));
+    return (lines || []).slice();
+}
+
+/** Map every SO line to invoice stamp fields (qty/amount driven by confirmations). */
+function mapLinesForInvoice(lines, confirmationMap) {
+    return (lines || []).map((l) => {
+        const billable = isLineIncludedOnInvoice(l, confirmationMap);
+        const quantity = invoiceQuantityForLine(l, confirmationMap);
+        const rate = Number(l.rate || 0);
+        return {
+            line: l,
+            billable,
+            quantity,
+            rate,
+            amount: Math.round(rate * quantity * 100) / 100,
+        };
+    });
 }
 
 function buildBillableSnapshot(lines, confirmationMap) {
     return (lines || []).map((l) => {
         const mp = !!(l.is_manpower_dependent || l.isManpowerDependent);
-        const included = isLineIncludedOnInvoice(l, confirmationMap);
+        const charged = isLineIncludedOnInvoice(l, confirmationMap);
         return {
             lineId: l.id,
             lineNumber: l.line_number || null,
             name: l.name,
             isManpowerDependent: mp,
-            billable: mp ? true : included,
-            includedOnInvoice: included,
+            billable: mp ? true : charged,
+            // Always listed on invoice; charged=false → qty 0 / amount 0.
+            includedOnInvoice: true,
+            chargedOnInvoice: charged,
+            quantity: charged ? 1 : 0,
             rate: Number(l.rate || 0),
         };
     });
@@ -310,7 +340,9 @@ module.exports = {
     nonManpowerLines,
     confirmationMapFromRows,
     isLineIncludedOnInvoice,
+    invoiceQuantityForLine,
     filterLinesForInvoice,
+    mapLinesForInvoice,
     buildBillableSnapshot,
     getPeriodReview,
     listLineConfirmations,

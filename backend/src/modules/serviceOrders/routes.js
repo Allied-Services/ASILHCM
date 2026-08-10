@@ -12,6 +12,7 @@ const {
     addManualDeduction,
     computeSoInvoice,
     persistSoInvoice,
+    updateFvInvoiceNumber,
     listRegistry,
     printInvoiceHtml,
     pullAttendanceForSite,
@@ -171,6 +172,18 @@ function registerServiceOrderRoutes(app, deps) {
         } catch (err) {
             console.error('[GET /api/fixed-value/invoices/:id/print]', err);
             res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    app.patch('/api/fixed-value/invoices/:id/invoice-number', requireAuth, writeRoles, async (req, res) => {
+        try {
+            const invId = parseInt(req.params.id, 10);
+            const invoiceNumber = req.body?.invoice_number ?? req.body?.invoiceNumber;
+            const invoice = await updateFvInvoiceNumber(pool, invId, invoiceNumber);
+            if (logAudit) logAudit(req, 'INVOICE_NUMBER', 'client_invoice', String(invoice.id));
+            res.json({ ok: true, invoice });
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.invoice.number', err);
         }
     });
 

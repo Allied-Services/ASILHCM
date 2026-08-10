@@ -102,6 +102,8 @@ export default function FixedValueContracts({ user }) {
     const [billablePack, setBillablePack] = useState(null);
     const [billableEdits, setBillableEdits] = useState({}); // { [soId]: { [lineId]: boolean } }
     const [registry, setRegistry] = useState([]);
+    const [registryNumberEdits, setRegistryNumberEdits] = useState({}); // { [invoiceId]: string }
+    const [registryNumberSaving, setRegistryNumberSaving] = useState(null);
     const [emailResult, setEmailResult] = useState(null);
     const [wizard, setWizard] = useState(null); // { mode: 'create'|'edit', contractId? }
 
@@ -419,7 +421,33 @@ export default function FixedValueContracts({ user }) {
         const pack = await api.computeFixedValueInvoicesAll(contractId, month, year);
         setInvoicePack(pack);
         await loadRegistry();
-        setMsg(`Stamped ${result.count} site invoices`);
+        setMsg(`Stamped / regenerated ${result.count} site invoices (Draft/Raised/Sent lines refreshed; invoice # preserved)`);
+    });
+
+    const saveRegistryInvoiceNumber = (inv) => runAction(async () => {
+        const next = String(registryNumberEdits[inv.id] ?? inv.invoice_number ?? '').trim();
+        if (!next) throw new Error('Invoice number cannot be empty');
+        if (next === inv.invoice_number) {
+            setMsg('Invoice number unchanged');
+            return;
+        }
+        setRegistryNumberSaving(inv.id);
+        try {
+            const result = await api.updateFixedValueInvoiceNumber(inv.id, next);
+            setRegistry((prev) => prev.map((r) => (
+                r.id === inv.id
+                    ? { ...r, invoice_number: result.invoice?.invoice_number || next }
+                    : r
+            )));
+            setRegistryNumberEdits((prev) => {
+                const copy = { ...prev };
+                delete copy[inv.id];
+                return copy;
+            });
+            setMsg(`Invoice number saved — prints will show ${result.invoice?.invoice_number || next}`);
+        } finally {
+            setRegistryNumberSaving(null);
+        }
     });
 
     const toggleBillableLine = (soId, lineId, checked) => {
@@ -1099,7 +1127,9 @@ export default function FixedValueContracts({ user }) {
                         Conservancy SO methodology: gross line rates âˆ’ absence shortage (resourceRate/30 Ã— days absent)
                         + provincial ST. Income WHT &amp; 20% ST withholding are receivable-only â€” stamped grand is not reduced.
                         Rates aligned to Wafi portal (Punjab 16%, Sindh/KPK/Balochistan 15%).
-                        Non-manpower lines appear only when confirmed billable for this month â€” never silently invoice unconfirmed services.
+                        Unchecked non-manpower services still appear on the invoice with QTY 0 and Amount PKR 0
+                        (checked = QTY 1 at full monthly rate). Manpower LESS lines are unchanged.
+                        Stamp / regenerate refreshes Draft, Raised, or Sent FV invoices without changing the invoice number.
                         {!billablePack?.allReviewed && (
                             <> <strong>Save Confirm billable services for every site before preview/stamp.</strong></>
                         )}
@@ -1113,7 +1143,7 @@ export default function FixedValueContracts({ user }) {
                         <button type="button" className="btn-secondary"
                             disabled={loading || !canWrite || !invoicePack || !billablePack?.allReviewed}
                             onClick={handlePersistInvoicesAll}>
-                            Stamp all sites
+                            Stamp / regenerate all sites
                         </button>
                         <button type="button" className="btn-secondary" disabled={loading || !contractId}
                             onClick={() => downloadBlob(api.downloadFixedValueInvoicesExcel(contractId, month, year), 'invoices.xlsx')}>
@@ -1240,6 +1270,7 @@ export default function FixedValueContracts({ user }) {
                     )}
 
                     <h4 style={{ margin: 0 }}>Registry <Database size={14} style={{ verticalAlign: -2 }} /></h4>
+                    <p className="fv-lead">Edit invoice # then Save — Proforma / LH / Sales Tax prints use the saved number.</p>
                     <div className="fv-table-wrap">
                         <table className="fv-table">
                             <thead>
@@ -1258,9 +1289,37 @@ export default function FixedValueContracts({ user }) {
                                     const notes = inv.notes && typeof inv.notes === 'object' ? inv.notes : null;
                                     const siteLabel = inv.site_name || notes?.site_name || inv.site_code || notes?.site_code || 'â€”';
                                     const resources = inv.resources ?? notes?.resources;
+                                    const editVal = registryNumberEdits[inv.id] !== undefined
+                                        ? registryNumberEdits[inv.id]
+                                        : (inv.invoice_number || '');
+                                    const dirty = String(editVal).trim() !== String(inv.invoice_number || '').trim();
                                     return (
                                         <tr key={inv.id}>
-                                            <td>{inv.invoice_number}</td>
+                                            <td>
+                                                <div className="fv-inv-number-edit">
+                                                    <input
+                                                        className="fv-inv-number-input"
+                                                        value={editVal}
+                                                        disabled={!canWrite || registryNumberSaving === inv.id}
+                                                        onChange={(e) => setRegistryNumberEdits((prev) => ({
+                                                            ...prev,
+                                                            [inv.id]: e.target.value,
+                                                        }))}
+                                                        aria-label={`Invoice number for ${siteLabel}`}
+                                                    />
+                                                    {canWrite && (
+                                                        <button
+                                                            type="button"
+                                                            className="btn-secondary"
+                                                            style={{ padding: '2px 8px', fontSize: '0.7rem' }}
+                                                            disabled={!dirty || loading || registryNumberSaving === inv.id}
+                                                            onClick={() => saveRegistryInvoiceNumber(inv)}
+                                                        >
+                                                            {registryNumberSaving === inv.id ? 'Saving…' : 'Save'}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
                                             <td title={inv.site_code || notes?.site_code || ''}>{siteLabel}</td>
                                             <td className="num">{resources != null ? resources : 'â€”'}</td>
                                             <td className="num">{fmt(inv.grand_total)}</td>
