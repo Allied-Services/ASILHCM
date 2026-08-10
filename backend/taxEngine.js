@@ -73,13 +73,27 @@ function calculateMonthlyIncomeTax(monthlyGross, monthlyOPD = 0, monthlyReimb = 
 }
 
 /**
- * July 2026 Wafi BPO payroll sheet parity: WHT excludes the July bonus lump from the
- * annualization base (same as Excel). OPD, reimbursements, and arrears stay excluded.
+ * Payroll Sheet monthly WHT — owner rule (Wafi BPO / headcount contracts).
+ * Annualize recurring monthly pay only: salary (prorated) + OT + allowances in gross,
+ * but exclude the bonus disbursement lump (taxed at FY-end or separation on YTD).
+ * OPD, reimbursements, and arrears remain non-taxable in the payment month.
+ *
+ * @param {number} grossMonthly - Full cash gross including bonus lump
+ * @param {number} [bonusDisbursement=0] - July/annual bonus paid this month (excluded from WHT base)
+ * @param {number} [opd=0]
+ * @param {number} [expense=0]
+ * @param {number} [arrears=0]
  */
-function calculateJuly2026WafiMonthlyIncomeTax(grossMonthly, bonusDisbursement, opd, expense, arrears) {
-    const gross = Math.max(0, (parseFloat(grossMonthly) || 0) - (parseFloat(bonusDisbursement) || 0));
-    return Math.round(calculateMonthlyIncomeTax(gross, opd, expense, arrears));
+function calculatePayrollSheetMonthlyIncomeTax(grossMonthly, bonusDisbursement = 0, opd = 0, expense = 0, arrears = 0) {
+    const recurringGross = Math.max(
+        0,
+        (parseFloat(grossMonthly) || 0) - (parseFloat(bonusDisbursement) || 0),
+    );
+    return Math.round(calculateMonthlyIncomeTax(recurringGross, opd, expense, arrears));
 }
+
+/** @deprecated Use calculatePayrollSheetMonthlyIncomeTax */
+const calculateJuly2026WafiMonthlyIncomeTax = calculatePayrollSheetMonthlyIncomeTax;
 
 /**
  * Gratuity MONTHLY accrual (Employer cost only — no employee deduction).
@@ -124,6 +138,7 @@ module.exports = {
     calculateEOBI,
     calculateSESSI,
     calculateMonthlyIncomeTax,
+    calculatePayrollSheetMonthlyIncomeTax,
     calculateJuly2026WafiMonthlyIncomeTax,
     calculateMonthlyGratuity,
     calculateGratuitySettlement,

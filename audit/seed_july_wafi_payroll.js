@@ -328,6 +328,7 @@ async function main() {
             otherDeduction: inp.otherDeduction,
             specialAllowance: specialAllowanceNet,
             bonusDisbursement,
+            excludeBonusFromWht: true,
             medicalCoverage,
             lifeInsurance: Number(costs.life_insurance) || 150,
             contractBonusMonths: costs.bonus_months,

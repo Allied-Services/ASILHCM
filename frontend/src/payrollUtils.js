@@ -21,7 +21,7 @@ export const parseNum = (v) => parseFloat(String(v || '').replace(/,/g, '')) || 
 
 // FBR 2025-26 Salaried Individual — Finance Act 2024
 // Default: taxableAnnual = (grossMonthly - OPD - Reimbursement - arrears) × 12
-// July 2026 Wafi BPO: recurring salary + OT only (bonus lump excluded) — see taxEngine
+// Payroll Sheet rule: exclude bonus disbursement lump from WHT base (bonus taxed at FY-end)
 export const isWafiBpoEmployee = (emp) => {
     const id = String(emp?.id || '').toUpperCase();
     const client = String(emp?.client || '').toLowerCase();
@@ -37,8 +37,8 @@ export const calcWHT = (annual) => {
     return Math.round((616000 + (annual - 4100000) * 0.35) / 12);
 };
 
-// July 2026 Wafi BPO: WHT excludes July bonus lump (matches owner Excel).
-export const calcJuly2026WafiWHT = (grossMonthly, bonusDisbursement, opd, expense, arrears) => {
+// Payroll Sheet WHT: exclude bonus disbursement lump from annualization base.
+export const calcPayrollSheetWHT = (grossMonthly, bonusDisbursement, opd, expense, arrears) => {
     const taxable = Math.max(
         0,
         (parseFloat(grossMonthly) || 0)
@@ -49,6 +49,8 @@ export const calcJuly2026WafiWHT = (grossMonthly, bonusDisbursement, opd, expens
     );
     return calcWHT(taxable * 12);
 };
+/** @deprecated Use calcPayrollSheetWHT */
+export const calcJuly2026WafiWHT = calcPayrollSheetWHT;
 export const calcEOBI_fn = () => {
     // EOBI is a flat statutory amount â€” 1%/5% of minimum wage Rs. 40,000
     // Fixed for ALL employees regardless of their salary
@@ -172,14 +174,14 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const otherPaid  = 0;
 
     // Taxable income EXCLUDES OPD, expense reimbursements, and same-month arrears (year-end true-up in June).
-    // July 2026 Wafi BPO: also exclude July bonus lump from WHT base (owner Excel parity).
-    const useJulyWafiTax = isJuly2026Cutover && isWafiBpoEmployee(emp);
-    const taxableMonthly = useJulyWafiTax
+    // July 2026 Wafi BPO: also exclude bonus disbursement lump from WHT base (owner Excel parity).
+    const usePayrollSheetTax = isJuly2026Cutover && isWafiBpoEmployee(emp);
+    const taxableMonthly = usePayrollSheetTax
         ? grossMonthly - bonusDisbursed - opdClaim - reimb - arrears
         : grossMonthly - opdClaim - reimb - arrears;
     const annualIncome   = taxableMonthly * 12;
-    const incomeTax      = useJulyWafiTax
-        ? calcJuly2026WafiWHT(grossMonthly, bonusDisbursed, opdClaim, reimb, arrears)
+    const incomeTax      = usePayrollSheetTax
+        ? calcPayrollSheetWHT(grossMonthly, bonusDisbursed, opdClaim, reimb, arrears)
         : calcWHT(annualIncome);
     const eobi           = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
 

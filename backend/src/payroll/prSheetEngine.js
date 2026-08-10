@@ -1,6 +1,6 @@
 'use strict';
 
-const { calculateMonthlyIncomeTax, calculateJuly2026WafiMonthlyIncomeTax, calculateEOBI } = require('../../taxEngine');
+const { calculateMonthlyIncomeTax, calculatePayrollSheetMonthlyIncomeTax, calculateEOBI } = require('../../taxEngine');
 const { resolveJuly2026WafiBonus } = require('./julyBonusAccrual');
 
 /**
@@ -252,10 +252,12 @@ function computePrSheetRow(input, policy = {}) {
     const grossForTPC = grossComponents;
     const gross = grossComponents + bonusDisbursed;
 
+    const usePayrollSheetTax = input.excludeBonusFromWht === true
+        || input.julyWafiTax === true; // legacy flag — July 2026 Wafi rollout
     const whtExact = input.wht != null
         ? Number(input.wht)
-        : (input.julyWafiTax
-            ? calculateJuly2026WafiMonthlyIncomeTax(gross, bonusDisbursed, opd, expense, Math.round(arrears))
+        : (usePayrollSheetTax
+            ? calculatePayrollSheetMonthlyIncomeTax(gross, bonusDisbursed, opd, expense, Math.round(arrears))
             : calculateMonthlyIncomeTax(gross, opd, expense, Math.round(arrears)));
     const wht = Math.round(whtExact);
     const eobi = input.eobiEmployee != null
