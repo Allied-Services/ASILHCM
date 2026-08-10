@@ -172,4 +172,5 @@ module.exports = {
     clearBonusWorkingCache,
     resolveJuly2026WafiBonus,
     loadJulyBonusAmount,
+    isWafiBpoJulyContext,
 };

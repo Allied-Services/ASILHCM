@@ -73,6 +73,15 @@ function calculateMonthlyIncomeTax(monthlyGross, monthlyOPD = 0, monthlyReimb = 
 }
 
 /**
+ * July 2026 Wafi BPO payroll sheet parity: WHT excludes the July bonus lump from the
+ * annualization base (same as Excel). OPD, reimbursements, and arrears stay excluded.
+ */
+function calculateJuly2026WafiMonthlyIncomeTax(grossMonthly, bonusDisbursement, opd, expense, arrears) {
+    const gross = Math.max(0, (parseFloat(grossMonthly) || 0) - (parseFloat(bonusDisbursement) || 0));
+    return Math.round(calculateMonthlyIncomeTax(gross, opd, expense, arrears));
+}
+
+/**
  * Gratuity MONTHLY accrual (Employer cost only — no employee deduction).
  * Formula: Gross Salary / 12  (1/12th = 8.33% — per EOB Ordinance 1968)
  * @param {number} grossSalary - Employee's monthly gross salary
@@ -115,6 +124,7 @@ module.exports = {
     calculateEOBI,
     calculateSESSI,
     calculateMonthlyIncomeTax,
+    calculateJuly2026WafiMonthlyIncomeTax,
     calculateMonthlyGratuity,
     calculateGratuitySettlement,
     calculatePF,

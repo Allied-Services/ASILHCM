@@ -11,7 +11,7 @@ const backendRoot = path.join(__dirname, '..', 'backend');
 const tempRoot = 'C:/temp/BPOFMSystem-backend';
 
 function reqModule(relPath) {
-    for (const root of [tempRoot, backendRoot]) {
+    for (const root of [backendRoot, tempRoot]) {
         try { return require(path.join(root, relPath)); }
         catch (_) { /* try next */ }
     }
@@ -24,6 +24,7 @@ const { loadBonusWorkingMap } = reqModule('src/payroll/julyBonusAccrual');
 const DEFAULT_CSV = path.join(
     __dirname, '..', 'Attachments', 'BPO FM Payroll & Invoice File - Jul Review on 9th August.csv',
 );
+const TOLERANCE = 1;
 
 function parseCsvLine(line) {
     const vals = [];
@@ -84,9 +85,8 @@ function parseFinalCsv(filePath) {
     return rows;
 }
 
-function computeRow(excel, bonusDisbursement, opts = {}) {
-    const useModelA = opts.useModelA !== false
-        && excel.paidDays >= excel.workingDays;
+function computeRow(excel, bonusDisbursement) {
+    const useModelA = excel.paidDays >= excel.workingDays;
     const base = {
         newSalary: excel.salary,
         ot2: excel.ot2,
@@ -99,9 +99,9 @@ function computeRow(excel, bonusDisbursement, opts = {}) {
         otherDeduction: excel.otherDeduction,
         bonusDisbursement,
         specialAllowance: 0,
-        wht: excel.excelWht,
         pfDeduction: excel.excelPf,
         eobiEmployee: excel.excelEobi,
+        julyWafiTax: true,
     };
     if (useModelA) {
         return computePrSheetRow({
@@ -137,16 +137,19 @@ for (const ex of rows) {
         bonusMap,
     });
     const calc = computeRow(ex, bonus);
-    const netOk = Math.abs(calc.netPay - ex.excelNet) <= 1;
-    const grossOk = Math.abs(calc.gross - ex.excelGross) <= 1;
-    const bonusOk = Math.abs(bonus - ex.excelBonus) <= 1 || (ex.excelBonus === 0 && bonus === 0);
-    if (netOk && grossOk && bonusOk) {
+    const netOk = Math.abs(calc.netPay - ex.excelNet) <= TOLERANCE;
+    const grossOk = Math.abs(calc.gross - ex.excelGross) <= TOLERANCE;
+    const taxOk = Math.abs(calc.wht - ex.excelWht) <= TOLERANCE;
+    const bonusOk = Math.abs(bonus - ex.excelBonus) <= TOLERANCE || (ex.excelBonus === 0 && bonus === 0);
+    if (netOk && grossOk && taxOk && bonusOk) {
         ok += 1;
     } else {
         fails.push({
             id: ex.id,
             excelNet: ex.excelNet,
             hcmNet: calc.netPay,
+            excelTax: ex.excelWht,
+            hcmTax: calc.wht,
             excelGross: ex.excelGross,
             hcmGross: calc.gross,
             excelBonus: ex.excelBonus,
@@ -155,24 +158,24 @@ for (const ex of rows) {
     }
 }
 
-console.log(`Rows: ${rows.length} | Match: ${ok} | Fail: ${fails.length}`);
+console.log(`Rows: ${rows.length} | Full match: ${ok} | Fail: ${fails.length}`);
 const e208 = rows.find((r) => r.id.includes('208/21'));
+const e91 = rows.find((r) => r.id.includes('91/21') && r.id.includes('SPL'));
 if (e208) {
     const bonus = resolvePayrollSheetBonus({ employeeId: e208.id, month: 7, year: 2026, bonusMap });
-    const contractBonus = e208.salary;
-    const right = computeRow(e208, bonus);
-    const wrong = computeRow(e208, contractBonus);
-    console.log('\nASIL/SPL-208/21');
-    console.log('  Excel gross/net:', e208.excelGross, '/', e208.excelNet);
-    console.log('  Correct (accrual bonus', bonus + '):', right.gross, '/', right.netPay);
-    console.log('  Wrong (contract 1-mo bonus):', wrong.gross, '/', wrong.netPay);
-    console.log('  User phantom 98180 extra vs gross:', 98180 - e208.excelGross);
+    const calc = computeRow(e208, bonus);
+    console.log('\nASIL/SPL-208/21:', { gross: calc.gross, tax: calc.wht, net: calc.netPay, excelNet: e208.excelNet });
+}
+if (e91) {
+    const bonus = resolvePayrollSheetBonus({ employeeId: e91.id, month: 7, year: 2026, bonusMap });
+    const calc = computeRow(e91, bonus);
+    console.log('ASIL/SPL-91/21:', { gross: calc.gross, tax: calc.wht, net: calc.netPay, excelTax: e91.excelWht });
 }
 
 if (fails.length) {
     console.log('\nFirst mismatches:');
     fails.slice(0, 20).forEach((f) => {
-        console.log(`  ${f.id}: net ${f.excelNet} vs ${f.hcmNet} | gross ${f.excelGross} vs ${f.hcmGross} | bonus ${f.excelBonus} vs ${f.hcmBonus}`);
+        console.log(`  ${f.id}: net ${f.excelNet} vs ${f.hcmNet} | tax ${f.excelTax} vs ${f.hcmTax} | gross ${f.excelGross} vs ${f.hcmGross}`);
     });
 }
 

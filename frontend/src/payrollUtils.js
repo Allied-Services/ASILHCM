@@ -19,8 +19,15 @@ export const PAYROLL_CONTRACT_CFG = {
 // Strip comma-formatting from CSV numbers like "10,000" â†’ 10000
 export const parseNum = (v) => parseFloat(String(v || '').replace(/,/g, '')) || 0;
 
-// FBR 2025-26 Salaried Individual â€” Finance Act 2024
-// taxableAnnual = (grossMonthly - OPD - Reimbursement) Ã— 12
+// FBR 2025-26 Salaried Individual — Finance Act 2024
+// Default: taxableAnnual = (grossMonthly - OPD - Reimbursement - arrears) × 12
+// July 2026 Wafi BPO: recurring salary + OT only (bonus lump excluded) — see taxEngine
+export const isWafiBpoEmployee = (emp) => {
+    const id = String(emp?.id || '').toUpperCase();
+    const client = String(emp?.client || '').toLowerCase();
+    return /^ASIL\/SPL-/i.test(id) || client.includes('wafi');
+};
+
 export const calcWHT = (annual) => {
     if (annual <= 600000) return 0;
     if (annual <= 1200000) return Math.round(((annual - 600000) * 0.01) / 12);
@@ -28,6 +35,19 @@ export const calcWHT = (annual) => {
     if (annual <= 3200000) return Math.round((116000 + (annual - 2200000) * 0.23) / 12);
     if (annual <= 4100000) return Math.round((346000 + (annual - 3200000) * 0.30) / 12);
     return Math.round((616000 + (annual - 4100000) * 0.35) / 12);
+};
+
+// July 2026 Wafi BPO: WHT excludes July bonus lump (matches owner Excel).
+export const calcJuly2026WafiWHT = (grossMonthly, bonusDisbursement, opd, expense, arrears) => {
+    const taxable = Math.max(
+        0,
+        (parseFloat(grossMonthly) || 0)
+        - (parseFloat(bonusDisbursement) || 0)
+        - (parseFloat(opd) || 0)
+        - (parseFloat(expense) || 0)
+        - (parseFloat(arrears) || 0),
+    );
+    return calcWHT(taxable * 12);
 };
 export const calcEOBI_fn = () => {
     // EOBI is a flat statutory amount â€” 1%/5% of minimum wage Rs. 40,000
@@ -151,10 +171,16 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const medPaid    = 0;
     const otherPaid  = 0;
 
-    // Taxable income EXCLUDES OPD, expense reimbursements, and same-month arrears (year-end true-up in June)
-    const taxableMonthly = grossMonthly - opdClaim - reimb - arrears;
+    // Taxable income EXCLUDES OPD, expense reimbursements, and same-month arrears (year-end true-up in June).
+    // July 2026 Wafi BPO: also exclude July bonus lump from WHT base (owner Excel parity).
+    const useJulyWafiTax = isJuly2026Cutover && isWafiBpoEmployee(emp);
+    const taxableMonthly = useJulyWafiTax
+        ? grossMonthly - bonusDisbursed - opdClaim - reimb - arrears
+        : grossMonthly - opdClaim - reimb - arrears;
     const annualIncome   = taxableMonthly * 12;
-    const incomeTax      = calcWHT(annualIncome);
+    const incomeTax      = useJulyWafiTax
+        ? calcJuly2026WafiWHT(grossMonthly, bonusDisbursed, opdClaim, reimb, arrears)
+        : calcWHT(annualIncome);
     const eobi           = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
 
     // ——— EOSB ———————————————————————————————————————————————————————————————
