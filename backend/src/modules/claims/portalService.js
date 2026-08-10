@@ -646,15 +646,15 @@ async function openFillerSession(pool, token) {
         attachments = attRows;
     }
 
-    const fillClosed = isAfterFillClose({ ...batch, campaign_mode: periodRow.campaign_mode });
+    const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [batch.period_id]);
+    const periodRow = periodRows[0] || {};
+    const fillClosed = isAfterFillClose({ ...batch, campaign_mode: periodRow.campaign_mode || batch.campaign_mode });
     const banner = formatPeriodBanner({
         ...batch,
         submit_deadline_day: FILL_CLOSE_DAY,
         approve_deadline_day: APPROVE_CLOSE_DAY,
     });
     const apiBase = process.env.API_PUBLIC_URL || 'https://asilhcm.onrender.com';
-    const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [batch.period_id]);
-    const periodRow = periodRows[0] || {};
     const review = computeBatchTotals(submissions, items);
     const uniqueApprovers = [...new Set(submissions.map(s => s.approver_email).filter(Boolean))];
     const routingProfile = batch.routing_profile || 'focal_then_lm';
