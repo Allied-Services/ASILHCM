@@ -25,13 +25,23 @@ describe('portalClaims helpers', () => {
     });
 
     it('periodWindow claim = previous month, settlement = campaign month', () => {
-        const w = periodWindow(2026, 7);
-        assert.equal(w.claimMonth, 6);
+        const w = periodWindow(2026, 8);
+        assert.equal(w.claimMonth, 7);
         assert.equal(w.claimYear, 2026);
-        assert.equal(w.settlementMonth, 7);
+        assert.equal(w.settlementMonth, 8);
         assert.equal(w.settlementYear, 2026);
-        assert.equal(FILL_CLOSE_DAY, 22);
-        assert.equal(APPROVE_CLOSE_DAY, 25);
+        assert.equal(FILL_CLOSE_DAY, 17);
+        assert.equal(APPROVE_CLOSE_DAY, 22);
+    });
+
+    it('periodWindowFromClaim anchors deadlines to claim month', () => {
+        const { periodWindowFromClaim } = require('../src/modules/claims/portalService');
+        const w = periodWindowFromClaim(2026, 7);
+        assert.equal(w.claimMonth, 7);
+        assert.equal(w.settlementMonth, 8);
+        assert.equal(w.fillCloseAt.getUTCDate(), 17);
+        assert.equal(w.approveCloseAt.getUTCDate(), 22);
+        assert.equal(w.fillOpenAt.getUTCDate(), 1);
     });
 
     it('validateOtRow: OT Start/End required; 3× only on gazetted holidays; 2× always OK', () => {

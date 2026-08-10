@@ -40,6 +40,8 @@ export default function ClaimsFillPage() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState(false);
+  const [wizardStep, setWizardStep] = useState('ot');
+  const [otLineIdx, setOtLineIdx] = useState(0);
   const feedbackRef = useRef(null);
 
   const load = async () => {
@@ -79,6 +81,8 @@ export default function ClaimsFillPage() {
     setOtRows(ots.length ? ots : [emptyOt()]);
     setExpRows(exps);
     setMedRows(meds);
+    setWizardStep('ot');
+    setOtLineIdx(0);
   }, [selected, data]);
 
   const sub = data?.submissions?.find(s => s.employee_id === selected);
@@ -198,6 +202,10 @@ export default function ClaimsFillPage() {
   const pct = data.completion?.total
     ? Math.round((data.completion.submitted / data.completion.total) * 100)
     : 0;
+  const banner = data?.period?.banner;
+  const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const claimLabel = banner?.claimLabel || (data?.period ? `${monthNames[data.period.claim_month] || data.period.claim_month} ${data.period.claim_year}` : '');
+  const settleLabel = banner?.settlementLabel || (data?.period?.settlement_month ? `${monthNames[data.period.settlement_month]} ${data.period.settlement_year}` : 'following month');
   const templateHref = data.templateUrl || `${API}/api/portal-claims/fill/${encodeURIComponent(token)}/template.xlsx`;
   const hasExpense = expRows.some(r => r.claim_date || r.amount);
   const hasMedical = medRows.some(r => r.claim_date || r.amount);
@@ -214,10 +222,22 @@ export default function ClaimsFillPage() {
         <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', color: '#1d4ed8', textTransform: 'uppercase' }}>ASIL HCM</div>
         <h1 style={{ margin: '4px 0 8px', fontSize: '1.55rem', color: '#0f172a', fontWeight: 700 }}>Submit monthly claims</h1>
         <p style={{ margin: 0, color: '#334155', maxWidth: 720, lineHeight: 1.55 }}>
-          Claim month <strong>{data.period.claim_month}/{data.period.claim_year}</strong>
-          {' · '}Deadline day 22 · Progress {pct}% ({data.completion.submitted}/{data.completion.total})
+          Claiming for: <strong>{claimLabel}</strong>
+          {' · '}Submit by: <strong>day {data.period.submit_deadline_day || 17}</strong>
+          {' · '}LM approve by: <strong>day {data.period.approve_deadline_day || 22}</strong>
+          {' · '}Paid with: <strong>{settleLabel} salary</strong>
         </p>
+        <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>Progress {pct}% ({data.completion.submitted}/{data.completion.total})</p>
       </header>
+
+      <div style={{ ...card, marginBottom: 16, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+        <div style={{ fontWeight: 700, color: '#1e3a8a', marginBottom: 6 }}>Your deadlines</div>
+        <p style={{ margin: 0, color: '#334155', fontSize: 14, lineHeight: 1.55 }}>
+          Submit all claims for <strong>{claimLabel}</strong> by <strong>day {data.period.submit_deadline_day || 17}</strong>.
+          Your Line Manager approves by <strong>day {data.period.approve_deadline_day || 22}</strong>.
+          Approved amounts are paid with your <strong>{settleLabel}</strong> salary.
+        </p>
+      </div>
 
       <HowItWorks templateHref={templateHref} />
 
@@ -234,10 +254,10 @@ export default function ClaimsFillPage() {
       )}
 
       <div style={{ ...card, marginBottom: 16 }}>
-        <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Option B — Excel (your team prefilled)</div>
+        <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Option A — Excel (recommended)</div>
         <p style={{ margin: '0 0 10px', color: '#475569', fontSize: 13, lineHeight: 1.5 }}>
-          Download <strong>your</strong> workbook — Employee Code and Name are already filled. Only complete claim columns.
-          Upload loads a <strong>draft</strong>. If the file has Expense or Medical amounts, you <strong>must</strong> upload those support files before Submit.
+          Download <strong>your</strong> workbook — Employee Code and Name are already filled. A <strong>sample row</strong> under the header shows the correct date and time format.
+          Upload loads a <strong>draft</strong>. If the file has Expense Reimbursement or Medical amounts, upload those support files before Submit.
         </p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <a href={templateHref} style={btnLink} download>Download my Excel (prefilled)</a>
@@ -250,8 +270,10 @@ export default function ClaimsFillPage() {
         </div>
       </div>
 
+      <div style={{ ...card, marginBottom: 16, border: '2px solid #e2e8f0' }}>
+        <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 12 }}>Option B — Enter on screen (step by step)</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px,240px) 1fr', gap: 16 }} className="claims-fill-grid">
-        <aside style={card}>
+        <aside style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 16, background: '#fff' }}>
           <div style={{ fontWeight: 700, fontSize: 11, color: '#64748b', marginBottom: 10, letterSpacing: '0.04em' }}>YOUR EMPLOYEES</div>
           {data.submissions.map(s => (
             <button
@@ -272,7 +294,7 @@ export default function ClaimsFillPage() {
           ))}
         </aside>
 
-        <section style={card}>
+        <section style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 16, background: '#fff' }}>
           {!sub ? <p style={{ color: '#475569' }}>Select an employee</p> : (
             <>
               <h2 style={{ margin: '0 0 4px', fontSize: '1.15rem', color: '#0f172a' }}>{sub.employee_name}</h2>
@@ -281,33 +303,50 @@ export default function ClaimsFillPage() {
               </p>
               {locked && <Alert tone="warn">Locked after approval. Raise further claims next month.</Alert>}
 
-              <Section title="1. Overtime">
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                {['ot', 'expense', 'medical', 'supports'].map((s, i) => (
+                  <span key={s} style={{
+                    fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 20,
+                    background: wizardStep === s ? '#2563eb' : '#f1f5f9',
+                    color: wizardStep === s ? '#fff' : '#64748b',
+                  }}>
+                    {i + 1}. {s === 'ot' ? 'Overtime' : s === 'expense' ? 'Expense Reimbursement' : s === 'medical' ? 'Medical Reimbursement' : 'Supports'}
+                  </span>
+                ))}
+              </div>
+
+              {wizardStep === 'ot' && (
+              <Section title="Step 1 — Overtime">
                 <Hint>
-                  Only dates in claim month <strong>{data.period.claim_month}/{data.period.claim_year}</strong> are accepted.
-                  Enter <strong>OT Start / OT End</strong> for overtime <em>after</em> normal duty — not the full shift clock-in/out.
-                  Hours = End − Start. Prefer <strong>2×</strong> (accepted without question). <strong>3×</strong> only on gazetted public/festival holidays.
-                  Prior months: email <strong>claims@asil.com.pk</strong>.
+                  Only dates in <strong>{claimLabel}</strong> are accepted.
+                  Enter <strong>OT Start / OT End</strong> for overtime <em>after</em> normal duty — <strong>NOT</strong> your full shift (e.g. NOT 9:00 AM–6:00 PM).
+                  Example: worked OT 5:00 PM–8:00 PM. Rate (2×/3×) is applied automatically.
                 </Hint>
-                {otRows.map((row, i) => (
+                {(() => {
+                  const row = otRows[otLineIdx] || emptyOt();
+                  const i = otLineIdx;
+                  return (
                   <Row key={i}>
                     <Field label="Date"><input type="date" disabled={locked || fillClosed} value={row.claim_date} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, claim_date: e.target.value } : r))} style={inp} /></Field>
                     <Field label="OT Start Time"><input disabled={locked || fillClosed} placeholder="e.g. 05:00 PM" value={row.time_from || ''} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, time_from: e.target.value } : r))} style={inp} /></Field>
                     <Field label="OT End Time"><input disabled={locked || fillClosed} placeholder="e.g. 08:00 PM" value={row.time_to || ''} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, time_to: e.target.value } : r))} style={inp} /></Field>
-                    <Field label="OT Hours (auto)"><input disabled={locked || fillClosed} placeholder="from Start→End" value={row.ot_hours} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, ot_hours: e.target.value } : r))} style={inp} /></Field>
-                    <Field label="Rate">
-                      <select disabled={locked || fillClosed} value={row.ot_multiplier} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, ot_multiplier: e.target.value } : r))} style={inp}>
-                        <option value="Single">1X (Single)</option>
-                        <option value="Double">2X (Double)</option>
-                        <option value="Triple">3X (Triple)</option>
-                      </select>
-                    </Field>
+                    <Field label="OT Hours (auto)"><input disabled placeholder="from Start→End" value={row.ot_hours} readOnly style={{ ...inp, background: '#f8fafc' }} /></Field>
                     <Field label="Nature of work"><input disabled={locked || fillClosed} value={row.nature} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, nature: e.target.value } : r))} style={inp} /></Field>
                   </Row>
-                ))}
-                {!locked && !fillClosed && <button type="button" onClick={() => setOtRows(r => [...r, emptyOt()])} style={btnGhost}>+ OT row</button>}
+                  );
+                })()}
+                {!locked && !fillClosed && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                    <button type="button" onClick={() => { setOtRows(r => [...r, emptyOt()]); setOtLineIdx(otRows.length); }} style={btnGhost}>Add next OT line</button>
+                    <button type="button" onClick={() => setWizardStep('expense')} style={btnPrimary}>Finished with OT</button>
+                    <button type="button" onClick={() => { setOtRows([]); setWizardStep('expense'); }} style={btnGhost}>No Overtime Claim</button>
+                  </div>
+                )}
               </Section>
+              )}
 
-              <Section title="2. Expense">
+              {wizardStep === 'expense' && (
+              <Section title="Step 2 — Expense Reimbursement">
                 {expRows.map((row, i) => (
                   <Row key={i}>
                     <Field label="Date"><input type="date" disabled={locked || fillClosed} value={row.claim_date} onChange={e => setExpRows(rs => rs.map((r, j) => j === i ? { ...r, claim_date: e.target.value } : r))} style={inp} /></Field>
@@ -315,10 +354,17 @@ export default function ClaimsFillPage() {
                     <Field label="Description"><input disabled={locked || fillClosed} value={row.description} onChange={e => setExpRows(rs => rs.map((r, j) => j === i ? { ...r, description: e.target.value } : r))} style={inp} /></Field>
                   </Row>
                 ))}
-                {!locked && !fillClosed && <button type="button" onClick={() => setExpRows(r => [...r, emptyExp()])} style={btnGhost}>+ Expense row</button>}
+                {!locked && !fillClosed && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                    <button type="button" onClick={() => setExpRows(r => [...r, emptyExp()])} style={btnGhost}>+ Expense row</button>
+                    <button type="button" onClick={() => setWizardStep('medical')} style={btnPrimary}>Continue to Medical</button>
+                  </div>
+                )}
               </Section>
+              )}
 
-              <Section title="3. Medical">
+              {wizardStep === 'medical' && (
+              <Section title="Step 3 — Medical Reimbursement">
                 {medRows.map((row, i) => (
                   <Row key={i}>
                     <Field label="Date"><input type="date" disabled={locked || fillClosed} value={row.claim_date} onChange={e => setMedRows(rs => rs.map((r, j) => j === i ? { ...r, claim_date: e.target.value } : r))} style={inp} /></Field>
@@ -327,23 +373,30 @@ export default function ClaimsFillPage() {
                     <Field label="Description"><input disabled={locked || fillClosed} value={row.description} onChange={e => setMedRows(rs => rs.map((r, j) => j === i ? { ...r, description: e.target.value } : r))} style={inp} /></Field>
                   </Row>
                 ))}
-                {!locked && !fillClosed && <button type="button" onClick={() => setMedRows(r => [...r, emptyMed()])} style={btnGhost}>+ Medical row</button>}
+                {!locked && !fillClosed && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                    <button type="button" onClick={() => setMedRows(r => [...r, emptyMed()])} style={btnGhost}>+ Medical row</button>
+                    <button type="button" onClick={() => setWizardStep('supports')} style={btnPrimary}>Continue to Supports</button>
+                  </div>
+                )}
               </Section>
+              )}
 
-              <Section title="4. Supports — two separate uploads">
+              {wizardStep === 'supports' && (
+              <Section title="Step 4 — Supports — two separate uploads">
                 <Hint>
-                  If you entered Expense and/or Medical, upload <strong>two files</strong> before Submit.
+                  If you entered Expense Reimbursement and/or Medical Reimbursement, upload <strong>two files</strong> before Submit.
                   Without supports, those refunds will <strong>not</strong> be processed.
                 </Hint>
                 {!locked && !fillClosed && (
                   <div style={{ display: 'grid', gap: 10, maxWidth: 520 }}>
                     <label style={{ color: '#0f172a', fontSize: 13, fontWeight: 600 }}>
-                      Expense supports file {hasExpense && !hasExpenseSupport ? <span style={{ color: '#b91c1c' }}>(required)</span> : null}
+                      Expense Reimbursement supports {hasExpense && !hasExpenseSupport ? <span style={{ color: '#b91c1c' }}>(required)</span> : null}
                       <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" style={{ display: 'block', marginTop: 6 }}
                         onChange={e => { uploadSupport(e.target.files?.[0], 'expense_support'); e.target.value = ''; }} />
                     </label>
                     <label style={{ color: '#0f172a', fontSize: 13, fontWeight: 600 }}>
-                      Medical supports file {hasMedical && !hasMedicalSupport ? <span style={{ color: '#b91c1c' }}>(required)</span> : null}
+                      Medical Reimbursement supports {hasMedical && !hasMedicalSupport ? <span style={{ color: '#b91c1c' }}>(required)</span> : null}
                       <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" style={{ display: 'block', marginTop: 6 }}
                         onChange={e => { uploadSupport(e.target.files?.[0], 'medical_support'); e.target.value = ''; }} />
                     </label>
@@ -357,6 +410,7 @@ export default function ClaimsFillPage() {
                   </ul>
                 )}
               </Section>
+              )}
 
               {!locked && !fillClosed && (
                 <div style={{ marginTop: 20 }}>
@@ -400,6 +454,7 @@ export default function ClaimsFillPage() {
           )}
         </section>
       </div>
+      </div>
       <style>{`@media (max-width: 720px) { .claims-fill-grid { grid-template-columns: 1fr !important; } }`}</style>
     </Shell>
   );
@@ -410,9 +465,9 @@ function HowItWorks({ templateHref }) {
     <div style={{ ...card, marginBottom: 16, background: '#f8fafc' }}>
       <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>How this works (simple)</div>
       <ol style={{ margin: 0, paddingLeft: 18, color: '#334155', fontSize: 14, lineHeight: 1.65 }}>
-        <li>Fill claims on screen <strong>or</strong> download <a href={templateHref} style={{ color: '#1d4ed8' }}>your Excel</a> (Code/Name prefilled).</li>
-        <li>If you enter <strong>Expense</strong> and/or <strong>Medical</strong>, you <strong>must</strong> upload those support files (separate files) before Submit — without them Submit stays blocked.</li>
-        <li>Submit → your Line Manager reviews → you get an email when decided → approved amounts pay with <strong>next month’s</strong> salary.</li>
+        <li><strong>Option A:</strong> Download <a href={templateHref} style={{ color: '#1d4ed8' }}>your Excel</a> (sample row shows format). <strong>Option B:</strong> enter step-by-step on screen.</li>
+        <li>If you enter <strong>Expense Reimbursement</strong> and/or <strong>Medical Reimbursement</strong>, upload support files before Submit.</li>
+        <li>Submit by <strong>day 17</strong> of the claim month · LM approves by <strong>day 22</strong> · approved amounts pay with <strong>next month’s</strong> salary.</li>
         <li>Errors or questions: <a href="mailto:ops-support@asil.com.pk" style={{ color: '#1d4ed8' }}>ops-support@asil.com.pk</a></li>
       </ol>
     </div>

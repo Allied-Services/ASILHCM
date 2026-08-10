@@ -387,6 +387,7 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
         const nature = pick(row, 'Nature of Work / Reason', 'Nature of Work', 'Reason');
         if (!empId && !hoursRaw && !dateRaw && !timeFrom) continue;
         if (empId && !hoursRaw && !dateRaw && !timeFrom && !timeTo && !nature) continue; // prefill only
+        if (/SAMPLE/i.test(String(empId || '')) || /do not edit/i.test(String(nature || ''))) continue;
 
         let otHours = parseAmount(hoursRaw);
         // Prefer calculated duration from OT Start/End when Excel formula cache is empty or hours blank
@@ -494,7 +495,7 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
 const OT_HEADERS = [
     'Date', 'ASIL Employee Code', 'Employee Name', 'Department', 'Location',
     'Line Manager Name', 'Nature of Work / Reason', 'OT Start Time', 'OT End Time',
-    'OT Hours (auto)', 'Rate Check (auto)', 'OT Rate (1X/2X/3X)',
+    'OT Hours (auto)',
 ];
 const EXP_HEADERS = [
     'Date', 'ASIL Employee Code', 'Employee Name', 'Department', 'Location',
@@ -505,8 +506,8 @@ const MED_HEADERS = [
     'Line Manager Name', 'Claim Type', 'Patient Name / Relation', 'Description / Treatment Detail', 'Total Claim Amount (PKR)',
 ];
 
-/** Data rows with formulas per employee (fillers need ~25–30 blank claim lines). */
-const SLOTS_PER_EMP = 30;
+/** Data rows with formulas per employee. */
+const SLOTS_PER_EMP = 6;
 
 const HEADER_FILL = '1E3A8A';
 const HEADER_FONT = 'FFFFFF';
@@ -559,15 +560,14 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
         `Claim month: ${monthLabel}`,
         '',
         '1. Grey columns (Employee Code, Name, Dept, Location, Manager) are prefilled for YOUR team — do not change them.',
-        '2. Overtime — fill only: Date, Nature, OT Start Time, OT End Time, and OT Rate (1X / 2X / 3X).',
+        '2. Overtime — fill only: Date, Nature, OT Start Time, OT End Time. Rate (2×/3×) is applied automatically per labour law.',
         '3. OT Start / OT End = overtime hours claimed AFTER normal duty. Do NOT enter the full shift start/end (e.g. not 9:00 AM–6:00 PM).',
         '4. OT Hours calculates automatically as OT End − OT Start. Do not type hours by hand.',
-        '5. Use 2X (Double) for normal OT — accepted without question. 3X (Triple) only on gazetted public/festival holidays.',
-        '6. If you pick 3X on a non-holiday, Rate Check turns red — change to 2X.',
-        '7. Times: 5:00 PM or 17:00. Dates: 15-06-2026, 15/06/2026, 15 Jun 2026, or 21-06-26.',
-        '8. Only this claim month’s dates are accepted. Older months → email claims@asil.com.pk.',
-        '9. After upload: attach Expense and Medical supports as separate files before Submit.',
-        '10. Questions: ops-support@asil.com.pk or claims@asil.com.pk',
+        '5. Use the SAMPLE row under the header as your format guide. Dates: 15-07-2026. Times: 05:00 PM and 08:00 PM.',
+        '6. Submit by day 17 of the claim month. LM approves by day 22. Approved amounts pay with the following month’s salary.',
+        '7. Only this claim month’s dates are accepted. Older months → email claims@asil.com.pk.',
+        '8. After upload: attach Expense Reimbursement and Medical supports as separate files before Submit.',
+        '9. Questions: ops-support@asil.com.pk or claims@asil.com.pk',
     ];
     lines.forEach((t, i) => {
         const cell = instr.getCell(i + 2, 1);
@@ -631,11 +631,34 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
         return sumRow;
     }
 
+    function formatManagerName(mgr) {
+        const v = String(mgr || '').trim();
+        return v || 'No Line Manager Set';
+    }
+
+    function addHeaderNotes(ws, headerRow, notesByCol) {
+        Object.entries(notesByCol).forEach(([col, text]) => {
+            ws.getCell(headerRow, Number(col)).note = text;
+        });
+    }
+
+    function addSampleRow(ws, rowNum, headers, sampleValues) {
+        sampleValues.forEach((v, i) => {
+            const cell = ws.getCell(rowNum, i + 1);
+            cell.value = v;
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } };
+            cell.font = { bold: true, color: { argb: HEADER_FONT }, size: 9 };
+            cell.alignment = { vertical: 'middle', wrapText: true };
+        });
+        ws.getRow(rowNum).height = 36;
+    }
+
     function addDataSheet(name, headers, slotsPerEmp, lockedCols, amountColLetter) {
         const headerRow = 4;
-        const firstData = 5;
+        const sampleRow = 5;
+        const firstData = 6;
         const ws = wb.addWorksheet(name, {
-            views: [{ state: 'frozen', ySplit: headerRow, activeCell: `A${firstData}` }],
+            views: [{ state: 'frozen', ySplit: sampleRow, activeCell: `A${firstData}` }],
         });
         addTitleBlock(
             ws,
@@ -644,13 +667,29 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
             headers.length
         );
 
-        // Placeholder summary row (formulas set after we know last data row)
         for (let c = 1; c <= headers.length; c++) {
             ws.getCell(3, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUM_FILL } };
         }
 
         headers.forEach((h, i) => { ws.getCell(headerRow, i + 1).value = h; });
         styleHeaderRow(ws, headerRow, headers.length);
+        addHeaderNotes(ws, headerRow, {
+            1: 'Date work/expense happened — DD-MMM-YYYY e.g. 15-Jul-2026',
+            7: 'Expense type e.g. Travel, Fuel',
+            8: 'Brief description of the expense',
+            9: 'Amount in PKR',
+        });
+
+        const sampleDate = claimMonth && claimYear
+            ? `15-${String(claimMonth).padStart(2, '0')}-${claimYear}`
+            : '15-07-2026';
+        addSampleRow(ws, sampleRow, headers, [
+            sampleDate, '(SAMPLE — do not edit)', 'Format example only', '—', '—', 'No Line Manager Set',
+            /expense/i.test(name) ? 'Travel' : 'OPD',
+            /expense/i.test(name) ? 'Taxi fare — client visit' : 'Consultation',
+            /medical/i.test(name) ? 'Self' : '',
+            /medical/i.test(name) ? '5000' : '1500',
+        ].slice(0, headers.length));
 
         const widths = headers.map((h) => {
             if (/Employee Code/i.test(h)) return 26;
@@ -669,7 +708,7 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
             const nm = e.name || e.employee_name || '';
             const dept = e.dept || '';
             const loc = e.location || '';
-            const mgr = e.line_manager_name || e.lineManagerName || '';
+            const mgr = formatManagerName(e.line_manager_name || e.lineManagerName);
             for (let i = 0; i < slotsPerEmp; i++) {
                 const row = ws.getRow(r);
                 const values = headers.map((h) => {
@@ -713,35 +752,54 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
     function addOvertimeSheet(slotsPerEmp) {
         const headers = OT_HEADERS;
         const headerRow = 4;
-        const firstData = 5;
+        const sampleRow = 5;
+        const firstData = 6;
         const ws = wb.addWorksheet('Overtime', {
-            views: [{ state: 'frozen', ySplit: headerRow, activeCell: `A${firstData}` }],
+            views: [{ state: 'frozen', ySplit: sampleRow, activeCell: `A${firstData}` }],
         });
         addTitleBlock(
             ws,
             'ASIL — Overtime',
-            'Enter Date · OT Start · OT End · Rate. OT must be AFTER normal duty (not shift clock-in/out). OT Hours = End − Start (auto). 3× only on gazetted holidays — otherwise use 2×.',
+            'Enter Date · OT Start · OT End only. OT must be AFTER normal duty (NOT shift clock-in/out). OT Hours = End − Start (auto). Rate 2×/3× applied by system.',
             headers.length
         );
 
-        // Summary row 3 — filled after data rows known
         for (let c = 1; c <= headers.length; c++) {
             ws.getCell(3, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUM_FILL } };
         }
 
         headers.forEach((h, i) => { ws.getCell(headerRow, i + 1).value = h; });
         styleHeaderRow(ws, headerRow, headers.length);
+        addHeaderNotes(ws, headerRow, {
+            1: 'Date OT was worked — DD-MMM-YYYY e.g. 15-Jul-2026',
+            7: 'What work was done during overtime',
+            8: 'OT Start — overtime AFTER normal duty e.g. 05:00 PM (NOT shift start 9:00 AM)',
+            9: 'OT End — when overtime finished e.g. 08:00 PM (NOT shift end 6:00 PM)',
+            10: 'Auto-calculated — do not type',
+        });
 
-        const widths = [12, 26, 22, 14, 14, 16, 26, 13, 13, 12, 44, 14];
+        const sampleDate = claimMonth && claimYear
+            ? new Date(claimYear, claimMonth - 1, 15)
+            : new Date(2026, 6, 15);
+        addSampleRow(ws, sampleRow, headers, [
+            sampleDate,
+            '(SAMPLE — do not edit)',
+            'Format example only',
+            '—', '—', 'No Line Manager Set',
+            'OT after duty — NOT shift times (e.g. NOT 9:00 AM–6:00 PM)',
+            '05:00 PM',
+            '08:00 PM',
+            '3.00',
+        ]);
+        ws.getCell(sampleRow, 1).numFmt = 'DD-MMM-YYYY';
+
+        const widths = [12, 26, 22, 14, 14, 18, 30, 13, 13, 12];
         widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 
-        // H=OT Start(8), I=OT End(9), J=Hours(10), K=Rate Check(11), L=Rate(12)
         const fromCol = 8;
         const toCol = 9;
         const hoursCol = 10;
-        const checkCol = 11;
-        const multCol = 12;
-        const lockedIdx = [1, 2, 3, 4, 5, 9, 10]; // identity + Hours + Rate Check (0-based)
+        const lockedIdx = [1, 2, 3, 4, 5, 9]; // identity + hours (0-based)
 
         let r = firstData;
         for (const e of list) {
@@ -749,10 +807,10 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
             const nm = e.name || e.employee_name || '';
             const dept = e.dept || '';
             const loc = e.location || '';
-            const mgr = e.line_manager_name || e.lineManagerName || '';
+            const mgr = formatManagerName(e.line_manager_name || e.lineManagerName);
             for (let i = 0; i < slotsPerEmp; i++) {
                 const row = ws.getRow(r);
-                const prefill = ['', id, nm, dept, loc, mgr, '', '', '', null, null, i === 0 ? '2X' : ''];
+                const prefill = ['', id, nm, dept, loc, mgr, '', '', '', null];
                 prefill.forEach((v, ci) => {
                     const cell = row.getCell(ci + 1);
                     cell.border = {
@@ -761,13 +819,11 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
                         left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
                         right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
                     };
-                    cell.alignment = { vertical: 'middle', wrapText: ci === 10 };
+                    cell.alignment = { vertical: 'middle', wrapText: ci === 6 };
                     if (lockedIdx.includes(ci) && ci < 6) {
                         cell.value = v;
                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LOCK_FILL } };
                         cell.font = { color: { argb: 'FF334155' }, size: 10 };
-                    } else if (ci === 11) {
-                        cell.value = v;
                     } else if ((r % 2) === 0) {
                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ALT_ROW } };
                     }
@@ -785,72 +841,21 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
                 hf.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUM_FILL } };
                 hf.font = { bold: true, color: { argb: 'FF92400E' }, size: 10 };
 
-                // Rate Check: 3X only if date is on Holidays sheet
-                const ck = ws.getCell(r, checkCol);
-                ck.value = {
-                    formula: `IF(OR(A${r}="",L${r}=""),"",IF(AND(OR(UPPER(TRIM(L${r}))="3X",UPPER(TRIM(L${r}))="TRIPLE",LEFT(UPPER(TRIM(L${r})),1)="3"),COUNTIF(Holidays!$A:$A,A${r})=0),"3× not allowed — not a gazetted holiday. Use 2×.","OK"))`,
-                };
-                ck.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LOCK_FILL } };
-                ck.font = { size: 9, color: { argb: 'FF334155' } };
-
-                ws.getCell(r, multCol).dataValidation = {
-                    type: 'list',
-                    allowBlank: true,
-                    formulae: ['"1X,2X,3X"'],
-                    showErrorMessage: true,
-                    errorTitle: 'OT Rate',
-                    error: 'Choose 1X, 2X, or 3X',
-                };
-
                 row.height = 20;
                 r += 1;
             }
         }
 
         const last = Math.max(firstData, r - 1);
-
-        // Top summary: 1X / 2X / 3X hours
         ws.getCell(3, 1).value = 'TOTAL OT HOURS (auto)';
         ws.getCell(3, 1).font = { bold: true, size: 10, color: { argb: 'FF92400E' } };
-        const summaries = [
-            [3, '1X hrs', `SUMIF(L${firstData}:L${last},"1X",J${firstData}:J${last})+SUMIF(L${firstData}:L${last},"Single",J${firstData}:J${last})`],
-            [5, '2X hrs', `SUMIF(L${firstData}:L${last},"2X",J${firstData}:J${last})+SUMIF(L${firstData}:L${last},"Double",J${firstData}:J${last})`],
-            [7, '3X hrs', `SUMIF(L${firstData}:L${last},"3X",J${firstData}:J${last})+SUMIF(L${firstData}:L${last},"Triple",J${firstData}:J${last})`],
-        ];
-        summaries.forEach(([col, label, formula]) => {
-            ws.getCell(3, col).value = label;
-            ws.getCell(3, col).font = { bold: true, size: 10 };
-            const c = ws.getCell(3, col + 1);
-            c.value = { formula };
+        if (last >= firstData) {
+            const c = ws.getCell(3, 10);
+            c.value = { formula: `SUM(J${firstData}:J${last})` };
             c.numFmt = '0.00';
             c.font = { bold: true, size: 12, color: { argb: 'FF92400E' } };
-        });
-        ws.getRow(3).height = 22;
-
-        if (last >= firstData) {
-            ws.addConditionalFormatting({
-                ref: `K${firstData}:K${last}`,
-                rules: [{
-                    type: 'expression',
-                    formulae: [`ISNUMBER(SEARCH("not allowed",K${firstData}))`],
-                    style: {
-                        fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: WARN_FILL } },
-                        font: { bold: true, color: { argb: 'FF991B1B' } },
-                    },
-                }],
-            });
-            ws.addConditionalFormatting({
-                ref: `L${firstData}:L${last}`,
-                rules: [{
-                    type: 'expression',
-                    formulae: [`ISNUMBER(SEARCH("not allowed",K${firstData}))`],
-                    style: {
-                        fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: WARN_FILL } },
-                        font: { bold: true, color: { argb: 'FF991B1B' } },
-                    },
-                }],
-            });
         }
+        ws.getRow(3).height = 22;
         return ws;
     }
 

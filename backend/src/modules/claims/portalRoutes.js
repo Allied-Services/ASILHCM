@@ -93,6 +93,29 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
+    app.post('/api/portal-claims/fill/:token/batch-submit', async (req, res) => {
+        try {
+            const result = await portal.batchSubmitAll(pool, { token: req.params.token, sendAppEmail });
+            if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.batchSubmit', err);
+        }
+    });
+
+    app.post('/api/portal-claims/fill/:token/batch-attachment', async (req, res) => {
+        try {
+            const { filename, mimeType, contentBase64, category } = req.body || {};
+            const result = await portal.addBatchAttachment(pool, {
+                token: req.params.token, filename, mimeType, contentBase64, category,
+            });
+            if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.batchAttachment', err);
+        }
+    });
+
     app.get('/api/portal-claims/template.xlsx', (req, res) => {
         const p = portal.getMasterClaimsTemplatePath();
         if (!p) return res.status(404).json({ error: 'Template file not found on server' });
@@ -173,12 +196,24 @@ function registerPortalClaimsRoutes(app, deps) {
     app.post('/api/portal-claims/campaign', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
         try {
             const now = new Date();
-            const campaignMonth = parseInt(req.body?.month || now.getMonth() + 1, 10);
-            const campaignYear = parseInt(req.body?.year || now.getFullYear(), 10);
+            const claimMonth = parseInt(req.body?.claimMonth || req.body?.month || now.getMonth(), 10);
+            const claimYear = parseInt(req.body?.claimYear || req.body?.year || now.getFullYear(), 10);
             const dryRun = !!req.body?.dryRun;
             const onlyEmails = Array.isArray(req.body?.onlyEmails) ? req.body.onlyEmails : null;
+            const campaignMode = String(req.body?.campaignMode || 'sample').toLowerCase() === 'actual' ? 'actual' : 'sample';
+            const testPackFour = !!req.body?.testPackFour;
+
+            if (campaignMode === 'actual' && process.env.CLAIMS_ALLOW_ACTUAL_SEND !== 'true') {
+                return res.status(403).json({
+                    error: 'ACTUAL campaigns are blocked until MD sign-off. Use campaignMode "sample" for testing.',
+                });
+            }
+            if (!dryRun && campaignMode === 'sample' && !process.env.CLAIMS_SAMPLE_EMAIL) {
+                return res.status(500).json({ error: 'CLAIMS_SAMPLE_EMAIL is not configured on this server.' });
+            }
+
             const result = await portal.createCampaign(pool, {
-                campaignMonth, campaignYear, sendAppEmail, dryRun, onlyEmails,
+                claimMonth, claimYear, sendAppEmail, dryRun, onlyEmails, campaignMode, testPackFour,
             });
             res.json(result);
         } catch (err) {
@@ -255,6 +290,75 @@ function registerPortalClaimsRoutes(app, deps) {
             res.json(result);
         } catch (err) {
             handleRouteError(res, 'portalClaims.resetSample', err);
+        }
+    });
+
+    app.post('/api/portal-claims/admin/flush-sample', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            const claimMonth = parseInt(req.body?.claimMonth, 10) || null;
+            const claimYear = parseInt(req.body?.claimYear, 10) || null;
+            const client = req.body?.client || 'wafi';
+            res.json(await portal.flushPortalClaimsSample(pool, { claimMonth, claimYear, clientPattern: client }));
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.flushSample', err);
+        }
+    });
+
+    app.get('/api/portal-claims/eligibility-rules', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+        try {
+            res.json({ rules: await portal.listEligibilityRules(pool) });
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.eligibilityRules', err);
+        }
+    });
+
+    app.put('/api/portal-claims/eligibility-rules', requireAuth, requireRole('superadmin', 'finance_manager'), async (req, res) => {
+        try {
+            const id = await portal.upsertEligibilityRule(pool, req.body || {}, req.user?.email);
+            res.json({ ok: true, id });
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.eligibilityRulesPut', err);
+        }
+    });
+
+    app.get('/api/portal-claims/eligibility-rules/:id/preview', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+        try {
+            res.json(await portal.previewEligibilityRule(pool, parseInt(req.params.id, 10)));
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.eligibilityPreview', err);
+        }
+    });
+
+    app.get('/api/portal-claims/employee/:employeeId/category', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'operations', 'payroll_initiator'), async (req, res) => {
+        try {
+            const cat = await portal.getClaimsCategoryForEmployee(pool, req.params.employeeId);
+            if (!cat) return res.status(404).json({ error: 'Employee not found' });
+            res.json(cat);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.employeeCategory', err);
+        }
+    });
+
+    app.get('/api/claims/policy/:contractId', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'operations', 'payroll_initiator'), async (req, res) => {
+        try {
+            const policy = await portal.getClaimsPolicy(pool, req.params.contractId);
+            res.json(policy);
+        } catch (err) {
+            handleRouteError(res, 'claims.policyGet', err);
+        }
+    });
+
+    app.put('/api/claims/policy/:contractId', requireAuth, requireRole('superadmin', 'finance_manager'), async (req, res) => {
+        try {
+            const row = await portal.upsertClaimsPolicy(pool, req.params.contractId, req.body || {});
+            res.json({
+                claims_pay_timing: row.claims_pay_timing,
+                submit_deadline_day: row.submit_deadline_day,
+                approve_deadline_day: row.approve_deadline_day,
+            });
+        } catch (err) {
+            if (err.status === 400) return res.status(400).json({ error: err.message });
+            handleRouteError(res, 'claims.policyPut', err);
         }
     });
 

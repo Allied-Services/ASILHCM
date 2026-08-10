@@ -16,10 +16,33 @@ const {
     isMeaningfulMoneyRow,
     MONTH_NAMES,
 } = require('./portalExcel');
+const {
+    HUZAIFA_FALLBACK,
+    countEligibleEmployees,
+    resolveClaimsCategory,
+    resolveClaimsRouting,
+    listRules,
+    upsertRule,
+    previewRuleMatch,
+} = require('./claimsEligibility');
+const {
+    stableFillerToken,
+    resolveOutboundEmail,
+    sampleSubjectPrefix,
+    sampleBodyBanner,
+    shouldSendRecordEmail,
+    canInjectPayroll,
+    isSamplePeriod,
+} = require('./claimsMail');
+const {
+    createCampaignAugust,
+    computeBatchTotals,
+} = require('./claimsCampaign');
 
-const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '17', 10);
-const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '22', 10);
-const APPROVE_CLOSE_DAY = parseInt(process.env.CLAIMS_APPROVE_CLOSE_DAY || '25', 10);
+const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '1', 10);
+const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '17', 10);
+const APPROVE_CLOSE_DAY = parseInt(process.env.CLAIMS_APPROVE_CLOSE_DAY || '22', 10);
+const { getClaimsPolicy, getDefaultClaimsPolicy } = require('./claimsPolicy');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://asil-hcm-frontend.onrender.com';
 /** immediate | daily | day22 — when approvers get email digests */
 const APPROVER_NOTIFY_MODE = String(process.env.CLAIMS_APPROVER_NOTIFY_MODE || 'immediate').toLowerCase();
@@ -144,40 +167,95 @@ function resolveFillerEmail(emp) {
 }
 
 function resolveApproverEmail(emp) {
-    const lm = (emp.line_manager_email || '').toLowerCase().trim();
-    const sup = (emp.supervisor_email || '').toLowerCase().trim();
-    const focal = resolveFillerEmail(emp);
-    // Wafi matrix: focal fills, LM approves — prefer LM when both are named and distinct
-    if (lm && focal && lm !== focal) return lm;
-    return sup || lm || null;
+    return resolveClaimsRouting(emp).approverEmail;
 }
 
-function periodWindow(campaignYear, campaignMonth) {
-    // Claim month = previous calendar month relative to campaign month
-    const claimDate = new Date(campaignYear, campaignMonth - 2, 1);
-    const claimMonth = claimDate.getMonth() + 1;
-    const claimYear = claimDate.getFullYear();
-    const settlementDate = new Date(campaignYear, campaignMonth - 1, 1);
-    const settlementMonth = settlementDate.getMonth() + 1;
-    const settlementYear = settlementDate.getFullYear();
+/** PKT wall-clock → UTC timestamptz (PKT = UTC+5). */
+function pktDeadline(year, month, day, hourPkt, min, sec) {
+    return new Date(Date.UTC(year, month - 1, day, hourPkt - 5, min, sec));
+}
 
-    // Deadlines in PKT stored as timestamptz (approx: treat as UTC+5 wall clock)
-    const fillOpen = new Date(Date.UTC(campaignYear, campaignMonth - 1, FILL_OPEN_DAY, 4, 0, 0)); // 09:00 PKT
-    const fillClose = new Date(Date.UTC(campaignYear, campaignMonth - 1, FILL_CLOSE_DAY, 18, 59, 59)); // 23:59 PKT
-    const approveClose = new Date(Date.UTC(campaignYear, campaignMonth - 1, APPROVE_CLOSE_DAY, 18, 59, 59));
+function periodWindowFromClaim(claimYear, claimMonth, policy = {}) {
+    const payTiming = policy.claims_pay_timing || 'following_month';
+    const submitDay = policy.submit_deadline_day ?? FILL_CLOSE_DAY;
+    const approveDay = policy.approve_deadline_day ?? APPROVE_CLOSE_DAY;
+
+    let settlementMonth;
+    let settlementYear;
+    let campaignMonth;
+    let campaignYear;
+
+    if (payTiming === 'same_month') {
+        settlementMonth = claimMonth;
+        settlementYear = claimYear;
+        campaignMonth = claimMonth;
+        campaignYear = claimYear;
+    } else {
+        const sd = new Date(claimYear, claimMonth - 1 + 1, 1);
+        settlementMonth = sd.getMonth() + 1;
+        settlementYear = sd.getFullYear();
+        campaignMonth = settlementMonth;
+        campaignYear = settlementYear;
+    }
+
+    const fillOpen = pktDeadline(claimYear, claimMonth, FILL_OPEN_DAY, 9, 0, 0);
+    const fillClose = pktDeadline(claimYear, claimMonth, submitDay, 23, 59, 59);
+    const approveClose = pktDeadline(claimYear, claimMonth, approveDay, 23, 59, 59);
 
     return {
-        claimMonth, claimYear, settlementMonth, settlementYear,
-        fillOpenAt: fillOpen, fillCloseAt: fillClose, approveCloseAt: approveClose,
+        claimMonth,
+        claimYear,
+        settlementMonth,
+        settlementYear,
+        campaignMonth,
+        campaignYear,
+        submitDeadlineDay: submitDay,
+        approveDeadlineDay: approveDay,
+        claimsPayTiming: payTiming,
+        fillOpenAt: fillOpen,
+        fillCloseAt: fillClose,
+        approveCloseAt: approveClose,
     };
 }
 
+function periodWindow(campaignYear, campaignMonth, policy = {}) {
+    // Legacy hub input: campaign month = settlement month (claim = previous calendar month)
+    const claimDate = new Date(campaignYear, campaignMonth - 2, 1);
+    const claimMonth = claimDate.getMonth() + 1;
+    const claimYear = claimDate.getFullYear();
+    return periodWindowFromClaim(claimYear, claimMonth, policy);
+}
+
+function periodWindowForClaimMonth(claimYear, claimMonth, policy = {}) {
+    return periodWindowFromClaim(claimYear, claimMonth, policy);
+}
+
 function isAfterFillClose(period) {
+    if (isSamplePeriod(period)) return false;
     return Date.now() > new Date(period.fill_close_at).getTime();
 }
 
 function isAfterApproveClose(period) {
+    if (isSamplePeriod(period)) return false;
     return Date.now() > new Date(period.approve_close_at).getTime();
+}
+
+function formatPeriodBanner(period) {
+    const cm = period?.claim_month;
+    const cy = period?.claim_year;
+    const sm = period?.settlement_month;
+    const sy = period?.settlement_year;
+    const submitDay = period?.submit_deadline_day || FILL_CLOSE_DAY;
+    const approveDay = period?.approve_deadline_day || APPROVE_CLOSE_DAY;
+    const claimName = cm && cy ? `${MONTH_NAMES[cm] || cm} ${cy}` : 'this month';
+    const settleName = sm && sy ? `${MONTH_NAMES[sm] || sm} ${sy}` : 'the following month';
+    return {
+        claimLabel: claimName,
+        settlementLabel: settleName,
+        submitBy: `day ${submitDay} of ${MONTH_NAMES[cm] || cm || 'claim month'}`,
+        approveBy: `day ${approveDay} of ${MONTH_NAMES[cm] || cm || 'claim month'}`,
+        payWith: `Approved amounts pay with your ${settleName} salary`,
+    };
 }
 
 function claimMonthLabel(period) {
@@ -259,7 +337,14 @@ function validateOtRow(row, period = null) {
         );
     }
 
-    const multLabel = normalizeOtMultiplierLabel(row.ot_multiplier || 'Double');
+    let multLabel;
+    if (!row.ot_multiplier || String(row.ot_multiplier).trim() === '') {
+        const d = iso ? parseLocalDate(iso) : null;
+        const dateType = d ? getPkDateType(d) : null;
+        multLabel = dateType?.isGazetted ? 'Triple' : 'Double';
+    } else {
+        multLabel = normalizeOtMultiplierLabel(row.ot_multiplier);
+    }
     const multKey = multLabel.toLowerCase();
     const factor = OT_MAP[multKey] || OT_MAP[String(row.ot_multiplier || '').toLowerCase().trim()] || null;
     if (!factor) {
@@ -317,8 +402,9 @@ async function ensureClaimAuthorityColumn(pool) {
     await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS claim_authority TEXT`).catch(() => {});
 }
 
-async function getOrCreatePeriod(pool, campaignMonth, campaignYear) {
-    const w = periodWindow(campaignYear, campaignMonth);
+async function getOrCreatePeriod(pool, campaignMonth, campaignYear, policyOverride = null) {
+    const policy = policyOverride || await getDefaultClaimsPolicy(pool);
+    const w = periodWindow(campaignYear, campaignMonth, policy);
     const { rows: existing } = await pool.query(
         `SELECT * FROM portal_claim_periods WHERE campaign_month = $1 AND campaign_year = $2`,
         [campaignMonth, campaignYear]
@@ -332,7 +418,29 @@ async function getOrCreatePeriod(pool, campaignMonth, campaignYear) {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open')
          RETURNING *`,
         [
-            campaignMonth, campaignYear, w.claimMonth, w.claimYear, w.settlementMonth, w.settlementYear,
+            w.campaignMonth, w.campaignYear, w.claimMonth, w.claimYear, w.settlementMonth, w.settlementYear,
+            w.fillOpenAt.toISOString(), w.fillCloseAt.toISOString(), w.approveCloseAt.toISOString(),
+        ]
+    );
+    return rows[0];
+}
+
+async function getOrCreatePeriodForClaimMonth(pool, claimMonth, claimYear, policyOverride = null) {
+    const policy = policyOverride || await getDefaultClaimsPolicy(pool);
+    const { rows: existing } = await pool.query(
+        `SELECT * FROM portal_claim_periods WHERE claim_month = $1 AND claim_year = $2 ORDER BY id DESC LIMIT 1`,
+        [claimMonth, claimYear]
+    );
+    if (existing[0]) return existing[0];
+    const w = periodWindowFromClaim(claimYear, claimMonth, policy);
+    const { rows } = await pool.query(
+        `INSERT INTO portal_claim_periods
+         (campaign_month, campaign_year, claim_month, claim_year, settlement_month, settlement_year,
+          fill_open_at, fill_close_at, approve_close_at, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open')
+         RETURNING *`,
+        [
+            w.campaignMonth, w.campaignYear, w.claimMonth, w.claimYear, w.settlementMonth, w.settlementYear,
             w.fillOpenAt.toISOString(), w.fillCloseAt.toISOString(), w.approveCloseAt.toISOString(),
         ]
     );
@@ -344,137 +452,54 @@ async function findPeriodForUi(pool, month, year) {
     const m = parseInt(month, 10);
     const y = parseInt(year, 10);
     if (!m || !y) return null;
-    const { rows: byCampaign } = await pool.query(
-        `SELECT * FROM portal_claim_periods WHERE campaign_month = $1 AND campaign_year = $2`,
-        [m, y]
-    );
-    if (byCampaign[0]) return byCampaign[0];
     const { rows: byClaim } = await pool.query(
         `SELECT * FROM portal_claim_periods WHERE claim_month = $1 AND claim_year = $2 ORDER BY id DESC LIMIT 1`,
         [m, y]
     );
     if (byClaim[0]) return byClaim[0];
-    return getOrCreatePeriod(pool, m, y);
+    const { rows: byCampaign } = await pool.query(
+        `SELECT * FROM portal_claim_periods WHERE campaign_month = $1 AND campaign_year = $2`,
+        [m, y]
+    );
+    if (byCampaign[0]) return byCampaign[0];
+    return getOrCreatePeriodForClaimMonth(pool, m, y);
 }
 
 /**
- * Eligible employees: claim_authority set, resolvable filler email, active.
+ * Eligible employees per claim_eligibility_rules + routing matrix.
  */
 async function listEligibleEmployees(pool) {
     await ensureClaimAuthorityColumn(pool);
-    const { rows } = await pool.query(`
-        SELECT id, name, email, claim_authority, supervisor_email, line_manager_email, client, location, dept, salary
-        FROM employees
-        WHERE claim_authority IS NOT NULL AND TRIM(claim_authority) <> ''
-          AND (
-            active IS NULL
-            OR LOWER(TRIM(active::text)) IN ('yes','true','1','active','')
-            OR active::text = 'Yes'
-          )
-          AND (last_working_day IS NULL OR last_working_day >= CURRENT_DATE)
-        ORDER BY client NULLS LAST, name
-    `);
-    return rows.map(e => ({
+    const { eligible } = await countEligibleEmployees(pool);
+    return eligible.map(e => ({
         ...e,
-        filler_email: resolveFillerEmail(e),
-        approver_email: resolveApproverEmail(e),
         claim_authority_norm: normalizeAuthority(e.claim_authority),
-    })).filter(e => e.filler_email);
+    }));
 }
 
-async function createCampaign(pool, { campaignMonth, campaignYear, sendAppEmail, dryRun = false, onlyEmails = null }) {
-    const period = await getOrCreatePeriod(pool, campaignMonth, campaignYear);
-    let eligible = await listEligibleEmployees(pool);
-
-    // Segregation: filler !== approver
-    const skipped = [];
-    eligible = eligible.filter(e => {
-        if (e.approver_email && e.filler_email === e.approver_email) {
-            skipped.push({ employee_id: e.id, reason: 'Claim Authority email equals Approver' });
-            return false;
-        }
-        if (onlyEmails && onlyEmails.length) {
-            return onlyEmails.map(x => x.toLowerCase()).includes(e.filler_email);
-        }
-        return true;
+async function createCampaign(pool, {
+    campaignMonth, campaignYear, claimMonth, claimYear, sendAppEmail, dryRun = false, onlyEmails = null,
+    campaignMode = 'actual', testPackFour = false,
+}) {
+    let period;
+    if (claimMonth && claimYear) {
+        period = await getOrCreatePeriodForClaimMonth(pool, claimMonth, claimYear);
+    } else {
+        period = await getOrCreatePeriod(pool, campaignMonth, campaignYear);
+    }
+    return createCampaignAugust(pool, {
+        period,
+        campaignMonth,
+        campaignYear,
+        sendAppEmail,
+        dryRun,
+        onlyEmails,
+        campaignMode,
+        testPackFour,
+        FRONTEND_URL,
+        FILL_CLOSE_DAY,
+        buildFillerInviteHtml,
     });
-
-    const byFiller = new Map();
-    for (const e of eligible) {
-        if (!byFiller.has(e.filler_email)) byFiller.set(e.filler_email, []);
-        byFiller.get(e.filler_email).push(e);
-    }
-
-    const invites = [];
-    for (const [fillerEmail, emps] of byFiller) {
-        const token = newToken();
-        const tokenHash = hashToken(token);
-
-        if (!dryRun) {
-            const { rows: batchRows } = await pool.query(
-                `INSERT INTO portal_claim_batches (period_id, filler_email, invite_token_hash, invite_sent_at, invite_delivered, status)
-                 VALUES ($1,$2,$3,NOW(),TRUE,'invited')
-                 ON CONFLICT (period_id, filler_email) DO UPDATE
-                   SET invite_token_hash = EXCLUDED.invite_token_hash,
-                       invite_sent_at = NOW(),
-                       invite_delivered = TRUE,
-                       status = CASE WHEN portal_claim_batches.status IN ('submitted','no_claims') THEN portal_claim_batches.status ELSE 'invited' END
-                 RETURNING *`,
-                [period.id, fillerEmail, tokenHash]
-            );
-            const batch = batchRows[0];
-
-            for (const emp of emps) {
-                await pool.query(
-                    `INSERT INTO portal_claim_submissions
-                     (period_id, batch_id, employee_id, filler_email, approver_email, status, channel)
-                     VALUES ($1,$2,$3,$4,$5,'invited','portal')
-                     ON CONFLICT (period_id, employee_id) DO UPDATE
-                       SET batch_id = EXCLUDED.batch_id,
-                           filler_email = EXCLUDED.filler_email,
-                           approver_email = EXCLUDED.approver_email,
-                           updated_at = NOW()
-                     WHERE portal_claim_submissions.status NOT IN ('approved','in_payroll')`,
-                    [period.id, batch.id, emp.id, fillerEmail, emp.approver_email]
-                );
-            }
-
-            const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
-            if (sendAppEmail) {
-                try {
-                    await sendAppEmail({
-                        to: fillerEmail,
-                        subject: `ASIL Claims for ${period.claim_month}/${period.claim_year} — submit by day ${FILL_CLOSE_DAY}`,
-                        html: buildFillerInviteHtml({
-                            period,
-                            employeeCount: emps.length,
-                            link,
-                            fillerEmail,
-                            employees: emps.map(e => ({ id: e.id, name: e.name })),
-                        }),
-                    });
-                } catch (err) {
-                    await pool.query(
-                        `UPDATE portal_claim_batches SET invite_delivered = FALSE WHERE id = $1`,
-                        [batch.id]
-                    );
-                    invites.push({ fillerEmail, ok: false, error: err.message, employeeCount: emps.length });
-                    continue;
-                }
-            }
-            invites.push({ fillerEmail, ok: true, employeeCount: emps.length, link, batchId: batch.id });
-        } else {
-            invites.push({
-                fillerEmail,
-                ok: true,
-                dryRun: true,
-                employeeCount: emps.length,
-                employees: emps.map(e => e.id),
-            });
-        }
-    }
-
-    return { period, invites, skipped, fillerCount: byFiller.size, employeeCount: eligible.length };
 }
 
 function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail, employees = [] }) {
@@ -505,8 +530,8 @@ function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail, emplo
     <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What you should do (by day ${FILL_CLOSE_DAY})</p>
     <ol style="margin:0 0 16px;padding-left:20px;color:#334155;font-size:14px;line-height:1.6">
       <li>Open the secure form (no password — this link is personal to you).</li>
-      <li><strong>Option A:</strong> Enter OT / Expense / Medical on screen for each employee, <em>or</em><br/>
-          <strong>Option B:</strong> Download <em>your</em> Excel (Code/Name already filled), complete claim columns only, and upload it.</li>
+      <li><strong>Option A:</strong> Download <em>your</em> Excel (Code/Name already filled), complete claim columns only, and upload it.<br/>
+          <strong>Option B:</strong> Enter OT / Expense Reimbursement / Medical on screen for each employee.</li>
       <li>Upload <strong>two separate support files</strong> if you have Expense or Medical claims:<br/>
           (1) Expense receipts / bills &nbsp; (2) Medical receipts / prescriptions.</li>
       <li>If there is nothing to claim for an employee, tap <strong>Confirm No Claims</strong>.</li>
@@ -517,9 +542,9 @@ function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail, emplo
     </p>
     <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What happens next</p>
     <ul style="margin:0 0 18px;padding-left:20px;color:#475569;font-size:14px;line-height:1.6">
-      <li>Line Manager approves or rejects (deadline day ${APPROVE_CLOSE_DAY}).</li>
+      <li>Line Manager approves or rejects (by day ${APPROVE_CLOSE_DAY} of the claim month).</li>
       <li>You get an email when a decision is made.</li>
-      <li>Approved amounts go into payroll for <strong>${settleLabel}</strong> (paid with the <strong>following month’s</strong> salary).</li>
+      <li>Approved amounts go into payroll for <strong>${settleLabel}</strong> salary.</li>
       <li><strong>OT tip:</strong> enter <strong>OT Start / OT End</strong> for overtime after normal duty (not the full shift). Prefer <strong>2×</strong>; <strong>3×</strong> only on gazetted public/festival holidays.</li>
     </ul>
     <p style="margin:0 0 18px">
@@ -576,7 +601,8 @@ async function getBatchByToken(pool, token) {
     const h = hashToken(token);
     const { rows } = await pool.query(
         `SELECT b.*, p.claim_month, p.claim_year, p.settlement_month, p.settlement_year,
-                p.fill_close_at, p.approve_close_at, p.fill_open_at, p.status AS period_status
+                p.fill_close_at, p.approve_close_at, p.fill_open_at, p.status AS period_status,
+                p.campaign_mode
          FROM portal_claim_batches b
          JOIN portal_claim_periods p ON p.id = b.period_id
          WHERE b.invite_token_hash = $1`,
@@ -620,8 +646,24 @@ async function openFillerSession(pool, token) {
         attachments = attRows;
     }
 
-    const fillClosed = isAfterFillClose(batch);
+    const fillClosed = isAfterFillClose({ ...batch, campaign_mode: periodRow.campaign_mode });
+    const banner = formatPeriodBanner({
+        ...batch,
+        submit_deadline_day: FILL_CLOSE_DAY,
+        approve_deadline_day: APPROVE_CLOSE_DAY,
+    });
     const apiBase = process.env.API_PUBLIC_URL || 'https://asilhcm.onrender.com';
+    const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [batch.period_id]);
+    const periodRow = periodRows[0] || {};
+    const review = computeBatchTotals(submissions, items);
+    const uniqueApprovers = [...new Set(submissions.map(s => s.approver_email).filter(Boolean))];
+    const routingProfile = batch.routing_profile || 'focal_then_lm';
+    const submitDestination = routingProfile === 'focal_only'
+        ? { type: 'final', label: 'You are the final approver' }
+        : uniqueApprovers.length === 1
+            ? { type: 'lm', label: uniqueApprovers[0] }
+            : { type: 'multi', label: `${uniqueApprovers.length} Line Managers` };
+
     return {
         ok: true,
         batch,
@@ -629,10 +671,23 @@ async function openFillerSession(pool, token) {
             id: batch.period_id,
             claim_month: batch.claim_month,
             claim_year: batch.claim_year,
+            settlement_month: batch.settlement_month,
+            settlement_year: batch.settlement_year,
             fill_close_at: batch.fill_close_at,
             approve_close_at: batch.approve_close_at,
             fill_closed: fillClosed,
+            campaign_mode: periodRow.campaign_mode || 'actual',
+            submit_deadline_day: FILL_CLOSE_DAY,
+            approve_deadline_day: APPROVE_CLOSE_DAY,
+            banner,
         },
+        routing: {
+            profile: routingProfile,
+            cohortType: batch.cohort_type || 'focal',
+            submitDestination,
+            byApprover: review.byApprover,
+        },
+        review,
         submissions,
         items,
         attachments,
@@ -660,6 +715,9 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
     if (!sub) return { ok: false, status: 404, error: 'Employee not in your claim list' };
     if (['approved', 'in_payroll'].includes(sub.status)) {
         return { ok: false, status: 403, error: 'This claim is locked after approval. Raise any further claims next month.' };
+    }
+    if (sub.status === 'submitted' && sub.submitted_locked_at && !asDraft) {
+        return { ok: false, status: 403, error: 'This claim is locked after submit. Contact ASIL if you need to change it.' };
     }
 
     if (confirmNoClaims) {
@@ -817,11 +875,16 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
     const newStatus = normalized.length
         ? (wantDraft ? 'draft' : 'submitted')
         : 'draft';
+    const snapshot = normalized.length ? JSON.stringify({ items: normalized, at: new Date().toISOString() }) : null;
     await pool.query(
         `UPDATE portal_claim_submissions
-         SET status = $2, submitted_at = CASE WHEN $2 = 'submitted' THEN NOW() ELSE submitted_at END, updated_at = NOW()
+         SET status = $2,
+             submitted_at = CASE WHEN $2 = 'submitted' THEN NOW() ELSE submitted_at END,
+             submitted_locked_at = CASE WHEN $2 = 'submitted' THEN NOW() ELSE submitted_locked_at END,
+             submit_snapshot = CASE WHEN $2 = 'submitted' THEN $3::jsonb ELSE submit_snapshot END,
+             updated_at = NOW()
          WHERE id = $1`,
-        [sub.id, newStatus]
+        [sub.id, newStatus, snapshot]
     );
     await refreshBatchStatus(pool, batch.id);
 
@@ -1066,10 +1129,13 @@ async function ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail = 
         const summary = await buildApproverPendingSummary(pool, periodId, approverEmail);
         const shouldEmail = !!sendAppEmail && (forceEmail || APPROVER_NOTIFY_MODE === 'immediate');
         if (shouldEmail && summary.pendingCount > 0) {
+            const { rows: pr } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [periodId]);
+            const periodRow = pr[0] || period;
+            const mail = resolveOutboundEmail(periodRow, approverEmail, { roleLabel: 'Approver' });
             await sendAppEmail({
-                to: approverEmail,
-                subject: `ASIL Claims — ${summary.pendingCount} pending for ${period.claim_month}/${period.claim_year} (approve by day ${APPROVE_CLOSE_DAY})`,
-                html: buildApproverInviteHtml({
+                to: mail.to,
+                subject: `${sampleSubjectPrefix(periodRow, 'Approver')}ASIL Claims — ${summary.pendingCount} pending for ${period.claim_month}/${period.claim_year}`,
+                html: sampleBodyBanner(periodRow, approverEmail, 'Approver') + buildApproverInviteHtml({
                     period,
                     count: summary.pendingCount,
                     link,
@@ -1135,7 +1201,7 @@ async function getApproverPackByToken(pool, token) {
     const h = hashToken(token);
     const { rows } = await pool.query(
         `SELECT a.*, p.claim_month, p.claim_year, p.settlement_month, p.settlement_year,
-                p.fill_close_at, p.approve_close_at
+                p.fill_close_at, p.approve_close_at, p.campaign_mode
          FROM portal_claim_approver_packs a
          JOIN portal_claim_periods p ON p.id = a.period_id
          WHERE a.invite_token_hash = $1`,
@@ -1182,9 +1248,24 @@ async function openApproverSession(pool, token) {
         byFiller[k].push(s);
     }
 
+    const summaryTotals = computeBatchTotals(
+        submissions.filter(s => s.status === 'submitted'),
+        items.filter(i => submissions.some(s => s.id === i.submission_id && s.status === 'submitted'))
+    );
+    const firstPending = submissions.find(s => s.status === 'submitted');
+    const packMeta = {
+        fromEmail: firstPending?.filler_email || null,
+        fromName: firstPending ? (submissions.find(s => s.id === firstPending.id)?.employee_name) : null,
+        submittedAt: firstPending?.submitted_at || null,
+        claimMonth: pack.claim_month,
+        claimYear: pack.claim_year,
+    };
+
     return {
         ok: true,
         pack,
+        packMeta,
+        summaryTotals,
         period: {
             claim_month: pack.claim_month,
             claim_year: pack.claim_year,
@@ -1192,6 +1273,15 @@ async function openApproverSession(pool, token) {
             settlement_year: pack.settlement_year,
             approve_close_at: pack.approve_close_at,
             approve_closed: isAfterApproveClose(pack),
+            campaign_mode: pack.campaign_mode || 'actual',
+            banner: formatPeriodBanner({
+                claim_month: pack.claim_month,
+                claim_year: pack.claim_year,
+                settlement_month: pack.settlement_month,
+                settlement_year: pack.settlement_year,
+                submit_deadline_day: FILL_CLOSE_DAY,
+                approve_deadline_day: APPROVE_CLOSE_DAY,
+            }),
         },
         submissions,
         items,
@@ -1211,8 +1301,7 @@ async function approverDecide(pool, { token, submissionId, decision, comment, se
     const pack = await getApproverPackByToken(pool, token);
     if (!pack) return { ok: false, status: 404, error: 'Invalid link' };
     if (isAfterApproveClose(pack) && decision === 'approved') {
-        // Allow decide but mark overdue path — still allow until ASIL intervenes; hard message:
-        return { ok: false, status: 403, error: 'Approval window closed (day 25). Contact ASIL operations.' };
+        return { ok: false, status: 403, error: `Approval window closed (day ${APPROVE_CLOSE_DAY} of claim month). Contact ASIL operations.` };
     }
 
     const { rows } = await pool.query(
@@ -1262,6 +1351,8 @@ async function approverDecide(pool, { token, submissionId, decision, comment, se
 
 async function notifyFillerDecision(pool, sendAppEmail, sub, decision, comment) {
     if (!sendAppEmail || !sub.filler_email) return;
+    const { rows: pr } = await pool.query(`SELECT campaign_mode FROM portal_claim_periods WHERE id = $1`, [sub.period_id]);
+    if (String(pr[0]?.campaign_mode || '').toLowerCase() === 'sample') return;
     const { rows: emp } = await pool.query(`SELECT name FROM employees WHERE id = $1`, [sub.employee_id]);
     const name = emp[0]?.name || sub.employee_id;
     const approved = decision === 'approved';
@@ -1286,12 +1377,36 @@ async function notifyFillerDecision(pool, sendAppEmail, sub, decision, comment) 
 async function injectApprovedToEmployeeClaims(pool, sub, items, pack) {
     const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [sub.period_id]);
     const period = periodRows[0];
-    const month = period.settlement_month;
-    const year = period.settlement_year;
+    if (!canInjectPayroll(period)) {
+        return { skipped: true, reason: 'sample_mode' };
+    }
+
+    const { rows: empRows } = await pool.query(`SELECT contract_id FROM employees WHERE id = $1`, [sub.employee_id]);
+    const policy = await getClaimsPolicy(pool, empRows[0]?.contract_id);
+    const month = policy.claims_pay_timing === 'same_month' ? period.claim_month : period.settlement_month;
+    const year = policy.claims_pay_timing === 'same_month' ? period.claim_year : period.settlement_year;
+    const sourceRef = `portal:${sub.id}`;
 
     const otItems = items.filter(i => i.claim_type === 'OT');
     const expItems = items.filter(i => i.claim_type === 'EXPENSE');
     const medItems = items.filter(i => i.claim_type === 'MEDICAL');
+
+    const upsertClaim = async (claimType, claimed) => {
+        await pool.query(
+            `INSERT INTO employee_claims
+             (employee_id, claim_type, period_month, period_year, claimed_items, status, focal_email, focal_approved_at,
+              source_kind, source_session_id, source_ref)
+             VALUES ($1,$2,$3,$4,$5::jsonb,'focal_approved',$6,NOW(),'portal',$7,$8)
+             ON CONFLICT (source_kind, source_session_id, employee_id, claim_type)
+             WHERE source_kind IS NOT NULL
+             DO UPDATE SET
+               claimed_items = EXCLUDED.claimed_items,
+               focal_approved_at = NOW(),
+               updated_at = NOW()
+             WHERE employee_claims.status <> 'in_payroll_run'`,
+            [sub.employee_id, claimType, month, year, JSON.stringify(claimed), sub.approver_email, sub.id, sourceRef]
+        );
+    };
 
     if (otItems.length) {
         const claimed = otItems.map(i => ({
@@ -1300,30 +1415,15 @@ async function injectApprovedToEmployeeClaims(pool, sub, items, pack) {
             ot3: Number(i.ot_multiplier_factor) === 3 ? Number(i.ot_hours) : 0,
             date: i.claim_date,
         }));
-        await pool.query(
-            `INSERT INTO employee_claims
-             (employee_id, claim_type, period_month, period_year, claimed_items, status, focal_email, focal_approved_at)
-             VALUES ($1,'overtime',$2,$3,$4::jsonb,'focal_approved',$5,NOW())`,
-            [sub.employee_id, month, year, JSON.stringify(claimed), sub.approver_email]
-        );
+        await upsertClaim('overtime', claimed);
     }
     if (expItems.length) {
         const claimed = expItems.map(i => ({ amount: Number(i.amount), description: i.description, date: i.claim_date }));
-        await pool.query(
-            `INSERT INTO employee_claims
-             (employee_id, claim_type, period_month, period_year, claimed_items, status, focal_email, focal_approved_at)
-             VALUES ($1,'expense',$2,$3,$4::jsonb,'focal_approved',$5,NOW())`,
-            [sub.employee_id, month, year, JSON.stringify(claimed), sub.approver_email]
-        );
+        await upsertClaim('expense', claimed);
     }
     if (medItems.length) {
         const claimed = medItems.map(i => ({ amount: Number(i.amount), description: i.description, date: i.claim_date }));
-        await pool.query(
-            `INSERT INTO employee_claims
-             (employee_id, claim_type, period_month, period_year, claimed_items, status, focal_email, focal_approved_at)
-             VALUES ($1,'medical',$2,$3,$4::jsonb,'focal_approved',$5,NOW())`,
-            [sub.employee_id, month, year, JSON.stringify(claimed), sub.approver_email]
-        );
+        await upsertClaim('medical', claimed);
     }
 
     // Also write hours into payroll_transactions (correct columns)
@@ -1634,12 +1734,12 @@ async function sendReminders(pool, sendAppEmail) {
                AND b.invite_delivered = TRUE`
         );
         for (const b of batches) {
-            const token = newToken();
+            const token = stableFillerToken(b.period_id, b.filler_email);
             await pool.query(
                 `UPDATE portal_claim_batches
-                 SET invite_token_hash = $2, reminder_count = reminder_count + 1, last_reminder_at = NOW()
+                 SET reminder_count = reminder_count + 1, last_reminder_at = NOW()
                  WHERE id = $1`,
-                [b.id, hashToken(token)]
+                [b.id]
             );
             const { rows: emps } = await pool.query(
                 `SELECT s.employee_id AS id, e.name FROM portal_claim_submissions s
@@ -1685,17 +1785,17 @@ async function sendReminders(pool, sendAppEmail) {
 
 async function resendFillerInvite(pool, batchId, sendAppEmail) {
     const { rows } = await pool.query(
-        `SELECT b.*, p.claim_month, p.claim_year FROM portal_claim_batches b
+        `SELECT b.*, p.claim_month, p.claim_year, p.campaign_mode FROM portal_claim_batches b
          JOIN portal_claim_periods p ON p.id = b.period_id WHERE b.id = $1`,
         [batchId]
     );
     if (!rows[0]) return { ok: false, error: 'Batch not found' };
     const b = rows[0];
-    const token = newToken();
+    const token = stableFillerToken(b.period_id, b.filler_email);
     await pool.query(
         `UPDATE portal_claim_batches
-         SET invite_token_hash = $2, invite_sent_at = NOW(), invite_delivered = TRUE WHERE id = $1`,
-        [batchId, hashToken(token)]
+         SET invite_sent_at = NOW(), invite_delivered = TRUE WHERE id = $1`,
+        [batchId]
     );
     const { rows: emps } = await pool.query(
         `SELECT s.employee_id AS id, e.name FROM portal_claim_submissions s
@@ -1704,9 +1804,11 @@ async function resendFillerInvite(pool, batchId, sendAppEmail) {
     );
     const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
     if (sendAppEmail) {
+        const period = { claim_month: b.claim_month, claim_year: b.claim_year, campaign_mode: b.campaign_mode };
+        const mail = resolveOutboundEmail(period, b.filler_email, { roleLabel: 'Focal resend' });
         await sendAppEmail({
-            to: b.filler_email,
-            subject: `ASIL Claims link (resent) — due day ${FILL_CLOSE_DAY}`,
+            to: mail.to,
+            subject: `${sampleSubjectPrefix(period, 'resend')}ASIL Claims link (resent) — due day ${FILL_CLOSE_DAY}`,
             html: buildFillerInviteHtml({
                 period: b,
                 employeeCount: emps.length,
@@ -1725,6 +1827,172 @@ async function getAttachmentContent(pool, attachmentId) {
         [attachmentId]
     );
     return rows[0] || null;
+}
+
+async function sendSubmitRecordEmail(pool, sendAppEmail, batch, period) {
+    if (!sendAppEmail || !shouldSendRecordEmail(period)) return;
+    const { rows: subs } = await pool.query(
+        `SELECT s.*, e.name AS employee_name FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id WHERE s.batch_id = $1 AND s.status = 'submitted'`,
+        [batch.id]
+    );
+    if (!subs.length) return;
+    const ids = subs.map(s => s.id);
+    const { rows: items } = await pool.query(
+        `SELECT * FROM portal_claim_items WHERE submission_id = ANY($1::int[]) AND active = TRUE`, [ids]
+    );
+    const review = computeBatchTotals(subs, items);
+    const mail = resolveOutboundEmail(period, batch.filler_email, { roleLabel: 'Focal record' });
+    const dest = batch.routing_profile === 'focal_only' ? 'You are final — no further approval.' : `Submitted to: ${subs[0]?.approver_email || 'Line Manager'}`;
+    const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px">
+<div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:24px;border:1px solid #e2e8f0">
+<h2>Claims submission record</h2>
+<p>Claim month <strong>${period.claim_month}/${period.claim_year}</strong></p>
+<p>OT hours: <strong>${review.totals.otHours}</strong> · Expense: <strong>PKR ${review.totals.expense}</strong> · Medical: <strong>PKR ${review.totals.medical}</strong></p>
+<p>${dest}</p>
+<p style="font-size:12px;color:#94a3b8">ASIL HCM — keep this for your records</p>
+</div></body></html>`;
+    await sendAppEmail({
+        to: mail.to,
+        subject: `${sampleSubjectPrefix(period, 'record')}ASIL Claims submitted — ${period.claim_month}/${period.claim_year}`,
+        html: sampleBodyBanner(period, batch.filler_email, 'Focal record') + html,
+    }).catch(() => {});
+}
+
+async function autoApproveFocalOnly(pool, batch, sendAppEmail) {
+    if (batch.routing_profile !== 'focal_only') return { autoApproved: 0 };
+    const { rows: subs } = await pool.query(
+        `SELECT * FROM portal_claim_submissions WHERE batch_id = $1 AND status = 'submitted'`,
+        [batch.id]
+    );
+    let count = 0;
+    for (const sub of subs) {
+        const { rows: items } = await pool.query(
+            `SELECT * FROM portal_claim_items WHERE submission_id = $1 AND active = TRUE`, [sub.id]
+        );
+        const snapshot = { items, decided_at: new Date().toISOString(), by: batch.filler_email, auto: true };
+        await pool.query(
+            `UPDATE portal_claim_submissions SET status = 'approved', approved_at = NOW(), approved_snapshot = $2::jsonb, updated_at = NOW() WHERE id = $1`,
+            [sub.id, JSON.stringify(snapshot)]
+        );
+        const pack = { period_id: sub.period_id, approver_email: sub.approver_email };
+        await injectApprovedToEmployeeClaims(pool, sub, items, pack);
+        await pool.query(`UPDATE portal_claim_submissions SET status = 'in_payroll', updated_at = NOW() WHERE id = $1`, [sub.id]);
+        count++;
+    }
+    return { autoApproved: count };
+}
+
+async function batchSubmitAll(pool, { token, sendAppEmail }) {
+    const batch = await getBatchByToken(pool, token);
+    if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
+    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: 'Payroll entry is now closed.' };
+
+    const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [batch.period_id]);
+    const period = periodRows[0];
+
+    const { rows: drafts } = await pool.query(
+        `SELECT * FROM portal_claim_submissions WHERE batch_id = $1 AND status IN ('draft','invited')`,
+        [batch.id]
+    );
+    const results = [];
+    for (const sub of drafts) {
+        const { rows: items } = await pool.query(`SELECT * FROM portal_claim_items WHERE submission_id = $1 AND active = TRUE`, [sub.id]);
+        if (!items.length) continue;
+        const r = await saveSubmissionItems(pool, {
+            token, employeeId: sub.employee_id, items: items.map(i => ({
+                claim_type: i.claim_type,
+                claim_date: i.claim_date,
+                ot_hours: i.ot_hours,
+                ot_multiplier: i.ot_multiplier,
+                amount: i.amount,
+                description: i.description,
+                expense_type: i.expense_type,
+                patient_name: i.patient_name,
+                nature: i.nature,
+                time_from: i.time_from,
+                time_to: i.time_to,
+            })),
+            asDraft: false,
+        });
+        results.push({ employeeId: sub.employee_id, ...r });
+        if (r.ok && r.notifyApprover && r.periodId && sendAppEmail) {
+            await ensureApproverPacks(pool, r.periodId, sendAppEmail, { forceEmail: true }).catch(() => {});
+        }
+    }
+
+    await refreshBatchStatus(pool, batch.id);
+    const freshBatch = (await pool.query(`SELECT * FROM portal_claim_batches WHERE id = $1`, [batch.id])).rows[0];
+    await sendSubmitRecordEmail(pool, sendAppEmail, freshBatch, period);
+    const auto = await autoApproveFocalOnly(pool, freshBatch, sendAppEmail);
+
+    return { ok: true, submitted: results.filter(r => r.ok).length, results, autoApproved: auto.autoApproved };
+}
+
+async function addBatchAttachment(pool, { token, filename, mimeType, contentBase64, category }) {
+    const batch = await getBatchByToken(pool, token);
+    if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
+    const cat = ['expense_support', 'medical_support'].includes(category) ? category : null;
+    if (!cat) return { ok: false, status: 400, error: 'category must be expense_support or medical_support' };
+    const buf = Buffer.from(contentBase64, 'base64');
+    if (buf.length > 12 * 1024 * 1024) return { ok: false, status: 400, error: 'File too large (max 12MB)' };
+
+    await pool.query(
+        `INSERT INTO portal_claim_batch_attachments (batch_id, category, filename, mime_type, content_base64, byte_size)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (batch_id, category) DO UPDATE SET
+           filename = EXCLUDED.filename, mime_type = EXCLUDED.mime_type,
+           content_base64 = EXCLUDED.content_base64, byte_size = EXCLUDED.byte_size, uploaded_at = NOW()`,
+        [batch.id, cat, filename, mimeType || 'application/octet-stream', contentBase64, buf.length]
+    );
+
+    const { rows: subs } = await pool.query(`SELECT id FROM portal_claim_submissions WHERE batch_id = $1`, [batch.id]);
+    for (const sub of subs) {
+        await pool.query(
+            `INSERT INTO portal_claim_attachments (submission_id, filename, mime_type, content_base64, byte_size, retain_until, category)
+             SELECT $1, $2, $3, $4, $5, (CURRENT_DATE + INTERVAL '2 years')::date, $6
+             WHERE NOT EXISTS (
+               SELECT 1 FROM portal_claim_attachments WHERE submission_id = $1 AND category = $6
+             )`,
+            [sub.id, filename, mimeType, contentBase64, buf.length, cat]
+        );
+    }
+    return { ok: true, category: cat };
+}
+
+async function getClaimsCategoryForEmployee(pool, employeeId) {
+    const { rows } = await pool.query(
+        `SELECT id, name, email, claim_authority, supervisor_email, line_manager_email, client, dept, contract_id
+         FROM employees WHERE id = $1`, [employeeId]
+    );
+    if (!rows.length) return null;
+    const { evaluateEmployeeEligibility } = require('./claimsEligibility');
+    const eligibility = await evaluateEmployeeEligibility(pool, rows[0]);
+    return resolveClaimsCategory(rows[0], eligibility);
+}
+
+async function flushPortalClaimsSample(pool, { claimMonth, claimYear, clientPattern } = {}) {
+    const vals = [];
+    let where = `WHERE p.campaign_mode = 'sample'`;
+    if (claimMonth && claimYear) {
+        vals.push(claimMonth, claimYear);
+        where += ` AND p.claim_month = $1 AND p.claim_year = $2`;
+    }
+    if (clientPattern) {
+        vals.push(`%${clientPattern}%`);
+        where += ` AND EXISTS (
+          SELECT 1 FROM portal_claim_submissions s2
+          JOIN employees e ON e.id = s2.employee_id
+          WHERE s2.period_id = p.id AND e.client ILIKE $${vals.length}
+        )`;
+    }
+    const { rows: periods } = await pool.query(
+        `SELECT p.id FROM portal_claim_periods p ${where}`, vals
+    );
+    const periodIds = periods.map(p => p.id);
+    if (!periodIds.length) return { deletedPeriods: 0 };
+    await pool.query(`DELETE FROM portal_claim_periods WHERE id = ANY($1::int[])`, [periodIds]);
+    return { deletedPeriods: periodIds.length, periodIds };
 }
 
 module.exports = {
@@ -1753,13 +2021,29 @@ module.exports = {
     resendFillerInvite,
     getAttachmentContent,
     getOrCreatePeriod,
+    getOrCreatePeriodForClaimMonth,
     findPeriodForUi,
     periodWindow,
+    periodWindowFromClaim,
+    periodWindowForClaimMonth,
+    formatPeriodBanner,
     validateOtRow,
     listGazettedHolidayDates,
     APPROVER_NOTIFY_MODE,
     MANUAL_OVERRIDE_NOTIFY,
     resetPortalClaimsSample,
+    batchSubmitAll,
+    addBatchAttachment,
+    getClaimsCategoryForEmployee,
+    flushPortalClaimsSample,
+    listEligibilityRules: listRules,
+    upsertEligibilityRule: upsertRule,
+    previewEligibilityRule: previewRuleMatch,
+    getClaimsPolicy,
+    upsertClaimsPolicy: require('./claimsPolicy').upsertClaimsPolicy,
+    resolveClaimsCategory,
+    resolveClaimsRouting,
+    HUZAIFA_FALLBACK,
 };
 
 const SAMPLE_TEST_EMPLOYEE_IDS = [
