@@ -22,9 +22,9 @@ Deploy topology and env vars: `render.yaml`, `docs/STAGING_SETUP.md`, `backend/.
 
 Two payroll systems coexist; consolidation is in progress (strangler-fig onto World B):
 
-| | **World A (legacy)** | **World B (2026 restructure)** |
+| | **World A (legacy sheet + AP path)** | **World B (2026 restructure)** |
 |---|---|---|
-| Compute | Browser: `PayrollSheet.jsx` + `payrollUtils.js` | Server: `backend/src/modules/payrollrun/` + `prSheetEngine.js` + `taxEngine.js` |
+| Compute | **Server:** `POST /api/payroll/:year/:month/calculate` → `payrollSheet/service.js` + `prSheetEngine.js` + `taxEngine.js` (Payroll Sheet is display/input UI only; browser `payrollUtils.calcEmployeeRow` is not used for money) | Server: `backend/src/modules/payrollrun/` + `prSheetEngine.js` + `taxEngine.js` |
 | Storage | `POST /api/payroll/:year/:month` → `payroll_transactions` | `payroll_runs` + `payroll_run_rows` |
 | Disbursement | AP queue → `payment_batches` → `payment_ledger` ✅ | `POST /api/payroll-runs/:id/disburse` → same tables ✅ (S4B) |
 | Status | Pays ~500 employees today | Excel-parity-validated engine; not yet paying |
