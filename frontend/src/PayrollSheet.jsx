@@ -2,9 +2,9 @@ import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
 import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon, Lock, Unlock, Save, RefreshCw } from 'lucide-react';
 import {
     PAYROLL_CONTRACT_CFG as CONTRACT_CFG,
-    calcEmployeeRow, downloadCSV,
+    downloadCSV,
     buildPayrollCSV, buildHBLFile, buildWHTFile, buildEOBIFile, buildSESSIFile,
-    calcWHT, calcEOBI_fn, calcGratuityMonthly, calcPF_fn, COMPANY,
+    COMPANY,
 } from './payrollUtils';
 import { api } from './api';
 import { claimsBadgeStyle } from './utils/claimsRouting';
@@ -13,6 +13,44 @@ import { claimsBadgeStyle } from './utils/claimsRouting';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = v => Math.round(parseFloat(v) || 0).toLocaleString('en-PK');
 const Rs = v => `Rs. ${fmt(v)}`;
+
+/** Display calc from server snapshot (never browser-computed). */
+function calcFromServer(row, ov = {}) {
+    const snap = row?.computed_json && typeof row.computed_json === 'object'
+        ? row.computed_json
+        : (typeof row?.computed_json === 'string'
+            ? (() => { try { return JSON.parse(row.computed_json); } catch { return null; } })()
+            : null);
+    if (snap && (snap.serverComputed || snap.netPay != null || snap.grossMonthly != null)) {
+        return { ...snap, serverComputed: true };
+    }
+    const gross = parseFloat(row?.gross) || 0;
+    const net = parseFloat(row?.net) || 0;
+    const wht = parseFloat(row?.wht) || 0;
+    return {
+        pd: ov.paid_days, ot2hrs: ov.ot2_hrs || 0, ot3hrs: ov.ot3_hrs || 0,
+        otAmount: 0, opdClaim: ov.opd_claim || 0, reimb: ov.reimbursement || 0,
+        arrears: ov.arrears || 0, splAllow: ov.special_allowance || 0, fuelMob: ov.fuel_mobile || 0,
+        basicPaid: 0, hraPaid: 0, convPaid: 0, medPaid: 0, otherPaid: 0,
+        absentDays: 0, absenceDeduction: 0, ot2Amount: 0, ot3Amount: 0,
+        grossMonthly: gross, taxableMonthly: Math.max(0, gross - (parseFloat(ov.bonus_amount) || 0)),
+        incomeTax: wht, eobi_ee: parseFloat(row?.eobi_ee) || 0, pfEE: 0,
+        advanceDed: ov.advance_deduction || 0, loanDed: ov.loan_deduction || 0,
+        totalDeductions: wht + (parseFloat(row?.eobi_ee) || 0),
+        netPay: net, eobi_er: 0, sessi: 0, gratuity: 0, lifeIns: 0,
+        medEE: ov.medical_ee || 0, medSP: ov.medical_sp || 0, medCh1: ov.medical_ch1 || 0, medCh2: ov.medical_ch2 || 0,
+        pfER: 0, bonusAccrual: 0, bonusAmount: ov.bonus_amount || 0, bonusDisbursed: ov.bonus_amount || 0,
+        overhead: 0, totalPayrollCost: 0,
+        serviceCharges: parseFloat(row?.service_charges) || 0,
+        salesTax: parseFloat(row?.sales_tax) || 0,
+        totalInvoice: parseFloat(row?.total_invoice) || 0,
+        serverComputed: !!(gross || net || wht),
+    };
+}
+
+function emptyServerCalc(ov = {}) {
+    return calcFromServer({}, ov);
+}
 
 // ─── Breakdown panel ─────────────────────────────────────────────────────────
 function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
@@ -566,7 +604,12 @@ export default function PayrollSheet({ user }) {
     const [lockedIds, setLockedIds] = useState(new Set()); // per-employee lock status
     const [lockedBy, setLockedBy] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [isCalculating, setIsCalculating] = useState(false);
+    const [calcMsg, setCalcMsg] = useState(null);
+    const [pullClaimsOnCalc, setPullClaimsOnCalc] = useState(true);
+    const [serverRows, setServerRows] = useState({}); // employee_id -> GET/calculate row
     const saveTimerRef = useRef(null);
+    const serverRowsRef = useRef({});
     // ── Bulk selection state ────────────────────────────────────────────────────
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [showBulkSMS, setShowBulkSMS] = useState(false);
@@ -680,49 +723,58 @@ export default function PayrollSheet({ user }) {
     }, []);
 
 
+    const applyPayrollPayload = (data) => {
+        if (!data?.rows?.length) {
+            serverRowsRef.current = {};
+            setServerRows({});
+            return;
+        }
+        const ov = {};
+        const srv = {};
+        data.rows.forEach(r => {
+            srv[r.employee_id] = r;
+            ov[r.employee_id] = {
+                ...(r.paid_days != null ? { paid_days: r.paid_days } : {}),
+                ot2_hrs:           r.ot2_hrs,
+                ot3_hrs:           r.ot3_hrs,
+                opd_claim:         r.opd_claim,
+                reimbursement:     r.reimbursement,
+                arrears:           r.arrears,
+                bonus_amount:      r.bonus_amount,
+                special_allowance: r.special_allowance,
+                fuel_mobile:       r.fuel_mobile,
+                other_deduction:   r.other_deduction,
+                advance_deduction: r.advance_deduction,
+                loan_deduction:    r.loan_deduction,
+                ...(r.medical_ee  != null && parseFloat(r.medical_ee)  > 0 ? { medical_ee:  parseFloat(r.medical_ee)  } : {}),
+                ...(r.medical_sp  != null && parseFloat(r.medical_sp)  > 0 ? { medical_sp:  parseFloat(r.medical_sp)  } : {}),
+                ...(r.medical_ch1 != null && parseFloat(r.medical_ch1) > 0 ? { medical_ch1: parseFloat(r.medical_ch1) } : {}),
+                ...(r.medical_ch2 != null && parseFloat(r.medical_ch2) > 0 ? { medical_ch2: parseFloat(r.medical_ch2) } : {}),
+                remarks:           r.remarks || '',
+            };
+        });
+        overridesRef.current = ov;
+        setOverrides(ov);
+        serverRowsRef.current = srv;
+        setServerRows(srv);
+        const lockedRowIds = data.rows.filter(r => r.locked).map(r => r.employee_id);
+        setLockedIds(new Set(lockedRowIds));
+        const firstLocked = data.rows.find(r => r.locked);
+        if (firstLocked?.locked_by) setLockedBy(firstLocked.locked_by);
+    };
+
     // ── Load saved payroll from DB whenever month changes ──────────────────────
     useEffect(() => {
         const [yr, mo] = month.split('-');
-        monthRef.current = month;          // keep ref in sync
-        overridesRef.current = {};         // reset on month change
+        monthRef.current = month;
+        overridesRef.current = {};
         setOverrides({});
+        serverRowsRef.current = {};
+        setServerRows({});
         setLockedIds(new Set());
         setLockedBy(null);
-        api.getPayroll(yr, mo).then(data => {
-            if (!data.rows || !data.rows.length) return;
-            const ov = {};
-            data.rows.forEach(r => {
-                ov[r.employee_id] = {
-                    ...(r.paid_days != null ? { paid_days: r.paid_days } : {}),
-                    ot2_hrs:           r.ot2_hrs,
-                    ot3_hrs:           r.ot3_hrs,
-                    opd_claim:         r.opd_claim,
-                    reimbursement:     r.reimbursement,
-                    arrears:           r.arrears,
-                    bonus_amount:      r.bonus_amount,
-                    special_allowance: r.special_allowance,
-                    fuel_mobile:       r.fuel_mobile,
-                    other_deduction:   r.other_deduction,
-                    advance_deduction: r.advance_deduction,
-                    loan_deduction:    r.loan_deduction,
-                    // BUG FIX: Only apply medical overrides from DB if value > 0.
-                    // If saved as 0 (from an import that had no Spouse/Children columns),
-                    // do NOT override the defaults derived from the employee’s family data.
-                    ...(r.medical_ee  != null && parseFloat(r.medical_ee)  > 0 ? { medical_ee:  parseFloat(r.medical_ee)  } : {}),
-                    ...(r.medical_sp  != null && parseFloat(r.medical_sp)  > 0 ? { medical_sp:  parseFloat(r.medical_sp)  } : {}),
-                    ...(r.medical_ch1 != null && parseFloat(r.medical_ch1) > 0 ? { medical_ch1: parseFloat(r.medical_ch1) } : {}),
-                    ...(r.medical_ch2 != null && parseFloat(r.medical_ch2) > 0 ? { medical_ch2: parseFloat(r.medical_ch2) } : {}),
-                    remarks:           r.remarks || '',
-                };
-            });
-            overridesRef.current = ov;     // keep ref in sync
-            setOverrides(ov);
-            const lockedRowIds = data.rows.filter(r => r.locked).map(r => r.employee_id);
-            setLockedIds(new Set(lockedRowIds));
-            const firstLocked = data.rows.find(r => r.locked);
-            if (firstLocked?.locked_by) setLockedBy(firstLocked.locked_by);
-        }).catch(() => {});
-        // Also load invoice status for current month — drives INV ✓ badge
+        setCalcMsg(null);
+        api.getPayroll(yr, mo).then(applyPayrollPayload).catch(() => {});
         api.getPayrollInvoiceStatus(yr, mo)
             .then(d => setInvoiceStatus(d || { invoicedClients: [], invoicedContracts: [] }))
             .catch(() => {});
@@ -792,20 +844,50 @@ export default function PayrollSheet({ user }) {
         };
     };
 
-    // ── Save ONE employee row to DB immediately (called after debounce) ──────────
+    // ── Save INPUTS only (money columns update after Calculate) ───────────────
     const persistEmployee = async (empId) => {
         const { emp, cfg } = empMapRef.current[empId] || {};
-        if (!emp || !cfg) return; // employee not loaded yet
-        const ov        = buildOvForEmp(empId);
-        const freshCalc = calcEmployeeRow(emp, ov, cfg, workDaysRef.current, PROVINCE_RATES);
-        const [yr, mo]  = monthRef.current.split('-');
+        if (!emp || !cfg) return;
+        const ov = buildOvForEmp(empId);
+        const [yr, mo] = monthRef.current.split('-');
         try {
             setIsSaving(true);
-            await api.savePayroll(yr, mo, [{ employee_id: empId, ov, calc: freshCalc }]);
+            await api.savePayroll(yr, mo, [{ employee_id: empId, ov, calc: {} }], { inputsOnly: true });
         } catch (e) {
             console.warn(`Payroll save failed for ${empId}:`, e.message);
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleCalculatePayroll = async () => {
+        const [yr, mo] = month.split('-');
+        setIsCalculating(true);
+        setCalcMsg(null);
+        try {
+            // sheet_inputs = recompute from current grid; canonical = attendance + approved claims
+            const body = { sourceMode: pullClaimsOnCalc ? 'canonical' : 'sheet_inputs' };
+            if (filterClient && filterClient !== 'All') body.client = filterClient;
+            if (filterContract && filterContract !== 'All') {
+                const match = Object.values(CONTRACT_MAP).find(c => c.id === filterContract)
+                    || Object.entries(CONTRACT_MAP).find(([k]) => k === filterContract.toLowerCase()?.trim());
+                const cid = match?.id || match?.[1]?.id;
+                if (cid) body.contractId = cid;
+            }
+            const result = await api.calculatePayroll(yr, mo, body);
+            applyPayrollPayload(result);
+            const a208 = result.anchors && Object.entries(result.anchors).find(([id]) => /SPL-208/i.test(id));
+            const a91 = result.anchors && Object.entries(result.anchors).find(([id]) => /SPL-91/i.test(id));
+            setCalcMsg(`Calculated ${result.updated || 0} employees on server.`
+                + (a208 ? ` SPL-208 net ${Math.round(a208[1].net).toLocaleString()}` : '')
+                + (a91 ? ` · SPL-91 net ${Math.round(a91[1].net).toLocaleString()} tax ${Math.round(a91[1].wht).toLocaleString()}` : ''));
+            // Reload authoritative GET (includes locked flags)
+            const fresh = await api.getPayroll(yr, mo);
+            applyPayrollPayload(fresh);
+        } catch (e) {
+            setCalcMsg(e.message || 'Calculate failed');
+        } finally {
+            setIsCalculating(false);
         }
     };
 
@@ -823,24 +905,22 @@ export default function PayrollSheet({ user }) {
         perEmpTimers.current[id] = setTimeout(() => persistEmployee(id), 900);
     }, [lockedIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // \u2500\u2500 Bulk save all unlocked rows (used when workDays changes) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // Bulk save INPUTS only when working days changes (press Calculate to refresh money)
     const persistAllUnlocked = async (wd) => {
         const empsList = rowsRef.current;
         if (!empsList.length) return;
         const [yr, mo] = monthRef.current.split('-');
         const payload = empsList
             .filter(({ emp }) => !lockedIds.has(emp.id))
-            .map(({ emp, cfg }) => {
-                const ov        = buildOvForEmp(emp.id);
-                // Use the passed-in wd rather than the ref (ref update may lag slightly)
-                const ovWithWd  = { ...ov, paid_days: overridesRef.current[emp.id]?.paid_days ?? wd };
-                const freshCalc = calcEmployeeRow(emp, ovWithWd, cfg, wd, PROVINCE_RATES);
-                return { employee_id: emp.id, ov: ovWithWd, calc: freshCalc };
+            .map(({ emp }) => {
+                const ov = buildOvForEmp(emp.id);
+                const ovWithWd = { ...ov, paid_days: overridesRef.current[emp.id]?.paid_days ?? wd };
+                return { employee_id: emp.id, ov: ovWithWd, calc: {} };
             });
         if (!payload.length) return;
         try {
             setIsSaving(true);
-            await api.savePayroll(yr, mo, payload);
+            await api.savePayroll(yr, mo, payload, { inputsOnly: true });
         } catch (e) { console.warn('Bulk save failed:', e.message); }
         finally { setIsSaving(false); }
     };
@@ -1022,12 +1102,9 @@ export default function PayrollSheet({ user }) {
             medical_ch1:  getOv(emp.id, 'medical_ch1', useCsvFallback ? 0           : defMedCh1),
             medical_ch2:  getOv(emp.id, 'medical_ch2', useCsvFallback ? 0           : defMedCh2),
         };
-        // Expose current payroll month to calcEmployeeRow for bonus disbursement logic
-        if (typeof window !== 'undefined') window.__payrollMonth = month;
-        return { emp, cfg, calc: calcEmployeeRow(emp, ov, cfg, workDays, PROVINCE_RATES), ov };
-
-
-
+        const srv = serverRows[emp.id] || serverRowsRef.current[emp.id];
+        const calc = srv ? calcFromServer(srv, ov) : emptyServerCalc(ov);
+        return { emp, cfg, calc, ov };
     });
     // Keep ref in sync so workDays save and lock handler always use current data
     rowsRef.current = rows;
@@ -1120,12 +1197,12 @@ export default function PayrollSheet({ user }) {
                         medical_ch1:       _useFallback ? 0         : (empOv.medical_ch1 ?? empMedCh1),
                         medical_ch2:       _useFallback ? 0         : (empOv.medical_ch2 ?? empMedCh2),
                     };
-                    const calc = calcEmployeeRow(emp, ov, cfg, workDays);
-                    return { employee_id: emp.id, ov, calc };
+                    return { employee_id: emp.id, ov, calc: {} };
                 });
             if (payload.length > 0) {
-                await api.savePayroll(yr, mo, payload);
-                console.log(`Import saved ${payload.length} employees to DB`);
+                await api.savePayroll(yr, mo, payload, { inputsOnly: true });
+                setCalcMsg(`Imported ${payload.length} input rows. Press Calculate / Update Payroll to recompute pay.`);
+                console.log(`Import saved ${payload.length} employees to DB (inputs only)`);
             }
         } catch (e) { console.warn('Import save failed:', e.message); }
     };
@@ -1217,7 +1294,7 @@ export default function PayrollSheet({ user }) {
         <div className="dashboard">
             <header className="header">
                 <h1>Payroll Sheet</h1>
-                <p>Monthly payroll — net pay for employees + total cost invoice for clients.</p>
+                <p>Edit inputs, then press Calculate / Update Payroll — the server computes Net Pay and tax. Browser does not invent pay amounts.</p>
             </header>
 
             <div style={{ marginBottom: '1rem' }}>
@@ -1301,15 +1378,36 @@ export default function PayrollSheet({ user }) {
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                     {isSaving && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={13} />Saving…</span>}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: 160 }}>
+                        <input type="checkbox" checked={pullClaimsOnCalc} onChange={e => setPullClaimsOnCalc(e.target.checked)} disabled={isCalculating || isLocked} />
+                        Pull approved claims
+                    </label>
+                    <button
+                        type="button"
+                        onClick={handleCalculatePayroll}
+                        disabled={isCalculating || isLocked}
+                        title={isLocked ? 'Unlock payroll before calculating' : 'Server recalculates Net Pay / Tax (browser does not compute pay)'}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            background: isLocked ? '#333' : '#0ea5e9',
+                            border: 'none', color: 'white',
+                            padding: '8px 16px', borderRadius: '8px',
+                            cursor: (isCalculating || isLocked) ? 'not-allowed' : 'pointer',
+                            fontWeight: 700, opacity: isCalculating ? 0.7 : 1,
+                        }}
+                    >
+                        <Calculator size={15} />
+                        {isCalculating ? 'Calculating…' : 'Calculate / Update Payroll'}
+                    </button>
                     {canManageLock && (
-                        <button onClick={() => setShowRefresh(true)} disabled={isLocked}
+                        <button onClick={() => setShowRefresh(true)} disabled={isLocked || isCalculating}
                             title={isLocked ? 'Unlock payroll before refreshing' : 'Erase entered payroll data for this month'}
                             style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? 'transparent' : 'rgba(239,68,68,0.1)', border: isLocked ? '1px solid #333' : '1px solid rgba(239,68,68,0.35)', color: isLocked ? '#555' : '#f87171', padding: '8px 16px', borderRadius: '8px', cursor: isLocked ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
                             <RefreshCw size={15} /> Refresh
                         </button>
                     )}
-                    <button onClick={() => setShowImport(true)} disabled={isLocked}
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? '#333' : 'var(--bg-card)', border: '1px solid var(--border)', color: isLocked ? '#555' : 'var(--text)', padding: '8px 16px', borderRadius: '8px', cursor: isLocked ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
+                    <button onClick={() => setShowImport(true)} disabled={isLocked || isCalculating}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? '#333' : 'var(--bg-card)', border: '1px solid var(--border)', color: isLocked ? '#555' : 'var(--text)', padding: '8px 16px', borderRadius: '8px', cursor: (isLocked || isCalculating) ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
                         <Upload size={15} /> Import
                     </button>
                     {needsApproval && (
@@ -1334,18 +1432,29 @@ export default function PayrollSheet({ user }) {
                     )}
                     {canManageLock && !isLocked && (
                         <>
-                            <button onClick={handleLock} title={`Lock ${rows.length} visible employee(s)`} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f59e0b', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                            <button onClick={handleLock} disabled={isCalculating} title={`Lock ${rows.length} visible employee(s)`} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f59e0b', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: isCalculating ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: isCalculating ? 0.6 : 1 }}>
                                 <Lock size={15} /> Lock Payroll ({rows.length})
                             </button>
                         </>
                     )}
                     {canManageLock && isLocked && (
-                        <button onClick={handleUnlock} title="Unlock payroll to allow edits" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.4)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                        <button onClick={handleUnlock} disabled={isCalculating} title="Unlock payroll to allow edits" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.4)', padding: '8px 16px', borderRadius: '8px', cursor: isCalculating ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
                             <Unlock size={15} /> Unlock
                         </button>
                     )}
                 </div>
             </div>
+            {calcMsg && (
+                <div style={{
+                    marginBottom: '0.75rem', padding: '10px 14px', borderRadius: 8,
+                    background: /fail|error|locked/i.test(calcMsg) ? 'rgba(239,68,68,0.12)' : 'rgba(14,165,233,0.12)',
+                    border: `1px solid ${/fail|error|locked/i.test(calcMsg) ? 'rgba(239,68,68,0.35)' : 'rgba(14,165,233,0.35)'}`,
+                    color: /fail|error|locked/i.test(calcMsg) ? '#f87171' : '#7dd3fc',
+                    fontSize: '0.85rem', fontWeight: 600,
+                }}>
+                    {calcMsg}
+                </div>
+            )}
 
             {/* Refresh Payroll Modal */}
             {showRefresh && (

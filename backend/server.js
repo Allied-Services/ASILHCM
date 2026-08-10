@@ -3429,19 +3429,22 @@ app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
                 total_invoice:     parseFloat(r.total_invoice)     || 0,
                 locked:            r.locked || false,
                 remarks:           r.remarks || '',
+                computed_json:     r.computed_json || null,
             })),
             locked,
             lockedBy:  rows[0]?.locked_by  || null,
             lockedAt:  rows[0]?.locked_at  || null,
+            compute_source: 'server',
         });
     } catch (err) { console.error('[GET /api/payroll/:year/:month]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// POST /api/payroll/:year/:month Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ bulk UPSERT (newest import wins, blocked if locked)
+// POST /api/payroll/:year/:month — bulk UPSERT inputs (and optional browser-legacy calc).
+// Prefer POST .../calculate for money columns (server engine). inputsOnly skips overwriting net/tax.
 app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer'), async (req, res) => {
     try {
         const { year, month } = req.params;
-        const { rows: incoming = [] } = req.body; // array of { employee_id, overrides, calc }
+        const { rows: incoming = [], inputsOnly = false } = req.body;
 
         // Check if month is locked
         const lockCheck = await pool.query(
@@ -3456,6 +3459,16 @@ app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer
         for (const row of incoming) {
             const { employee_id, ov = {}, calc = {} } = row;
             if (!employee_id) continue;
+            const moneySql = inputsOnly
+                ? `gross = payroll_transactions.gross,
+                    net = payroll_transactions.net,
+                    wht = payroll_transactions.wht,
+                    eobi_ee = payroll_transactions.eobi_ee,
+                    service_charges = payroll_transactions.service_charges,
+                    sales_tax = payroll_transactions.sales_tax,
+                    total_invoice = payroll_transactions.total_invoice`
+                : `gross=$20, net=$21, wht=$22, eobi_ee=$23, service_charges=$24,
+                    sales_tax=$25, total_invoice=$26`;
             const { rows: upserted } = await pool.query(`
                 INSERT INTO payroll_transactions
                     (month, year, employee_id, paid_days, ot2_hrs, ot3_hrs, opd_claim,
@@ -3470,41 +3483,40 @@ app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer
                     reimbursement=$8, arrears=$9, bonus_amount=$10, special_allowance=$11,
                     fuel_mobile=$12, other_deduction=$13, advance_deduction=$14, loan_deduction=$15,
                     medical_ee=$16, medical_sp=$17, medical_ch1=$18, medical_ch2=$19,
-                    gross=$20, net=$21, wht=$22, eobi_ee=$23, service_charges=$24,
-                    sales_tax=$25, total_invoice=$26, remarks=$27, updated_at=NOW()
+                    ${moneySql}, remarks=$27, updated_at=NOW()
                 RETURNING employee_id`,
                 [
-                    parseInt(month), parseInt(year), employee_id,           // $1  $2  $3
-                    ov.paid_days != null ? parseFloat(ov.paid_days) : null, // $4  paid_days
-                    parseFloat(ov.ot2_hrs)           || 0,                  // $5  ot2_hrs
-                    parseFloat(ov.ot3_hrs)           || 0,                  // $6  ot3_hrs
-                    parseFloat(ov.opd_claim)         || 0,                  // $7  opd_claim
-                    parseFloat(ov.reimbursement)     || 0,                  // $8  reimbursement
-                    parseFloat(ov.arrears)           || 0,                  // $9  arrears
-                    parseFloat(ov.bonus_amount)      || 0,                  // $10 bonus_amount
-                    parseFloat(ov.special_allowance) || 0,                  // $11 special_allowance
-                    parseFloat(ov.fuel_mobile)       || 0,                  // $12 fuel_mobile
-                    parseFloat(ov.other_deduction)   || 0,                  // $13 other_deduction
-                    parseFloat(ov.advance_deduction) || 0,                  // $14 advance_deduction
-                    parseFloat(ov.loan_deduction)    || 0,                  // $15 loan_deduction
-                    ov.medical_ee  != null ? parseFloat(ov.medical_ee)  : null, // $16 medical_ee
-                    ov.medical_sp  != null ? parseFloat(ov.medical_sp)  : null, // $17 medical_sp
-                    ov.medical_ch1 != null ? parseFloat(ov.medical_ch1) : null, // $18 medical_ch1
-                    ov.medical_ch2 != null ? parseFloat(ov.medical_ch2) : null, // $19 medical_ch2
-                    parseFloat(calc.grossMonthly)    || 0,                  // $20 gross
-                    parseFloat(calc.netPay)          || 0,                  // $21 net
-                    parseFloat(calc.incomeTax)       || 0,                  // $22 wht
-                    parseFloat(calc.eobi_ee)         || 0,                  // $23 eobi_ee
-                    parseFloat(calc.serviceCharges)  || 0,                  // $24 service_charges
-                    parseFloat(calc.salesTax)        || 0,                  // $25 sales_tax
-                    parseFloat(calc.totalInvoice)    || 0,                  // $26 total_invoice
-                    ov.remarks != null ? String(ov.remarks).slice(0, 2000) : null, // $27 remarks
-                    req.user?.email || 'system',                            // $28 created_by
+                    parseInt(month), parseInt(year), employee_id,
+                    ov.paid_days != null ? parseFloat(ov.paid_days) : null,
+                    parseFloat(ov.ot2_hrs)           || 0,
+                    parseFloat(ov.ot3_hrs)           || 0,
+                    parseFloat(ov.opd_claim)         || 0,
+                    parseFloat(ov.reimbursement)     || 0,
+                    parseFloat(ov.arrears)           || 0,
+                    parseFloat(ov.bonus_amount)      || 0,
+                    parseFloat(ov.special_allowance) || 0,
+                    parseFloat(ov.fuel_mobile)       || 0,
+                    parseFloat(ov.other_deduction)   || 0,
+                    parseFloat(ov.advance_deduction) || 0,
+                    parseFloat(ov.loan_deduction)    || 0,
+                    ov.medical_ee  != null ? parseFloat(ov.medical_ee)  : null,
+                    ov.medical_sp  != null ? parseFloat(ov.medical_sp)  : null,
+                    ov.medical_ch1 != null ? parseFloat(ov.medical_ch1) : null,
+                    ov.medical_ch2 != null ? parseFloat(ov.medical_ch2) : null,
+                    parseFloat(calc.grossMonthly)    || 0,
+                    parseFloat(calc.netPay)          || 0,
+                    parseFloat(calc.incomeTax)       || 0,
+                    parseFloat(calc.eobi_ee)         || 0,
+                    parseFloat(calc.serviceCharges)  || 0,
+                    parseFloat(calc.salesTax)        || 0,
+                    parseFloat(calc.totalInvoice)    || 0,
+                    ov.remarks != null ? String(ov.remarks).slice(0, 2000) : null,
+                    req.user?.email || 'system',
                 ]
             );
             if (upserted.length) saved.push(upserted[0].employee_id);
         }
-        res.json({ ok: true, saved: saved.length });
+        res.json({ ok: true, saved: saved.length, inputsOnly: !!inputsOnly });
     } catch (err) { console.error('[POST /api/payroll/:year/:month]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
