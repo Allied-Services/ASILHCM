@@ -37,8 +37,9 @@ function buildWorldAPayslipData(emp, pay, contractEosbType) {
     const grossTotal = additions.reduce((s, r) => s + r.amount, 0);
     const opd = Math.round(parseFloat(pay?.opd_claim || 0));
     const reimb = Math.round(parseFloat(pay?.reimbursement || 0));
-    const wht = pay?.wht && parseFloat(pay.wht) > 0
-        ? Math.round(parseFloat(pay.wht))
+    // Stored sheet WHT is authoritative — including explicit 0 (bonus-excluded months).
+    const wht = (pay != null && pay.wht != null && pay.wht !== '')
+        ? Math.round(parseFloat(pay.wht) || 0)
         : calculateMonthlyIncomeTax(grossTotal, opd, reimb);
     const eobi = Math.round(parseFloat(pay?.eobi_ee || 0)) || 400;
     const pf = contractEosbType === 'Provident Fund' ? Math.round(grossSalary / 24) : 0;

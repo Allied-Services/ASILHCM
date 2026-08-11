@@ -2424,11 +2424,11 @@ app.get('/api/payslip/:employeeId/:month/:year', requirePayslipAuth, async (req,
                          + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile + bonusAmount;
 
         // ─ Deductions ──────────────────────────────────────────────────────────
-        // WHT: use saved DB value if available, else calculate via taxEngine.js
+        // WHT: stored sheet value is authoritative — including explicit 0.
         // (was previously an inline duplicate using stale 2024 slab rates — see AGENTS.md §3.2:
         // "Always use taxEngine.js for WHT... never inline slab logic". Fixed 2026-07-20.)
-        const incomeTax = (pay?.wht && parseFloat(pay.wht) > 0)
-            ? Math.round(parseFloat(pay.wht))
+        const incomeTax = (pay != null && pay.wht != null && pay.wht !== '')
+            ? Math.round(parseFloat(pay.wht) || 0)
             : calculateMonthlyIncomeTax(grossTotal, opdClaim, reimbursement);
         const eobiEE       = Math.round(parseFloat(pay?.eobi_ee||0)) || 400;  // flat Rs.400
         const advanceDed   = Math.round(parseFloat(pay?.advance_deduction||0));
@@ -3814,9 +3814,11 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                 ? Math.round(parseFloat(pay.gross)) - bonus
                 : grossPay + otAmt + opd + reimb + arr + spl + fuel;
 
-            // WHT: prefer stored value, else compute from FBR slabs
-
-            const wht = pay?.wht && parseFloat(pay.wht) > 0 ? Math.round(parseFloat(pay.wht)) : whtCalc(grossM*12);
+            // WHT: stored sheet value is authoritative — including explicit 0.
+            // Do NOT treat wht=0 as "missing" (that reinvented tax on bonus-excluded July rows).
+            const wht = (pay != null && pay.wht != null && pay.wht !== '')
+                ? Math.round(parseFloat(pay.wht) || 0)
+                : whtCalc(grossM * 12);
             const eobi_ee  = 400, eobi_er = 2000;
             // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ EOSB: PF and Gratuity are MUTUALLY EXCLUSIVE Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ mirrors frontend exactly Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
             // Source of truth: contract costs.eosb_type ('Provident Fund' | 'Gratuity' | 'None')
@@ -3830,7 +3832,10 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const loanDed  = Math.round(parseFloat(pay?.loan_deduction||0));
             const otherDed = Math.round(parseFloat(pay?.other_deduction||0));
             const totalDed = wht + eobi_ee + pfDed + advDed + loanDed + otherDed;
-            const netPay   = grossM - totalDed;  // grossM includes bonus
+            // Prefer stored net (sheet Calculate truth) so bank/payroll CSV match the UI.
+            const netPay = (pay != null && pay.net != null && pay.net !== '')
+                ? Math.round(parseFloat(pay.net) || 0)
+                : (grossM - totalDed);
             // costBase uses grossForTPC (without bonus) to avoid double-billing via bonusAccrual
             const sessi    = calculateSESSI(grossForTPC);
             // BUG FIX: If medical_sp/ch1/ch2 are stored as 0 (from CSV import without Spouse/Children
