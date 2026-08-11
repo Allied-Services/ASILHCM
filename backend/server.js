@@ -10,6 +10,7 @@ const { Pool } = require('pg');
 const { Resend } = require('resend');
 
 const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratuity } = require('./taxEngine');
+const { readPayrollSnapshot, exportRowFromSnapshot } = require('./src/payroll/snapshotView');
 const { startEmailClaimsService, triggerManualPoll } = require('./emailClaimsService');
 const wafiClaims = require('./wafiClaimsService');
 const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmailClient, buildConfirmationHtml, createGmailDraft, reprocessSession } = wafiClaims;
@@ -2396,43 +2397,53 @@ app.get('/api/payslip/:employeeId/:month/:year', requirePayslipAuth, async (req,
         const monthName = new Date(2000, parseInt(month)-1, 1).toLocaleString('en-PK', { month: 'long' });
         const fmt = v => Math.round(parseFloat(v)||0).toLocaleString('en-PK');
 
-        // ─ Salary components from employee master (prorated if paid_days saved) ─
+        // ─ Salary components ────────────────────────────────────────────────────
+        // The Payroll Sheet snapshot (computed_json) is authoritative for every figure
+        // on this payslip. Only the basic/HRA/conveyance split is derived here, and it
+        // is display-only — it is apportioned out of the snapshot's earned salary.
+        const snap = readPayrollSnapshot(pay);
+        const snapNum = (key) => Math.round(parseFloat(snap?.[key]) || 0);
+
         const grossSalary  = parseFloat(emp.salary) || 0;
         const workDays     = 26;
-        const paidDays     = parseFloat(pay?.paid_days ?? workDays);
+        const paidDays     = snap ? (parseFloat(snap.pd) || 0) : parseFloat(pay?.paid_days ?? workDays);
         const ratio        = paidDays / workDays;
-        const basicSalary  = Math.round(grossSalary * (parseFloat(split.basic) || 0) / 100 * ratio);
-        const hra          = Math.round(grossSalary * (parseFloat(split.hra) || 0) / 100 * ratio);
-        const conveyance   = Math.round(grossSalary * (parseFloat(split.conveyance) || 0) / 100 * ratio);
-        const medical      = Math.round(grossSalary * (parseFloat(split.medical) || 0) / 100 * ratio);
-        const otherAllow   = Math.round(grossSalary * (parseFloat(split.other) || 0) / 100 * ratio);
+        const splitBase    = snap ? snapNum('basicPaid') : grossSalary * ratio;
+        const basicSalary  = Math.round(splitBase * (parseFloat(split.basic) || 0) / 100);
+        const hra          = Math.round(splitBase * (parseFloat(split.hra) || 0) / 100);
+        const conveyance   = Math.round(splitBase * (parseFloat(split.conveyance) || 0) / 100);
+        const medical      = Math.round(splitBase * (parseFloat(split.medical) || 0) / 100);
+        const otherAllow   = Math.round(splitBase * (parseFloat(split.other) || 0) / 100);
 
         // ─ Variable components from payroll_transactions ────────────────────────
         // OT rate = Gross / (26×8) = Gross / 208
-        const otAmount       = Math.round(parseFloat(pay?.ot2_hrs||0) * 2 * (grossSalary/workDays/8)
+        const otAmount       = snap ? snapNum('otAmount')
+                                    : Math.round(parseFloat(pay?.ot2_hrs||0) * 2 * (grossSalary/workDays/8)
                                          + parseFloat(pay?.ot3_hrs||0) * 3 * (grossSalary/workDays/8));
-        const opdClaim       = Math.round(parseFloat(pay?.opd_claim||0));
-        const reimbursement  = Math.round(parseFloat(pay?.reimbursement||0));
-        const arrears        = Math.round(parseFloat(pay?.arrears||0));
-        const splAllow       = Math.round(parseFloat(pay?.special_allowance||0));
-        const fuelMobile     = Math.round(parseFloat(pay?.fuel_mobile||0));
-        const bonusAmount    = Math.round(parseFloat(pay?.bonus_amount||0));
+        const opdClaim       = snap ? snapNum('opdClaim')  : Math.round(parseFloat(pay?.opd_claim||0));
+        const reimbursement  = snap ? snapNum('reimb')     : Math.round(parseFloat(pay?.reimbursement||0));
+        const arrears        = snap ? snapNum('arrears')   : Math.round(parseFloat(pay?.arrears||0));
+        const splAllow       = snap ? snapNum('splAllow')  : Math.round(parseFloat(pay?.special_allowance||0));
+        const fuelMobile     = snap ? snapNum('fuelMob')   : Math.round(parseFloat(pay?.fuel_mobile||0));
+        const bonusAmount    = snap ? snapNum('bonusDisbursed') : Math.round(parseFloat(pay?.bonus_amount||0));
 
         // ─ Gross = sum of all earnings ──────────────────────────────────────────
         // Gross = sum of all earnings including bonus (bonus is taxable, paid in disbursement month)
-        const grossTotal = basicSalary + hra + conveyance + medical + otherAllow
-                         + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile + bonusAmount;
+        const grossTotal = snap ? snapNum('grossMonthly')
+                                : (basicSalary + hra + conveyance + medical + otherAllow
+                         + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile + bonusAmount);
 
         // ─ Deductions ──────────────────────────────────────────────────────────
         // WHT: stored sheet value is authoritative — including explicit 0.
         // (was previously an inline duplicate using stale 2024 slab rates — see AGENTS.md §3.2:
         // "Always use taxEngine.js for WHT... never inline slab logic". Fixed 2026-07-20.)
-        const incomeTax = (pay != null && pay.wht != null && pay.wht !== '')
-            ? Math.round(parseFloat(pay.wht) || 0)
-            : calculateMonthlyIncomeTax(grossTotal, opdClaim, reimbursement);
-        const eobiEE       = Math.round(parseFloat(pay?.eobi_ee||0)) || 400;  // flat Rs.400
-        const advanceDed   = Math.round(parseFloat(pay?.advance_deduction||0));
-        const loanDed      = Math.round(parseFloat(pay?.loan_deduction||0));
+        const incomeTax = snap ? snapNum('incomeTax')
+            : ((pay != null && pay.wht != null && pay.wht !== '')
+                ? Math.round(parseFloat(pay.wht) || 0)
+                : calculateMonthlyIncomeTax(grossTotal, opdClaim, reimbursement));
+        const eobiEE       = snap ? snapNum('eobi_ee') : (Math.round(parseFloat(pay?.eobi_ee||0)) || 400);
+        const advanceDed   = snap ? snapNum('advanceDed') : Math.round(parseFloat(pay?.advance_deduction||0));
+        const loanDed      = snap ? snapNum('loanDed')    : Math.round(parseFloat(pay?.loan_deduction||0));
         const otherDed     = Math.round(parseFloat(pay?.other_deduction||0));
         // PF: gross/24 — ONLY if contract eosb_type is 'Provident Fund'
         // emp.pf_enrolled does NOT exist as a DB column — check contract via JOIN
@@ -2441,10 +2452,15 @@ app.get('/api/payslip/:employeeId/:month/:year', requirePayslipAuth, async (req,
             [emp.contract_name || '']
         );
         const empEosbType = empContractRes.rows[0]?.eosb_type || 'None';
-        const pfEE = empEosbType === 'Provident Fund' ? Math.round(grossSalary / 24) : 0;
+        const pfEE = snap ? snapNum('pfEE')
+                          : (empEosbType === 'Provident Fund' ? Math.round(grossSalary / 24) : 0);
 
-        const totalDeductions = incomeTax + eobiEE + pfEE + advanceDed + loanDed + otherDed;
-        const netPay          = grossTotal - totalDeductions;
+        // Net pay is what the bank file pays, so it comes straight from the snapshot and
+        // the deduction total is reconciled to it rather than re-added from the parts.
+        const netPay          = snap ? snapNum('netPay')
+                                     : grossTotal - (incomeTax + eobiEE + pfEE + advanceDed + loanDed + otherDed);
+        const totalDeductions = snap ? (grossTotal - netPay)
+                                     : (incomeTax + eobiEE + pfEE + advanceDed + loanDed + otherDed);
 
         // ─ Helper: only emit row if value > 0 ──────────────────────────────────
         const row = (label, val, isDeduction = false) =>
@@ -3788,6 +3804,11 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         };
 
         const calcRow = (emp, pay) => {
+            // The Payroll Sheet snapshot is authoritative — render it, never re-derive it.
+            const snap = readPayrollSnapshot(pay);
+            if (snap) return exportRowFromSnapshot(emp, pay, snap);
+            // Legacy path: months calculated before computed_json existed (pre 2026-08-10)
+            // have no snapshot. Kept so historical exports stay byte-identical.
             const gross  = parseFloat(emp.salary) || parseFloat(emp.gross) || 0;
             const pd     = Math.max(0, parseFloat(pay?.paid_days ?? WD) || WD);
             // Universal formula: gross = salary x paid_days / workDays

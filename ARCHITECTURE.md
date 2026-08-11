@@ -33,6 +33,8 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 
 **Proration decree:** Backend 30-day engine (`prSheetEngine.js`) is authoritative. Do not "fix" frontend `payrollUtils.js` to match it — it is scheduled for deletion.
 
+**Snapshot decree (World A):** `payroll_transactions.computed_json` has exactly one producer — Payroll Sheet Calculate — and it is what the sheet UI shows and the bank file pays. Every other consumer (locked CSV export, HBL/IBFT bank files, payslip HTML, payslip PDF/email, invoice columns) **reads it via `src/payroll/snapshotView.js` and must never recompute payroll from raw inputs**. Independent recomputation in each consumer is what made the locked export disagree with the sheet (invented WHT on bonus-excluded rows; Rs. 155,559 across 305 employees, Jul-2026 Wafi). Rows predating the column (pre 2026-08-10) fall back to the legacy per-consumer math; that fallback is for history only — do not extend it. `backend/tests/payrollSnapshotParity.test.js` pins the invariant: export, payslip and snapshot must agree field for field and each document must balance.
+
 ---
 
 ## Canonical data sources

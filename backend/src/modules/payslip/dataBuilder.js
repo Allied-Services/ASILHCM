@@ -1,6 +1,7 @@
 'use strict';
 
 const { calculateMonthlyIncomeTax } = require('../../../taxEngine');
+const { readPayrollSnapshot } = require('../../payroll/snapshotView');
 
 const WORK_DAYS = 26;
 
@@ -12,7 +13,76 @@ function normalizeCnic(cnic) {
     return String(cnic || '').replace(/\D/g, '');
 }
 
+const round = (v) => Math.round(parseFloat(v) || 0);
+
+/**
+ * Payslip rendered from the Payroll Sheet snapshot (payroll_transactions.computed_json).
+ * The snapshot is what the sheet shows and what the bank file pays, so the payslip must
+ * restate it rather than recompute it. Totals come from the snapshot; the itemised rows
+ * are reconciled to those totals so the document always adds up.
+ */
+function payslipFromSnapshot(emp, pay, snap) {
+    const ot2Hrs = parseFloat(snap.ot2hrs) || 0;
+    const ot3Hrs = parseFloat(snap.ot3hrs) || 0;
+    const grossTotal = round(snap.grossMonthly);
+    const netPay = round(snap.netPay);
+
+    const additions = [
+        { label: 'Gross Salary', amount: round(snap.basicPaid) },
+        ot2Hrs > 0 || ot3Hrs > 0
+            ? { label: `Overtime (${ot2Hrs}h OT2 + ${ot3Hrs}h OT3)`, amount: round(snap.otAmount) }
+            : null,
+        round(snap.opdClaim) > 0 ? { label: 'OPD / Medical Claim', amount: round(snap.opdClaim) } : null,
+        round(snap.reimb) > 0 ? { label: 'Expense Reimbursement', amount: round(snap.reimb) } : null,
+        round(snap.arrears) > 0 ? { label: 'Arrears', amount: round(snap.arrears) } : null,
+        round(snap.splAllow) > 0 ? { label: 'Special Allowance', amount: round(snap.splAllow) } : null,
+        round(snap.fuelMob) > 0 ? { label: 'Fuel / Mobile Allowance', amount: round(snap.fuelMob) } : null,
+        round(snap.bonusDisbursed) > 0 ? { label: 'Bonus', amount: round(snap.bonusDisbursed) } : null,
+    ].filter(Boolean);
+
+    const itemisedEarnings = additions.reduce((s, r) => s + r.amount, 0);
+    if (itemisedEarnings !== grossTotal) {
+        additions.push({ label: 'Other Earnings', amount: grossTotal - itemisedEarnings });
+    }
+
+    const pf = round(snap.pfEE);
+    const advance = round(snap.advanceDed);
+    const loan = round(snap.loanDed);
+    const other = round(pay?.other_deduction);
+    const deductions = [
+        { label: 'Income Tax (WHT)', amount: round(snap.incomeTax) },
+        { label: 'EOBI (Employee Share)', amount: round(snap.eobi_ee) },
+        pf > 0 ? { label: 'Provident Fund (Employee)', amount: pf } : null,
+        advance > 0 ? { label: 'Advance Recovery', amount: advance } : null,
+        loan > 0 ? { label: 'Loan Installment', amount: loan } : null,
+        other > 0 ? { label: 'Other Deductions', amount: other } : null,
+    ].filter(Boolean);
+
+    // Net pay is what actually leaves the bank account, so deductions are reconciled to it.
+    const totalDeductions = grossTotal - netPay;
+    const itemisedDeductions = deductions.reduce((s, r) => s + r.amount, 0);
+    if (itemisedDeductions !== totalDeductions) {
+        deductions.push({ label: 'Other Adjustments', amount: totalDeductions - itemisedDeductions });
+    }
+
+    return {
+        emp,
+        pay,
+        paidDays: parseFloat(snap.pd) || 0,
+        workingDays: WORK_DAYS,
+        additions,
+        deductions,
+        grossTotal,
+        totalDeductions,
+        netPay,
+        fmt,
+    };
+}
+
 function buildWorldAPayslipData(emp, pay, contractEosbType) {
+    const snap = readPayrollSnapshot(pay);
+    if (snap) return payslipFromSnapshot(emp, pay, snap);
+    // Legacy path: months calculated before computed_json existed (pre 2026-08-10).
     const grossSalary = parseFloat(emp.salary) || 0;
     const paidDays = parseFloat(pay?.paid_days ?? WORK_DAYS);
     const ratio = paidDays / WORK_DAYS;
