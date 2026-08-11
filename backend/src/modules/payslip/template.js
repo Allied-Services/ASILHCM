@@ -26,66 +26,280 @@ function trialBannerHtml() {
     </div>`;
 }
 
+function money(amount) {
+    return Math.round(amount || 0).toLocaleString('en-PK');
+}
+
 function rowHtml(label, amount, isDeduction = false) {
-    if (!amount || amount <= 0) return '';
+    if (amount == null || amount < 0) return '';
+    if (!isDeduction && amount <= 0) return '';
     const cls = isDeduction ? ' deduction' : '';
     const prefix = isDeduction ? '- ' : '';
-    return `<tr><td>${label}</td><td class="amount${cls}">${prefix}${amount.toLocaleString('en-PK')}</td></tr>`;
+    return `<tr><td>${label}</td><td class="amount${cls}">${prefix}${money(amount)}</td></tr>`;
 }
 
 function renderPayslipHtml(data, { year, month }) {
     const monthName = new Date(2000, parseInt(month, 10) - 1, 1).toLocaleString('en-PK', { month: 'long' });
-    const { emp, additions, deductions, grossTotal, totalDeductions, netPay, paidDays, workingDays } = data;
+    const {
+        emp, additions, deductions, grossTotal, totalDeductions, netPay,
+        paidDays, workingDays, overtime, reimbursements, taxDeductions, otherDeductions,
+    } = data;
 
     const earningsRows = additions.map(r => rowHtml(r.label, r.amount)).join('');
     const deductionRows = deductions.map(r => rowHtml(r.label, r.amount, true)).join('');
+    const ot = overtime || { ot2Hrs: 0, ot3Hrs: 0, ot2Amount: 0, ot3Amount: 0, otAmount: 0 };
+    const reimb = reimbursements || { medical: 0, expense: 0, total: 0 };
+    const hasOt = (ot.ot2Hrs > 0 || ot.ot3Hrs > 0);
+    const hasReimb = (reimb.medical > 0 || reimb.expense > 0);
 
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Salary Slip — ${emp.name} — ${monthName} ${year}</title>
 <style>
-  @media print { body { margin: 0; } .page { padding: 16px 20px; } }
-  body { font-family: Arial, sans-serif; font-size: 10pt; color: #000; margin: 0; background: #f0f4f8; }
-  .page { max-width: 720px; margin: 20px auto; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,.12); }
-  .trial { background: #fef3c7; color: #92400e; padding: 10px 18px; font-size: 9pt; border-bottom: 1px solid #fcd34d; }
-  .trial a { color: #b45309; }
-  .hdr { background: #1e3a5f; color: #fff; padding: 18px 26px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  @media print { body { margin: 0; background: #fff; } .page { box-shadow: none; margin: 0; border-radius: 0; } }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10pt;
+    color: #0f172a;
+    margin: 0;
+    background: linear-gradient(160deg, #e8eef5 0%, #f7f3ea 55%, #eef2f7 100%);
+  }
+  .page {
+    max-width: 740px;
+    margin: 18px auto;
+    background: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 12px 40px rgba(15, 35, 60, .14);
+    border: 1px solid #dbe4ef;
+  }
+  .trial {
+    background: linear-gradient(90deg, #fff7ed, #fef3c7);
+    color: #9a3412;
+    padding: 10px 20px;
+    font-size: 8.5pt;
+    border-bottom: 1px solid #fdba74;
+  }
+  .trial a { color: #c2410c; font-weight: 700; }
+  .hdr {
+    background: linear-gradient(135deg, #0f2744 0%, #1e3a5f 55%, #245075 100%);
+    color: #fff;
+    padding: 22px 26px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    position: relative;
+  }
+  .hdr::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #c9a227, #e8d48b, #c9a227);
+  }
   .hdr-left { display: flex; align-items: center; gap: 14px; }
-  .hdr img { height: 48px; width: auto; }
-  .hdr h2 { margin: 0 0 4px; font-size: 16pt; letter-spacing: .5px; }
-  .hdr p { margin: 3px 0; font-size: 9pt; opacity: .85; }
-  .hdr-right { text-align: right; font-size: 9pt; }
-  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-bottom: 2px solid #e2e8f0; }
-  .meta-cell { padding: 10px 18px; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
+  .hdr img { height: 52px; width: auto; filter: brightness(0) invert(1); opacity: .95; }
+  .hdr h1 {
+    margin: 0 0 2px;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 20pt;
+    font-weight: 700;
+    letter-spacing: .02em;
+  }
+  .hdr .brand { margin: 0; font-size: 9.5pt; opacity: .92; font-weight: 600; }
+  .hdr .meta-line { margin: 2px 0 0; font-size: 8pt; opacity: .72; }
+  .hdr-right { text-align: right; }
+  .period {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 15pt;
+    font-weight: 700;
+    margin: 0;
+  }
+  .generated { margin: 4px 0 0; font-size: 8pt; opacity: .7; }
+  .paid-days-badge {
+    margin-top: 8px;
+    display: inline-block;
+    background: rgba(255,255,255,.14);
+    border: 1px solid rgba(255,255,255,.22);
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 8pt;
+    font-weight: 600;
+  }
+  .meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .meta-cell {
+    padding: 11px 20px;
+    border-right: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+  }
   .meta-cell:nth-child(even) { border-right: none; }
-  .meta-cell label { font-size: 7.5pt; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 3px; }
-  .meta-cell span { font-size: 10pt; font-weight: 600; color: #1e293b; }
-  .section { margin: 0 18px 14px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-  th { background: #334155; color: #fff; padding: 8px 12px; font-size: 8.5pt; text-align: left; }
-  th:last-child { text-align: right; }
-  td { padding: 7px 12px; border-bottom: 1px solid #f1f5f9; font-size: 9.5pt; color: #1e293b; }
-  .amount { text-align: right; font-weight: 600; }
-  .deduction { color: #dc2626; }
-  .total-row td { background: #f8fafc; font-weight: 800; font-size: 10.5pt; border-top: 2px solid #cbd5e1; }
-  .net-box { background: #1e3a5f; color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
-  .net-box .label { font-size: 10pt; opacity: .85; }
-  .net-box .amount { font-size: 20pt; font-weight: 800; }
-  .footer { padding: 12px 20px; font-size: 8pt; color: #64748b; text-align: center; border-top: 1px solid #e2e8f0; background: #f8fafc; }
-  .paid-days-badge { background: rgba(255,255,255,.15); padding: 3px 10px; border-radius: 20px; font-size: 8pt; margin-top: 6px; display: inline-block; }
+  .meta-cell label {
+    font-size: 7pt;
+    color: #64748b;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    display: block;
+    margin-bottom: 3px;
+  }
+  .meta-cell span { font-size: 10pt; font-weight: 650; color: #0f172a; }
+  .body { padding: 6px 0 0; }
+  .section { margin: 14px 20px; }
+  .section-title {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 11pt;
+    font-weight: 700;
+    color: #0f2744;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, #cbd5e1, transparent);
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    background: #0f2744;
+    color: #fff;
+    padding: 9px 12px;
+    font-size: 8pt;
+    text-align: left;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  th:last-child, td.amount { text-align: right; }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 9.5pt;
+    color: #1e293b;
+  }
+  tr:nth-child(even) td { background: #fafbfc; }
+  .amount { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .deduction { color: #b91c1c; }
+  .total-row td {
+    background: #eef2f7 !important;
+    font-weight: 800;
+    font-size: 10.5pt;
+    border-top: 2px solid #94a3b8;
+    border-bottom: none;
+    color: #0f172a;
+  }
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 0 20px 14px;
+  }
+  .panel {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .panel-h {
+    padding: 8px 12px;
+    font-size: 8pt;
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: #0f2744;
+    background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .panel.ot .panel-h { background: #eff6ff; color: #1e40af; }
+  .panel.reimb .panel-h { background: #f0fdf4; color: #166534; }
+  .panel table td { font-size: 8.5pt; padding: 6px 10px; }
+  .panel .sub { color: #64748b; font-weight: 500; }
+  .summary-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    margin: 0 20px 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .summary-cell {
+    padding: 12px 10px;
+    text-align: center;
+    border-right: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+  .summary-cell:last-child { border-right: none; }
+  .summary-cell .k {
+    font-size: 7pt;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: #64748b;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .summary-cell .v {
+    font-size: 11pt;
+    font-weight: 800;
+    color: #0f2744;
+    font-variant-numeric: tabular-nums;
+  }
+  .summary-cell.tax .v { color: #b91c1c; }
+  .net-box {
+    background: linear-gradient(135deg, #0f2744 0%, #1e3a5f 100%);
+    color: #fff;
+    padding: 18px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .net-box .label {
+    font-size: 9pt;
+    opacity: .8;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-weight: 700;
+  }
+  .net-box .sub {
+    margin-top: 4px;
+    font-size: 8pt;
+    opacity: .65;
+  }
+  .net-box .amount {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 22pt;
+    font-weight: 700;
+  }
+  .footer {
+    padding: 12px 20px 16px;
+    font-size: 7.5pt;
+    color: #64748b;
+    text-align: center;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    line-height: 1.5;
+  }
 </style></head><body><div class="page">
 ${trialBannerHtml()}
 <div class="hdr">
   <div class="hdr-left">
     ${logoDataUri ? `<img src="${logoDataUri}" alt="ASIL logo"/>` : ''}
     <div>
-      <h2>SALARY SLIP</h2>
-      <p>Allied Services International (Pvt.) Ltd.</p>
-      <p>NTN: 7483900-1 | accounts@asil.com.pk</p>
+      <h1>Salary Slip</h1>
+      <p class="brand">Allied Services International (Pvt.) Ltd.</p>
+      <p class="meta-line">NTN: 7483900-1 · accounts@asil.com.pk</p>
     </div>
   </div>
   <div class="hdr-right">
-    <p style="font-size:12pt;font-weight:700">${monthName} ${year}</p>
-    <p>Generated: ${new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+    <p class="period">${monthName} ${year}</p>
+    <p class="generated">Generated ${new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
     <div class="paid-days-badge">Paid Days: ${paidDays} / ${workingDays}</div>
   </div>
 </div>
@@ -97,47 +311,97 @@ ${trialBannerHtml()}
   <div class="meta-cell"><label>CNIC</label><span>${emp.cnic || '—'}</span></div>
   <div class="meta-cell"><label>Bank Account</label><span>${emp.bank_name || '—'} — ${emp.bank_account || '—'}</span></div>
 </div>
-<div class="section">
-<table>
-  <thead><tr><th>EARNINGS &amp; ADDITIONS</th><th class="amount">Amount (Rs.)</th></tr></thead>
-  <tbody>${earningsRows}
-    <tr class="total-row"><td>GROSS TOTAL</td><td class="amount">${grossTotal.toLocaleString('en-PK')}</td></tr>
-  </tbody>
-</table>
-</div>
-<div class="section">
-<table>
-  <thead><tr><th>DEDUCTIONS</th><th class="amount">Amount (Rs.)</th></tr></thead>
-  <tbody>${deductionRows}
-    <tr class="total-row"><td>TOTAL DEDUCTIONS</td><td class="amount deduction">- ${totalDeductions.toLocaleString('en-PK')}</td></tr>
-  </tbody>
-</table>
+<div class="body">
+  <div class="section">
+    <div class="section-title">Earnings &amp; Additions</div>
+    <table>
+      <thead><tr><th>Description</th><th>Amount (PKR)</th></tr></thead>
+      <tbody>${earningsRows}
+        <tr class="total-row"><td>GROSS TOTAL</td><td class="amount">${money(grossTotal)}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  ${(hasOt || hasReimb) ? `<div class="panels">
+    ${hasOt ? `<div class="panel ot">
+      <div class="panel-h">Overtime Detail</div>
+      <table>
+        <tr><td>OT 2X Hours</td><td class="amount">${ot.ot2Hrs}</td></tr>
+        <tr><td>OT 2X Amount (PKR)</td><td class="amount">${money(ot.ot2Amount)}</td></tr>
+        <tr><td>OT 3X Hours</td><td class="amount">${ot.ot3Hrs}</td></tr>
+        <tr><td>OT 3X Amount (PKR)</td><td class="amount">${money(ot.ot3Amount)}</td></tr>
+        <tr class="total-row"><td>Total Overtime</td><td class="amount">${money(ot.otAmount)}</td></tr>
+      </table>
+    </div>` : '<div></div>'}
+    ${hasReimb ? `<div class="panel reimb">
+      <div class="panel-h">Reimbursements</div>
+      <table>
+        <tr><td>Medical Reimbursement</td><td class="amount">${money(reimb.medical)}</td></tr>
+        <tr><td>Expense Reimbursement</td><td class="amount">${money(reimb.expense)}</td></tr>
+        <tr class="total-row"><td>Total Reimbursements</td><td class="amount">${money(reimb.total)}</td></tr>
+      </table>
+    </div>` : '<div></div>'}
+  </div>` : ''}
+
+  <div class="section">
+    <div class="section-title">Deductions</div>
+    <table>
+      <thead><tr><th>Description</th><th>Amount (PKR)</th></tr></thead>
+      <tbody>${deductionRows}
+        <tr class="total-row"><td>TOTAL DEDUCTIONS</td><td class="amount deduction">- ${money(totalDeductions)}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="summary-strip">
+    <div class="summary-cell"><div class="k">Gross</div><div class="v">${money(grossTotal)}</div></div>
+    <div class="summary-cell tax"><div class="k">Tax Deductions</div><div class="v">- ${money(taxDeductions ?? 0)}</div></div>
+    <div class="summary-cell"><div class="k">Other Deductions</div><div class="v">- ${money(otherDeductions ?? 0)}</div></div>
+    <div class="summary-cell"><div class="k">Net Payable</div><div class="v">${money(netPay)}</div></div>
+  </div>
 </div>
 <div class="net-box">
-  <div><div class="label">NET SALARY PAYABLE</div></div>
-  <div class="amount">Rs. ${netPay.toLocaleString('en-PK')}</div>
+  <div>
+    <div class="label">Net Salary Payable</div>
+    <div class="sub">${monthName} ${year} · Gross ${money(grossTotal)} − Deductions ${money(totalDeductions)}</div>
+  </div>
+  <div class="amount">Rs. ${money(netPay)}</div>
 </div>
 <div class="footer">
   Open this PDF with your CNIC number (digits only, no dashes) as the password.<br>
-  Payslip queries: ${OPS_SUPPORT} | System-generated — no signature required.
+  Payslip queries: ${OPS_SUPPORT} · System-generated — no signature required · Allied Services International (Pvt.) Ltd.
 </div>
 </div></body></html>`;
 }
 
-function renderEmailCoverHtml({ emp, monthName, year, frontendUrl }) {
+function renderEmailCoverHtml({ emp, monthName, year, frontendUrl, netPay, testRun }) {
     const trial = isTrialMode()
-        ? `<p style="background:#fef3c7;padding:12px;border-radius:8px;color:#92400e;"><strong>TRIAL MODE</strong> — If anything looks wrong, email <a href="mailto:${OPS_SUPPORT}">${OPS_SUPPORT}</a>.</p>`
+        ? `<p style="background:#fff7ed;padding:12px 14px;border-radius:8px;color:#9a3412;border:1px solid #fdba74;"><strong>TRIAL MODE</strong> — If anything looks wrong, email <a href="mailto:${OPS_SUPPORT}">${OPS_SUPPORT}</a>.</p>`
         : '';
-    return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#333;">
-<div style="max-width:600px;margin:0 auto;padding:24px;">
-  <h2 style="color:#1e3a5f;">Salary Slip — ${monthName} ${year}</h2>
+    const testBanner = testRun
+        ? `<p style="background:#eff6ff;padding:12px 14px;border-radius:8px;color:#1e40af;border:1px solid #93c5fd;"><strong>INTERNAL TEST RUN</strong> — Sample July payslip before candidate rollout. Not a live employee payment notice.</p>`
+        : '';
+    const netLine = netPay != null
+        ? `<p style="font-size:15px;"><strong>Net Payable:</strong> Rs. ${money(netPay)}</p>`
+        : '';
+    return `<!DOCTYPE html><html><body style="font-family:'Segoe UI',Arial,sans-serif;color:#0f172a;background:#f1f5f9;margin:0;padding:24px;">
+<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
+  <div style="background:linear-gradient(135deg,#0f2744,#1e3a5f);color:#fff;padding:22px 24px;">
+    <div style="font-size:12px;opacity:.75;letter-spacing:.08em;text-transform:uppercase;">Allied Services International</div>
+    <h2 style="margin:6px 0 0;font-size:22px;">Salary Slip — ${monthName} ${year}</h2>
+  </div>
+  <div style="padding:22px 24px;">
+  ${testBanner}
   ${trial}
   <p>Dear ${emp.name},</p>
-  <p>Your salary for <strong>${monthName} ${year}</strong> has been processed. Please find your payslip attached as a password-protected PDF.</p>
+  <p>Your salary for <strong>${monthName} ${year}</strong> has been processed. Please find your detailed payslip attached as a password-protected PDF.</p>
+  ${netLine}
   <p><strong>Password:</strong> your CNIC number (digits only, no dashes).</p>
-  <p>You can also download the same payslip from the employee portal: <a href="${frontendUrl}">${frontendUrl}</a></p>
+  <p>The payslip shows overtime (2X / 3X hours &amp; amounts), medical &amp; expense reimbursements, deductions, tax, and net payable.</p>
+  <p>Portal: <a href="${frontendUrl}" style="color:#1e3a5f;">${frontendUrl}</a></p>
   <p>Queries: <a href="mailto:${OPS_SUPPORT}">${OPS_SUPPORT}</a></p>
-  <p>Warm regards,<br><strong>HR Department</strong><br>Allied Services International (Pvt.) Ltd.</p>
+  <p style="margin-top:28px;">Warm regards,<br><strong>HR Department</strong><br>Allied Services International (Pvt.) Ltd.</p>
+  </div>
 </div></body></html>`;
 }
 

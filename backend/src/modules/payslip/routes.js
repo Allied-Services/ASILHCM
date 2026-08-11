@@ -8,6 +8,7 @@ const {
     resolveSupportCase,
 } = require('./service');
 const { resolveAccessToken } = require('./tokenStore');
+const { runJulyPayslipTestDelivery } = require('./testRun');
 
 const jwt = require('jsonwebtoken');
 
@@ -77,6 +78,25 @@ function registerPayslipRoutes(app, deps) {
             res.json(result);
         } catch (err) {
             handleRouteError(res, 'send-payslips', err);
+        }
+    });
+
+    /** Internal QA: 5 sample July payslips → override email + SMS (before candidate rollout). */
+    app.post('/api/payslip/test-run', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            const destEmail = String(req.body?.email || 'shezad.mumtaz@asil.com.pk').trim();
+            const destPhone = String(req.body?.phone || '03008275688').trim();
+            const dryRun = !!req.body?.dryRun;
+            if (!destEmail.includes('@')) return res.status(400).json({ error: 'Valid email required' });
+            const result = await runJulyPayslipTestDelivery(mailDeps, {
+                destEmail,
+                destPhone,
+                dryRun,
+            });
+            if (deps.logAudit) deps.logAudit(req, 'PAYSLIP_TEST_RUN', 'payslip', destEmail);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'payslip-test-run', err);
         }
     });
 

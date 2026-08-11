@@ -14,6 +14,20 @@ async function resolveExecutablePath() {
     return null;
 }
 
+function launchArgs() {
+    const base = Array.isArray(chromium.args) ? [...chromium.args] : [];
+    for (const a of [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--font-render-hinting=none',
+    ]) {
+        if (!base.includes(a)) base.push(a);
+    }
+    return base;
+}
+
 /**
  * Render HTML string to a PDF buffer (A4, print backgrounds).
  * Returns null when no Chromium binary is available (local dev without Chrome path).
@@ -28,13 +42,14 @@ async function htmlToPdf(html, { timeoutMs = 45000 } = {}) {
     let browser;
     try {
         browser = await puppeteer.launch({
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
+            args: launchArgs(),
+            defaultViewport: chromium.defaultViewport || { width: 1280, height: 720 },
             executablePath,
-            headless: chromium.headless ?? true,
+            headless: true,
         });
         const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'networkidle0', timeout: timeoutMs });
+        // Prefer 'load' over networkidle0 — Google Fonts / CDN can hang headless runs.
+        await page.setContent(html, { waitUntil: 'load', timeout: timeoutMs });
         const pdf = await page.pdf({
             format: 'A4',
             printBackground: true,
