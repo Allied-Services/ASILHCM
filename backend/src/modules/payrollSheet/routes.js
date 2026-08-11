@@ -21,7 +21,9 @@ function registerPayrollSheetRoutes(app, deps) {
                 client: body.client || undefined,
                 contractId: body.contractId || body.contract_id || undefined,
                 employeeIds: Array.isArray(body.employeeIds) ? body.employeeIds : undefined,
-                sourceMode: body.sourceMode === 'sheet_inputs' ? 'sheet_inputs' : 'canonical',
+                // Default sheet_inputs — recompute from current sheet (idempotent).
+                // canonical only when UI explicitly pulls approved claims.
+                sourceMode: body.sourceMode === 'canonical' ? 'canonical' : 'sheet_inputs',
                 dryRun: !!body.dryRun,
                 allowArchive: !!body.allowArchive,
             }, req.user || {});
