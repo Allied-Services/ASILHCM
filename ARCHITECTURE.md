@@ -127,8 +127,10 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Item | Detail |
 |---|---|
 | Module | `backend/src/modules/payslip/` — single PDF per employee/month, CNIC password, ASIL logo |
+| Layout | OT 2X/3X hours + PKR amounts, medical & expense reimbursements, tax vs other deductions, net payable |
 | Gate | Month fully locked + AP payment batch confirmed; send by **finance_manager** or **superadmin** only |
-| Channels | Email (PDF attach), SMS (7-day link `/p/:token`), portal download |
+| Channels | Email (PDF attach via Resend), SMS (7-day link `/p/:token` via Jazz), portal download |
+| QA test run | `POST /api/payslip/test-run` (superadmin) or `scripts/send_july_payslip_test_run.js` — 5 sample July slips to override email/SMS |
 | Support | `POST /api/payslip/support-case` → ops-support@asil.com.pk; resolve notifies employee email+SMS |
 | Migration | `20260810180000_payslip_delivery.js` — run `npm run migrate` on staging before deploy |
 

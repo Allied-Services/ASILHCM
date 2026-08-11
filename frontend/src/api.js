@@ -247,6 +247,11 @@ export const api = {
             method: 'POST',
             body: JSON.stringify({ employeeIds, confirm, forceResend }),
         }),
+    sendPayslipTestRun: ({ email, phone, dryRun = false } = {}) =>
+        apiFetch('/api/payslip/test-run', {
+            method: 'POST',
+            body: JSON.stringify({ email, phone, dryRun }),
+        }),
     downloadPayslipPdf: (empId, month, year, portalToken = null) => {
         const token = portalToken || localStorage.getItem('asil_hcm_token');
         const url = `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}/download`;
