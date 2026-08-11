@@ -366,21 +366,29 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         let specialAllowance = num(sheet.special_allowance);
 
         const salary = num(emp.salary);
-        const bonusDisbursement = resolvePayrollSheetBonus({
-            employeeId: emp.id,
-            contractId,
-            salary,
-            doj: emp.doj,
-            month: m,
-            year: y,
-            bonusMonths: costs.bonus_months,
-            bonusMinMonths: costs.bonus_min_months,
-            disbursementMonth: costs.bonus_disbursement_month,
-            manualBonusAmount: sheet.bonus_amount,
-            bonusMap,
-        });
+        // sheet_inputs: bonus_amount on the sheet is authoritative (including 0).
+        // Do not re-fill from the July accrual CSV — that made re-Calculate invent pay.
+        // canonical: may fill from July bonus map / contract when sheet bonus is empty.
+        let bonusDisbursement;
+        if (sourceMode === 'sheet_inputs') {
+            bonusDisbursement = Math.round(num(sheet.bonus_amount));
+        } else {
+            bonusDisbursement = resolvePayrollSheetBonus({
+                employeeId: emp.id,
+                contractId,
+                salary,
+                doj: emp.doj,
+                month: m,
+                year: y,
+                bonusMonths: costs.bonus_months,
+                bonusMinMonths: costs.bonus_min_months,
+                disbursementMonth: costs.bonus_disbursement_month,
+                manualBonusAmount: sheet.bonus_amount,
+                bonusMap,
+            });
+        }
 
-        // July Wafi: Excel "Special Allowance" is often stored in bonus_amount for WHT exclusion.
+        // July Wafi: Excel "Special Allowance" is stored in bonus_amount for WHT exclusion.
         // Do not also keep special_allowance when bonus already carries that amount.
         if (Number(m) === 7 && Number(y) === 2026
             && isWafiBpoJulyContext({ employeeId: emp.id, contractId })
@@ -420,18 +428,23 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             year: y,
         };
 
+        // World A / Excel PR-sheet Model A uses a fixed 30-day month (policy),
+        // not calendar days-in-month (31 in July). Using 31 rewrote partial-month
+        // pay and made re-Calculate drift from Excel.
+        const modelABasis = num(policy.standard_month_days, 30) || 30;
         const useModelA = absentDaysForModelA != null || paidDays >= workingDays || presentDaysForModelA != null
-            || (sheet.paid_days != null && num(sheet.paid_days) >= lastDay);
+            || (sheet.paid_days != null && num(sheet.paid_days) >= modelABasis);
         if (useModelA) {
             computeInput.modelA = true;
-            computeInput.expectedDays = lastDay;
+            computeInput.expectedDays = modelABasis;
+            computeInput.calendarBasis = modelABasis;
             computeInput.month = m;
             computeInput.year = y;
             if (absentDaysForModelA != null) {
                 computeInput.absentDays = absentDaysForModelA;
                 computeInput.presentDays = presentDaysForModelA != null
                     ? presentDaysForModelA
-                    : Math.max(0, lastDay - absentDaysForModelA);
+                    : Math.max(0, modelABasis - absentDaysForModelA);
             } else {
                 computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
             }
