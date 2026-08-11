@@ -606,7 +606,9 @@ export default function PayrollSheet({ user }) {
     const [isSaving, setIsSaving] = useState(false);
     const [isCalculating, setIsCalculating] = useState(false);
     const [calcMsg, setCalcMsg] = useState(null);
-    const [pullClaimsOnCalc, setPullClaimsOnCalc] = useState(true);
+    // Default OFF: Calculate must recompute from current sheet hours (idempotent).
+    // Turn on only when you want approved claims merged into the sheet.
+    const [pullClaimsOnCalc, setPullClaimsOnCalc] = useState(false);
     const [serverRows, setServerRows] = useState({}); // employee_id -> GET/calculate row
     const saveTimerRef = useRef(null);
     const serverRowsRef = useRef({});
@@ -1377,9 +1379,12 @@ export default function PayrollSheet({ user }) {
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                     {isSaving && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={13} />Saving…</span>}
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: 160 }}>
+                    <label
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: 200 }}
+                        title="Off (default): recalculate from hours already on this sheet. On: also merge approved claims OT/OPD/expense."
+                    >
                         <input type="checkbox" checked={pullClaimsOnCalc} onChange={e => setPullClaimsOnCalc(e.target.checked)} disabled={isCalculating || isLocked} />
-                        Pull approved claims
+                        Also pull approved claims
                     </label>
                     <button
                         type="button"

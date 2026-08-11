@@ -345,8 +345,10 @@ async function upsertMonthlyHubOverride(pool, {
     const merged = {
         presentDays: pickOverrideField(presentDays, ex?.present_days ?? null, { allowNull: true }),
         absentDays: pickOverrideField(absentDays, ex?.absent_days ?? null, { allowNull: true }),
-        ot2: pickOverrideField(ot2Hours, ex?.ot2_hours ?? 0),
-        ot3: pickOverrideField(ot3Hours, ex?.ot3_hours ?? 0),
+        // Prefer null over 0 for "not provided" so Payroll Sheet Calculate does not
+        // treat a blank hub import as an intentional OT wipe.
+        ot2: pickOverrideField(ot2Hours, ex?.ot2_hours ?? null, { allowNull: true }),
+        ot3: pickOverrideField(ot3Hours, ex?.ot3_hours ?? null, { allowNull: true }),
         opd: pickOverrideField(opd, ex?.opd ?? 0),
         expense: pickOverrideField(expense, ex?.expense ?? 0),
         arrears: pickOverrideField(arrears, ex?.arrears ?? 0),

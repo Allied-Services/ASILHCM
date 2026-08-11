@@ -19,6 +19,10 @@ const {
     derivePaidDays,
     deriveOtHours,
 } = require('../payrollrun/service');
+const {
+    resolvePayrollSheetInputs,
+    resolvePayrollSheetPaidDays,
+} = require('./resolveInputs');
 const cutover = require('../../core/cutover');
 
 const DEFAULT_POLICY = {
@@ -226,7 +230,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
     }
 
     const empIds = employees.map((e) => e.id);
-    const { start, end } = periodBounds(y, m);
+    const { start, end, lastDay } = periodBounds(y, m);
     const asOf = new Date(y, m - 1, 15);
 
     const [{ rows: existingTx }, { rows: claimRows }, attRows, { rows: monthlyOvs }, { rows: holidays }] = await Promise.all([
@@ -318,60 +322,33 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
 
         const att = attByEmp.get(emp.id) || [];
         const monthlyOv = ovByEmp.get(emp.id);
-        let paidDays = derivePaidDays(att, workingDays, policy.attendance_input_mode);
-        let { ot1, ot2, ot3 } = deriveOtHours(att, holidayDateSet);
-
-        let presentDaysForModelA = null;
-        let absentDaysForModelA = null;
-        if (monthlyOv) {
-            if (monthlyOv.present_days != null) {
-                presentDaysForModelA = num(monthlyOv.present_days);
-                paidDays = presentDaysForModelA;
-            }
-            if (monthlyOv.absent_days != null) absentDaysForModelA = num(monthlyOv.absent_days);
-            if (monthlyOv.ot2_hours != null) ot2 = num(monthlyOv.ot2_hours);
-            if (monthlyOv.ot3_hours != null) ot3 = num(monthlyOv.ot3_hours);
-            if (monthlyOv.ot1_hours != null) ot1 = num(monthlyOv.ot1_hours);
-        }
-
-        // Sheet paid_days when no attendance/override
-        if (!att.length && presentDaysForModelA == null && sheet.paid_days != null) {
-            paidDays = num(sheet.paid_days, paidDays);
-            presentDaysForModelA = paidDays;
-        }
-
+        const attPaidDays = derivePaidDays(att, workingDays, policy.attendance_input_mode);
+        const attOt = deriveOtHours(att, holidayDateSet);
         const empClaims = claimsByEmp.get(emp.id) || [];
         const claimAgg = aggregateClaimInputs(empClaims);
         // sourceMode:
-        //  - canonical (default): attendance + claims; sheet OT/OPD/reimb used only when that source is empty
-        //  - sheet_inputs: current sheet columns as inputs (still recomputes net/tax on server)
-        const sourceMode = opts.sourceMode === 'sheet_inputs' ? 'sheet_inputs' : 'canonical';
-        let opd = 0;
-        let expense = 0;
-        if (sourceMode === 'sheet_inputs') {
-            ot1 = 0;
-            ot2 = num(sheet.ot2_hrs);
-            ot3 = num(sheet.ot3_hrs);
-            opd = num(sheet.opd_claim);
-            expense = num(sheet.reimbursement);
-        } else {
-            ot1 += claimAgg.ot1;
-            ot2 += claimAgg.ot2;
-            ot3 += claimAgg.ot3;
-            // Claims present → claims win (clears stale sheet OPD/reimb for that employee)
-            // No claims → keep operator-typed sheet values
-            if (empClaims.length) {
-                opd = claimAgg.opd;
-                expense = claimAgg.expense;
-            } else {
-                opd = num(sheet.opd_claim);
-                expense = num(sheet.reimbursement);
-            }
-            if (!att.length && !monthlyOv && claimAgg.ot1 + claimAgg.ot2 + claimAgg.ot3 === 0) {
-                ot2 = num(sheet.ot2_hrs);
-                ot3 = num(sheet.ot3_hrs);
-            }
-        }
+        //  - sheet_inputs: recompute from current Payroll Sheet columns (idempotent)
+        //  - canonical: sheet baseline + merge attendance/claims/hub OT upward (never wipe sheet with hub zeros)
+        const sourceMode = opts.sourceMode === 'canonical' ? 'canonical' : 'sheet_inputs';
+
+        const {
+            paidDays,
+            presentDaysForModelA,
+            absentDaysForModelA,
+        } = resolvePayrollSheetPaidDays({
+            sheet,
+            monthlyOv,
+            attendancePaidDays: attPaidDays,
+        });
+
+        let { ot1, ot2, ot3, opd, expense } = resolvePayrollSheetInputs({
+            sheet,
+            attOt,
+            monthlyOv,
+            claimAgg,
+            hasClaims: empClaims.length > 0,
+            sourceMode,
+        });
 
         if (!policy.ot_allowed) {
             if (ot1 + ot2 + ot3 > 0) {
@@ -386,7 +363,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         const fuelMobile = num(sheet.fuel_mobile);
         // other_deduction only — advance/loan applied once in sheetCalcFromEngine
         const otherDeduction = num(sheet.other_deduction);
-        const specialAllowance = num(sheet.special_allowance);
+        let specialAllowance = num(sheet.special_allowance);
 
         const salary = num(emp.salary);
         const bonusDisbursement = resolvePayrollSheetBonus({
@@ -402,6 +379,16 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             manualBonusAmount: sheet.bonus_amount,
             bonusMap,
         });
+
+        // July Wafi: Excel "Special Allowance" is often stored in bonus_amount for WHT exclusion.
+        // Do not also keep special_allowance when bonus already carries that amount.
+        if (Number(m) === 7 && Number(y) === 2026
+            && isWafiBpoJulyContext({ employeeId: emp.id, contractId })
+            && bonusDisbursement > 0
+            && specialAllowance > 0
+            && Math.abs(specialAllowance - bonusDisbursement) < 1) {
+            specialAllowance = 0;
+        }
 
         const medicalCoverage = computeMedicalCoverage(emp, costs);
         const lifeInsurance = num(costs.life_insurance, 150);
@@ -433,15 +420,18 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             year: y,
         };
 
-        const useModelA = absentDaysForModelA != null || paidDays >= workingDays || presentDaysForModelA != null;
+        const useModelA = absentDaysForModelA != null || paidDays >= workingDays || presentDaysForModelA != null
+            || (sheet.paid_days != null && num(sheet.paid_days) >= lastDay);
         if (useModelA) {
             computeInput.modelA = true;
-            computeInput.expectedDays = 30;
+            computeInput.expectedDays = lastDay;
+            computeInput.month = m;
+            computeInput.year = y;
             if (absentDaysForModelA != null) {
                 computeInput.absentDays = absentDaysForModelA;
                 computeInput.presentDays = presentDaysForModelA != null
                     ? presentDaysForModelA
-                    : Math.max(0, 30 - absentDaysForModelA);
+                    : Math.max(0, lastDay - absentDaysForModelA);
             } else {
                 computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
             }
@@ -678,4 +668,6 @@ module.exports = {
     calculatePayrollSheet,
     assertMonthUnlocked,
     sheetCalcFromEngine,
+    resolvePayrollSheetInputs: require('./resolveInputs').resolvePayrollSheetInputs,
+    resolvePayrollSheetPaidDays: require('./resolveInputs').resolvePayrollSheetPaidDays,
 };
