@@ -621,6 +621,11 @@ export default function PayrollSheet({ user }) {
     const [payslipReadiness, setPayslipReadiness] = useState(null);
     const [showSendPayslips, setShowSendPayslips] = useState(false);
     const [sendPayslipConfirm, setSendPayslipConfirm] = useState(false);
+    const [showPayslipTestRun, setShowPayslipTestRun] = useState(false);
+    const [payslipTestEmail, setPayslipTestEmail] = useState('shezad.mumtaz@asil.com.pk');
+    const [payslipTestPhone, setPayslipTestPhone] = useState('03008275688');
+    const [payslipTestBusy, setPayslipTestBusy] = useState(false);
+    const [payslipTestResult, setPayslipTestResult] = useState(null);
     const [showAddClaims, setShowAddClaims] = useState(false);
     const [addClaimsForm, setAddClaimsForm] = useState({
         employeeId: '', ot1Hours: 0, ot2Hours: 0, ot3Hours: 0,
@@ -1002,6 +1007,29 @@ export default function PayrollSheet({ user }) {
             api.getPayslipReadiness(yr2, mo2).then(setPayslipReadiness).catch(() => {});
         } catch(e) { setEmailResult({ ok: false, msg: '❌ ' + e.message }); }
         setSendingEmails(false);
+    };
+
+    const runPayslipTestDelivery = async () => {
+        if (!payslipTestEmail?.includes('@')) return alert('Enter a valid email');
+        if (!payslipTestPhone?.trim()) return alert('Enter a phone number');
+        if (!window.confirm(`Send 5 sample July payslips to\n${payslipTestEmail}\nand SMS to ${payslipTestPhone}?`)) return;
+        setPayslipTestBusy(true);
+        setPayslipTestResult(null);
+        try {
+            const d = await api.sendPayslipTestRun({
+                email: payslipTestEmail.trim(),
+                phone: payslipTestPhone.trim(),
+            });
+            if (d.error) throw new Error(d.error);
+            setPayslipTestResult({
+                ok: true,
+                msg: `Test run done — emailed ${d.emailed || 0}/5, SMS ${d.smsed || 0}/5. Check inbox & phone.`,
+                detail: d,
+            });
+        } catch (e) {
+            setPayslipTestResult({ ok: false, msg: e.message || 'Test run failed' });
+        }
+        setPayslipTestBusy(false);
     };
 
     // Cascading filter lists
@@ -1434,6 +1462,13 @@ export default function PayrollSheet({ user }) {
                             </button>
                         </>
                     )}
+                    {isSuperAdmin && (
+                        <button type="button" onClick={() => { setShowPayslipTestRun(true); setPayslipTestResult(null); }}
+                            title="Send 5 sample July payslips to your email + SMS (QA before candidate rollout)"
+                            style={{ background: 'transparent', border: '1px solid #38bdf8', color: '#38bdf8', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                            July Test Run
+                        </button>
+                    )}
                     {canManageLock && !isLocked && (
                         <>
                             <button onClick={handleLock} disabled={isCalculating} title={`Lock ${rows.length} visible employee(s)`} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f59e0b', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: isCalculating ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: isCalculating ? 0.6 : 1 }}>
@@ -1542,6 +1577,56 @@ export default function PayrollSheet({ user }) {
                             <button type="button" onClick={sendPayslipEmails} disabled={!sendPayslipConfirm || sendingEmails}
                                 style={{ background: !sendPayslipConfirm ? '#555' : '#7c3aed', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: !sendPayslipConfirm ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
                                 {sendingEmails ? 'Sending…' : 'Send Payslips'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* July payslip QA test-run (superadmin) */}
+            {showPayslipTestRun && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '2rem' }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '520px' }}>
+                        <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
+                            <h3 style={{ margin: 0 }}>July Payslip Test Run</h3>
+                            <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                Sends 5 sample July payslips (OT 2X/3X, reimbursements, tax, net) to your email + SMS. Not live employee payroll.
+                            </p>
+                        </div>
+                        <div style={{ padding: '1.5rem 2rem', display: 'grid', gap: '12px' }}>
+                            <label style={{ display: 'grid', gap: 4, fontSize: '0.85rem' }}>
+                                Email
+                                <input value={payslipTestEmail} onChange={e => setPayslipTestEmail(e.target.value)}
+                                    style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }} />
+                            </label>
+                            <label style={{ display: 'grid', gap: 4, fontSize: '0.85rem' }}>
+                                SMS phone
+                                <input value={payslipTestPhone} onChange={e => setPayslipTestPhone(e.target.value)}
+                                    style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }} />
+                            </label>
+                            {payslipTestResult && (
+                                <div style={{
+                                    padding: '10px 12px', borderRadius: 8, fontSize: '0.85rem',
+                                    background: payslipTestResult.ok ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                                    color: payslipTestResult.ok ? '#86efac' : '#fca5a5',
+                                }}>
+                                    {payslipTestResult.msg}
+                                    {payslipTestResult.ok && payslipTestResult.detail?.emailed === 0 && (
+                                        <div style={{ marginTop: 6, opacity: 0.9 }}>
+                                            If emailed=0, check Render env: RESEND_API_KEY. If SMS=0, check JAZZ_SMS_USER / JAZZ_SMS_PASS / JAZZ_HTTPS_PROXY.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                            <button type="button" onClick={() => setShowPayslipTestRun(false)}
+                                style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>
+                                Close
+                            </button>
+                            <button type="button" onClick={runPayslipTestDelivery} disabled={payslipTestBusy}
+                                style={{ background: '#0ea5e9', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: payslipTestBusy ? 'not-allowed' : 'pointer', fontWeight: 700, opacity: payslipTestBusy ? 0.7 : 1 }}>
+                                {payslipTestBusy ? 'Sending…' : 'Send 5 test payslips'}
                             </button>
                         </div>
                     </div>
