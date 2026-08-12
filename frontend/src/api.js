@@ -241,11 +241,16 @@ export const api = {
 
     // ── Payslips ──────────────────────────────────────────────────────────────
     getPayslipUrl: (empId, month, year) => `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}`,
-    getPayslipReadiness: (year, month) => apiFetch(`/api/payroll/${year}/${month}/payslip-readiness`),
-    sendPayslipEmails: (year, month, { employeeIds = [], confirm = true, forceResend = false } = {}) =>
+    getPayslipReadiness: (year, month, employeeIds = []) => {
+        const qs = employeeIds?.length
+            ? `?employeeIds=${employeeIds.map(encodeURIComponent).join(',')}`
+            : '';
+        return apiFetch(`/api/payroll/${year}/${month}/payslip-readiness${qs}`);
+    },
+    sendPayslipEmails: (year, month, { employeeIds = [], confirm = true, forceResend = false, sendAll = false } = {}) =>
         apiFetch(`/api/payroll/${year}/${month}/send-payslips`, {
             method: 'POST',
-            body: JSON.stringify({ employeeIds, confirm, forceResend }),
+            body: JSON.stringify({ employeeIds, confirm, forceResend, sendAll }),
         }),
     sendPayslipTestRun: ({ email, phone, dryRun = false } = {}) =>
         apiFetch('/api/payslip/test-run', {

@@ -49,13 +49,19 @@ async function isMonthPaid(pool, year, month) {
     return rows.length > 0;
 }
 
+function normalizeEmployeeIds(ids) {
+    if (!Array.isArray(ids)) return [];
+    return [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
+}
+
 async function getLockStats(pool, year, month, employeeIds = []) {
+    const ids = normalizeEmployeeIds(employeeIds);
     let q = `SELECT COUNT(*)::int AS total,
                     COUNT(*) FILTER (WHERE locked = TRUE)::int AS locked_count
              FROM payroll_transactions WHERE year = $1 AND month = $2`;
     const params = [year, month];
-    if (employeeIds.length) {
-        params.push(employeeIds);
+    if (ids.length) {
+        params.push(ids);
         q += ` AND employee_id = ANY($3::text[])`;
     }
     const { rows } = await pool.query(q, params);
@@ -65,7 +71,8 @@ async function getLockStats(pool, year, month, employeeIds = []) {
 async function getPayslipReadiness(pool, year, month, employeeIds = []) {
     const yr = parseInt(year, 10);
     const mo = parseInt(month, 10);
-    const lockStats = await getLockStats(pool, yr, mo, employeeIds);
+    const ids = normalizeEmployeeIds(employeeIds);
+    const lockStats = await getLockStats(pool, yr, mo, ids);
     const paid = await isMonthPaid(pool, yr, mo);
 
     let empQ = `
@@ -75,8 +82,8 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
         JOIN employees e ON e.id = pt.employee_id
         WHERE pt.year = $1 AND pt.month = $2 AND pt.locked = TRUE`;
     const params = [yr, mo];
-    if (employeeIds.length) {
-        params.push(employeeIds);
+    if (ids.length) {
+        params.push(ids);
         empQ += ` AND e.id = ANY($3::text[])`;
     }
     const { rows: employees } = await pool.query(empQ, params);
@@ -92,21 +99,47 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
     const withCnic = employees.filter(e => normalizeCnic(e.cnic).length >= 5).length;
     const missingCnic = employees.filter(e => normalizeCnic(e.cnic).length < 5);
 
+    // Scoped send: only the selected employees must be locked. Month must still be bank-paid.
+    // Full-month send: every payroll row for the month must be locked.
+    const scopeLocked = lockStats.total > 0 && lockStats.locked_count === lockStats.total
+        && (!ids.length || lockStats.total === ids.length);
+
+    let alreadyDeliveredCount = 0;
+    if (batch?.id && employees.length) {
+        const empIds = employees.map((e) => e.id);
+        const { rows: prior } = await pool.query(
+            `SELECT COUNT(DISTINCT employee_id)::int AS c FROM payslip_delivery_log
+             WHERE batch_id = $1
+               AND employee_id = ANY($2::text[])
+               AND (email_status LIKE 'sent%' OR sms_status LIKE 'sent%')`,
+            [batch.id, empIds]
+        );
+        alreadyDeliveredCount = prior[0]?.c || 0;
+    }
+    const alreadySent = batch?.status === 'sent';
+    // Force only when every employee currently in scope was already delivered.
+    const needsForceResend = alreadySent && employees.length > 0
+        && alreadyDeliveredCount >= employees.length;
+
     return {
         year: yr,
         month: mo,
-        allLocked: lockStats.total > 0 && lockStats.locked_count === lockStats.total,
+        scope: ids.length ? 'selected' : 'all',
+        selectedCount: ids.length,
+        allLocked: scopeLocked,
         lockedCount: lockStats.locked_count,
         totalRows: lockStats.total,
         paid,
-        alreadySent: batch?.status === 'sent',
+        alreadySent,
+        alreadyDeliveredCount,
+        needsForceResend,
         batch,
         employeeCount: employees.length,
         withEmail,
         withPhone,
         withCnic,
         missingCnic: missingCnic.map(e => ({ id: e.id, name: e.name })),
-        canSend: lockStats.total > 0 && lockStats.locked_count === lockStats.total && paid,
+        canSend: scopeLocked && paid,
     };
 }
 
@@ -143,10 +176,19 @@ async function generateAndStorePdf(pool, emp, pay, contractEosbType, batchId, ye
 }
 
 async function sendPayslips(pool, deps, opts) {
-    const { year, month, employeeIds = [], confirm, forceResend, actorEmail } = opts;
+    const { year, month, confirm, forceResend, actorEmail, sendAll = false } = opts;
     const { sendAppEmail, sendJazzSMS } = deps;
     const yr = parseInt(year, 10);
     const mo = parseInt(month, 10);
+    const ids = normalizeEmployeeIds(opts.employeeIds);
+    const scoped = ids.length > 0;
+
+    // Empty selection must explicitly opt into send-all — never silently expand a partial intent.
+    if (!scoped && !sendAll) {
+        const err = new Error('SELECTION_REQUIRED');
+        err.code = 'SELECTION_REQUIRED';
+        throw err;
+    }
 
     if (!confirm) {
         const err = new Error('CONFIRM_REQUIRED');
@@ -154,16 +196,59 @@ async function sendPayslips(pool, deps, opts) {
         throw err;
     }
 
-    const readiness = await getPayslipReadiness(pool, yr, mo, employeeIds);
-    if (!readiness.canSend) {
-        const err = new Error(readiness.paid ? 'NOT_ALL_LOCKED' : 'NOT_PAID');
-        err.code = readiness.paid ? 'NOT_ALL_LOCKED' : 'NOT_PAID';
+    const paid = await isMonthPaid(pool, yr, mo);
+    if (!paid) {
+        const err = new Error('NOT_PAID');
+        err.code = 'NOT_PAID';
         throw err;
     }
+
+    if (scoped) {
+        const { rows: lockRows } = await pool.query(
+            `SELECT employee_id, locked FROM payroll_transactions
+             WHERE year = $1 AND month = $2 AND employee_id = ANY($3::text[])`,
+            [yr, mo, ids]
+        );
+        const byId = new Map(lockRows.map((r) => [r.employee_id, r.locked === true]));
+        const missing = ids.filter((id) => !byId.has(id));
+        const unlocked = ids.filter((id) => byId.has(id) && !byId.get(id));
+        if (missing.length || unlocked.length) {
+            const err = new Error('NOT_ALL_LOCKED');
+            err.code = 'NOT_ALL_LOCKED';
+            err.detail = { missing, unlocked };
+            throw err;
+        }
+    } else {
+        const readiness = await getPayslipReadiness(pool, yr, mo, []);
+        if (!readiness.allLocked) {
+            const err = new Error('NOT_ALL_LOCKED');
+            err.code = 'NOT_ALL_LOCKED';
+            throw err;
+        }
+    }
+
+    const readiness = await getPayslipReadiness(pool, yr, mo, ids);
     if (readiness.alreadySent && !forceResend) {
-        const err = new Error('ALREADY_SENT');
-        err.code = 'ALREADY_SENT';
-        throw err;
+        // Partial send to new recipients is allowed; only block when every selected
+        // employee was already delivered in this month's batch.
+        if (scoped && readiness.batch?.id) {
+            const { rows: prior } = await pool.query(
+                `SELECT DISTINCT employee_id FROM payslip_delivery_log
+                 WHERE batch_id = $1
+                   AND employee_id = ANY($2::text[])
+                   AND (email_status LIKE 'sent%' OR sms_status LIKE 'sent%')`,
+                [readiness.batch.id, ids]
+            );
+            if (prior.length >= ids.length) {
+                const err = new Error('ALREADY_SENT');
+                err.code = 'ALREADY_SENT';
+                throw err;
+            }
+        } else if (!scoped) {
+            const err = new Error('ALREADY_SENT');
+            err.code = 'ALREADY_SENT';
+            throw err;
+        }
     }
 
     const monthName = new Date(2000, mo - 1, 1).toLocaleString('en-PK', { month: 'long' });
@@ -188,11 +273,20 @@ async function sendPayslips(pool, deps, opts) {
         JOIN employees e ON e.id = pt.employee_id
         WHERE pt.year = $1 AND pt.month = $2 AND pt.locked = TRUE`;
     const params = [yr, mo];
-    if (employeeIds.length) {
-        params.push(employeeIds);
+    if (scoped) {
+        params.push(ids);
         empQ += ` AND e.id = ANY($3::text[])`;
     }
     const { rows: targets } = await pool.query(empQ, params);
+
+    if (scoped && targets.length !== ids.length) {
+        const found = new Set(targets.map((t) => t.id));
+        const missing = ids.filter((id) => !found.has(id));
+        const err = new Error('NOT_ALL_LOCKED');
+        err.code = 'NOT_ALL_LOCKED';
+        err.detail = { missing, unlocked: [] };
+        throw err;
+    }
 
     let emailCount = 0;
     let smsCount = 0;
