@@ -2,7 +2,7 @@
 import {
     MapPin, Upload, CloudDownload, Calculator, FileText, Shield,
     Mail, Database, RefreshCw, AlertCircle, CheckCircle, Download,
-    ExternalLink, Layers, Play, Plus, Pencil, ClipboardCheck,
+    ExternalLink, Layers, Play, Plus, Pencil, ClipboardCheck, Trash2,
 } from 'lucide-react';
 import { api } from '../../api';
 import FixedValueContractWizard from './FixedValueContractWizard';
@@ -106,6 +106,8 @@ export default function FixedValueContracts({ user }) {
     const [registryNumberSaving, setRegistryNumberSaving] = useState(null);
     const [emailResult, setEmailResult] = useState(null);
     const [wizard, setWizard] = useState(null); // { mode: 'create'|'edit', contractId? }
+    const [adjNote, setAdjNote] = useState('');
+    const [adjAmount, setAdjAmount] = useState('');
 
     const canWrite = ['superadmin', 'operations', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
         .includes(user?.role);
@@ -114,6 +116,11 @@ export default function FixedValueContracts({ user }) {
     const selectedOrder = useMemo(
         () => orders.find(o => o.site_code === siteCode) || null,
         [orders, siteCode]
+    );
+
+    const manualAdjustments = useMemo(
+        () => (deductions || []).filter((d) => String(d.source || '') === 'manual'),
+        [deductions]
     );
 
     const filteredPayrollRows = useMemo(() => {
@@ -422,6 +429,37 @@ export default function FixedValueContracts({ user }) {
         setInvoicePack(pack);
         await loadRegistry();
         setMsg(`Stamped / regenerated ${result.count} site invoices (Draft/Raised/Sent lines refreshed; invoice # preserved)`);
+    });
+
+    const handleAddInvoiceAdjustment = () => runAction(async () => {
+        if (!selectedOrder?.id || siteCode === ALL_SITES) {
+            throw new Error('Select a single site before adding an adjustment');
+        }
+        const amount = Number(String(adjAmount).replace(/,/g, ''));
+        const note = String(adjNote || '').trim();
+        if (!note) throw new Error('Comment is required — it prints on the invoice');
+        if (!Number.isFinite(amount) || amount <= 0) {
+            throw new Error('Adjustment amount must be a positive PKR amount (reduces the invoice)');
+        }
+        await api.addFixedValueDeduction(selectedOrder.id, {
+            period_month: month,
+            period_year: year,
+            type: 'adjustment',
+            amount,
+            note,
+        });
+        setAdjNote('');
+        setAdjAmount('');
+        await loadDeductions();
+        setMsg('Adjustment saved. Preview / Stamp again so invoice totals refresh.');
+    });
+
+    const handleDeleteInvoiceAdjustment = (deductionId) => runAction(async () => {
+        if (!selectedOrder?.id) throw new Error('Select a site first');
+        if (!window.confirm('Remove this invoice adjustment?')) return;
+        await api.deleteFixedValueDeduction(selectedOrder.id, deductionId);
+        await loadDeductions();
+        setMsg('Adjustment removed. Preview / Stamp again so invoice totals refresh.');
     });
 
     const saveRegistryInvoiceNumber = (inv) => runAction(async () => {
@@ -1218,6 +1256,90 @@ export default function FixedValueContracts({ user }) {
                             </table>
                         </div>
                     )}
+
+                    <div className="fv-adj-block">
+                        <h4 style={{ margin: 0 }}>Invoice adjustment (one-off credit)</h4>
+                        <p className="fv-lead">
+                            Reduces this site&apos;s invoice <strong>before sales tax</strong> (same bucket as shortages).
+                            Use when payroll must stay unchanged but the client needs a credit —
+                            e.g. prior month billed a resource that was not delivered.
+                            Select a single site above. After saving, Preview / Stamp again.
+                        </p>
+                        {siteCode === ALL_SITES || !selectedOrder ? (
+                            <p className="fv-lead">Select one site (not All sites) to add or remove adjustments.</p>
+                        ) : (
+                            <>
+                                <div className="fv-adj-form">
+                                    <label className="fv-adj-field fv-adj-note">
+                                        <span>Comment on invoice</span>
+                                        <input
+                                            type="text"
+                                            value={adjNote}
+                                            disabled={!canWrite || loading}
+                                            placeholder="e.g. Credit — services billed in June but not delivered"
+                                            onChange={(e) => setAdjNote(e.target.value)}
+                                        />
+                                    </label>
+                                    <label className="fv-adj-field">
+                                        <span>Amount (PKR)</span>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={adjAmount}
+                                            disabled={!canWrite || loading}
+                                            placeholder="0.00"
+                                            onChange={(e) => setAdjAmount(e.target.value)}
+                                        />
+                                    </label>
+                                    <button
+                                        type="button"
+                                        className="btn-primary"
+                                        disabled={!canWrite || loading}
+                                        onClick={handleAddInvoiceAdjustment}
+                                    >
+                                        <Plus size={16} /> Add adjustment
+                                    </button>
+                                </div>
+                                <div className="fv-table-wrap">
+                                    <table className="fv-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Comment</th>
+                                                <th className="num">Amount</th>
+                                                <th style={{ width: 72 }} />
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {manualAdjustments.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={3} style={{ color: 'var(--text-muted)' }}>
+                                                        No manual adjustments for {selectedOrder.site_code || selectedOrder.name} this period.
+                                                    </td>
+                                                </tr>
+                                            ) : manualAdjustments.map((d) => (
+                                                <tr key={d.id}>
+                                                    <td>{d.note || d.type || 'Adjustment'}</td>
+                                                    <td className="num">{fmt(d.amount)}</td>
+                                                    <td>
+                                                        <button
+                                                            type="button"
+                                                            className="btn-secondary fv-adj-remove"
+                                                            disabled={!canWrite || loading}
+                                                            title="Remove adjustment"
+                                                            onClick={() => handleDeleteInvoiceAdjustment(d.id)}
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                        )}
+                    </div>
 
                     {emailResult?.results?.length > 0 && (
                         <div className="fv-panel" style={{ marginTop: 12, padding: 12, background: 'var(--surface-2)' }}>

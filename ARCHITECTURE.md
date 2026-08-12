@@ -82,6 +82,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Contract meta | `contracts.meta` JSONB — `fv_product`, external SO #, SLA/retention text, security deposit |
 | Monthly qty default | `1` per service order line (annual months stored in meta) |
 | Absence deduction (invoice) | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` (with `line_id` linked to the matching manpower SO line) |
+| Manual invoice adjustment | Invoice-step UI → `so_deductions` with `source='manual'`, `type='adjustment'`, free-text `note`; amount reduces net taxable **before** provincial ST. Print shows under “LESS: Additional Shortages / Adjustments” after service lines. Does not change payroll. |
 | Invoice shortage attribution | Print nests absences under the matching SO line (`line_id`, else employee designation → line roles via `designationMatch.js`). Orphans only when unmatched. Unit Price stays gross; Amount PKR is net of that line's shortages. |
 | Payroll wages (Conservancy) | Model A: `salary × ((30 − sheet_absent) / 30)`; Absent column = explicit sheet `days_absent` (not WD − present) |
 | Attendance ingest | Excel sheet `"{MonthName} {year}"` or Google Drive folder `DRIVE_ATTENDANCE_FOLDER_ID`; override stores `present_days` + `absent_days` |
@@ -98,7 +99,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 
 **Routes (summary):**
 - Contract CRUD: `GET/POST /api/fixed-value/contracts`, `GET/PUT .../contracts/:id`, `POST .../CTR-PSO-NORTH-ZONE/resync-seed` (superadmin, `{confirm:true}`)
-- Per site: attendance upload/drive/apply, invoice compute/persist, deductions, focal email
+- Per site: attendance upload/drive/apply, invoice compute/persist, deductions (list / add manual adjustment / delete manual only), focal email
 - Contract bulk: `POST .../contracts/:id/attendance/apply-all`, `GET .../attendance/status`, `POST .../invoices/compute-all`, `POST .../invoices/persist-all`
 - Exports (ExcelJS): `GET .../exports/payroll.xlsx`, `GET .../exports/invoices.xlsx` (payroll workbook includes “Bank file (format TBD)” sheet)
 - World B payroll: `POST /api/payroll-runs/compute` (entire contract); FV UI shows by-site summary
