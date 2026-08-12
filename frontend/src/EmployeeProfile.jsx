@@ -5,6 +5,7 @@ import { api } from './api';
 import EmploymentOrgCascade from './EmploymentOrgCascade';
 import { normalizeAsilBu } from './orgHierarchy';
 import { activeStatusLabel } from './employeeActive';
+import { calcWHT as calcAnnualWHT } from './payrollUtils';
 
 // ── Edit-form context (module-level) ─────────────────────────────────────────
 // Keeps EI / ERow / ECombo as STABLE module-level components so React never
@@ -77,18 +78,11 @@ const dateDiff = (d1, d2) => {
     return { years, months, days, totalDays: days };
 };
 
-// FBR 2025-26 Income Tax (WHT) — monthly
-const calcWHT = (monthlyGross) => {
-    const annual = monthlyGross * 12;
-    let tax = 0;
-    if (annual <= 600000) tax = 0;
-    else if (annual <= 1200000) tax = (annual - 600000) * 0.05;
-    else if (annual <= 2200000) tax = 30000 + (annual - 1200000) * 0.15;
-    else if (annual <= 3200000) tax = 180000 + (annual - 2200000) * 0.25;
-    else if (annual <= 4100000) tax = 430000 + (annual - 3200000) * 0.30;
-    else tax = 700000 + (annual - 4100000) * 0.35;
-    return Math.round(tax / 12);
-};
+// FBR 2025-26 Income Tax (WHT) — monthly.
+// Slabs are owned by payrollUtils.calcWHT; this wrapper only converts monthly gross
+// to the annual base it expects. Never restate the slabs here — a second copy of them
+// drifted from payroll for months and showed ~5x the correct tax on this screen.
+const calcWHT = (monthlyGross) => calcAnnualWHT((parseFloat(monthlyGross) || 0) * 12);
 
 // EOBI: flat statutory amounts for all employees (1%/5% of Rs.40,000 minimum wage cap)
 const calcEOBI = () => ({ employee: 400, employer: 2000 });
