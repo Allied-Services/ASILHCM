@@ -1,6 +1,6 @@
 # ASIL HCM — Architecture (Verified Facts)
 
-**Last updated:** 2026-07-25 (S5A remediation)  
+**Last updated:** 2026-08-12 (P3 payslip paid gate)  
 **Program:** See `.agents/REMEDIATION_PLAN.md` for the active multi-session remediation plan.
 
 ---
@@ -134,7 +134,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 |---|---|
 | Module | `backend/src/modules/payslip/` — single PDF per employee/month, CNIC password, ASIL logo |
 | Layout | OT 2X/3X hours + PKR amounts, medical & expense reimbursements, tax vs other deductions, net payable |
-| Gate | Month fully locked + AP payment batch confirmed; send by **finance_manager** or **superadmin** only |
+| Gate | Per employee: payroll row **locked** and a `payment_ledger` SALARY row in a PAYROLL batch for that year/month with `status='Paid'`. Send is refused until every selected employee is both locked and paid. Roles: **finance_manager**, **finance_approver**, **payroll_initiator**, **superadmin**. |
 | Channels | Email (PDF attach via Resend), SMS (7-day link `/p/:token` via Jazz), portal download |
 | QA test run | `POST /api/payslip/test-run` (superadmin) or `scripts/send_july_payslip_test_run.js` — 5 sample July slips to override email/SMS |
 | Support | `POST /api/payslip/support-case` → ops-support@asil.com.pk; resolve notifies employee email+SMS |

@@ -38,15 +38,33 @@ async function getContractEosbType(pool, contractName) {
     return rows[0]?.eosb_type || 'None';
 }
 
+/**
+ * Employees with a SALARY ledger row in a PAYROLL batch for this period.
+ * Optional `ids` scopes the lookup (employee_id = ANY).
+ * @returns {Promise<Set<string>>}
+ */
+async function getPaidEmployeeIds(pool, year, month, ids = []) {
+    const scoped = normalizeEmployeeIds(ids);
+    let q = `SELECT DISTINCT pl.employee_id
+             FROM payment_ledger pl
+             JOIN payment_batches pb ON pb.id = pl.batch_id
+             WHERE pb.batch_type = 'PAYROLL'
+               AND pb.year = $1 AND pb.month = $2
+               AND pl.payment_type = 'SALARY'
+               AND pl.status = 'Paid'`;
+    const params = [year, month];
+    if (scoped.length) {
+        params.push(scoped);
+        q += ` AND pl.employee_id = ANY($3::text[])`;
+    }
+    const { rows } = await pool.query(q, params);
+    return new Set(rows.map((r) => r.employee_id).filter(Boolean));
+}
+
+/** True if any employee has a paid SALARY ledger row this month (banner / any-payment). */
 async function isMonthPaid(pool, year, month) {
-    const { rows } = await pool.query(
-        `SELECT id, status FROM payment_batches
-         WHERE batch_type = 'PAYROLL' AND year = $1 AND month = $2
-           AND status IN ('Confirmed', 'FM Approved')
-         LIMIT 1`,
-        [year, month]
-    );
-    return rows.length > 0;
+    const paid = await getPaidEmployeeIds(pool, year, month);
+    return paid.size > 0;
 }
 
 function normalizeEmployeeIds(ids) {
@@ -73,7 +91,7 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
     const mo = parseInt(month, 10);
     const ids = normalizeEmployeeIds(employeeIds);
     const lockStats = await getLockStats(pool, yr, mo, ids);
-    const paid = await isMonthPaid(pool, yr, mo);
+    const paidSet = await getPaidEmployeeIds(pool, yr, mo);
 
     let empQ = `
         SELECT e.id, e.name, e.email, e.primary_contact AS phone, e.cnic,
@@ -99,10 +117,22 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
     const withCnic = employees.filter(e => normalizeCnic(e.cnic).length >= 5).length;
     const missingCnic = employees.filter(e => normalizeCnic(e.cnic).length < 5);
 
-    // Scoped send: only the selected employees must be locked. Month must still be bank-paid.
+    // Scoped send: only the selected employees must be locked.
     // Full-month send: every payroll row for the month must be locked.
     const scopeLocked = lockStats.total > 0 && lockStats.locked_count === lockStats.total
         && (!ids.length || lockStats.total === ids.length);
+
+    const employeeList = employees.map((e) => ({
+        id: e.id,
+        name: e.name,
+        locked: e.locked === true,
+        paid: paidSet.has(e.id),
+    }));
+    const notPaid = employeeList.filter((e) => !e.paid).map((e) => ({ id: e.id, name: e.name }));
+    const paidCount = employeeList.filter((e) => e.paid).length;
+    const everyEmployeeInScopeIsPaid = employeeList.length > 0 && notPaid.length === 0;
+    // Backward compatible `paid`: every employee in scope is paid (not "any batch exists").
+    const paid = everyEmployeeInScopeIsPaid;
 
     let alreadyDeliveredCount = 0;
     if (batch?.id && employees.length) {
@@ -130,6 +160,10 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
         lockedCount: lockStats.locked_count,
         totalRows: lockStats.total,
         paid,
+        paidCount,
+        notPaid,
+        paidIds: [...paidSet],
+        employees: employeeList,
         alreadySent,
         alreadyDeliveredCount,
         needsForceResend,
@@ -139,7 +173,7 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
         withPhone,
         withCnic,
         missingCnic: missingCnic.map(e => ({ id: e.id, name: e.name })),
-        canSend: scopeLocked && paid,
+        canSend: scopeLocked && everyEmployeeInScopeIsPaid,
     };
 }
 
@@ -196,13 +230,6 @@ async function sendPayslips(pool, deps, opts) {
         throw err;
     }
 
-    const paid = await isMonthPaid(pool, yr, mo);
-    if (!paid) {
-        const err = new Error('NOT_PAID');
-        err.code = 'NOT_PAID';
-        throw err;
-    }
-
     if (scoped) {
         const { rows: lockRows } = await pool.query(
             `SELECT employee_id, locked FROM payroll_transactions
@@ -219,15 +246,32 @@ async function sendPayslips(pool, deps, opts) {
             throw err;
         }
     } else {
-        const readiness = await getPayslipReadiness(pool, yr, mo, []);
-        if (!readiness.allLocked) {
+        const lockReadiness = await getPayslipReadiness(pool, yr, mo, []);
+        if (!lockReadiness.allLocked) {
             const err = new Error('NOT_ALL_LOCKED');
             err.code = 'NOT_ALL_LOCKED';
             throw err;
         }
     }
 
+    const paidSet = await getPaidEmployeeIds(pool, yr, mo, scoped ? ids : []);
+    const unpaid = scoped
+        ? ids.filter((id) => !paidSet.has(id))
+        : [];
+    if (scoped && unpaid.length) {
+        const err = new Error('NOT_PAID');
+        err.code = 'NOT_PAID';
+        err.detail = { unpaid };
+        throw err;
+    }
+
     const readiness = await getPayslipReadiness(pool, yr, mo, ids);
+    if (!scoped && !readiness.paid) {
+        const err = new Error('NOT_PAID');
+        err.code = 'NOT_PAID';
+        err.detail = { unpaid: (readiness.notPaid || []).map((e) => e.id) };
+        throw err;
+    }
     if (readiness.alreadySent && !forceResend) {
         // Partial send to new recipients is allowed; only block when every selected
         // employee was already delivered in this month's batch.
@@ -273,8 +317,14 @@ async function sendPayslips(pool, deps, opts) {
         JOIN employees e ON e.id = pt.employee_id
         WHERE pt.year = $1 AND pt.month = $2 AND pt.locked = TRUE`;
     const params = [yr, mo];
+    const paidIds = [...paidSet];
     if (scoped) {
         params.push(ids);
+        empQ += ` AND e.id = ANY($3::text[])`;
+        params.push(paidIds);
+        empQ += ` AND e.id = ANY($4::text[])`;
+    } else {
+        params.push(paidIds);
         empQ += ` AND e.id = ANY($3::text[])`;
     }
     const { rows: targets } = await pool.query(empQ, params);
@@ -282,6 +332,13 @@ async function sendPayslips(pool, deps, opts) {
     if (scoped && targets.length !== ids.length) {
         const found = new Set(targets.map((t) => t.id));
         const missing = ids.filter((id) => !found.has(id));
+        const stillUnpaid = missing.filter((id) => !paidSet.has(id));
+        if (stillUnpaid.length) {
+            const err = new Error('NOT_PAID');
+            err.code = 'NOT_PAID';
+            err.detail = { unpaid: stillUnpaid };
+            throw err;
+        }
         const err = new Error('NOT_ALL_LOCKED');
         err.code = 'NOT_ALL_LOCKED';
         err.detail = { missing, unlocked: [] };
@@ -450,6 +507,7 @@ async function resolveSupportCase(pool, deps, caseId, { resolutionNote, resolved
 }
 
 module.exports = {
+    getPaidEmployeeIds,
     getPayslipReadiness,
     getStoredDocument,
     sendPayslips,

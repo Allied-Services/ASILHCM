@@ -29,17 +29,28 @@ function requirePayslipOrStaffAuth(req, res, next) {
     }
 }
 
+function notPaidMessage(err) {
+    const n = Array.isArray(err?.detail?.unpaid) ? err.detail.unpaid.length : 0;
+    if (n === 1) return '1 selected employee is not yet marked paid in Accounts Payable';
+    if (n > 1) return `${n} selected employees are not yet marked paid in Accounts Payable`;
+    return 'Selected employees are not yet marked paid in Accounts Payable';
+}
+
 function handleRouteError(res, tag, err) {
     const code = err.code || err.message;
     const map = {
         CONFIRM_REQUIRED: [400, 'Confirmation required'],
         SELECTION_REQUIRED: [400, 'Select employees to send, or confirm send to all locked'],
-        NOT_PAID: [409, 'Payroll must be bank-paid before sending payslips'],
         NOT_ALL_LOCKED: [409, 'All selected payroll rows must be locked before sending payslips'],
         ALREADY_SENT: [409, 'Payslips already sent for this month. Use force resend if needed.'],
         MISSING_CNIC: [422, 'Employee CNIC required to generate payslip PDF'],
         PDF_GENERATION_UNAVAILABLE: [503, 'PDF generation unavailable on this server'],
     };
+    if (code === 'NOT_PAID') {
+        const body = { error: notPaidMessage(err), code };
+        if (err.detail) body.detail = err.detail;
+        return res.status(409).json(body);
+    }
     if (map[code]) {
         const [status, message] = map[code];
         const body = { error: message, code };

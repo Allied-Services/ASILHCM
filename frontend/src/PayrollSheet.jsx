@@ -1099,6 +1099,14 @@ export default function PayrollSheet({ user }) {
             alert('Select one or more employees, or tick “Send to ALL locked employees”.');
             return;
         }
+        if (payslipReadiness && (!payslipReadiness.paid || (payslipReadiness.notPaid || []).length > 0)) {
+            const names = (payslipReadiness.notPaid || []).map((e) => e.name).filter(Boolean);
+            alert(
+                `${payslipReadiness.notPaid?.length || 0} selected employee(s) are not yet marked paid in Accounts Payable`
+                + (names.length ? `: ${names.join(', ')}` : '.')
+            );
+            return;
+        }
         setSendingEmails(true); setEmailResult(null);
         try {
             const [yr2, mo2] = month.split('-');
@@ -1257,6 +1265,12 @@ export default function PayrollSheet({ user }) {
     rowsRef.current = rows;
     // Rebuild empMapRef on every render so persistEmployee always has the latest emp+cfg
     rows.forEach(({ emp, cfg }) => { empMapRef.current[emp.id] = { emp, cfg }; });
+
+    const paidIdSet = new Set(payslipReadiness?.paidIds || []);
+    const unpaidSelectedList = selectedIds.size > 0
+        ? rows.filter(r => selectedIds.has(r.emp.id) && !paidIdSet.has(r.emp.id))
+            .map(r => ({ id: r.emp.id, name: r.emp.name }))
+        : (payslipReadiness?.notPaid || []);
 
 
     // Bulk helpers — placed HERE so filtered + rows are already defined
@@ -1587,7 +1601,7 @@ export default function PayrollSheet({ user }) {
                                                     : 'Select employees, or open and send to all locked'))
                                             : `Not ready: ${!payslipReadiness.allLocked
                                                 ? (selectedIds.size > 0 ? 'selected employees must be locked' : 'lock all payroll rows')
-                                                : 'mark month bank-paid (AP confirm)'}`
+                                                : `${payslipReadiness.notPaid?.length || unpaidSelectedList.length || 0} selected employee(s) not yet paid in Accounts Payable`}`
                                 }
                                 style={{
                                     background: payslipReadiness?.canSend ? '#7c3aed' : 'rgba(124,58,237,0.2)',
@@ -1737,8 +1751,12 @@ export default function PayrollSheet({ user }) {
                                                             : `Lock all payroll rows for this month (${payslipReadiness.lockedCount}/${payslipReadiness.totalRows} locked).`}
                                                     </li>
                                                 )}
-                                                {!payslipReadiness.paid && (
-                                                    <li>Confirm bank payment in Accounts Payable (payroll batch must be Confirmed / FM Approved).</li>
+                                                {(!payslipReadiness.paid || unpaidSelectedList.length > 0) && (
+                                                    <li>
+                                                        {unpaidSelectedList.length
+                                                            ? `${unpaidSelectedList.length} selected employee(s) are not yet marked paid in Accounts Payable.`
+                                                            : 'Confirm bank payment in Accounts Payable for every selected employee.'}
+                                                    </li>
                                                 )}
                                             </ul>
                                         </div>
@@ -1752,8 +1770,19 @@ export default function PayrollSheet({ user }) {
                                         <li>{payslipReadiness.withEmail} with email</li>
                                         <li>{payslipReadiness.withPhone} with phone (SMS link)</li>
                                         <li style={{ color: payslipReadiness.paid ? '#86efac' : '#fca5a5' }}>
-                                            Bank paid: {payslipReadiness.paid ? 'Yes' : 'No'}
+                                            Paid in AP: {payslipReadiness.paidCount ?? 0}/{payslipReadiness.employeeCount} in scope
+                                            {payslipReadiness.paid ? ' (all paid)' : ''}
                                         </li>
+                                        {unpaidSelectedList.length > 0 && (
+                                            <li style={{ color: '#fca5a5' }}>
+                                                Unpaid (cannot send until AP confirms):
+                                                <ul style={{ margin: '6px 0 0', paddingLeft: '1.1rem' }}>
+                                                    {unpaidSelectedList.map((e) => (
+                                                        <li key={e.id}>{e.name} ({e.id})</li>
+                                                    ))}
+                                                </ul>
+                                            </li>
+                                        )}
                                         {payslipReadiness.alreadyDeliveredCount > 0 && (
                                             <li style={{ color: '#fbbf24' }}>
                                                 {payslipReadiness.alreadyDeliveredCount} in this scope already delivered
@@ -1781,7 +1810,7 @@ export default function PayrollSheet({ user }) {
                                             type="checkbox"
                                             checked={sendPayslipConfirm}
                                             onChange={e => setSendPayslipConfirm(e.target.checked)}
-                                            disabled={!payslipReadiness.canSend || (selectedIds.size === 0 && !sendAllPayslips)}
+                                            disabled={!payslipReadiness.canSend || unpaidSelectedList.length > 0 || (selectedIds.size === 0 && !sendAllPayslips)}
                                         />
                                         <span>I confirm payroll is locked, bank-paid, and ready to send payslips.</span>
                                     </label>
@@ -1795,6 +1824,7 @@ export default function PayrollSheet({ user }) {
                                 onClick={sendPayslipEmails}
                                 disabled={
                                     !payslipReadiness?.canSend
+                                    || unpaidSelectedList.length > 0
                                     || !sendPayslipConfirm
                                     || sendingEmails
                                     || (selectedIds.size === 0 && !sendAllPayslips)
@@ -1803,12 +1833,13 @@ export default function PayrollSheet({ user }) {
                                 style={{
                                     background: (
                                         !payslipReadiness?.canSend
+                                        || unpaidSelectedList.length > 0
                                         || !sendPayslipConfirm
                                         || (selectedIds.size === 0 && !sendAllPayslips)
                                         || (payslipReadiness?.needsForceResend && !forceResendPayslips)
                                     ) ? '#555' : '#7c3aed',
                                     border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px',
-                                    cursor: (!payslipReadiness?.canSend || !sendPayslipConfirm) ? 'not-allowed' : 'pointer', fontWeight: 700,
+                                    cursor: (!payslipReadiness?.canSend || unpaidSelectedList.length > 0 || !sendPayslipConfirm) ? 'not-allowed' : 'pointer', fontWeight: 700,
                                 }}>
                                 {sendingEmails
                                     ? 'Sending…'
@@ -2006,6 +2037,7 @@ export default function PayrollSheet({ user }) {
                         <tbody>
                             {rows.map(({ emp, cfg, calc }, i) => {
                                 const isEmpLocked = lockedIds.has(emp.id);
+                                const isEmpPaid = paidIdSet.has(emp.id);
                                 const rowBg = selectedIds.has(emp.id) ? 'rgba(56,189,248,0.07)' : isEmpLocked ? 'rgba(239,68,68,0.04)' : (i % 2 === 0 ? 'var(--bg-card)' : '#171c28');
                                 // ── NO CONTRACT WARNING ROW ──────────────────────────────────────────
                                 if (cfg._noContract) {
@@ -2073,6 +2105,17 @@ export default function PayrollSheet({ user }) {
                                                 <div>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
                                                         <span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{emp.name}</span>
+                                                        <span
+                                                            title={`Payslip eligibility: ${isEmpLocked ? 'locked' : 'not locked'}, ${isEmpPaid ? 'paid in Accounts Payable' : 'not paid in Accounts Payable'}`}
+                                                            style={{
+                                                                fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.02em', whiteSpace: 'nowrap',
+                                                                color: isEmpLocked && isEmpPaid ? '#86efac' : '#fbbf24',
+                                                                background: isEmpLocked && isEmpPaid ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)',
+                                                                border: `1px solid ${isEmpLocked && isEmpPaid ? 'rgba(34,197,94,0.35)' : 'rgba(245,158,11,0.35)'}`,
+                                                                borderRadius: '4px', padding: '1px 5px',
+                                                            }}>
+                                                            locked {isEmpLocked ? '✓' : '—'} / paid {isEmpPaid ? '✓' : '—'}
+                                                        </span>
                                                         {(() => {
                                                             const isInvoiced =
                                                                 invoiceStatus.invoicedClients.includes((emp.client || '').toLowerCase()) ||
