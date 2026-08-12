@@ -51,7 +51,7 @@ function registerPayslipRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail, sendJazzSMS } = deps;
     const mailDeps = { sendAppEmail, sendJazzSMS };
 
-    app.get('/api/payroll/:year/:month/payslip-readiness', requireAuth, requireRole('finance_manager', 'superadmin'), async (req, res) => {
+    app.get('/api/payroll/:year/:month/payslip-readiness', requireAuth, requireRole('finance_manager', 'finance_approver', 'payroll_initiator', 'superadmin'), async (req, res) => {
         try {
             const { year, month } = req.params;
             const { employeeIds = [] } = req.query;
@@ -62,7 +62,7 @@ function registerPayslipRoutes(app, deps) {
         }
     });
 
-    app.post('/api/payroll/:year/:month/send-payslips', requireAuth, requireRole('finance_manager', 'superadmin'), async (req, res) => {
+    app.post('/api/payroll/:year/:month/send-payslips', requireAuth, requireRole('finance_manager', 'finance_approver', 'payroll_initiator', 'superadmin'), async (req, res) => {
         try {
             const { year, month } = req.params;
             const { employeeIds = [], confirm = false, forceResend = false } = req.body || {};
