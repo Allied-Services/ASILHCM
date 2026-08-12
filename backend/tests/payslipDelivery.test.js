@@ -2,39 +2,61 @@
 
 const { buildWorldAPayslipData, normalizeCnic } = require('../src/modules/payslip/dataBuilder');
 const { buildSmsMessage, payslipPdfLink, backendBase } = require('../src/modules/payslip/service');
+const { renderPayslipHtml } = require('../src/modules/payslip/template');
 
 describe('payslip dataBuilder', () => {
     test('normalizeCnic strips dashes', () => {
         expect(normalizeCnic('42101-1234567-8')).toBe('4210112345678');
     });
 
-    test('buildWorldAPayslipData uses gross salary line not basic split', () => {
-        const emp = { id: 'ASIL-1', name: 'Test', salary: 52000, cnic: '4210112345678' };
+    test('snapshot payslip shows full gross + absent deduction and keeps net', () => {
+        const emp = { id: 'ASILFM/SPL/22/79', name: 'Nisar', salary: 40000, cnic: '4240192494053' };
         const pay = {
-            paid_days: 26,
-            ot2_hrs: 4,
-            ot3_hrs: 2,
-            opd_claim: 1000,
-            reimbursement: 500,
-            wht: 1000,
+            year: 2026,
+            month: 7,
+            paid_days: 27.1,
+            other_deduction: 1667,
+            wht: 0,
             eobi_ee: 400,
-            net: 50000,
+            net: 34062,
+            computed_json: {
+                basicPaid: 36129,
+                grossMonthly: 36129,
+                netPay: 34062,
+                incomeTax: 0,
+                eobi_ee: 400,
+                pfEE: 0,
+                advanceDed: 0,
+                loanDed: 0,
+                ot2hrs: 0,
+                ot3hrs: 0,
+                otAmount: 0,
+                opdClaim: 0,
+                reimb: 0,
+                arrears: 0,
+                splAllow: 0,
+                fuelMob: 0,
+                bonusDisbursed: 0,
+                pd: 27.1,
+                absentDays: 0,
+                absenceDeduction: 0,
+            },
         };
         const data = buildWorldAPayslipData(emp, pay, 'None');
-        const labels = data.additions.map(a => a.label);
-        expect(labels.some(l => l.includes('Gross Salary'))).toBe(true);
-        expect(labels.some(l => l.includes('Basic'))).toBe(false);
-        expect(labels.some(l => l.includes('Overtime 2X'))).toBe(true);
-        expect(labels.some(l => l.includes('Overtime 3X'))).toBe(true);
-        expect(labels.some(l => l.includes('Medical Reimbursement'))).toBe(true);
-        expect(labels.some(l => l.includes('Expense Reimbursement'))).toBe(true);
-        expect(data.overtime.ot2Hrs).toBe(4);
-        expect(data.overtime.ot3Hrs).toBe(2);
-        expect(data.overtime.otAmount).toBe(data.overtime.ot2Amount + data.overtime.ot3Amount);
-        expect(data.reimbursements.medical).toBe(1000);
-        expect(data.reimbursements.expense).toBe(500);
-        expect(data.taxDeductions).toBe(1000);
-        expect(data.netPay).toBe(50000);
+        const grossLine = data.additions.find(a => a.label === 'Gross Salary');
+        const absentLine = data.deductions.find(d => String(d.label).startsWith('Absent Deductions'));
+        expect(grossLine.amount).toBe(40000);
+        expect(absentLine).toBeTruthy();
+        expect(absentLine.label).toMatch(/3 days/);
+        expect(absentLine.amount).toBeCloseTo(3870.97, 1);
+        expect(data.netPay).toBe(34062);
+        expect(data.grossTotal - data.totalDeductions).toBeCloseTo(data.netPay, 1);
+        expect(data.paidDays).toBe(28);
+        expect(data.workingDays).toBe(31);
+
+        const html = renderPayslipHtml(data, { year: 2026, month: 7 });
+        expect(html).toContain('Absent Deductions (3 days)');
+        expect(html).not.toContain('Paid Days:');
     });
 });
 

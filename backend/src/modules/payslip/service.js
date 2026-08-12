@@ -182,7 +182,8 @@ async function sendPayslips(pool, deps, opts) {
                e.client, e.location, e.bank_name, e.bank_account, e.contract_name, e.contract, e.salary,
                pt.paid_days, pt.gross, pt.net, pt.ot2_hrs, pt.ot3_hrs, pt.opd_claim, pt.reimbursement,
                pt.arrears, pt.special_allowance, pt.fuel_mobile, pt.bonus_amount, pt.wht, pt.eobi_ee,
-               pt.advance_deduction, pt.loan_deduction, pt.other_deduction, pt.locked
+               pt.advance_deduction, pt.loan_deduction, pt.other_deduction, pt.locked,
+               pt.year, pt.month, pt.computed_json
         FROM payroll_transactions pt
         JOIN employees e ON e.id = pt.employee_id
         WHERE pt.year = $1 AND pt.month = $2 AND pt.locked = TRUE`;

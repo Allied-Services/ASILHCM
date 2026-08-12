@@ -14,15 +14,64 @@ import { claimsBadgeStyle } from './utils/claimsRouting';
 const fmt = v => Math.round(parseFloat(v) || 0).toLocaleString('en-PK');
 const Rs = v => `Rs. ${fmt(v)}`;
 
+/** Calendar days in YYYY-MM (July → 31). Used as the Payroll Sheet Working Days default. */
+function calendarDaysInMonthStr(ym) {
+    const [y, m] = String(ym || '').split('-').map(Number);
+    if (!y || !m) return 26;
+    return new Date(y, m, 0).getDate();
+}
+
+/**
+ * PD Days shown in the sheet — calendar present days, never back-solved from salary.
+ * Prefer stored paid_days when it is a clean day count; if snapshot has absentDays,
+ * show (calendar working days − absent).
+ */
+function resolveDisplayPaidDays(ov, calc, workDays) {
+    const absent = parseFloat(calc?.absentDays);
+    if (Number.isFinite(absent) && absent > 0 && workDays > 0) {
+        return Math.round((workDays - absent) * 100) / 100;
+    }
+    const pd = parseFloat(ov?.paid_days ?? calc?.pd ?? workDays);
+    return Number.isFinite(pd) ? pd : workDays;
+}
+
 /** Display calc from server snapshot (never browser-computed). */
-function calcFromServer(row, ov = {}) {
+function calcFromServer(row, ov = {}, empGross = 0) {
     const snap = row?.computed_json && typeof row.computed_json === 'object'
         ? row.computed_json
         : (typeof row?.computed_json === 'string'
             ? (() => { try { return JSON.parse(row.computed_json); } catch { return null; } })()
             : null);
     if (snap && (snap.serverComputed || snap.netPay != null || snap.grossMonthly != null)) {
-        return { ...snap, serverComputed: true };
+        const salary = parseFloat(empGross) || 0;
+        const basicPaid = parseFloat(snap.basicPaid) || 0;
+        let absentDays = parseFloat(snap.absentDays) || 0;
+        let absenceDeduction = parseFloat(snap.absenceDeduction) || 0;
+        if (absenceDeduction <= 0 && salary > 0 && basicPaid > 0 && basicPaid < salary) {
+            absenceDeduction = Math.round((salary - basicPaid) * 100) / 100;
+        }
+        if (absentDays <= 0 && salary > 0 && absenceDeduction > 0) {
+            // Infer absent days from money gap vs calendar month (does not change net pay).
+            const ym = row.year && row.month
+                ? `${row.year}-${String(row.month).padStart(2, '0')}`
+                : (ov._payrollMonth || null);
+            const cal = calendarDaysInMonthStr(ym);
+            if (cal >= 28) absentDays = Math.round((absenceDeduction / salary) * cal);
+        }
+        const ym = row.year && row.month
+            ? `${row.year}-${String(row.month).padStart(2, '0')}`
+            : (ov._payrollMonth || null);
+        const cal = calendarDaysInMonthStr(ym);
+        const pd = absentDays > 0 && cal >= 28
+            ? Math.round((cal - absentDays) * 100) / 100
+            : (snap.pd != null ? snap.pd : ov.paid_days);
+        return {
+            ...snap,
+            pd,
+            absentDays,
+            absenceDeduction,
+            serverComputed: true,
+        };
     }
     const gross = parseFloat(row?.gross) || 0;
     const net = parseFloat(row?.net) || 0;
@@ -587,7 +636,7 @@ export default function PayrollSheet({ user }) {
     const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 
     const [month, setMonth] = useState(defaultMonth);
-    const [workDays, setWorkDays] = useState(26);
+    const [workDays, setWorkDays] = useState(() => calendarDaysInMonthStr(defaultMonth));
     const [filterClient, setFilterClient] = useState('All');
     const [filterContract, setFilterContract] = useState('All');
     const [filterLoc, setFilterLoc] = useState('All');
@@ -646,7 +695,8 @@ export default function PayrollSheet({ user }) {
     // empMapRef: map of employee_id -> { emp, cfg } for quick lookup in save callbacks
     const empMapRef     = useRef({});
     // workDaysRef: mirror of workDays to avoid stale closures in async callbacks
-    const workDaysRef   = useRef(26);
+    const workDaysRef   = useRef(calendarDaysInMonthStr(defaultMonth));
+    const prevWorkDays = useRef(calendarDaysInMonthStr(defaultMonth));
     // rowsRef: latest rendered rows list (used by lock handler to build save payload)
     const rowsRef       = useRef([]);
     // perEmpTimers: per-employee debounce timers so editing emp A doesn’t cancel emp B’s pending save
@@ -742,8 +792,26 @@ export default function PayrollSheet({ user }) {
         const srv = {};
         data.rows.forEach(r => {
             srv[r.employee_id] = r;
+            const snap = r.computed_json && typeof r.computed_json === 'object'
+                ? r.computed_json
+                : (typeof r.computed_json === 'string'
+                    ? (() => { try { return JSON.parse(r.computed_json); } catch { return null; } })()
+                    : null);
+            const cal = calendarDaysInMonthStr(month);
+            let paidDays = r.paid_days;
+            const empMeta = empMapRef.current[r.employee_id]?.emp;
+            const salary = parseFloat(empMeta?.gross) || 0;
+            if (snap) {
+                if (Number(snap.absentDays) > 0) {
+                    paidDays = Math.round((cal - Number(snap.absentDays)) * 100) / 100;
+                } else if (salary > 0 && Number(snap.basicPaid) > 0 && Number(snap.basicPaid) < salary) {
+                    // Recover calendar PD from contractual salary vs paid basic (fixes 27.1-style back-solves).
+                    const absent = Math.round(((salary - Number(snap.basicPaid)) / salary) * cal);
+                    if (absent > 0) paidDays = cal - absent;
+                }
+            }
             ov[r.employee_id] = {
-                ...(r.paid_days != null ? { paid_days: r.paid_days } : {}),
+                ...(paidDays != null ? { paid_days: paidDays } : {}),
                 ot2_hrs:           r.ot2_hrs,
                 ot3_hrs:           r.ot3_hrs,
                 opd_claim:         r.opd_claim,
@@ -791,6 +859,15 @@ export default function PayrollSheet({ user }) {
 
     // Keep workDaysRef in sync whenever workDays changes
     useEffect(() => { workDaysRef.current = workDays; }, [workDays]);
+
+    // When the payroll month changes, align Working Days to the calendar length
+    // (July=31, Feb=28/29). Do NOT trigger persistAllUnlocked — that would rewrite pay.
+    useEffect(() => {
+        const cal = calendarDaysInMonthStr(month);
+        setWorkDays(cal);
+        workDaysRef.current = cal;
+        prevWorkDays.current = cal;
+    }, [month]);
     // Keep monthRef in sync whenever month changes
     useEffect(() => { monthRef.current = month; }, [month]);
 
@@ -934,10 +1011,10 @@ export default function PayrollSheet({ user }) {
         finally { setIsSaving(false); }
     };
 
-    // \u2500\u2500 When Working Days changes, bulk-save every unlocked employee \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-    const prevWorkDays = useRef(workDays);
+    // ── When Working Days changes manually, bulk-save unlocked rows.
+    // Calendar sync from month change updates prevWorkDays first so this is a no-op.
     useEffect(() => {
-        if (workDays === prevWorkDays.current) return; // skip mount
+        if (workDays === prevWorkDays.current) return; // skip mount / calendar month sync
         prevWorkDays.current = workDays;
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => persistAllUnlocked(workDays), 1200);
@@ -1138,7 +1215,7 @@ export default function PayrollSheet({ user }) {
             medical_ch2:  getOv(emp.id, 'medical_ch2', useCsvFallback ? 0           : defMedCh2),
         };
         const srv = serverRows[emp.id] || serverRowsRef.current[emp.id];
-        const calc = srv ? calcFromServer(srv, ov) : emptyServerCalc(ov);
+        const calc = srv ? calcFromServer(srv, { ...ov, _payrollMonth: month }, emp.gross) : emptyServerCalc(ov);
         return { emp, cfg, calc, ov };
     });
     // Keep ref in sync so workDays save and lock handler always use current data
@@ -1382,8 +1459,9 @@ export default function PayrollSheet({ user }) {
                         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', padding: '7px 12px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none' }} />
                 </div>
                 <div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>Working Days</div>
-                    <input type="number" value={workDays} min={20} max={31} onChange={e => setWorkDays(parseInt(e.target.value) || 26)}
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>Working Days (calendar)</div>
+                    <input type="number" value={workDays} min={28} max={31} onChange={e => setWorkDays(parseInt(e.target.value) || calendarDaysInMonthStr(month))}
+                        title="Full-month days for this payroll month (e.g. July = 31). PD Days = calendar days − absences."
                         style={{ width: '72px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', padding: '7px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none' }} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -1863,7 +1941,17 @@ export default function PayrollSheet({ user }) {
                                         </td>
                                         <td style={{ position: 'sticky', left: 216, zIndex: 2, background: rowBg, padding: '6px 7px', fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '140px' }}>{emp.contract}<br /><span style={{ fontSize: '0.68rem' }}>{emp.location}</span></td>
                                         <td style={{ position: 'sticky', left: 356, zIndex: 2, background: rowBg, padding: '6px 7px', textAlign: 'right', fontWeight: 600, borderRight: '2px solid var(--border)', whiteSpace: 'nowrap', fontSize: '0.82rem', minWidth: '80px' }}>{fmt(emp.gross)}</td>
-                                        <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="paid_days" def={workDays} /></td>
+                                        <td style={{ padding: '3px 3px' }}>
+                                            <EC
+                                                empId={emp.id}
+                                                field="paid_days"
+                                                def={resolveDisplayPaidDays(
+                                                    { paid_days: getOv(emp.id, 'paid_days', workDays) },
+                                                    calc,
+                                                    workDays,
+                                                )}
+                                            />
+                                        </td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="ot2_hrs" def={0} /></td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="ot3_hrs" def={0} /></td>
                                         <RC val={calc.otAmount} muted={!calc.otAmount} />

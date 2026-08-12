@@ -41,12 +41,18 @@ function trialBannerHtml() {
 }
 
 function money(amount) {
-    return Math.round(amount || 0).toLocaleString('en-PK');
+    const n = Number(amount) || 0;
+    if (Math.abs(n - Math.round(n)) < 0.001) {
+        return Math.round(n).toLocaleString('en-PK');
+    }
+    return n.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function rowHtml(label, amount, isDeduction = false) {
     if (amount == null || amount < 0) return '';
     if (!isDeduction && amount <= 0) return '';
+    // Keep explicit 0 tax/EOBI rows off the slip when amount is zero
+    if (isDeduction && amount <= 0 && !String(label).startsWith('Absent')) return '';
     const cls = isDeduction ? ' deduction' : '';
     const prefix = isDeduction ? '- ' : '';
     return `<tr><td>${label}</td><td class="amount${cls}">${prefix}${money(amount)}</td></tr>`;
