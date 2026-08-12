@@ -40,8 +40,10 @@ function designationMatchKeys(designation) {
         'store keeping': ['storekeeper', 'store keeping'],
         'general additional': ['general additional', 'additional general', 'additional', 'general'],
         'additional general': ['general additional', 'additional general', 'additional', 'general'],
-        'general housekeeping': ['general housekeeping', 'sweeping cleaning', 'housekeeping'],
-        'sweeping cleaning': ['sweeping cleaning', 'general housekeeping', 'housekeeping'],
+        'general housekeeping': ['general housekeeping', 'sweeping cleaning', 'housekeeping', 'janitor'],
+        'sweeping cleaning': ['sweeping cleaning', 'general housekeeping', 'housekeeping', 'janitor'],
+        // Live roster often stores "Janitor" while SO roles say "Sweeping / Cleaning Services"
+        janitor: ['janitor', 'sweeping cleaning', 'general housekeeping', 'housekeeping'],
         'mechanical technician': ['mechanical technician', 'fitter', 'm r support'],
         fitter: ['fitter', 'mechanical technician', 'm r support'],
         'm r support': ['m r support', 'fitter', 'mechanical technician'],

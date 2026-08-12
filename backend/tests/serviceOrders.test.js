@@ -237,6 +237,20 @@ describe('serviceOrders — designation → SO line match', () => {
         const m = findLineForDesignation(chakLines, 'M & R Support Services');
         expect(m).not.toBeNull();
     });
+
+    test('Janitor aliases to Sweeping / Cleaning on Chakpirana Office/Misc', () => {
+        const chak = require('../../scripts/seeds/pso_sites.json').find(s => s.id === 'CHAKPIRANA');
+        const chakLines = chak.lineItems.map(l => ({
+            id: l.id,
+            is_manpower_dependent: !!l.isManpowerDependent,
+            rate: l.rate,
+            roles: l.roles || [],
+        }));
+        const m = findLineForDesignation(chakLines, 'Janitor');
+        expect(m).not.toBeNull();
+        expect(m.line.id).toBe('cp-item-1');
+        expect(m.roles.some(r => /sweeping|cleaning/i.test(r.designation))).toBe(true);
+    });
 });
 
 describe('serviceOrders — excel parse', () => {
