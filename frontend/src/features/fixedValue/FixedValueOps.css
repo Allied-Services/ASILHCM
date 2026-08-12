@@ -286,3 +286,40 @@
   color: var(--text);
   min-width: 220px;
 }
+
+.fv-adj-block {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.fv-adj-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+.fv-adj-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.fv-adj-field input {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text);
+  min-width: 140px;
+}
+.fv-adj-note {
+  flex: 1 1 280px;
+}
+.fv-adj-note input {
+  width: 100%;
+  min-width: 240px;
+}
+.fv-adj-remove {
+  padding: 6px 8px;
+}

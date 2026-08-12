@@ -719,6 +719,10 @@ export const api = {
     replaceFixedValueLines: (id, lines) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/lines`, { method: 'PUT', body: JSON.stringify({ lines }) }),
     getFixedValueDeductions: (id, month, year) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/deductions?month=${month}&year=${year}`),
     addFixedValueDeduction: (id, data) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/deductions`, { method: 'POST', body: JSON.stringify(data) }),
+    deleteFixedValueDeduction: (id, deductionId) => apiFetch(
+        `/api/fixed-value/service-orders/${encodeURIComponent(id)}/deductions/${encodeURIComponent(deductionId)}`,
+        { method: 'DELETE' }
+    ),
     uploadFixedValueAttendance: async (id, month, year, file) => {
         const token = localStorage.getItem('asil_hcm_token');
         const fd = new FormData();

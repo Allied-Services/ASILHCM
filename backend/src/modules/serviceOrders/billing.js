@@ -123,7 +123,7 @@ async function addManualDeduction(pool, payload, actor) {
         service_order_id,
         period_month,
         period_year,
-        type = 'manual',
+        type = 'adjustment',
         employee_id,
         days_absent,
         amount,
@@ -135,23 +135,58 @@ async function addManualDeduction(pool, payload, actor) {
         err.status = 400;
         throw err;
     }
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+        const err = new Error('amount must be a positive number (credit/reduction on the invoice)');
+        err.status = 400;
+        throw err;
+    }
+    const noteText = note != null ? String(note).trim() : '';
     const { rows } = await pool.query(
         `INSERT INTO so_deductions
-         (service_order_id, line_id, period_month, period_year, type, employee_id, days_absent, amount, source, approved_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manual',$9)
+         (service_order_id, line_id, period_month, period_year, type, employee_id, days_absent, amount, source, approved_by, note)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manual',$9,$10)
          RETURNING *`,
         [
             service_order_id,
             line_id || null,
             period_month,
             period_year,
-            type,
+            type || 'adjustment',
             employee_id || null,
             days_absent != null ? Number(days_absent) : null,
-            round2(amount),
+            round2(amt),
             actor || null,
+            noteText || null,
         ]
     );
+    return rows[0];
+}
+
+/**
+ * Remove a manual invoice adjustment only (source='manual').
+ * Attendance absences cannot be deleted here.
+ */
+async function deleteManualDeduction(pool, serviceOrderId, deductionId) {
+    const id = parseInt(deductionId, 10);
+    if (!serviceOrderId || !Number.isFinite(id)) {
+        const err = new Error('service_order_id and deduction id are required');
+        err.status = 400;
+        throw err;
+    }
+    const { rows } = await pool.query(
+        `DELETE FROM so_deductions
+         WHERE id = $1
+           AND service_order_id = $2
+           AND source = 'manual'
+         RETURNING *`,
+        [id, serviceOrderId]
+    );
+    if (!rows[0]) {
+        const err = new Error('Manual adjustment not found (attendance shortages cannot be deleted here)');
+        err.status = 404;
+        throw err;
+    }
     return rows[0];
 }
 
@@ -326,6 +361,7 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
             id: d.id,
             line_id: d.line_id,
             type: d.type,
+            source: d.source,
             employee_id: d.employee_id,
             employee_name: d.employee_name,
             employee_designation: d.employee_designation,
@@ -601,6 +637,7 @@ module.exports = {
     FV_REGENERATABLE_STATUSES,
     listDeductions,
     addManualDeduction,
+    deleteManualDeduction,
     computeSoInvoice,
     persistSoInvoice,
     updateFvInvoiceNumber,

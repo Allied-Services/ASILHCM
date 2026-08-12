@@ -85,7 +85,13 @@ function shortageLabel(d) {
 }
 
 function orphanShortageLabel(d) {
-    return `• ${d.label || d.note || d.type || 'Deduction'}${d.employee_id ? ` (${d.employee_id})` : ''}${d.employee_name || d.employeeName ? ` — ${d.employee_name || d.employeeName}` : ''}`;
+    if (d.note || d.label) {
+        return `• ${d.label || d.note}`;
+    }
+    if (d.type === 'adjustment' || d.type === 'manual') {
+        return `• Invoice adjustment${d.employee_id ? ` (${d.employee_id})` : ''}`;
+    }
+    return `• ${d.type || 'Deduction'}${d.employee_id ? ` (${d.employee_id})` : ''}${d.employee_name || d.employeeName ? ` — ${d.employee_name || d.employeeName}` : ''}`;
 }
 
 function baseStyles(letterhead) {

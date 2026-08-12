@@ -5,6 +5,8 @@ const {
     FV_REGENERATABLE_STATUSES,
     printInvoiceHtml,
     parseInvoiceNotes,
+    addManualDeduction,
+    deleteManualDeduction,
 } = require('../src/modules/serviceOrders/billing');
 const {
     mapLinesForInvoice,
@@ -265,7 +267,7 @@ describe('FV invoice — per-line shortages (Chakpirana July)', () => {
                 lineItems,
                 deductions: [
                     ...deductions,
-                    { id: 99, line_id: null, type: 'manual', amount: 500, note: 'Other adjustment' },
+                    { id: 99, line_id: null, type: 'adjustment', amount: 500, note: 'Other adjustment' },
                 ],
                 gross,
                 totalDeductions: totalDeductions + 500,
@@ -278,6 +280,8 @@ describe('FV invoice — per-line shortages (Chakpirana July)', () => {
         expect(html).toContain('LESS: Additional Shortages / Adjustments');
         expect(html).toContain('Other adjustment');
         expect(html).toContain('Nabeel Hussain (Lube Handling Services)');
+        expect(html.indexOf('LESS: Additional Shortages / Adjustments'))
+            .toBeLessThan(html.indexOf('Gross Total Contract Value'));
     });
 
     test('Janitor designation attributes to Office/Misc, not catch-all', () => {
@@ -483,5 +487,77 @@ describe('FV invoice — invoice number patch', () => {
         const html = await printInvoiceHtml(pool, invRow, 'invoice');
         expect(html).toContain('INV-JUL26-CUSTOM');
         expect(parseInvoiceNotes(invRow.notes).service_order_id).toBe('SO-PSO-CHAKPIRANA');
+    });
+});
+
+describe('FV invoice — manual adjustments', () => {
+    test('addManualDeduction persists note and defaults type to adjustment', async () => {
+        const inserted = {
+            id: 55,
+            service_order_id: 'SO-PSO-CHAKPIRANA',
+            period_month: 7,
+            period_year: 2026,
+            type: 'adjustment',
+            amount: 1830.26,
+            source: 'manual',
+            note: 'Credit — June services not delivered',
+        };
+        const pool = {
+            query: jest.fn().mockResolvedValueOnce({ rows: [inserted] }),
+        };
+        const row = await addManualDeduction(pool, {
+            service_order_id: 'SO-PSO-CHAKPIRANA',
+            period_month: 7,
+            period_year: 2026,
+            amount: 1830.26,
+            note: 'Credit — June services not delivered',
+        }, 'ar@asil.com.pk');
+        expect(row.note).toBe('Credit — June services not delivered');
+        expect(pool.query).toHaveBeenCalledWith(
+            expect.stringMatching(/INSERT INTO so_deductions/i),
+            expect.arrayContaining([
+                'SO-PSO-CHAKPIRANA',
+                null,
+                7,
+                2026,
+                'adjustment',
+                null,
+                null,
+                1830.26,
+                'ar@asil.com.pk',
+                'Credit — June services not delivered',
+            ])
+        );
+    });
+
+    test('addManualDeduction rejects zero or negative amount', async () => {
+        const pool = { query: jest.fn() };
+        await expect(addManualDeduction(pool, {
+            service_order_id: 'SO-PSO-X',
+            period_month: 7,
+            period_year: 2026,
+            amount: 0,
+            note: 'x',
+        })).rejects.toMatchObject({ status: 400 });
+        expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    test('deleteManualDeduction removes only source=manual rows', async () => {
+        const pool = {
+            query: jest.fn().mockResolvedValueOnce({
+                rows: [{ id: 55, source: 'manual', amount: 100 }],
+            }),
+        };
+        const row = await deleteManualDeduction(pool, 'SO-PSO-CHAKPIRANA', 55);
+        expect(row.id).toBe(55);
+        expect(pool.query).toHaveBeenCalledWith(
+            expect.stringMatching(/DELETE FROM so_deductions/i),
+            [55, 'SO-PSO-CHAKPIRANA']
+        );
+        expect(pool.query.mock.calls[0][0]).toMatch(/source = 'manual'/);
+
+        const miss = { query: jest.fn().mockResolvedValueOnce({ rows: [] }) };
+        await expect(deleteManualDeduction(miss, 'SO-PSO-CHAKPIRANA', 99))
+            .rejects.toMatchObject({ status: 404 });
     });
 });
