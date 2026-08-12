@@ -10,6 +10,7 @@ const { Pool } = require('pg');
 const { Resend } = require('resend');
 
 const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratuity } = require('./taxEngine');
+const { readPayrollSnapshot, exportRowFromSnapshot } = require('./src/payroll/snapshotView');
 const { startEmailClaimsService, triggerManualPoll } = require('./emailClaimsService');
 const wafiClaims = require('./wafiClaimsService');
 const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmailClient, buildConfirmationHtml, createGmailDraft, reprocessSession } = wafiClaims;
@@ -2411,7 +2412,6 @@ app.get('/api/payslip/:employeeId/:month/:year', requirePayslipAuth, async (req,
     } catch (err) { console.error('[GET /api/payslip/:employeeId/:month/:year]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 // HITL FLAGS — Bills where OCR total ≠ items sum
 // ❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖❖
 
@@ -3636,6 +3636,11 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         };
 
         const calcRow = (emp, pay) => {
+            // The Payroll Sheet snapshot is authoritative — render it, never re-derive it.
+            const snap = readPayrollSnapshot(pay);
+            if (snap) return exportRowFromSnapshot(emp, pay, snap);
+            // Legacy path: months calculated before computed_json existed (pre 2026-08-10)
+            // have no snapshot. Kept so historical exports stay byte-identical.
             const gross  = parseFloat(emp.salary) || parseFloat(emp.gross) || 0;
             const pd     = Math.max(0, parseFloat(pay?.paid_days ?? WD) || WD);
             // Universal formula: gross = salary x paid_days / workDays
