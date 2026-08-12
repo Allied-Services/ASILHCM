@@ -966,19 +966,22 @@ export default function PayrollSheet({ user }) {
         downloadCSV(`HBL_Selected_${month}.csv`, buildHBLFile(selectedRows, month));
     };
 
-    // Generate payslips for selected - authenticated fetch → blob download (no popup blocker)
+    // Generate payslips — World A sheet layout; preview first + download all
     const generatePayslips = async () => {
         if (!selectedRows.length) return alert('Select at least one employee.');
-        const API_URL = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
-        const token = localStorage.getItem('asil_hcm_token');
+        const [yr2, mo2] = month.split('-');
+        let previewOpened = false;
         for (const r of selectedRows) {
-            const [yr2, mo2] = month.split('-');
             try {
-                const res = await fetch(`${API_URL}/api/payslip/${encodeURIComponent(r.emp.id)}/${mo2}/${yr2}`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                if (!res.ok) { alert(`Payslip error for ${r.emp.name}: HTTP ${res.status}`); continue; }
-                const html = await res.text();
+                const html = await api.fetchPayslipHtml(r.emp.id, mo2, yr2, { source: 'world_a' });
+                if (!previewOpened) {
+                    const w = window.open('', '_blank');
+                    if (w) {
+                        w.document.write(html);
+                        w.document.close();
+                        previewOpened = true;
+                    }
+                }
                 const blob = new Blob([html], { type: 'text/html' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -986,7 +989,7 @@ export default function PayrollSheet({ user }) {
                 a.download = `Payslip_${r.emp.id}_${mo2}-${yr2}.html`;
                 document.body.appendChild(a); a.click();
                 document.body.removeChild(a); URL.revokeObjectURL(url);
-            } catch(e) { alert(`Payslip error for ${r.emp.name}: ${e.message}`); }
+            } catch (e) { alert(`Payslip error for ${r.emp.name}: ${e.message}`); }
         }
     };
 
@@ -1531,6 +1534,7 @@ export default function PayrollSheet({ user }) {
                         <MessageSquare size={15} /> Send SMS
                     </button>
                     <button onClick={generatePayslips}
+                        title="Preview first slip in a new tab and download HTML for all selected"
                         style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.3)', color: '#38bdf8', padding: '5px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
                         <FileTextIcon size={15} /> Generate Payslips
                     </button>
@@ -1804,6 +1808,15 @@ export default function PayrollSheet({ user }) {
                                                 <button onClick={() => setBreakdown({ emp, calc, cfg })} title="Verify calculation"
                                                     style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '4px', padding: '2px 6px', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                                     Verify
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const [yr, mo] = month.split('-');
+                                                        api.openPayslip(emp.id, mo, yr, { source: 'world_a' });
+                                                    }}
+                                                    title="Preview World A payslip"
+                                                    style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '4px', padding: '2px 6px', color: '#22c55e', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                                    Payslip
                                                 </button>
                                                 {isSuperAdmin && (
                                                     <button

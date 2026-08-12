@@ -38,19 +38,21 @@ function rowHtml(label, amount, isDeduction = false) {
     return `<tr><td>${label}</td><td class="amount${cls}">${prefix}${money(amount)}</td></tr>`;
 }
 
+/**
+ * Layout: Earnings (OT / reimbursements as line items only) → GROSS TOTAL
+ * → Deductions (if any) → Net Salary Payable.
+ * No separate Overtime Detail / Reimbursements panels — those duplicated the earnings table.
+ */
 function renderPayslipHtml(data, { year, month }) {
     const monthName = new Date(2000, parseInt(month, 10) - 1, 1).toLocaleString('en-PK', { month: 'long' });
     const {
         emp, additions, deductions, grossTotal, totalDeductions, netPay,
-        paidDays, workingDays, overtime, reimbursements, taxDeductions, otherDeductions,
+        paidDays, workingDays, taxDeductions, otherDeductions,
     } = data;
 
     const earningsRows = additions.map(r => rowHtml(r.label, r.amount)).join('');
     const deductionRows = deductions.map(r => rowHtml(r.label, r.amount, true)).join('');
-    const ot = overtime || { ot2Hrs: 0, ot3Hrs: 0, ot2Amount: 0, ot3Amount: 0, otAmount: 0 };
-    const reimb = reimbursements || { medical: 0, expense: 0, total: 0 };
-    const hasOt = (ot.ot2Hrs > 0 || ot.ot3Hrs > 0);
-    const hasReimb = (reimb.medical > 0 || reimb.expense > 0);
+    const hasDeductions = deductions.length > 0 && totalDeductions > 0;
 
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Salary Slip — ${emp.name} — ${monthName} ${year}</title>
@@ -195,32 +197,6 @@ function renderPayslipHtml(data, { year, month }) {
     border-bottom: none;
     color: #0f172a;
   }
-  .panels {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin: 0 20px 14px;
-  }
-  .panel {
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    overflow: hidden;
-    background: #fff;
-  }
-  .panel-h {
-    padding: 8px 12px;
-    font-size: 8pt;
-    font-weight: 800;
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    color: #0f2744;
-    background: #f1f5f9;
-    border-bottom: 1px solid #e2e8f0;
-  }
-  .panel.ot .panel-h { background: #eff6ff; color: #1e40af; }
-  .panel.reimb .panel-h { background: #f0fdf4; color: #166534; }
-  .panel table td { font-size: 8.5pt; padding: 6px 10px; }
-  .panel .sub { color: #64748b; font-weight: 500; }
   .summary-strip {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -322,28 +298,7 @@ ${trialBannerHtml()}
     </table>
   </div>
 
-  ${(hasOt || hasReimb) ? `<div class="panels">
-    ${hasOt ? `<div class="panel ot">
-      <div class="panel-h">Overtime Detail</div>
-      <table>
-        <tr><td>OT 2X Hours</td><td class="amount">${ot.ot2Hrs}</td></tr>
-        <tr><td>OT 2X Amount (PKR)</td><td class="amount">${money(ot.ot2Amount)}</td></tr>
-        <tr><td>OT 3X Hours</td><td class="amount">${ot.ot3Hrs}</td></tr>
-        <tr><td>OT 3X Amount (PKR)</td><td class="amount">${money(ot.ot3Amount)}</td></tr>
-        <tr class="total-row"><td>Total Overtime</td><td class="amount">${money(ot.otAmount)}</td></tr>
-      </table>
-    </div>` : '<div></div>'}
-    ${hasReimb ? `<div class="panel reimb">
-      <div class="panel-h">Reimbursements</div>
-      <table>
-        <tr><td>Medical Reimbursement</td><td class="amount">${money(reimb.medical)}</td></tr>
-        <tr><td>Expense Reimbursement</td><td class="amount">${money(reimb.expense)}</td></tr>
-        <tr class="total-row"><td>Total Reimbursements</td><td class="amount">${money(reimb.total)}</td></tr>
-      </table>
-    </div>` : '<div></div>'}
-  </div>` : ''}
-
-  <div class="section">
+  ${hasDeductions ? `<div class="section">
     <div class="section-title">Deductions</div>
     <table>
       <thead><tr><th>Description</th><th>Amount (PKR)</th></tr></thead>
@@ -351,7 +306,7 @@ ${trialBannerHtml()}
         <tr class="total-row"><td>TOTAL DEDUCTIONS</td><td class="amount deduction">- ${money(totalDeductions)}</td></tr>
       </tbody>
     </table>
-  </div>
+  </div>` : ''}
 
   <div class="summary-strip">
     <div class="summary-cell"><div class="k">Gross</div><div class="v">${money(grossTotal)}</div></div>
@@ -397,7 +352,7 @@ function renderEmailCoverHtml({ emp, monthName, year, frontendUrl, netPay, testR
   <p>Your salary for <strong>${monthName} ${year}</strong> has been processed. Please find your detailed payslip attached as a password-protected PDF.</p>
   ${netLine}
   <p><strong>Password:</strong> your CNIC number (digits only, no dashes).</p>
-  <p>The payslip shows overtime (2X / 3X hours &amp; amounts), medical &amp; expense reimbursements, deductions, tax, and net payable.</p>
+  <p>The payslip lists earnings (including overtime and reimbursements), deductions, tax, and net payable.</p>
   <p>Portal: <a href="${frontendUrl}" style="color:#1e3a5f;">${frontendUrl}</a></p>
   <p>Queries: <a href="mailto:${OPS_SUPPORT}">${OPS_SUPPORT}</a></p>
   <p style="margin-top:28px;">Warm regards,<br><strong>HR Department</strong><br>Allied Services International (Pvt.) Ltd.</p>

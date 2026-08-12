@@ -285,13 +285,23 @@ export const api = {
             body: JSON.stringify(payload),
         }).then(r => r.json());
     },
-    openPayslip:   (empId, month, year) => {
+    /** World A / Payroll Sheet payslip HTML. source=world_a skips World B historical slip. */
+    fetchPayslipHtml: async (empId, month, year, { source = 'world_a' } = {}) => {
         const token = localStorage.getItem('asil_hcm_token');
-        // URL-encode employee ID to handle IDs with slashes or special characters
-        const url = `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}`;
-        fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-            .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
-            .then(html => { const w = window.open('', '_blank'); w.document.write(html); w.document.close(); })
+        const qs = source ? `?source=${encodeURIComponent(source)}` : '';
+        const url = `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}${qs}`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.text();
+    },
+    openPayslip: (empId, month, year, opts = {}) => {
+        api.fetchPayslipHtml(empId, month, year, opts)
+            .then(html => {
+                const w = window.open('', '_blank');
+                if (!w) throw new Error('Popup blocked — allow popups to preview payslips');
+                w.document.write(html);
+                w.document.close();
+            })
             .catch(e => alert('Could not load payslip: ' + e.message));
     },
 
