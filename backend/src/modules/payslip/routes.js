@@ -123,7 +123,8 @@ function registerPayslipRoutes(app, deps) {
             const monthName = new Date(2000, parseInt(row.month, 10) - 1, 1).toLocaleString('en-PK', { month: 'long' });
             const filename = `PaySlip_${row.employee_id}_${monthName}_${row.year}.pdf`;
             res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            // inline so mobile SMS links open the PDF directly
+            res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
             res.send(row.pdf_bytes);
         } catch (err) {
             handleRouteError(res, 'payslip-link', err);

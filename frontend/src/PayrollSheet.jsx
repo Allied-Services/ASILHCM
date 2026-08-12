@@ -1556,7 +1556,7 @@ export default function PayrollSheet({ user }) {
                         <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
                             <h3 style={{ margin: 0 }}>Send Payslips — {month}</h3>
                             <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                                Password-protected PDF (CNIC, no dashes) via email + SMS link (7 days).
+                                Password-protected PDF (CNIC 13 digits, no dashes) via email + SMS PDF link (7 days). No salary/OT amounts in SMS.
                             </p>
                         </div>
                         <div style={{ padding: '1.5rem 2rem', fontSize: '0.88rem' }}>

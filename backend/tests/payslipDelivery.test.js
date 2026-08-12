@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildWorldAPayslipData, normalizeCnic } = require('../src/modules/payslip/dataBuilder');
+const { buildSmsMessage, payslipPdfLink, backendBase } = require('../src/modules/payslip/service');
 
 describe('payslip dataBuilder', () => {
     test('normalizeCnic strips dashes', () => {
@@ -34,5 +35,28 @@ describe('payslip dataBuilder', () => {
         expect(data.reimbursements.expense).toBe(500);
         expect(data.taxDeductions).toBe(1000);
         expect(data.netPay).toBe(50000);
+    });
+});
+
+describe('payslip SMS message', () => {
+    const token = 'a'.repeat(32);
+
+    test('includes direct PDF link and CNIC password, no salary/OT amounts', () => {
+        process.env.APP_BASE_URL = 'https://asilhcm.onrender.com';
+        delete process.env.BACKEND_URL;
+        const sms = buildSmsMessage(token);
+        const link = payslipPdfLink(token);
+        expect(link).toBe(`${backendBase()}/api/payslip/link/${token}`);
+        expect(sms).toContain(link);
+        expect(sms).toMatch(/Password: CNIC \(13 digits, no dashes\)/);
+        expect(sms).not.toMatch(/Rs\.|salary|OT|overtime|net/i);
+        expect(sms.length).toBeLessThanOrEqual(160);
+    });
+
+    test('stays within 160 chars on staging backend host', () => {
+        process.env.APP_BASE_URL = 'https://asil-hcm-staging.onrender.com';
+        const sms = buildSmsMessage(token);
+        expect(sms).toContain('/api/payslip/link/');
+        expect(sms.length).toBeLessThanOrEqual(160);
     });
 });

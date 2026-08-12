@@ -3,12 +3,30 @@
 const crypto = require('crypto');
 const { buildWorldAPayslipData, normalizeCnic } = require('./dataBuilder');
 const { buildProtectedPayslipPdf } = require('./pdfProtect');
-const { mintAccessToken, TOKEN_TTL_DAYS } = require('./tokenStore');
+const { mintAccessToken } = require('./tokenStore');
 const { renderEmailCoverHtml, OPS_SUPPORT } = require('./template');
 const { normalisePhone } = require('../../../lib/sms');
 
 function frontendBase() {
     return (process.env.FRONTEND_URL || process.env.APP_BASE_URL || 'https://asilhcm.onrender.com').replace(/\/$/, '');
+}
+
+/** Public backend origin used for SMS PDF deep-links (not the SPA). */
+function backendBase() {
+    return (process.env.APP_BASE_URL || process.env.BACKEND_URL || 'https://asilhcm.onrender.com').replace(/\/$/, '');
+}
+
+function payslipPdfLink(token) {
+    return `${backendBase()}/api/payslip/link/${token}`;
+}
+
+/**
+ * SMS copy: link + CNIC password only — no salary / OT amounts.
+ * Kept ≤160 chars (including longer staging hosts) so Jazz never drops the link.
+ */
+function buildSmsMessage(token) {
+    const link = payslipPdfLink(token);
+    return `ASIL: Payslip can be viewed at ${link} Password: CNIC (13 digits, no dashes)`;
 }
 
 async function getContractEosbType(pool, contractName) {
@@ -124,11 +142,6 @@ async function generateAndStorePdf(pool, emp, pay, contractEosbType, batchId, ye
     return rows[0];
 }
 
-function buildSmsMessage(monthName, year, token) {
-    const link = `${frontendBase()}/p/${token}`;
-    return `ASIL TRIAL: ${monthName} ${year} payslip ready. ${link} (${TOKEN_TTL_DAYS}d). Password: CNIC no dashes. Help: ${OPS_SUPPORT}`;
-}
-
 async function sendPayslips(pool, deps, opts) {
     const { year, month, employeeIds = [], confirm, forceResend, actorEmail } = opts;
     const { sendAppEmail, sendJazzSMS } = deps;
@@ -230,17 +243,10 @@ async function sendPayslips(pool, deps, opts) {
                     documentId: doc.id,
                 });
                 tokenId = tid;
-                const sms = buildSmsMessage(monthName, yr, rawToken);
-                if (sms.length <= 160) {
-                    await sendJazzSMS(phone, sms);
-                    smsStatus = 'sent';
-                    smsCount += 1;
-                } else {
-                    const shortSms = `ASIL TRIAL: ${monthName} ${yr} payslip ready. Check email or portal. Password: CNIC. Help: ${OPS_SUPPORT}`;
-                    await sendJazzSMS(phone, shortSms.slice(0, 160));
-                    smsStatus = 'sent_short';
-                    smsCount += 1;
-                }
+                const sms = buildSmsMessage(rawToken);
+                await sendJazzSMS(phone, sms);
+                smsStatus = sms.length > 160 ? 'sent_long' : 'sent';
+                smsCount += 1;
             }
 
             await pool.query(
@@ -355,5 +361,8 @@ module.exports = {
     createSupportCase,
     resolveSupportCase,
     frontendBase,
+    backendBase,
+    payslipPdfLink,
+    buildSmsMessage,
     OPS_SUPPORT,
 };
