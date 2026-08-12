@@ -6,13 +6,27 @@ const path = require('path');
 const TRIAL_END = new Date('2026-11-30T23:59:59+05:00');
 const OPS_SUPPORT = 'ops-support@asil.com.pk';
 
-let logoDataUri = '';
-try {
-    const svg = fs.readFileSync(path.join(__dirname, '../../../assets/asil-logo.svg'), 'utf8');
-    logoDataUri = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
-} catch {
-    logoDataUri = '';
+function loadLogoDataUri() {
+    const candidates = [
+        path.join(__dirname, '../../../assets/asil-logo.svg'),
+        path.join(__dirname, '../../../../frontend/public/asil-logo.svg'),
+    ];
+    for (const file of candidates) {
+        try {
+            const svg = fs.readFileSync(file, 'utf8');
+            return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+        } catch {
+            /* try next */
+        }
+    }
+    // Fallback wordmark so PDF/header never ship without a logo
+    const fallback = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" width="120" height="40">
+  <text x="0" y="28" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="26" font-weight="700">ASIL</text>
+</svg>`;
+    return `data:image/svg+xml;base64,${Buffer.from(fallback).toString('base64')}`;
 }
+
+const logoDataUri = loadLogoDataUri();
 
 function isTrialMode() {
     return new Date() <= TRIAL_END;
@@ -47,7 +61,7 @@ function renderPayslipHtml(data, { year, month }) {
     const monthName = new Date(2000, parseInt(month, 10) - 1, 1).toLocaleString('en-PK', { month: 'long' });
     const {
         emp, additions, deductions, grossTotal, totalDeductions, netPay,
-        paidDays, workingDays, taxDeductions, otherDeductions,
+        paidDays, workingDays,
     } = data;
 
     const earningsRows = additions.map(r => rowHtml(r.label, r.amount)).join('');
@@ -101,7 +115,8 @@ function renderPayslipHtml(data, { year, month }) {
     background: linear-gradient(90deg, #c9a227, #e8d48b, #c9a227);
   }
   .hdr-left { display: flex; align-items: center; gap: 14px; }
-  .hdr img { height: 52px; width: auto; filter: brightness(0) invert(1); opacity: .95; }
+  /* No invert filter — logo SVG is already white-on-navy; invert washed it out to a blank block */
+  .hdr img { height: 52px; width: auto; display: block; }
   .hdr h1 {
     margin: 0 0 2px;
     font-family: Georgia, 'Times New Roman', serif;
@@ -197,37 +212,6 @@ function renderPayslipHtml(data, { year, month }) {
     border-bottom: none;
     color: #0f172a;
   }
-  .summary-strip {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0;
-    margin: 0 20px 16px;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  .summary-cell {
-    padding: 12px 10px;
-    text-align: center;
-    border-right: 1px solid #e2e8f0;
-    background: #f8fafc;
-  }
-  .summary-cell:last-child { border-right: none; }
-  .summary-cell .k {
-    font-size: 7pt;
-    text-transform: uppercase;
-    letter-spacing: .07em;
-    color: #64748b;
-    font-weight: 700;
-    margin-bottom: 4px;
-  }
-  .summary-cell .v {
-    font-size: 11pt;
-    font-weight: 800;
-    color: #0f2744;
-    font-variant-numeric: tabular-nums;
-  }
-  .summary-cell.tax .v { color: #b91c1c; }
   .net-box {
     background: linear-gradient(135deg, #0f2744 0%, #1e3a5f 100%);
     color: #fff;
@@ -266,7 +250,7 @@ function renderPayslipHtml(data, { year, month }) {
 ${trialBannerHtml()}
 <div class="hdr">
   <div class="hdr-left">
-    ${logoDataUri ? `<img src="${logoDataUri}" alt="ASIL logo"/>` : ''}
+    <img src="${logoDataUri}" alt="ASIL logo"/>
     <div>
       <h1>Salary Slip</h1>
       <p class="brand">Allied Services International (Pvt.) Ltd.</p>
@@ -307,18 +291,11 @@ ${trialBannerHtml()}
       </tbody>
     </table>
   </div>` : ''}
-
-  <div class="summary-strip">
-    <div class="summary-cell"><div class="k">Gross</div><div class="v">${money(grossTotal)}</div></div>
-    <div class="summary-cell tax"><div class="k">Tax Deductions</div><div class="v">- ${money(taxDeductions ?? 0)}</div></div>
-    <div class="summary-cell"><div class="k">Other Deductions</div><div class="v">- ${money(otherDeductions ?? 0)}</div></div>
-    <div class="summary-cell"><div class="k">Net Payable</div><div class="v">${money(netPay)}</div></div>
-  </div>
 </div>
 <div class="net-box">
   <div>
     <div class="label">Net Salary Payable</div>
-    <div class="sub">${monthName} ${year} · Gross ${money(grossTotal)} − Deductions ${money(totalDeductions)}</div>
+    <div class="sub">${monthName} ${year}</div>
   </div>
   <div class="amount">Rs. ${money(netPay)}</div>
 </div>
