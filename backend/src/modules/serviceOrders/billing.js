@@ -22,6 +22,10 @@ function round2(n) {
     return Math.round(Number(n || 0) * 100) / 100;
 }
 
+function normalizeLineName(s) {
+    return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 /** client_invoices.notes is TEXT — always parse before reading fields. */
 function parseInvoiceNotes(notes) {
     if (!notes) return {};
@@ -538,19 +542,26 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
         : (inv.line_items || []);
 
     // Attach SO line roles / ids when persisted invoice rows only stored amount/description.
+    // Prefer live SO line id when the stamped lineId is missing from the current SO
+    // (e.g. after replaceLines re-insert with fresh serial ids).
     if (so?.lines?.length) {
+        const liveIds = new Set(so.lines.map((l) => Number(l.id)));
         lineItems = lineItems.map((li, idx) => {
-            const match = so.lines.find((l) => l.id === li.lineId || l.id === li.line_id)
-                || so.lines[idx]
-                || null;
+            const stampedId = li.lineId ?? li.line_id;
+            const stampedOk = stampedId != null && liveIds.has(Number(stampedId));
+            const match = stampedOk
+                ? so.lines.find((l) => Number(l.id) === Number(stampedId))
+                : (so.lines.find((l) => normalizeLineName(l.name) === normalizeLineName(li.name || li.description))
+                    || so.lines[idx]
+                    || null);
             return {
                 ...li,
-                lineId: li.lineId || li.line_id || match?.id,
+                lineId: stampedOk ? Number(stampedId) : (match?.id ?? stampedId),
                 name: li.name || match?.name,
                 description: li.description || match?.name,
                 roles: li.roles || match?.roles || [],
                 isManpowerDependent: li.isManpowerDependent ?? match?.is_manpower_dependent,
-                soLineNumber: li.soLineNumber || match?.meta?.so_line || match?.so_line_number || (idx + 1),
+                soLineNumber: li.soLineNumber || match?.meta?.so_line || match?.so_line_number || match?.line_number || (idx + 1),
             };
         });
     }

@@ -109,6 +109,40 @@ async function upsertServiceOrder(pool, payload, actor) {
     return rows[0];
 }
 
+function normalizeLineName(s) {
+    return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Map old SO line ids → new ids after a delete/re-insert.
+ * Prefer line_number, fall back to normalized name.
+ */
+function buildOldToNewLineIdMap(oldLines, newLines) {
+    const map = new Map();
+    const usedNew = new Set();
+    const byNumber = new Map();
+    const byName = new Map();
+    for (const nl of newLines || []) {
+        const num = String(nl.line_number || '').trim();
+        if (num) byNumber.set(num, nl);
+        const name = normalizeLineName(nl.name);
+        if (name && !byName.has(name)) byName.set(name, nl);
+    }
+    for (const ol of oldLines || []) {
+        const num = String(ol.line_number || '').trim();
+        let match = num ? byNumber.get(num) : null;
+        if (!match || usedNew.has(match.id)) {
+            const name = normalizeLineName(ol.name);
+            match = name ? byName.get(name) : null;
+        }
+        if (match && !usedNew.has(match.id)) {
+            map.set(Number(ol.id), Number(match.id));
+            usedNew.add(match.id);
+        }
+    }
+    return map;
+}
+
 async function replaceLines(db, serviceOrderId, lines) {
     const so = await getServiceOrder(db, serviceOrderId);
     if (!so) {
@@ -124,6 +158,15 @@ async function replaceLines(db, serviceOrderId, lines) {
     const startedHere = isPool;
     try {
         if (startedHere) await client.query('BEGIN');
+
+        // Capture deduction→line links BEFORE delete (FK ON DELETE SET NULL).
+        const oldLines = so.lines || [];
+        const { rows: linkedDeds } = await client.query(
+            `SELECT id, line_id FROM so_deductions
+             WHERE service_order_id = $1 AND line_id IS NOT NULL`,
+            [serviceOrderId]
+        );
+
         await client.query(`DELETE FROM service_order_lines WHERE service_order_id = $1`, [serviceOrderId]);
         const inserted = [];
         let lineNo = 1;
@@ -148,6 +191,30 @@ async function replaceLines(db, serviceOrderId, lines) {
             inserted.push(rows[0]);
             lineNo += 1;
         }
+
+        // Re-point so_deductions.line_id onto the new serial ids.
+        if (linkedDeds.length && oldLines.length) {
+            const idMap = buildOldToNewLineIdMap(oldLines, inserted);
+            const pairs = [];
+            for (const d of linkedDeds) {
+                const nextId = idMap.get(Number(d.line_id));
+                if (nextId != null) pairs.push([Number(d.id), nextId]);
+            }
+            if (pairs.length) {
+                const dedIds = pairs.map((p) => p[0]);
+                const newLineIds = pairs.map((p) => p[1]);
+                await client.query(
+                    `UPDATE so_deductions AS d
+                     SET line_id = v.new_line_id
+                     FROM (
+                       SELECT UNNEST($1::int[]) AS id, UNNEST($2::int[]) AS new_line_id
+                     ) AS v
+                     WHERE d.id = v.id AND d.service_order_id = $3`,
+                    [dedIds, newLineIds, serviceOrderId]
+                );
+            }
+        }
+
         const total = inserted.reduce((s, l) => s + Number(l.rate || 0), 0);
         await client.query(`UPDATE service_orders SET total_value = $2 WHERE id = $1`, [serviceOrderId, total]);
         if (startedHere) await client.query('COMMIT');
@@ -168,4 +235,5 @@ module.exports = {
     getServiceOrder,
     upsertServiceOrder,
     replaceLines,
+    buildOldToNewLineIdMap,
 };
