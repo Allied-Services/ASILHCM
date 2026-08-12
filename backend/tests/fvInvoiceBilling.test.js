@@ -279,6 +279,46 @@ describe('FV invoice — per-line shortages (Chakpirana July)', () => {
         expect(html).toContain('Other adjustment');
         expect(html).toContain('Nabeel Hussain (Lube Handling Services)');
     });
+
+    test('Janitor designation attributes to Office/Misc, not catch-all', () => {
+        const janitorDeds = [
+            {
+                id: 82, line_id: null, type: 'absence', employee_id: 'ASIL/PSO-082/25',
+                employee_name: 'Naveed Bhatti', employee_designation: 'Janitor',
+                days_absent: 2, amount: 3660.52,
+            },
+            {
+                id: 83, line_id: null, type: 'absence', employee_id: 'ASIL/PSO-083/25',
+                employee_name: 'Rafaqat Masih', employee_designation: 'Janitor',
+                days_absent: 6, amount: 10981.57,
+            },
+        ];
+        const { byLine, orphans } = attributeDeductions(lineItems, janitorDeds);
+        expect(orphans).toHaveLength(0);
+        expect(byLine.get('201')).toHaveLength(2);
+
+        const html = renderInvoiceHtml({
+            computed: {
+                invoiceNumber: '5352',
+                siteName: 'Chakpirana Depot',
+                siteCode: 'CHAKPIRANA',
+                periodMonth: 7,
+                periodYear: 2026,
+                lineItems,
+                deductions: janitorDeds,
+                gross,
+                totalDeductions: 14642.09,
+                netTaxable: gross - 14642.09,
+                provincialSt: 0,
+                grandTotal: gross - 14642.09,
+                taxRate: 0.16,
+            },
+        });
+        expect(html).not.toContain('LESS: Additional Shortages / Adjustments');
+        expect(html).toContain('Naveed Bhatti (Janitor) — 2 days absent');
+        expect(html).toContain('Rafaqat Masih (Janitor) — 6 days absent');
+        expect(html).toContain('Rs. 808,975.91'); // 823618 - 14642.09
+    });
 });
 
 describe('FV replaceLines — re-points so_deductions.line_id', () => {
