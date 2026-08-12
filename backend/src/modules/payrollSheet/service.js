@@ -92,15 +92,23 @@ function sheetCalcFromEngine(computed, ov, inputs) {
     let netPay = num(computed.netPay);
     if (advanceDed || loanDed) netPay = Math.round(netPay - advanceDed - loanDed);
 
+    const contractSalary = num(inputs.newSalary != null ? inputs.newSalary : inputs.salary);
+    const basicPaid = num(computed.salaryForDays);
+    const absentDays = computed.modelA && computed.modelA.absentDays != null
+        ? num(computed.modelA.absentDays)
+        : Math.max(0, num(computed.workingDays) - num(computed.paidDays));
+    const absenceDeduction = Math.max(0, Math.round(contractSalary) - Math.round(basicPaid));
+
     return {
-        pd: num(ov.paid_days, computed.paidDays),
-        basicPaid: num(computed.salaryForDays),
+        // Prefer engine paid days (calendar/model-A factor) — never back-solve from money.
+        pd: num(computed.paidDays, ov.paid_days),
+        basicPaid,
         hraPaid: 0,
         convPaid: 0,
         medPaid: 0,
         otherPaid: num(ov.special_allowance),
-        absentDays: num(computed.absentDays),
-        absenceDeduction: 0,
+        absentDays,
+        absenceDeduction,
         ot2hrs: num(computed.ot2Hours != null ? computed.ot2Hours : ov.ot2_hrs),
         ot3hrs: num(computed.ot3Hours != null ? computed.ot3Hours : ov.ot3_hrs),
         ot2Amount: 0,
