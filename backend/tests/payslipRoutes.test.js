@@ -50,15 +50,58 @@ function buildApp() {
 }
 
 describe('payslip routes role guards', () => {
+    const { sendPayslips, getPayslipReadiness } = require('../src/modules/payslip/service');
+
+    beforeEach(() => {
+        sendPayslips.mockClear();
+        getPayslipReadiness.mockClear();
+        sendPayslips.mockResolvedValue({ ok: true, sent: 1, total: 1 });
+    });
+
     test('finance_approver can send payslips', async () => {
         const app = buildApp();
         const token = makeToken({ role: 'finance_approver', email: 'a@asil.com.pk' });
         const res = await request(app)
             .post('/api/payroll/2026/7/send-payslips')
             .set('Authorization', `Bearer ${token}`)
-            .send({ confirm: true });
+            .send({ confirm: true, employeeIds: ['E1'], sendAll: false });
         expect(res.status).toBe(200);
         expect(res.body.ok).toBe(true);
+        expect(sendPayslips).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ employeeIds: ['E1'], sendAll: false, confirm: true })
+        );
+    });
+
+    test('forwards sendAll when sending all locked', async () => {
+        const app = buildApp();
+        const token = makeToken({ role: 'superadmin', email: 's@asil.com.pk' });
+        const res = await request(app)
+            .post('/api/payroll/2026/7/send-payslips')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ confirm: true, employeeIds: [], sendAll: true });
+        expect(res.status).toBe(200);
+        expect(sendPayslips).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ sendAll: true, employeeIds: [] })
+        );
+    });
+
+    test('readiness forwards employeeIds query', async () => {
+        const app = buildApp();
+        const token = makeToken({ role: 'payroll_initiator', email: 'p@asil.com.pk' });
+        const res = await request(app)
+            .get('/api/payroll/2026/7/payslip-readiness?employeeIds=E1,E2')
+            .set('Authorization', `Bearer ${token}`);
+        expect(res.status).toBe(200);
+        expect(getPayslipReadiness).toHaveBeenCalledWith(
+            expect.anything(),
+            '2026',
+            '7',
+            ['E1', 'E2']
+        );
     });
 
     test('payroll_initiator can send payslips', async () => {

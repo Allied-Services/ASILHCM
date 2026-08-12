@@ -33,15 +33,18 @@ function handleRouteError(res, tag, err) {
     const code = err.code || err.message;
     const map = {
         CONFIRM_REQUIRED: [400, 'Confirmation required'],
+        SELECTION_REQUIRED: [400, 'Select employees to send, or confirm send to all locked'],
         NOT_PAID: [409, 'Payroll must be bank-paid before sending payslips'],
-        NOT_ALL_LOCKED: [409, 'All payroll rows must be locked before sending payslips'],
+        NOT_ALL_LOCKED: [409, 'All selected payroll rows must be locked before sending payslips'],
         ALREADY_SENT: [409, 'Payslips already sent for this month. Use force resend if needed.'],
         MISSING_CNIC: [422, 'Employee CNIC required to generate payslip PDF'],
         PDF_GENERATION_UNAVAILABLE: [503, 'PDF generation unavailable on this server'],
     };
     if (map[code]) {
         const [status, message] = map[code];
-        return res.status(status).json({ error: message, code });
+        const body = { error: message, code };
+        if (err.detail) body.detail = err.detail;
+        return res.status(status).json(body);
     }
     console.error(`[${tag}]`, err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -65,13 +68,14 @@ function registerPayslipRoutes(app, deps) {
     app.post('/api/payroll/:year/:month/send-payslips', requireAuth, requireRole('finance_manager', 'finance_approver', 'payroll_initiator', 'superadmin'), async (req, res) => {
         try {
             const { year, month } = req.params;
-            const { employeeIds = [], confirm = false, forceResend = false } = req.body || {};
+            const { employeeIds = [], confirm = false, forceResend = false, sendAll = false } = req.body || {};
             const result = await sendPayslips(pool, mailDeps, {
                 year,
                 month,
                 employeeIds,
                 confirm: !!confirm,
                 forceResend: !!forceResend,
+                sendAll: !!sendAll,
                 actorEmail: req.user?.email,
             });
             if (deps.logAudit) deps.logAudit(req, 'SEND_PAYSLIPS', 'payroll_month', `${year}-${month}`);

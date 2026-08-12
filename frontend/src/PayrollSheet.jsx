@@ -689,6 +689,9 @@ export default function PayrollSheet({ user }) {
         || user?.role === 'finance_approver'
         || user?.role === 'payroll_initiator';
     const [forceResendPayslips, setForceResendPayslips] = useState(false);
+    const [sendAllPayslips, setSendAllPayslips] = useState(false);
+    const selectedIdsRef = useRef(selectedIds);
+    useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
     const [PROVINCE_RATES, setPROVINCE_RATES] = useState([]); // from System Config Tax by Region
     const [invoiceStatus, setInvoiceStatus] = useState({ invoicedClients: [], invoicedContracts: [] });
 
@@ -1074,27 +1077,49 @@ export default function PayrollSheet({ user }) {
         }
     };
 
-    // Send payslips (PDF email + SMS) — only after lock + bank paid
+    const openSendPayslipsModal = () => {
+        setShowSendPayslips(true);
+        setSendPayslipConfirm(false);
+        setForceResendPayslips(false);
+        setSendAllPayslips(false);
+        const [yr2, mo2] = month.split('-');
+        const ids = [...selectedIdsRef.current];
+        api.getPayslipReadiness(yr2, mo2, ids)
+            .then(setPayslipReadiness)
+            .catch(() => setPayslipReadiness(null));
+    };
+
+    // Send payslips (PDF email + SMS) — selection-scoped; month must be bank-paid
     const [sendingEmails, setSendingEmails] = React.useState(false);
     const [emailResult, setEmailResult] = React.useState(null);
     const sendPayslipEmails = async () => {
-        const targets = selectedIds.size > 0 ? [...selectedIds] : [];
+        const targets = [...selectedIdsRef.current];
+        const sendingAll = targets.length === 0;
+        if (sendingAll && !sendAllPayslips) {
+            alert('Select one or more employees, or tick “Send to ALL locked employees”.');
+            return;
+        }
         setSendingEmails(true); setEmailResult(null);
         try {
             const [yr2, mo2] = month.split('-');
             const d = await api.sendPayslipEmails(yr2, mo2, {
                 employeeIds: targets,
                 confirm: true,
-                forceResend: !!forceResendPayslips || !!payslipReadiness?.alreadySent,
+                forceResend: !!forceResendPayslips,
+                sendAll: sendingAll,
             });
             if (d.error) throw new Error(d.error);
-            const msg = `✅ Delivered ${d.sent}/${d.total} — email: ${d.emailCount}, SMS: ${d.smsCount}${d.failed?.length ? `, failed: ${d.failed.length}` : ''}.`;
+            const scope = targets.length
+                ? `selected ${targets.length}`
+                : 'all locked';
+            const msg = `✅ Delivered ${d.sent}/${d.total} (${scope}) — email: ${d.emailCount}, SMS: ${d.smsCount}${d.failed?.length ? `, failed: ${d.failed.length}` : ''}.`;
             setEmailResult({ ok: true, msg });
             setShowSendPayslips(false);
             setSendPayslipConfirm(false);
             setForceResendPayslips(false);
-            api.getPayslipReadiness(yr2, mo2).then(setPayslipReadiness).catch(() => {});
-        } catch(e) { setEmailResult({ ok: false, msg: '❌ ' + e.message }); }
+            setSendAllPayslips(false);
+            api.getPayslipReadiness(yr2, mo2, targets).then(setPayslipReadiness).catch(() => {});
+        } catch (e) { setEmailResult({ ok: false, msg: '❌ ' + e.message }); }
         setSendingEmails(false);
     };
 
@@ -1162,10 +1187,11 @@ export default function PayrollSheet({ user }) {
     useEffect(() => {
         if (!canSendPayslips || !month) return;
         const [yr2, mo2] = month.split('-');
-        api.getPayslipReadiness(yr2, mo2)
+        const ids = [...selectedIds];
+        api.getPayslipReadiness(yr2, mo2, ids)
             .then(setPayslipReadiness)
             .catch(() => setPayslipReadiness(null));
-    }, [month, canSendPayslips, lockedIds.size, payslipReadiness?.paid]);
+    }, [month, canSendPayslips, lockedIds.size, selectedIds.size, payslipReadiness?.paid]);
 
     // Contract cfg lookup: ID first (exact), then name, then client fuzzy fallback
     const rows = filtered.map(emp => {
@@ -1548,14 +1574,20 @@ export default function PayrollSheet({ user }) {
                             {emailResult && <span style={{ fontSize: '0.8rem', color: emailResult.ok ? '#22c55e' : '#ef4444', marginRight: '0.5rem' }}>{emailResult.msg}</span>}
                             <button
                                 type="button"
-                                onClick={() => { setShowSendPayslips(true); setSendPayslipConfirm(false); setForceResendPayslips(false); }}
+                                onClick={openSendPayslipsModal}
                                 disabled={sendingEmails}
                                 title={
                                     !payslipReadiness
                                         ? 'Loading payslip readiness…'
                                         : payslipReadiness.canSend
-                                            ? (payslipReadiness.alreadySent ? 'Payslips already sent — open to force resend' : 'Send password-protected PDF by email + SMS link')
-                                            : `Not ready: ${!payslipReadiness.allLocked ? 'lock all payroll rows' : 'mark month bank-paid (AP confirm)'}${payslipReadiness.alreadySent ? '; already sent' : ''}`
+                                            ? (selectedIds.size > 0
+                                                ? `Send to ${selectedIds.size} selected employee(s)`
+                                                : (payslipReadiness.needsForceResend
+                                                    ? 'Payslips already sent — open to force resend all locked'
+                                                    : 'Select employees, or open and send to all locked'))
+                                            : `Not ready: ${!payslipReadiness.allLocked
+                                                ? (selectedIds.size > 0 ? 'selected employees must be locked' : 'lock all payroll rows')
+                                                : 'mark month bank-paid (AP confirm)'}`
                                 }
                                 style={{
                                     background: payslipReadiness?.canSend ? '#7c3aed' : 'rgba(124,58,237,0.2)',
@@ -1567,9 +1599,11 @@ export default function PayrollSheet({ user }) {
                                 }}>
                                 {sendingEmails
                                     ? '📧 Sending...'
-                                    : payslipReadiness?.alreadySent
-                                        ? '📧 Send Payslips (resend)'
-                                        : '📧 Send Payslips'}
+                                    : selectedIds.size > 0
+                                        ? `📧 Send Payslips (${selectedIds.size})`
+                                        : payslipReadiness?.needsForceResend
+                                            ? '📧 Send Payslips (resend)'
+                                            : '📧 Send Payslips'}
                             </button>
                         </>
                     )}
@@ -1647,10 +1681,10 @@ export default function PayrollSheet({ user }) {
                         <FileTextIcon size={15} /> Generate Payslips
                     </button>
                     {canSendPayslips && (
-                        <button type="button" onClick={() => { setShowSendPayslips(true); setSendPayslipConfirm(false); setForceResendPayslips(false); }}
-                            title="Email + SMS password-protected PDF payslips for selected (or all locked) employees"
+                        <button type="button" onClick={openSendPayslipsModal}
+                            title={`Email + SMS password-protected PDF payslips for ${selectedIds.size} selected employee(s)`}
                             style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.4)', color: '#c4b5fd', padding: '5px 14px', borderRadius: '7px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
-                            📧 Email / SMS Payslips
+                            📧 Email / SMS Payslips ({selectedIds.size})
                         </button>
                     )}
                     <button onClick={exportBankSelected}
@@ -1682,12 +1716,26 @@ export default function PayrollSheet({ user }) {
                                 <p style={{ color: 'var(--text-muted)' }}>Loading readiness…</p>
                             ) : (
                                 <>
+                                    <div style={{
+                                        background: selectedIds.size > 0 ? 'rgba(124,58,237,0.12)' : 'rgba(56,189,248,0.1)',
+                                        border: `1px solid ${selectedIds.size > 0 ? 'rgba(124,58,237,0.4)' : 'rgba(56,189,248,0.35)'}`,
+                                        color: selectedIds.size > 0 ? '#c4b5fd' : '#7dd3fc',
+                                        padding: '10px 12px', borderRadius: 8, marginBottom: '1rem', fontSize: '0.85rem',
+                                    }}>
+                                        {selectedIds.size > 0
+                                            ? <>Recipients: <strong>{selectedIds.size} selected</strong> employee(s) only.</>
+                                            : <>No row selection — tick “Send to ALL locked” below, or cancel and select specific employees.</>}
+                                    </div>
                                     {!payslipReadiness.canSend && (
                                         <div style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5', padding: '10px 12px', borderRadius: 8, marginBottom: '1rem', fontSize: '0.85rem' }}>
                                             <strong>Not ready to send yet.</strong>
                                             <ul style={{ margin: '8px 0 0', paddingLeft: '1.2rem' }}>
                                                 {!payslipReadiness.allLocked && (
-                                                    <li>Lock all payroll rows for this month ({payslipReadiness.lockedCount}/{payslipReadiness.totalRows} locked).</li>
+                                                    <li>
+                                                        {selectedIds.size > 0
+                                                            ? `Selected employees must be locked (${payslipReadiness.lockedCount}/${payslipReadiness.totalRows || selectedIds.size}).`
+                                                            : `Lock all payroll rows for this month (${payslipReadiness.lockedCount}/${payslipReadiness.totalRows} locked).`}
+                                                    </li>
                                                 )}
                                                 {!payslipReadiness.paid && (
                                                     <li>Confirm bank payment in Accounts Payable (payroll batch must be Confirmed / FM Approved).</li>
@@ -1696,27 +1744,45 @@ export default function PayrollSheet({ user }) {
                                         </div>
                                     )}
                                     <ul style={{ margin: '0 0 1rem', paddingLeft: '1.2rem', lineHeight: 1.6 }}>
-                                        <li>{payslipReadiness.employeeCount} locked employees in scope{selectedIds.size > 0 ? ` (sending selected: ${selectedIds.size})` : ''}</li>
+                                        <li>
+                                            {selectedIds.size > 0
+                                                ? `${payslipReadiness.employeeCount} selected locked employee(s) will receive payslips`
+                                                : `${payslipReadiness.employeeCount} locked employees in month (send-all scope)`}
+                                        </li>
                                         <li>{payslipReadiness.withEmail} with email</li>
                                         <li>{payslipReadiness.withPhone} with phone (SMS link)</li>
                                         <li style={{ color: payslipReadiness.paid ? '#86efac' : '#fca5a5' }}>
                                             Bank paid: {payslipReadiness.paid ? 'Yes' : 'No'}
                                         </li>
-                                        {payslipReadiness.alreadySent && (
-                                            <li style={{ color: '#fbbf24' }}>Already sent once — tick force resend below to send again.</li>
+                                        {payslipReadiness.alreadyDeliveredCount > 0 && (
+                                            <li style={{ color: '#fbbf24' }}>
+                                                {payslipReadiness.alreadyDeliveredCount} in this scope already delivered
+                                                {payslipReadiness.needsForceResend ? ' — tick force resend to send again' : ' (new recipients can still be sent)'}.
+                                            </li>
                                         )}
                                         {payslipReadiness.missingCnic?.length > 0 && (
                                             <li style={{ color: '#f87171' }}>{payslipReadiness.missingCnic.length} missing CNIC (will be skipped)</li>
                                         )}
                                     </ul>
-                                    {payslipReadiness.alreadySent && (
+                                    {selectedIds.size === 0 && (
+                                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: '0.75rem' }}>
+                                            <input type="checkbox" checked={sendAllPayslips} onChange={e => setSendAllPayslips(e.target.checked)} />
+                                            <span>Send to <strong>ALL</strong> locked employees for this month</span>
+                                        </label>
+                                    )}
+                                    {(payslipReadiness.needsForceResend || payslipReadiness.alreadyDeliveredCount > 0) && (
                                         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: '0.75rem' }}>
                                             <input type="checkbox" checked={forceResendPayslips} onChange={e => setForceResendPayslips(e.target.checked)} />
-                                            <span>Force resend payslips for this month</span>
+                                            <span>Force resend to employees who already received this month</span>
                                         </label>
                                     )}
                                     <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
-                                        <input type="checkbox" checked={sendPayslipConfirm} onChange={e => setSendPayslipConfirm(e.target.checked)} disabled={!payslipReadiness.canSend} />
+                                        <input
+                                            type="checkbox"
+                                            checked={sendPayslipConfirm}
+                                            onChange={e => setSendPayslipConfirm(e.target.checked)}
+                                            disabled={!payslipReadiness.canSend || (selectedIds.size === 0 && !sendAllPayslips)}
+                                        />
                                         <span>I confirm payroll is locked, bank-paid, and ready to send payslips.</span>
                                     </label>
                                 </>
@@ -1731,14 +1797,24 @@ export default function PayrollSheet({ user }) {
                                     !payslipReadiness?.canSend
                                     || !sendPayslipConfirm
                                     || sendingEmails
-                                    || (payslipReadiness?.alreadySent && !forceResendPayslips)
+                                    || (selectedIds.size === 0 && !sendAllPayslips)
+                                    || (payslipReadiness?.needsForceResend && !forceResendPayslips)
                                 }
                                 style={{
-                                    background: (!payslipReadiness?.canSend || !sendPayslipConfirm || (payslipReadiness?.alreadySent && !forceResendPayslips)) ? '#555' : '#7c3aed',
+                                    background: (
+                                        !payslipReadiness?.canSend
+                                        || !sendPayslipConfirm
+                                        || (selectedIds.size === 0 && !sendAllPayslips)
+                                        || (payslipReadiness?.needsForceResend && !forceResendPayslips)
+                                    ) ? '#555' : '#7c3aed',
                                     border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px',
                                     cursor: (!payslipReadiness?.canSend || !sendPayslipConfirm) ? 'not-allowed' : 'pointer', fontWeight: 700,
                                 }}>
-                                {sendingEmails ? 'Sending…' : 'Send Payslips'}
+                                {sendingEmails
+                                    ? 'Sending…'
+                                    : selectedIds.size > 0
+                                        ? `Send to ${selectedIds.size} selected`
+                                        : 'Send to all locked'}
                             </button>
                         </div>
                     </div>

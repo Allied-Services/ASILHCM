@@ -82,3 +82,33 @@ describe('payslip SMS message', () => {
         expect(sms.length).toBeLessThanOrEqual(160);
     });
 });
+
+describe('sendPayslips selection scope', () => {
+    const { sendPayslips } = require('../src/modules/payslip/service');
+
+    test('rejects empty selection without sendAll', async () => {
+        const pool = { query: jest.fn() };
+        await expect(sendPayslips(pool, {}, {
+            year: 2026, month: 7, confirm: true, employeeIds: [], sendAll: false,
+        })).rejects.toMatchObject({ code: 'SELECTION_REQUIRED' });
+        expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    test('rejects send when selected employee is unlocked', async () => {
+        const pool = {
+            query: jest.fn(async (sql) => {
+                const s = String(sql);
+                if (s.includes('FROM payment_batches')) {
+                    return { rows: [{ id: 'b1', status: 'Confirmed' }] };
+                }
+                if (s.includes('SELECT employee_id, locked')) {
+                    return { rows: [{ employee_id: 'E1', locked: false }] };
+                }
+                return { rows: [] };
+            }),
+        };
+        await expect(sendPayslips(pool, {}, {
+            year: 2026, month: 7, confirm: true, employeeIds: ['E1'], sendAll: false,
+        })).rejects.toMatchObject({ code: 'NOT_ALL_LOCKED' });
+    });
+});
