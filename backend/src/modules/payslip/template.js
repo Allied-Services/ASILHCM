@@ -8,20 +8,20 @@ const OPS_SUPPORT = 'ops-support@asil.com.pk';
 
 function loadLogoDataUri() {
     const candidates = [
-        path.join(__dirname, '../../../assets/asil-logo.svg'),
-        path.join(__dirname, '../../../../frontend/public/asil-logo.svg'),
+        { file: path.join(__dirname, '../../../assets/allied_logo.png'), mime: 'image/png' },
+        { file: path.join(__dirname, '../../../assets/asil-logo.svg'), mime: 'image/svg+xml' },
     ];
-    for (const file of candidates) {
+    for (const { file, mime } of candidates) {
         try {
-            const svg = fs.readFileSync(file, 'utf8');
-            return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+            const buf = fs.readFileSync(file);
+            return `data:${mime};base64,${buf.toString('base64')}`;
         } catch {
             /* try next */
         }
     }
-    // Fallback wordmark so PDF/header never ship without a logo
-    const fallback = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" width="120" height="40">
-  <text x="0" y="28" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="26" font-weight="700">ASIL</text>
+    const fallback = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 48" width="200" height="48">
+  <rect width="200" height="48" rx="6" fill="#ffffff"/>
+  <text x="12" y="32" fill="#e11d48" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">ALLIED</text>
 </svg>`;
     return `data:image/svg+xml;base64,${Buffer.from(fallback).toString('base64')}`;
 }
@@ -61,7 +61,6 @@ function renderPayslipHtml(data, { year, month }) {
     const monthName = new Date(2000, parseInt(month, 10) - 1, 1).toLocaleString('en-PK', { month: 'long' });
     const {
         emp, additions, deductions, grossTotal, totalDeductions, netPay,
-        paidDays, workingDays,
     } = data;
 
     const earningsRows = additions.map(r => rowHtml(r.label, r.amount)).join('');
@@ -115,8 +114,16 @@ function renderPayslipHtml(data, { year, month }) {
     background: linear-gradient(90deg, #c9a227, #e8d48b, #c9a227);
   }
   .hdr-left { display: flex; align-items: center; gap: 14px; }
-  /* No invert filter — logo SVG is already white-on-navy; invert washed it out to a blank block */
-  .hdr img { height: 52px; width: auto; display: block; }
+  /* White chip so Allied PNG (dark text) stays readable on navy header */
+  .hdr-logo {
+    background: #ffffff;
+    border-radius: 8px;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 1px 0 rgba(255,255,255,.2);
+  }
+  .hdr img { height: 42px; width: auto; display: block; max-width: 200px; }
   .hdr h1 {
     margin: 0 0 2px;
     font-family: Georgia, 'Times New Roman', serif;
@@ -134,16 +141,6 @@ function renderPayslipHtml(data, { year, month }) {
     margin: 0;
   }
   .generated { margin: 4px 0 0; font-size: 8pt; opacity: .7; }
-  .paid-days-badge {
-    margin-top: 8px;
-    display: inline-block;
-    background: rgba(255,255,255,.14);
-    border: 1px solid rgba(255,255,255,.22);
-    padding: 4px 12px;
-    border-radius: 999px;
-    font-size: 8pt;
-    font-weight: 600;
-  }
   .meta {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -250,7 +247,7 @@ function renderPayslipHtml(data, { year, month }) {
 ${trialBannerHtml()}
 <div class="hdr">
   <div class="hdr-left">
-    <img src="${logoDataUri}" alt="ASIL logo"/>
+    <div class="hdr-logo"><img src="${logoDataUri}" alt="Allied Services logo"/></div>
     <div>
       <h1>Salary Slip</h1>
       <p class="brand">Allied Services International (Pvt.) Ltd.</p>
@@ -260,7 +257,6 @@ ${trialBannerHtml()}
   <div class="hdr-right">
     <p class="period">${monthName} ${year}</p>
     <p class="generated">Generated ${new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
-    <div class="paid-days-badge">Paid Days: ${paidDays} / ${workingDays}</div>
   </div>
 </div>
 <div class="meta">

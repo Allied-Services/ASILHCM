@@ -26,9 +26,10 @@ describe('payslip HTML layout — no duplicate OT/reimb panels', () => {
         expect(html).not.toContain('summary-strip');
         expect(html).not.toContain('Tax Deductions');
         expect(html).not.toContain('Other Deductions');
-        expect(html).toContain('alt="ASIL logo"');
-        expect(html).toContain('data:image/svg+xml;base64,');
-        expect(html).not.toMatch(/filter:\s*brightness\(0\)\s*invert\(1\)/);
+        expect(html).not.toContain('Paid Days:');
+        expect(html).not.toContain('paid-days-badge');
+        expect(html).toContain('alt="Allied Services logo"');
+        expect(html).toContain('data:image/png;base64,');
         expect(html.indexOf('GROSS TOTAL')).toBeLessThan(html.indexOf('Deductions'));
         expect(html.indexOf('Deductions')).toBeLessThan(html.indexOf('Net Salary Payable'));
     });

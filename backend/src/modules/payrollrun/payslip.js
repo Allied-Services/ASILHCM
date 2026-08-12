@@ -56,7 +56,6 @@ function renderPayslipHtml({ emp, computed, month, year, paidDays, workingDays }
   .net-box .sub { font-size: 8pt; opacity: .65; margin-top: 2px; }
   .net-box .amount { font-size: 20pt; font-weight: 800; }
   .footer { padding: 12px 20px; font-size: 8pt; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; background: #f8fafc; }
-  .paid-days-badge { background: rgba(255,255,255,.15); padding: 3px 10px; border-radius: 20px; font-size: 8pt; margin-top: 6px; display: inline-block; }
 </style></head><body><div class="page">
 
 <div class="hdr">
@@ -68,7 +67,6 @@ function renderPayslipHtml({ emp, computed, month, year, paidDays, workingDays }
   <div class="hdr-right">
     <p style="font-size:12pt;font-weight:700">${monthName} ${year}</p>
     <p>Generated: ${new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
-    <div class="paid-days-badge">Paid Days: ${paidDays} / ${workDays}</div>
   </div>
 </div>
 
