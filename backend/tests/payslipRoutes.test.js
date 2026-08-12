@@ -50,9 +50,31 @@ function buildApp() {
 }
 
 describe('payslip routes role guards', () => {
-    test('finance_approver cannot send payslips', async () => {
+    test('finance_approver can send payslips', async () => {
         const app = buildApp();
         const token = makeToken({ role: 'finance_approver', email: 'a@asil.com.pk' });
+        const res = await request(app)
+            .post('/api/payroll/2026/7/send-payslips')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ confirm: true });
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+    });
+
+    test('payroll_initiator can send payslips', async () => {
+        const app = buildApp();
+        const token = makeToken({ role: 'payroll_initiator', email: 'p@asil.com.pk' });
+        const res = await request(app)
+            .post('/api/payroll/2026/7/send-payslips')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ confirm: true });
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+    });
+
+    test('operations cannot send payslips', async () => {
+        const app = buildApp();
+        const token = makeToken({ role: 'operations', email: 'o@asil.com.pk' });
         const res = await request(app)
             .post('/api/payroll/2026/7/send-payslips')
             .set('Authorization', `Bearer ${token}`)
