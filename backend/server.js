@@ -3377,16 +3377,35 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
 
         let lockedEmpIds;
         if (employee_ids && employee_ids.length > 0) {
+            // Freeze client/contract_name/locked_net from employees at lock time (P1).
+            // Re-lock refreshes all three columns. net is never mutated.
             await pool.query(
-                `UPDATE payroll_transactions SET locked=TRUE, locked_by=$1, locked_at=NOW()
-                 WHERE year=$2 AND month=$3 AND employee_id = ANY($4)`,
+                `UPDATE payroll_transactions AS pt
+                 SET locked = TRUE,
+                     locked_by = $1,
+                     locked_at = NOW(),
+                     client = e.client,
+                     contract_name = e.contract_name,
+                     locked_net = ROUND(pt.net)
+                 FROM employees e
+                 WHERE e.id = pt.employee_id
+                   AND pt.year = $2 AND pt.month = $3
+                   AND pt.employee_id = ANY($4)`,
                 [req.user.email, yr, mo, employee_ids]
             );
             lockedEmpIds = employee_ids;
         } else {
             await pool.query(
-                `UPDATE payroll_transactions SET locked=TRUE, locked_by=$1, locked_at=NOW()
-                 WHERE year=$2 AND month=$3`,
+                `UPDATE payroll_transactions AS pt
+                 SET locked = TRUE,
+                     locked_by = $1,
+                     locked_at = NOW(),
+                     client = e.client,
+                     contract_name = e.contract_name,
+                     locked_net = ROUND(pt.net)
+                 FROM employees e
+                 WHERE e.id = pt.employee_id
+                   AND pt.year = $2 AND pt.month = $3`,
                 [req.user.email, yr, mo]
             );
             // Fetch all locked employee IDs for auto-accrual
