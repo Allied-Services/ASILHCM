@@ -141,7 +141,9 @@ describe('FV PSO payroll compute', () => {
         expect(result.ok).toBe(true);
         expect(result.headcount).toBe(1);
         expect(result.rows[0].inputs.absent_days).toBe(5);
-        expect(result.rows[0].computed.salaryForDays).toBe(Math.round(48000 * (26 / 31)));
+        // Absence is priced against the fixed 30-day month, not July's 31 days — the same
+        // rule the Wafi payroll sheet uses. MD decision, 2026-08-12.
+        expect(result.rows[0].computed.salaryForDays).toBe(Math.round(48000 * (25 / 30)));
     });
 
     test('uses zero absent when fv override has absent_days=0 and no so_deduction', async () => {
@@ -203,7 +205,7 @@ describe('FV PSO payroll compute', () => {
 
         expect(result.ok).toBe(true);
         expect(result.rows[0].inputs.absent_days).toBe(6);
-        expect(result.rows[0].computed.salaryForDays).toBe(Math.round(48000 * (25 / 31)));
+        expect(result.rows[0].computed.salaryForDays).toBe(Math.round(48000 * (24 / 30)));
     });
 
     test('handles July bonus disbursement when contract sets bonus_disbursement_month=7', async () => {
@@ -293,7 +295,7 @@ describe('FV PSO payroll compute', () => {
         expect(result.headcount).toBe(2);
         expect(result.rows.map((r) => r.employee_id).sort()).toEqual([legacy.id, seeded.id].sort());
         expect(result.rows.find((r) => r.employee_id === legacy.id).computed.salaryForDays)
-            .toBe(Math.round(48000 * (30 / 31)));
+            .toBe(Math.round(48000 * (29 / 30)));
 
         // Expanded FV employee SELECT must have been used (service_orders / override path).
         const empQueries = pool.query.mock.calls

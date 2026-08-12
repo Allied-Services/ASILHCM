@@ -641,6 +641,11 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
         // Partial-month joiners/exits prorate on working days (matches Excel verify).
         const useModelA = absentDaysForModelA != null || paidDays >= effectiveWorkingDays;
         if (useModelA) {
+            // Every contract prices absence against the same fixed month length, so a day
+            // off costs the same in February as in July. Pin it: left unset, the engine
+            // falls back to the real calendar length the moment a period is passed through
+            // in `inputs`, which would silently reprice absence by up to a day's pay.
+            computeInput.calendarBasis = Number(policy.standard_month_days) || 30;
             if (absentDaysForModelA != null) {
                 computeInput.absentDays = absentDaysForModelA;
                 computeInput.expectedDays = 30;

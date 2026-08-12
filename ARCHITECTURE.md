@@ -33,6 +33,8 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 
 **Proration decree:** Backend 30-day engine (`prSheetEngine.js`) is authoritative. Do not "fix" frontend `payrollUtils.js` to match it — it is scheduled for deletion.
 
+**Partial-month basis (MD decision, 2026-08-12):** absence is priced against a fixed 30-day month for **every** contract, PSO conservancy included — one absent day costs 1/30 of salary in February and in July alike, never 1/28 or 1/31. `payrollrun/service.js` sets `calendarBasis` explicitly from `policy.standard_month_days` rather than letting `resolveModelACalendarBasis` fall back to the real calendar length, because that fallback triggers the moment a period is passed through `inputs` and would silently reprice absence by up to a day's pay. `backend/tests/fvPayrollCompute.test.js` pins the 30-day expectations; if a future change makes them fail, the code changed the policy — confirm with MD before touching the numbers.
+
 **Snapshot decree (World A):** `payroll_transactions.computed_json` has exactly one producer — Payroll Sheet Calculate — and it is what the sheet UI shows and the bank file pays. Every other consumer (locked CSV export, HBL/IBFT bank files, payslip HTML, payslip PDF/email, invoice columns) **reads it via `src/payroll/snapshotView.js` and must never recompute payroll from raw inputs**. Independent recomputation in each consumer is what made the locked export disagree with the sheet (invented WHT on bonus-excluded rows; Rs. 155,559 across 305 employees, Jul-2026 Wafi). Rows predating the column (pre 2026-08-10) fall back to the legacy per-consumer math; that fallback is for history only — do not extend it. `backend/tests/payrollSnapshotParity.test.js` pins the invariant: export, payslip and snapshot must agree field for field and each document must balance.
 
 ---
@@ -81,10 +83,12 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Billing model | `service_order_deduction` on `contract_policies` |
 | Contract meta | `contracts.meta` JSONB — `fv_product`, external SO #, SLA/retention text, security deposit |
 | Monthly qty default | `1` per service order line (annual months stored in meta) |
-| Absence deduction (invoice) | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` |
+| Absence deduction (invoice) | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` (with `line_id` linked to the matching manpower SO line) |
+| Invoice shortage attribution | Print nests absences under the matching SO line (`line_id`, else employee designation → line roles via `designationMatch.js`). Orphans only when unmatched. Unit Price stays gross; Amount PKR is net of that line's shortages. |
 | Payroll wages (Conservancy) | Model A: `salary × ((30 − sheet_absent) / 30)`; Absent column = explicit sheet `days_absent` (not WD − present) |
 | Attendance ingest | Excel sheet `"{MonthName} {year}"` or Google Drive folder `DRIVE_ATTENDANCE_FOLDER_ID`; override stores `present_days` + `absent_days` |
 | Single write path | `backend/src/modules/serviceOrders/contractCrud.js` (wizard, CORO seed, NZ re-sync) |
+| SO line replace | `replaceLines` re-points `so_deductions.line_id` across delete/re-insert (FK is ON DELETE SET NULL) |
 
 **Tax rule (critical):** Stamped invoice grand = net taxable + provincial ST only. Income WHT (policy default 15%) and ~20% ST withholding appear in the receivable section only — they do **not** reduce stamped grand. Persisted to `client_invoices`: `subtotal=net`, `sales_tax=PST`, `grand_total=net+PST`, `wht=incomeWht`, breakdown in `notes` JSON. Province defaults (Wafi portal aligned): Punjab **16%**, Sindh/KPK/Balochistan **15%**. Prefer `service_orders.meta.taxRate` / `meta.province` when set.
 
@@ -107,6 +111,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 - CORO: `node scripts/seed_pso_coro_ma.js` (payload `seedData/pso_coro_ss94.json`)
 - Assign CORO roster: `node scripts/assign_coro_employees.js --apply`
 - PSO-085 CNIC expiry: `scripts/fix_pso085_cnic_expiry.sql`
+- Backfill orphaned shortage links: `node backend/scripts/backfill_so_deduction_lines.js [--apply] [--contract …] [--month …] [--year …]`
 
 ---
 
