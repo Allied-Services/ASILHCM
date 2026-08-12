@@ -1,0 +1,21 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove July Wafi pay with Unlock → Calculate, and decide on the July test-run deploy.
+Status: AMBER
+
+NOT FINISHED YET
+1. July Wafi live proof still open (Unlock → Calculate → check nets)
+2. S5B shadow month — Excel vs HCM still open
+3. Two pay paths still exist (old path still pays)
+
+NEEDS YOU TODAY
+- PR #53 — Deploy July payslip test-run to production (ready to merge)
+- Then: Unlock July → Calculate on staging, then prod; check SPL-208 / SPL-91
+
+I SUGGEST
+- Clear PR #53 today, then run the July Calculate proof — no new builds
+- Connect morning email on the Automation (still not sending)
+
+FOCUS TODAY
+Decide on PR #53, then live-prove July Wafi numbers.
