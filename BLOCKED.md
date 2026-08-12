@@ -1,6 +1,6 @@
 # BLOCKED — S5B shadow month (payroll team + MD sign-off)
 
-_Last updated: 2026-08-01_
+_Last updated: 2026-08-11_
 
 ## Active blocker
 
@@ -12,6 +12,21 @@ _Last updated: 2026-08-01_
 4. Run `node scripts/variance_report.js --csv <file> --contract CTR-1773048704450 --month M --year Y`
 5. Drive all deltas to zero (config → input → engine fixes per `.agents/sessions/S5B_shadow_month.md`)
 6. MD written sign-off filed in `audit/pilot/` before S5C
+
+## Payslip July test-run delivery (cloud agent)
+
+Cloud Agent VM has **no** `RESEND_API_KEY` / `JAZZ_SMS_*` / `JAZZ_HTTPS_PROXY`. Five sample July 2026 payslip PDFs were generated and beautified, but live email to `shezad.mumtaz@asil.com.pk` and SMS to `03008275688` could not be sent from this environment.
+
+**Unblock:** on staging/prod (or local with secrets loaded), as superadmin:
+
+```bash
+# CLI
+cd backend && node -r dotenv/config ../scripts/send_july_payslip_test_run.js
+
+# or API
+POST /api/payslip/test-run
+{ "email": "shezad.mumtaz@asil.com.pk", "phone": "03008275688" }
+```
 
 ## Staging environment
 

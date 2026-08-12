@@ -198,20 +198,23 @@ async function sendPayslips(pool, deps, opts) {
             let tokenId = null;
 
             if (emp.email && String(emp.email).trim() && sendAppEmail) {
+                const slipData = buildWorldAPayslipData(emp, pay, eosbType);
                 const cover = renderEmailCoverHtml({
                     emp,
                     monthName,
                     year: yr,
                     frontendUrl: frontendBase(),
+                    netPay: slipData.netPay,
                 });
                 const safeName = (emp.name || 'Employee').replace(/[^a-zA-Z0-9 ]/g, '_').trim();
+                const pdfBuf = Buffer.isBuffer(doc.pdf_bytes) ? doc.pdf_bytes : Buffer.from(doc.pdf_bytes);
                 await sendAppEmail({
                     to: emp.email,
                     subject: `TRIAL — Salary Slip — ${monthName} ${yr} | ASIL`,
                     html: cover,
                     attachments: [{
                         filename: `PaySlip_${safeName}_${monthName}_${yr}.pdf`,
-                        content: Buffer.isBuffer(doc.pdf_bytes) ? doc.pdf_bytes.toString('base64') : doc.pdf_bytes,
+                        content: pdfBuf,
                     }],
                 });
                 emailStatus = 'sent';

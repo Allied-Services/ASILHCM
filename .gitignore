@@ -72,6 +72,9 @@ sms_test.ps1
 # Production database dumps (S0A) — local only, never commit
 backups/
 
+# Local payslip QA artifacts (PDFs/HTML from test-run script)
+audit/payslip-test-run-july/
+
 # Client data exports / reference attachments — never commit real PII or client scripts
 Attachments/
 /*.xlsx

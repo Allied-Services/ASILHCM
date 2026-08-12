@@ -10,9 +10,20 @@ jest.mock('../src/modules/payslip/service', () => ({
     getStoredDocument: jest.fn(),
     createSupportCase: jest.fn(),
     resolveSupportCase: jest.fn(),
+    frontendBase: () => 'https://example.test',
+}));
+
+jest.mock('../src/modules/payslip/testRun', () => ({
+    runJulyPayslipTestDelivery: jest.fn().mockResolvedValue({
+        ok: true,
+        emailed: 5,
+        smsed: 5,
+        results: [],
+    }),
 }));
 
 const { registerPayslipRoutes } = require('../src/modules/payslip/routes');
+const { runJulyPayslipTestDelivery } = require('../src/modules/payslip/testRun');
 
 function buildApp() {
     const app = express();
@@ -58,5 +69,27 @@ describe('payslip routes role guards', () => {
             .send({ confirm: true });
         expect(res.status).toBe(200);
         expect(res.body.ok).toBe(true);
+    });
+
+    test('finance_manager cannot trigger payslip test-run', async () => {
+        const app = buildApp();
+        const token = makeToken({ role: 'finance_manager', email: 'h@asil.com.pk' });
+        const res = await request(app)
+            .post('/api/payslip/test-run')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ email: 'shezad.mumtaz@asil.com.pk', phone: '03008275688' });
+        expect(res.status).toBe(403);
+    });
+
+    test('superadmin can trigger payslip test-run', async () => {
+        const app = buildApp();
+        const token = makeToken({ role: 'superadmin', email: 's@asil.com.pk' });
+        const res = await request(app)
+            .post('/api/payslip/test-run')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ email: 'shezad.mumtaz@asil.com.pk', phone: '03008275688' });
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+        expect(runJulyPayslipTestDelivery).toHaveBeenCalled();
     });
 });
