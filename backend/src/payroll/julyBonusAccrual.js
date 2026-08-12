@@ -128,8 +128,14 @@ function resolveJuly2026WafiBonus({
         return null;
     }
 
+    // A stored bonus_amount of 0 means "nothing entered yet", not "pay no bonus": every
+    // sheet row starts at 0, so treating it as an override would blank out the whole July
+    // accrual sheet on the first Calculate. Only a positive figure overrides the sheet,
+    // which means a July Wafi bonus cannot be forced to zero from the sheet — remove the
+    // person from the accrual CSV instead.
     if (manualBonusAmount != null && manualBonusAmount !== '') {
-        return Math.round(Number(manualBonusAmount) || 0);
+        const manual = Math.round(Number(manualBonusAmount) || 0);
+        if (manual > 0) return manual;
     }
 
     const normId = normalizeEmployeeId(employeeId);

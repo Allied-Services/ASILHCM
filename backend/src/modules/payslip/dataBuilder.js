@@ -2,6 +2,7 @@
 
 const { calculateMonthlyIncomeTax } = require('../../../taxEngine');
 const { readPayrollSnapshot } = require('../../payroll/snapshotView');
+const { overtimeRows } = require('../../payroll/overtimeSplit');
 
 const WORK_DAYS = 26;
 
@@ -20,19 +21,21 @@ const round = (v) => Math.round(parseFloat(v) || 0);
  * The snapshot is what the sheet shows and what the bank file pays, so the payslip must
  * restate it rather than recompute it. Totals come from the snapshot; the itemised rows
  * are reconciled to those totals so the document always adds up.
+ *
+ * Layout (single earnings table — no OT/reimbursement detail cards):
+ *   Earnings & Additions → GROSS TOTAL → Deductions (if any) → Net Salary Payable
  */
 function payslipFromSnapshot(emp, pay, snap) {
     const ot2Hrs = parseFloat(snap.ot2hrs) || 0;
     const ot3Hrs = parseFloat(snap.ot3hrs) || 0;
     const grossTotal = round(snap.grossMonthly);
     const netPay = round(snap.netPay);
+    const baseSalary = round(snap.basicPaid) || parseFloat(emp.salary) || 0;
 
     const additions = [
         { label: 'Gross Salary', amount: round(snap.basicPaid) },
-        ot2Hrs > 0 || ot3Hrs > 0
-            ? { label: `Overtime (${ot2Hrs}h OT2 + ${ot3Hrs}h OT3)`, amount: round(snap.otAmount) }
-            : null,
-        round(snap.opdClaim) > 0 ? { label: 'OPD / Medical Claim', amount: round(snap.opdClaim) } : null,
+        ...overtimeRows(ot2Hrs, ot3Hrs, snap.otAmount, baseSalary),
+        round(snap.opdClaim) > 0 ? { label: 'Medical Reimbursement (OPD)', amount: round(snap.opdClaim) } : null,
         round(snap.reimb) > 0 ? { label: 'Expense Reimbursement', amount: round(snap.reimb) } : null,
         round(snap.arrears) > 0 ? { label: 'Arrears', amount: round(snap.arrears) } : null,
         round(snap.splAllow) > 0 ? { label: 'Special Allowance', amount: round(snap.splAllow) } : null,
@@ -50,8 +53,8 @@ function payslipFromSnapshot(emp, pay, snap) {
     const loan = round(snap.loanDed);
     const other = round(pay?.other_deduction);
     const deductions = [
-        { label: 'Income Tax (WHT)', amount: round(snap.incomeTax) },
-        { label: 'EOBI (Employee Share)', amount: round(snap.eobi_ee) },
+        round(snap.incomeTax) > 0 ? { label: 'Income Tax (WHT)', amount: round(snap.incomeTax) } : null,
+        round(snap.eobi_ee) > 0 ? { label: 'EOBI (Employee Share)', amount: round(snap.eobi_ee) } : null,
         pf > 0 ? { label: 'Provident Fund (Employee)', amount: pf } : null,
         advance > 0 ? { label: 'Advance Recovery', amount: advance } : null,
         loan > 0 ? { label: 'Loan Installment', amount: loan } : null,
@@ -62,7 +65,8 @@ function payslipFromSnapshot(emp, pay, snap) {
     const totalDeductions = grossTotal - netPay;
     const itemisedDeductions = deductions.reduce((s, r) => s + r.amount, 0);
     if (itemisedDeductions !== totalDeductions) {
-        deductions.push({ label: 'Other Adjustments', amount: totalDeductions - itemisedDeductions });
+        const adj = totalDeductions - itemisedDeductions;
+        if (adj !== 0) deductions.push({ label: 'Other Adjustments', amount: adj });
     }
 
     return {
@@ -95,8 +99,8 @@ function buildWorldAPayslipData(emp, pay, contractEosbType) {
 
     const additions = [
         { label: 'Gross Salary', amount: grossProrated },
-        ot2Hrs > 0 || ot3Hrs > 0 ? { label: `Overtime (${ot2Hrs}h OT2 + ${ot3Hrs}h OT3)`, amount: otAmount } : null,
-        parseFloat(pay?.opd_claim || 0) > 0 ? { label: 'OPD / Medical Claim', amount: Math.round(parseFloat(pay.opd_claim)) } : null,
+        ...overtimeRows(ot2Hrs, ot3Hrs, otAmount, grossSalary),
+        parseFloat(pay?.opd_claim || 0) > 0 ? { label: 'Medical Reimbursement (OPD)', amount: Math.round(parseFloat(pay.opd_claim)) } : null,
         parseFloat(pay?.reimbursement || 0) > 0 ? { label: 'Expense Reimbursement', amount: Math.round(parseFloat(pay.reimbursement)) } : null,
         parseFloat(pay?.arrears || 0) > 0 ? { label: 'Arrears', amount: Math.round(parseFloat(pay.arrears)) } : null,
         parseFloat(pay?.special_allowance || 0) > 0 ? { label: 'Special Allowance', amount: Math.round(parseFloat(pay.special_allowance)) } : null,
@@ -118,8 +122,8 @@ function buildWorldAPayslipData(emp, pay, contractEosbType) {
     const other = Math.round(parseFloat(pay?.other_deduction || 0));
 
     const deductions = [
-        { label: 'Income Tax (WHT)', amount: wht },
-        { label: 'EOBI (Employee Share)', amount: eobi },
+        wht > 0 ? { label: 'Income Tax (WHT)', amount: wht } : null,
+        eobi > 0 ? { label: 'EOBI (Employee Share)', amount: eobi } : null,
         pf > 0 ? { label: 'Provident Fund (Employee)', amount: pf } : null,
         advance > 0 ? { label: 'Advance Recovery', amount: advance } : null,
         loan > 0 ? { label: 'Loan Installment', amount: loan } : null,
@@ -149,5 +153,6 @@ module.exports = {
     WORK_DAYS,
     fmt,
     normalizeCnic,
+    overtimeRows,
     buildWorldAPayslipData,
 };

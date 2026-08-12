@@ -49,10 +49,11 @@ function buildSnapshot(overrides = {}) {
         otherDeduction = 0,
         advanceDeduction = 0,
         loanDeduction = 0,
+        salary = EMP.salary,
     } = overrides;
 
     const computeInput = {
-        salary: EMP.salary,
+        salary,
         modelA: true,
         presentDays,
         expectedDays: 30,
@@ -102,6 +103,23 @@ function payRow(snapshot, ov) {
 
 const sum = (rows) => rows.reduce((s, r) => s + r.amount, 0);
 
+/**
+ * Reads the tax a payslip actually shows.
+ *
+ * The payslip omits zero-value rows, so an absent row legitimately means zero — but an
+ * absent row must never be allowed to silently stand in for tax that was really charged.
+ * Assert the row is there exactly when the snapshot says tax was deducted.
+ */
+function payslipWht(slip, expectedTax) {
+    const whtRow = slip.deductions.find((d) => d.label === 'Income Tax (WHT)');
+    if (expectedTax > 0) {
+        expect(whtRow).toBeDefined();
+        return whtRow.amount;
+    }
+    expect(whtRow).toBeUndefined();
+    return 0;
+}
+
 describe('Payroll snapshot parity — sheet, export and payslip agree', () => {
     // The exact production case: salary 42,018 with a bonus lump that pushes cash gross
     // to 90,100. Annualising the FULL gross yields Rs. 401 of tax; the sheet correctly
@@ -134,8 +152,7 @@ describe('Payroll snapshot parity — sheet, export and payslip agree', () => {
 
         expect(slip.grossTotal).toBe(snapshot.grossMonthly);
         expect(slip.netPay).toBe(snapshot.netPay);
-        const whtRow = slip.deductions.find((d) => d.label === 'Income Tax (WHT)');
-        expect(whtRow.amount).toBe(snapshot.incomeTax);
+        expect(payslipWht(slip, snapshot.incomeTax)).toBe(snapshot.incomeTax);
     });
 
     test('export and payslip agree with each other on gross, net and tax', () => {
@@ -147,7 +164,22 @@ describe('Payroll snapshot parity — sheet, export and payslip agree', () => {
         expect(row.grossM).toBe(slip.grossTotal);
         expect(row.netPay).toBe(slip.netPay);
         expect(row.totalDed).toBe(slip.totalDeductions);
-        expect(row.wht).toBe(slip.deductions.find((d) => d.label === 'Income Tax (WHT)').amount);
+        expect(row.wht).toBe(payslipWht(slip, row.wht));
+    });
+
+    test('a taxed employee gets a visible tax row matching the export', () => {
+        const HIGH_SALARY = 250000;
+        const emp = { ...EMP, salary: HIGH_SALARY };
+        const { snapshot, ov } = buildSnapshot({ salary: HIGH_SALARY });
+        const pay = payRow(snapshot, ov);
+        const slip = buildWorldAPayslipData(emp, pay, 'Gratuity');
+        const row = exportRowFromSnapshot(emp, pay, snapshot);
+
+        // Hiding zero-value rows must not extend to hiding tax that was actually deducted.
+        expect(snapshot.incomeTax).toBeGreaterThan(0);
+        expect(payslipWht(slip, snapshot.incomeTax)).toBe(snapshot.incomeTax);
+        expect(row.wht).toBe(snapshot.incomeTax);
+        expect(slip.grossTotal - slip.totalDeductions).toBe(slip.netPay);
     });
 
     test('regression: bonus-excluded row is taxed 0 in the export, not 401', () => {

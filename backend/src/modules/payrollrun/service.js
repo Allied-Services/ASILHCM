@@ -192,12 +192,19 @@ function deriveOtHours(records, holidayDateSet) {
     let ot1 = 0;
     let ot2 = 0;
     let ot3 = 0;
-    for (const r of records) {
-        if (r.status !== 'ot') continue;
-        const hours = Number(r.ot_hours || r.hours || DEFAULT_OT_HOURS_PER_DAY);
+    for (const r of records || []) {
+        const otHours = Number(r.ot_hours);
+        const hasOtHours = Number.isFinite(otHours) && otHours > 0;
+        if (!hasOtHours && r.status !== 'ot') continue;
+
+        const hours = hasOtHours ? otHours : Number(r.hours || DEFAULT_OT_HOURS_PER_DAY);
         const rate = Number(r.ot_rate || r.otRate || 0);
         if (rate === 1) {
             ot1 += hours;
+            continue;
+        }
+        if (rate === 3) {
+            ot3 += hours;
             continue;
         }
         const bucket = classifyOtDate(r.date, holidayDateSet);

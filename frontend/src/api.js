@@ -280,13 +280,22 @@ export const api = {
             body: JSON.stringify(payload),
         }).then(r => r.json());
     },
-    openPayslip:   (empId, month, year) => {
+    /** Payslip HTML. The server picks the layout from the payroll data, not from the caller. */
+    fetchPayslipHtml: async (empId, month, year) => {
         const token = localStorage.getItem('asil_hcm_token');
-        // URL-encode employee ID to handle IDs with slashes or special characters
         const url = `${API}/api/payslip/${encodeURIComponent(empId)}/${month}/${year}`;
-        fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-            .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
-            .then(html => { const w = window.open('', '_blank'); w.document.write(html); w.document.close(); })
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.text();
+    },
+    openPayslip: (empId, month, year) => {
+        api.fetchPayslipHtml(empId, month, year)
+            .then(html => {
+                const w = window.open('', '_blank');
+                if (!w) throw new Error('Popup blocked — allow popups to preview payslips');
+                w.document.write(html);
+                w.document.close();
+            })
             .catch(e => alert('Could not load payslip: ' + e.message));
     },
 

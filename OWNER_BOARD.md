@@ -9,8 +9,8 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — July Wafi Calculate was wiping sheet OT when Monthly Hub had OT=0; fix on branch `fix/payroll-sheet-calc-preserves-sheet-ot` (do not Calculate on prod until merged).  
-LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix ships (OT would wipe again).
+STATUS: **GREEN for July Wafi sheet** — Excel Net Pay **43,953,273** = live HCM; Calculate twice kept the same number. Export now respects sheet WHT=0 (PR #50).  
+LIVE: prod on `da5bb2b` (incl. export zero-WHT fix).
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -18,7 +18,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## TOP LINE (for agents / morning brief)
-**Why Calculate changed July totals with no hour edits:** Monthly Hub rows with OT hours = 0 were treated as authoritative and overwrote sheet OT2/OT3. Default “Pull approved claims” made that path run. Fix: sheet OT is baseline; hub zeros never clear hours; Calculate defaults to sheet inputs. Remaining Excel net gap (~bonus/tax) is separate.
+July Wafi Payroll Sheet now matches Excel exactly (305 people, Net **43,953,273**). Calculate is idempotent: sheet inputs are the source of truth (OT, paid days, bonus from Special Allowance); hub zeros and accrual CSV cannot rewrite pay on re-run. Leave “Also pull approved claims” off unless you intend to merge claims.
 
 ---
 

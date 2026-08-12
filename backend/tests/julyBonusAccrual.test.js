@@ -39,11 +39,17 @@ describe('julyBonusAccrual', () => {
         })).toBe(0);
     });
 
-    test('manual bonus override wins', () => {
+    test('manual bonus 0 falls through to accrual sheet', () => {
         expect(loadJulyBonusAmount('ASIL/SPL-91/21', {
             contractId: 'CTR-1773046722553',
-            manualBonusAmount: 99999,
-        })).toBe(99999);
+            manualBonusAmount: 0,
+        })).toBe(83442);
+    });
+
+    test('Rehana SPL-385 on bonus sheet', () => {
+        expect(loadJulyBonusAmount('ASIL/SPL-385/21', {
+            contractId: 'CTR-1773046722553',
+        })).toBe(225498);
     });
 
     test('bonus working map loads from audit CSV', () => {

@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -37,7 +38,9 @@ const {
     mapWorldARowToSummary,
     mergePayslipSummaries,
 } = require('./src/modules/portal/payslipBridge');
-const { renderPayslipHtml } = require('./src/modules/payrollrun/payslip');
+const { renderPayslipHtml: renderWorldBPayslipHtml } = require('./src/modules/payrollrun/payslip');
+const { buildWorldAPayslipData } = require('./src/modules/payslip/dataBuilder');
+const { renderPayslipHtml: renderWorldAPayslipHtml } = require('./src/modules/payslip/template');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -2367,18 +2370,24 @@ app.get('/api/payslip/:employeeId/:month/:year', requirePayslipAuth, async (req,
         const employeeId = decodeURIComponent(req.params.employeeId);
         const { month, year } = req.params;
 
-        const [empRes, payRes, splitRes] = await Promise.all([
+        const [empRes, payRes] = await Promise.all([
             pool.query('SELECT * FROM employees WHERE id=$1', [employeeId]),
             pool.query('SELECT * FROM payroll_transactions WHERE employee_id=$1 AND month=$2 AND year=$3',
                 [employeeId, month, year]),
-            pool.query(`SELECT value FROM system_config WHERE key='payslip_salary_split'`).catch(() => ({ rows: [] })),
         ]);
         const emp = empRes.rows[0];
         if (!emp) return res.status(404).json({ error: 'Employee not found' });
 
-        const worldBDetail = await fetchWorldBPayslipDetail(pool, employeeId, month, year);
+        const pay = payRes.rows[0];
+
+        // Which payslip an employee gets is decided by the data, never by the caller.
+        // A Payroll Sheet snapshot is what the bank file pays, so it wins wherever it
+        // exists; the World B run only renders for months the sheet never computed.
+        const worldBDetail = readPayrollSnapshot(pay)
+            ? null
+            : await fetchWorldBPayslipDetail(pool, employeeId, month, year);
         if (worldBDetail) {
-            const html = renderPayslipHtml({ emp, ...worldBDetail });
+            const html = renderWorldBPayslipHtml({ emp, ...worldBDetail });
             res.setHeader('Content-Type', 'text/html');
             if (req.query.download === '1') {
                 const monthName = new Date(2000, parseInt(month, 10) - 1, 1).toLocaleString('en-PK', { month: 'long' });
@@ -2388,189 +2397,19 @@ app.get('/api/payslip/:employeeId/:month/:year', requirePayslipAuth, async (req,
             return res.send(html);
         }
 
-        const pay = payRes.rows[0];
+        const monthName = new Date(2000, parseInt(month, 10) - 1, 1).toLocaleString('en-PK', { month: 'long' });
 
-        // Display-only split (does NOT affect tax/EOBI, which run on full gross) —
-        // configurable via System Config > Payslip Split, falls back to these defaults.
-        const split = splitRes.rows[0]?.value || { basic: 60, hra: 20, conveyance: 10, medical: 7, other: 3 };
-
-        const monthName = new Date(2000, parseInt(month)-1, 1).toLocaleString('en-PK', { month: 'long' });
-        const fmt = v => Math.round(parseFloat(v)||0).toLocaleString('en-PK');
-
-        // ─ Salary components ────────────────────────────────────────────────────
-        // The Payroll Sheet snapshot (computed_json) is authoritative for every figure
-        // on this payslip. Only the basic/HRA/conveyance split is derived here, and it
-        // is display-only — it is apportioned out of the snapshot's earned salary.
-        const snap = readPayrollSnapshot(pay);
-        const snapNum = (key) => Math.round(parseFloat(snap?.[key]) || 0);
-
-        const grossSalary  = parseFloat(emp.salary) || 0;
-        const workDays     = 26;
-        const paidDays     = snap ? (parseFloat(snap.pd) || 0) : parseFloat(pay?.paid_days ?? workDays);
-        const ratio        = paidDays / workDays;
-        const splitBase    = snap ? snapNum('basicPaid') : grossSalary * ratio;
-        const basicSalary  = Math.round(splitBase * (parseFloat(split.basic) || 0) / 100);
-        const hra          = Math.round(splitBase * (parseFloat(split.hra) || 0) / 100);
-        const conveyance   = Math.round(splitBase * (parseFloat(split.conveyance) || 0) / 100);
-        const medical      = Math.round(splitBase * (parseFloat(split.medical) || 0) / 100);
-        const otherAllow   = Math.round(splitBase * (parseFloat(split.other) || 0) / 100);
-
-        // ─ Variable components from payroll_transactions ────────────────────────
-        // OT rate = Gross / (26×8) = Gross / 208
-        const otAmount       = snap ? snapNum('otAmount')
-                                    : Math.round(parseFloat(pay?.ot2_hrs||0) * 2 * (grossSalary/workDays/8)
-                                         + parseFloat(pay?.ot3_hrs||0) * 3 * (grossSalary/workDays/8));
-        const opdClaim       = snap ? snapNum('opdClaim')  : Math.round(parseFloat(pay?.opd_claim||0));
-        const reimbursement  = snap ? snapNum('reimb')     : Math.round(parseFloat(pay?.reimbursement||0));
-        const arrears        = snap ? snapNum('arrears')   : Math.round(parseFloat(pay?.arrears||0));
-        const splAllow       = snap ? snapNum('splAllow')  : Math.round(parseFloat(pay?.special_allowance||0));
-        const fuelMobile     = snap ? snapNum('fuelMob')   : Math.round(parseFloat(pay?.fuel_mobile||0));
-        const bonusAmount    = snap ? snapNum('bonusDisbursed') : Math.round(parseFloat(pay?.bonus_amount||0));
-
-        // ─ Gross = sum of all earnings ──────────────────────────────────────────
-        // Gross = sum of all earnings including bonus (bonus is taxable, paid in disbursement month)
-        const grossTotal = snap ? snapNum('grossMonthly')
-                                : (basicSalary + hra + conveyance + medical + otherAllow
-                         + otAmount + opdClaim + reimbursement + arrears + splAllow + fuelMobile + bonusAmount);
-
-        // ─ Deductions ──────────────────────────────────────────────────────────
-        // WHT: stored sheet value is authoritative — including explicit 0.
-        // (was previously an inline duplicate using stale 2024 slab rates — see AGENTS.md §3.2:
-        // "Always use taxEngine.js for WHT... never inline slab logic". Fixed 2026-07-20.)
-        const incomeTax = snap ? snapNum('incomeTax')
-            : ((pay != null && pay.wht != null && pay.wht !== '')
-                ? Math.round(parseFloat(pay.wht) || 0)
-                : calculateMonthlyIncomeTax(grossTotal, opdClaim, reimbursement));
-        const eobiEE       = snap ? snapNum('eobi_ee') : (Math.round(parseFloat(pay?.eobi_ee||0)) || 400);
-        const advanceDed   = snap ? snapNum('advanceDed') : Math.round(parseFloat(pay?.advance_deduction||0));
-        const loanDed      = snap ? snapNum('loanDed')    : Math.round(parseFloat(pay?.loan_deduction||0));
-        const otherDed     = Math.round(parseFloat(pay?.other_deduction||0));
-        // PF: gross/24 — ONLY if contract eosb_type is 'Provident Fund'
-        // emp.pf_enrolled does NOT exist as a DB column — check contract via JOIN
+        // Shared World A builder + template: Earnings → Gross Total → Deductions (if any) → Net.
+        // No separate OT / reimbursement detail cards (those lines stay in the earnings table only).
         const empContractRes = await pool.query(
             `SELECT c.costs->>'eosb_type' AS eosb_type FROM contracts c WHERE c.contract_name=$1`,
             [emp.contract_name || '']
         );
         const empEosbType = empContractRes.rows[0]?.eosb_type || 'None';
-        const pfEE = snap ? snapNum('pfEE')
-                          : (empEosbType === 'Provident Fund' ? Math.round(grossSalary / 24) : 0);
-
-        // Net pay is what the bank file pays, so it comes straight from the snapshot and
-        // the deduction total is reconciled to it rather than re-added from the parts.
-        const netPay          = snap ? snapNum('netPay')
-                                     : grossTotal - (incomeTax + eobiEE + pfEE + advanceDed + loanDed + otherDed);
-        const totalDeductions = snap ? (grossTotal - netPay)
-                                     : (incomeTax + eobiEE + pfEE + advanceDed + loanDed + otherDed);
-
-        // ─ Helper: only emit row if value > 0 ──────────────────────────────────
-        const row = (label, val, isDeduction = false) =>
-            val > 0 ? `<tr><td>${label}</td><td class="amount${isDeduction?' deduction':''}">
-                ${isDeduction ? '- ' : ''}${fmt(val)}</td></tr>` : '';
-
-        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>Salary Slip — ${emp.name} — ${monthName} ${year}</title>
-<style>
-  @media print { body { margin: 0; } .page { padding: 16px 20px; } }
-  body { font-family: Arial, sans-serif; font-size: 10pt; color: #000; margin: 0; background: #f0f4f8; }
-  .page { max-width: 720px; margin: 20px auto; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,.12); }
-  .hdr { background: #1e3a5f; color: #fff; padding: 18px 26px; display: flex; justify-content: space-between; align-items: flex-start; }
-  .hdr h2 { margin: 0 0 4px; font-size: 16pt; letter-spacing: .5px; }
-  .hdr p { margin: 3px 0; font-size: 9pt; opacity: .85; }
-  .hdr-right { text-align: right; font-size: 9pt; }
-  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-bottom: 2px solid #e2e8f0; }
-  .meta-cell { padding: 10px 18px; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
-  .meta-cell:nth-child(even) { border-right: none; }
-  .meta-cell label { font-size: 7.5pt; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 3px; }
-  .meta-cell span { font-size: 10pt; font-weight: 600; color: #1e293b; }
-  .section { margin: 0 18px 14px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-  th { background: #334155; color: #fff; padding: 8px 12px; font-size: 8.5pt; text-align: left; letter-spacing: .05em; }
-  th:last-child { text-align: right; }
-  td { padding: 7px 12px; border-bottom: 1px solid #f1f5f9; font-size: 9.5pt; color: #1e293b; }
-  .amount { text-align: right; font-weight: 600; }
-  .deduction { color: #dc2626; }
-  .total-row td { background: #f8fafc; font-weight: 800; font-size: 10.5pt; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1; }
-  .net-box { background: #1e3a5f; color: #fff; padding: 16px 24px; margin: 0; display: flex; justify-content: space-between; align-items: center; }
-  .net-box .label { font-size: 10pt; opacity: .85; }
-  .net-box .sub { font-size: 8pt; opacity: .65; margin-top: 2px; }
-  .net-box .amount { font-size: 20pt; font-weight: 800; }
-  .footer { padding: 12px 20px; font-size: 8pt; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; background: #f8fafc; }
-  .paid-days-badge { background: rgba(255,255,255,.15); padding: 3px 10px; border-radius: 20px; font-size: 8pt; margin-top: 6px; display: inline-block; }
-</style></head><body><div class="page">
-
-<div class="hdr">
-  <div>
-    <h2>SALARY SLIP</h2>
-    <p>Allied Services International (Pvt.) Ltd.</p>
-    <p>NTN: 7483900-1  |  accounts@asil.com.pk</p>
-  </div>
-  <div class="hdr-right">
-    <p style="font-size:12pt;font-weight:700">${monthName} ${year}</p>
-    <p>Generated: ${new Date().toLocaleDateString('en-PK', {day:'2-digit',month:'short',year:'numeric'})}</p>
-    <div class="paid-days-badge">Paid Days: ${paidDays} / ${workDays}</div>
-  </div>
-</div>
-
-<div class="meta">
-  <div class="meta-cell"><label>Employee Name</label><span>${emp.name}</span></div>
-  <div class="meta-cell"><label>Employee Code</label><span>${emp.id}</span></div>
-  <div class="meta-cell"><label>Designation</label><span>${emp.designation||'—'}</span></div>
-  <div class="meta-cell"><label>Client / Location</label><span>${emp.client||'—'} / ${emp.location||'—'}</span></div>
-  <div class="meta-cell"><label>CNIC</label><span>${emp.cnic||'—'}</span></div>
-  <div class="meta-cell"><label>Bank Account</label><span>${emp.bank_name||'—'}  —  ${emp.bank_account||'—'}</span></div>
-</div>
-
-<div class="section">
-<table>
-  <thead><tr><th>EARNINGS</th><th class="amount">Amount (Rs.)</th></tr></thead>
-  <tbody>
-    <tr><td>Basic Salary</td><td class="amount">${fmt(basicSalary)}</td></tr>
-    <tr><td>House Rent Allowance (HRA)</td><td class="amount">${fmt(hra)}</td></tr>
-    <tr><td>Conveyance Allowance</td><td class="amount">${fmt(conveyance)}</td></tr>
-    <tr><td>Medical Allowance</td><td class="amount">${fmt(medical)}</td></tr>
-    ${otherAllow > 0 ? `<tr><td>Other Allowances</td><td class="amount">${fmt(otherAllow)}</td></tr>` : ''}
-    ${row('Overtime (OT)', otAmount)}
-    ${row('OPD Claim', opdClaim)}
-    ${row('Expense Reimbursement', reimbursement)}
-    ${row('Arrears', arrears)}
-    ${row('Special Allowance', splAllow)}
-    ${row('Fuel / Mobile Allowance', fuelMobile)}
-    ${row('Bonus', bonusAmount)}
-    <tr class="total-row"><td>GROSS SALARY</td><td class="amount">${fmt(grossTotal)}</td></tr>
-  </tbody>
-</table>
-</div>
-
-<div class="section">
-<table>
-  <thead><tr><th>DEDUCTIONS</th><th class="amount">Amount (Rs.)</th></tr></thead>
-  <tbody>
-    <tr><td class="deduction">Income Tax (WHT)</td><td class="amount deduction">- ${fmt(incomeTax)}</td></tr>
-    <tr><td class="deduction">EOBI (Employee Share)</td><td class="amount deduction">- ${fmt(eobiEE)}</td></tr>
-    ${pfEE > 0 ? `<tr><td class="deduction">Provident Fund (Employee)</td><td class="amount deduction">- ${fmt(pfEE)}</td></tr>` : ''}
-    ${row('Advance Deduction', advanceDed, true)}
-    ${row('Loan Installment', loanDed, true)}
-    ${row('Other Deduction', otherDed, true)}
-    <tr class="total-row"><td>TOTAL DEDUCTIONS</td><td class="amount deduction">- ${fmt(totalDeductions)}</td></tr>
-  </tbody>
-</table>
-</div>
-
-<div class="net-box">
-  <div>
-    <div class="label">NET SALARY PAYABLE</div>
-    <div class="sub">${monthName} ${year}  |  Gross ${fmt(grossTotal)} ─ Deductions ${fmt(totalDeductions)}</div>
-  </div>
-  <div class="amount">Rs. ${fmt(netPay)}</div>
-</div>
-
-<div class="footer">
-  This is a system-generated salary slip and does not require a signature.  |  Allied Services International (Pvt.) Ltd.
-</div>
-</div></body></html>`;
+        const slipData = buildWorldAPayslipData(emp, pay, empEosbType);
+        const html = renderWorldAPayslipHtml(slipData, { year, month });
 
         res.setHeader('Content-Type', 'text/html');
-        // ?download=1 triggers attachment download instead of opening in new tab
         if (req.query.download === '1') {
             const safeName = (emp.name || 'Employee').replace(/[^a-zA-Z0-9 ]/g, '_').trim();
             res.setHeader('Content-Disposition', `attachment; filename="PaySlip_${safeName}_${monthName}_${year}.html"`);

@@ -1,20 +1,25 @@
 'use strict';
 
+const { overtimeRows } = require('../../payroll/overtimeSplit');
+
 function fmt(v) {
     return Math.round(parseFloat(v) || 0).toLocaleString('en-PK');
 }
 
+/**
+ * World B payslip — same layout as World A:
+ * Earnings (OT / reimbursements in-table only) → GROSS TOTAL → Deductions (if any) → Net.
+ * No separate OT / reimbursement detail cards.
+ */
 function renderPayslipHtml({ emp, computed, month, year, paidDays, workingDays }) {
     const monthName = new Date(2000, parseInt(month, 10) - 1, 1).toLocaleString('en-PK', { month: 'long' });
-    const grossSalary = parseFloat(emp.salary) || 0;
     const workDays = workingDays || 26;
-    const ratio = paidDays / workDays;
-    const basicSalary = Math.round(grossSalary * 0.60 * ratio);
-    const hra = Math.round(grossSalary * 0.20 * ratio);
-    const conveyance = Math.round(grossSalary * 0.10 * ratio);
-    const medical = Math.round(grossSalary * 0.07 * ratio);
-    const otherAllow = Math.round(grossSalary * 0.03 * ratio);
+    const grossSalary = Math.round(parseFloat(emp.salary) || 0);
+    const ratio = (paidDays || workDays) / workDays;
+    const grossProrated = Math.round(grossSalary * ratio);
 
+    const ot2Hrs = parseFloat(computed.ot2Hours || computed.ot2_hrs || 0) || 0;
+    const ot3Hrs = parseFloat(computed.ot3Hours || computed.ot3_hrs || 0) || 0;
     const otAmount = Math.round(computed.overtimeAmount || 0);
     const opdClaim = Math.round(computed.opd || computed.medicalCoverage || 0);
     const reimbursement = Math.round(computed.expense || 0);
@@ -24,9 +29,17 @@ function renderPayslipHtml({ emp, computed, month, year, paidDays, workingDays }
     const totalDeductions = Math.round(computed.totalDeductions || (incomeTax + eobiEE));
     const netPay = Math.round(computed.netPay || 0);
 
+    const otRows = overtimeRows(ot2Hrs, ot3Hrs, otAmount, grossSalary, workDays);
+
     const row = (label, val, isDeduction = false) =>
         val > 0 ? `<tr><td>${label}</td><td class="amount${isDeduction ? ' deduction' : ''}">
                 ${isDeduction ? '- ' : ''}${fmt(val)}</td></tr>` : '';
+
+    const deductionBody = [
+        row('Income Tax (WHT)', incomeTax, true),
+        row('EOBI (Employee Share)', eobiEE, true),
+    ].join('');
+    const hasDeductions = totalDeductions > 0;
 
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Salary Slip — ${emp.name} — ${monthName} ${year}</title>
@@ -44,16 +57,16 @@ function renderPayslipHtml({ emp, computed, month, year, paidDays, workingDays }
   .meta-cell label { font-size: 7.5pt; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 3px; }
   .meta-cell span { font-size: 10pt; font-weight: 600; color: #1e293b; }
   .section { margin: 0 18px 14px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-  th { background: #334155; color: #fff; padding: 8px 12px; font-size: 8.5pt; text-align: left; letter-spacing: .05em; }
+  .section-title { font-size: 11pt; font-weight: 800; color: #1e3a5f; margin: 16px 0 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th { background: #1e3a5f; color: #fff; padding: 8px 12px; font-size: 8.5pt; text-align: left; letter-spacing: .04em; }
   th:last-child { text-align: right; }
   td { padding: 7px 12px; border-bottom: 1px solid #f1f5f9; font-size: 9.5pt; color: #1e293b; }
   .amount { text-align: right; font-weight: 600; }
   .deduction { color: #dc2626; }
-  .total-row td { background: #f8fafc; font-weight: 800; font-size: 10.5pt; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1; }
+  .total-row td { background: #e8eef5; font-weight: 800; font-size: 10.5pt; border-top: 2px solid #cbd5e1; }
   .net-box { background: #1e3a5f; color: #fff; padding: 16px 24px; margin: 0; display: flex; justify-content: space-between; align-items: center; }
   .net-box .label { font-size: 10pt; opacity: .85; }
-  .net-box .sub { font-size: 8pt; opacity: .65; margin-top: 2px; }
   .net-box .amount { font-size: 20pt; font-weight: 800; }
   .footer { padding: 12px 20px; font-size: 8pt; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; background: #f8fafc; }
   .paid-days-badge { background: rgba(255,255,255,.15); padding: 3px 10px; border-radius: 20px; font-size: 8pt; margin-top: 6px; display: inline-block; }
@@ -82,38 +95,32 @@ function renderPayslipHtml({ emp, computed, month, year, paidDays, workingDays }
 </div>
 
 <div class="section">
-<table>
-  <thead><tr><th>EARNINGS</th><th class="amount">Amount (Rs.)</th></tr></thead>
-  <tbody>
-    <tr><td>Basic Salary</td><td class="amount">${fmt(basicSalary)}</td></tr>
-    <tr><td>House Rent Allowance (HRA)</td><td class="amount">${fmt(hra)}</td></tr>
-    <tr><td>Conveyance Allowance</td><td class="amount">${fmt(conveyance)}</td></tr>
-    <tr><td>Medical Allowance</td><td class="amount">${fmt(medical)}</td></tr>
-    ${otherAllow > 0 ? `<tr><td>Other Allowances</td><td class="amount">${fmt(otherAllow)}</td></tr>` : ''}
-    ${row('Overtime (OT)', otAmount)}
-    ${row('OPD Claim', opdClaim)}
-    ${row('Expense Reimbursement', reimbursement)}
-    <tr class="total-row"><td>GROSS SALARY</td><td class="amount">${fmt(grossTotal)}</td></tr>
-  </tbody>
-</table>
+  <div class="section-title">Earnings &amp; Additions</div>
+  <table>
+    <thead><tr><th>DESCRIPTION</th><th class="amount">AMOUNT (PKR)</th></tr></thead>
+    <tbody>
+      <tr><td>Gross Salary</td><td class="amount">${fmt(grossProrated)}</td></tr>
+      ${otRows.map((r) => row(r.label, r.amount)).join('')}
+      ${row('Medical Reimbursement (OPD)', opdClaim)}
+      ${row('Expense Reimbursement', reimbursement)}
+      <tr class="total-row"><td>GROSS TOTAL</td><td class="amount">${fmt(grossTotal)}</td></tr>
+    </tbody>
+  </table>
 </div>
 
-<div class="section">
-<table>
-  <thead><tr><th>DEDUCTIONS</th><th class="amount">Amount (Rs.)</th></tr></thead>
-  <tbody>
-    <tr><td class="deduction">Income Tax (WHT)</td><td class="amount deduction">- ${fmt(incomeTax)}</td></tr>
-    <tr><td class="deduction">EOBI (Employee Share)</td><td class="amount deduction">- ${fmt(eobiEE)}</td></tr>
-    <tr class="total-row"><td>TOTAL DEDUCTIONS</td><td class="amount deduction">- ${fmt(totalDeductions)}</td></tr>
-  </tbody>
-</table>
-</div>
+${hasDeductions ? `<div class="section">
+  <div class="section-title">Deductions</div>
+  <table>
+    <thead><tr><th>DESCRIPTION</th><th class="amount">AMOUNT (PKR)</th></tr></thead>
+    <tbody>
+      ${deductionBody}
+      <tr class="total-row"><td>TOTAL DEDUCTIONS</td><td class="amount deduction">- ${fmt(totalDeductions)}</td></tr>
+    </tbody>
+  </table>
+</div>` : ''}
 
 <div class="net-box">
-  <div>
-    <div class="label">NET SALARY PAYABLE</div>
-    <div class="sub">${monthName} ${year} | Gross ${fmt(grossTotal)} — Deductions ${fmt(totalDeductions)}</div>
-  </div>
+  <div><div class="label">NET SALARY PAYABLE</div></div>
   <div class="amount">Rs. ${fmt(netPay)}</div>
 </div>
 

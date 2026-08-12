@@ -165,8 +165,8 @@ async function sendPayslips(pool, deps, opts) {
     const batchId = batchRows[0].id;
 
     let empQ = `
-        SELECT e.id, e.name, e.email, e.primary_contact, e.contact, e.cnic, e.designation,
-               e.client, e.location, e.bank_name, e.bank_account, e.contract_name, e.contract, e.salary,
+        SELECT e.id, e.name, e.email, e.primary_contact, e.cnic, e.designation,
+               e.client, e.location, e.bank_name, e.bank_account, e.contract_name, e.salary,
                pt.paid_days, pt.gross, pt.net, pt.ot2_hrs, pt.ot3_hrs, pt.opd_claim, pt.reimbursement,
                pt.arrears, pt.special_allowance, pt.fuel_mobile, pt.bonus_amount, pt.wht, pt.eobi_ee,
                pt.advance_deduction, pt.loan_deduction, pt.other_deduction, pt.locked
@@ -190,7 +190,7 @@ async function sendPayslips(pool, deps, opts) {
         const emp = row;
         const pay = row;
         try {
-            const eosbType = await getContractEosbType(pool, emp.contract_name || emp.contract);
+            const eosbType = await getContractEosbType(pool, emp.contract_name);
             const doc = await generateAndStorePdf(pool, emp, pay, eosbType, batchId, yr, mo);
 
             let emailStatus = 'skipped';
@@ -218,7 +218,7 @@ async function sendPayslips(pool, deps, opts) {
                 emailCount += 1;
             }
 
-            const phone = normalisePhone(emp.primary_contact || emp.contact);
+            const phone = normalisePhone(emp.primary_contact);
             if (phone && sendJazzSMS) {
                 const { rawToken, tokenId: tid } = await mintAccessToken(pool, {
                     employeeId: emp.id,
