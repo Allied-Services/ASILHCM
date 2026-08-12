@@ -81,10 +81,12 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Billing model | `service_order_deduction` on `contract_policies` |
 | Contract meta | `contracts.meta` JSONB — `fv_product`, external SO #, SLA/retention text, security deposit |
 | Monthly qty default | `1` per service order line (annual months stored in meta) |
-| Absence deduction (invoice) | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` |
+| Absence deduction (invoice) | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` (with `line_id` linked to the matching manpower SO line) |
+| Invoice shortage attribution | Print nests absences under the matching SO line (`line_id`, else employee designation → line roles via `designationMatch.js`). Orphans only when unmatched. Unit Price stays gross; Amount PKR is net of that line's shortages. |
 | Payroll wages (Conservancy) | Model A: `salary × ((30 − sheet_absent) / 30)`; Absent column = explicit sheet `days_absent` (not WD − present) |
 | Attendance ingest | Excel sheet `"{MonthName} {year}"` or Google Drive folder `DRIVE_ATTENDANCE_FOLDER_ID`; override stores `present_days` + `absent_days` |
 | Single write path | `backend/src/modules/serviceOrders/contractCrud.js` (wizard, CORO seed, NZ re-sync) |
+| SO line replace | `replaceLines` re-points `so_deductions.line_id` across delete/re-insert (FK is ON DELETE SET NULL) |
 
 **Tax rule (critical):** Stamped invoice grand = net taxable + provincial ST only. Income WHT (policy default 15%) and ~20% ST withholding appear in the receivable section only — they do **not** reduce stamped grand. Persisted to `client_invoices`: `subtotal=net`, `sales_tax=PST`, `grand_total=net+PST`, `wht=incomeWht`, breakdown in `notes` JSON. Province defaults (Wafi portal aligned): Punjab **16%**, Sindh/KPK/Balochistan **15%**. Prefer `service_orders.meta.taxRate` / `meta.province` when set.
 
@@ -107,6 +109,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 - CORO: `node scripts/seed_pso_coro_ma.js` (payload `seedData/pso_coro_ss94.json`)
 - Assign CORO roster: `node scripts/assign_coro_employees.js --apply`
 - PSO-085 CNIC expiry: `scripts/fix_pso085_cnic_expiry.sql`
+- Backfill orphaned shortage links: `node backend/scripts/backfill_so_deduction_lines.js [--apply] [--contract …] [--month …] [--year …]`
 
 ---
 

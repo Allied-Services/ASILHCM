@@ -1,5 +1,7 @@
 'use strict';
 
+const { findLineForDesignation } = require('./designationMatch');
+
 const fmt = (n) => (Number(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 const fmt2 = (n) => (Number(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -16,6 +18,74 @@ function readableMonth(month, year) {
 function formatTitle(format) {
     if (format === 'sales_tax' || format === 'sales_tax_letterhead') return 'Sales Tax Invoice';
     return 'Invoice';
+}
+
+function lineKey(line) {
+    const id = line.lineId ?? line.line_id ?? line.id;
+    return id != null ? String(id) : null;
+}
+
+/**
+ * Attribute each deduction to an SO line:
+ * 1) matching line_id / lineId
+ * 2) employee_designation matched against manpower line roles
+ * 3) else orphan (manual / unmatched)
+ */
+function attributeDeductions(lines, deductions) {
+    const byLineId = new Map();
+    for (const l of lines || []) {
+        const key = lineKey(l);
+        if (key != null) byLineId.set(key, l);
+    }
+
+    const byLine = new Map();
+    const orphans = [];
+
+    for (const d of deductions || []) {
+        const dLine = d.line_id ?? d.lineId;
+        let matched = null;
+        if (dLine != null && byLineId.has(String(dLine))) {
+            matched = byLineId.get(String(dLine));
+        } else {
+            const desig = d.employee_designation || d.designation || d.employeeDesignation || '';
+            const found = findLineForDesignation(lines, desig);
+            if (found?.line) matched = found.line;
+        }
+
+        if (matched) {
+            const key = lineKey(matched);
+            if (!byLine.has(key)) byLine.set(key, []);
+            byLine.get(key).push(d);
+        } else {
+            orphans.push(d);
+        }
+    }
+
+    return { byLine, orphans };
+}
+
+function shortageLabel(d) {
+    const name = d.employee_name || d.employeeName || d.employee_id || 'Resource';
+    const desig = d.employee_designation || d.designation || d.employeeDesignation || '';
+    const daysRaw = d.days_absent != null ? d.days_absent : d.daysAbsent;
+    const days = daysRaw != null && daysRaw !== '' ? Number(daysRaw) : null;
+    const amount = Number(d.amount || 0);
+
+    if (days != null && Number.isFinite(days)) {
+        const dayWord = Math.abs(days) === 1 ? 'day' : 'days';
+        let label = `• ${name}${desig ? ` (${desig})` : ''} — ${days} ${dayWord} absent`;
+        if (days > 0 && amount) {
+            const daily = Math.round((amount / days) * 100) / 100;
+            label += ` (@ Rs. ${fmt2(daily)}/day)`;
+        }
+        return label;
+    }
+
+    return `• ${d.label || d.note || d.type || 'Shortage'}${d.employee_id ? ` (${d.employee_id})` : ''}${d.employee_name || d.employeeName ? ` — ${d.employee_name || d.employeeName}` : ''}`;
+}
+
+function orphanShortageLabel(d) {
+    return `• ${d.label || d.note || d.type || 'Deduction'}${d.employee_id ? ` (${d.employee_id})` : ''}${d.employee_name || d.employeeName ? ` — ${d.employee_name || d.employeeName}` : ''}`;
 }
 
 function baseStyles(letterhead) {
@@ -123,22 +193,11 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
     const receivable = Number(data.netReceivable ?? grand - incomeWht - stWithholding);
     const title = formatTitle(format);
 
-    const deductionsForLine = (line) => {
-        const lineId = line.lineId || line.line_id || line.id;
-        return deductions.filter((d) => {
-            const dLine = d.line_id || d.lineId;
-            if (lineId != null && dLine != null) return String(dLine) === String(lineId);
-            return false;
-        });
-    };
-    const orphanDeds = deductions.filter((d) => {
-        const dLine = d.line_id || d.lineId;
-        if (dLine == null) return true;
-        return !lines.some((l) => String(l.lineId || l.line_id || l.id) === String(dLine));
-    });
+    const { byLine, orphans: orphanDeds } = attributeDeductions(lines, deductions);
 
     const lineRows = lines.map((l, idx) => {
-        const lineDeds = deductionsForLine(l);
+        const key = lineKey(l);
+        const lineDeds = (key != null && byLine.get(key)) || [];
         const lessAmt = lineDeds.reduce((s, d) => s + Number(d.amount || 0), 0);
         const unit = Number(l.rate ?? l.amount ?? 0);
         const qty = Number(l.quantity ?? 1);
@@ -151,16 +210,8 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
             : '';
         const lessHtml = lessAmt > 0
             ? `<div class="less">
-                <div class="head">LESS: Services Not Fully Delivered / Shortages</div>
-                ${lineDeds.map((d) => {
-                    const name = d.employee_name || d.employeeName || d.employee_id || 'Resource';
-                    const desig = d.employee_designation || d.designation || '';
-                    const days = d.days_absent != null ? d.days_absent : d.daysAbsent;
-                    const label = days != null
-                        ? `• ${name}${desig ? ` (${desig})` : ''} — ${days} days absent`
-                        : `• ${d.label || d.note || d.type || 'Shortage'}${d.employee_id ? ` (${d.employee_id})` : ''}`;
-                    return `<div class="row"><span>${label}</span><span>-Rs. ${fmt2(d.amount)}</span></div>`;
-                }).join('')}
+                <div class="head">LESS: Services Not Fully Delivered / Shortages:</div>
+                ${lineDeds.map((d) => `<div class="row"><span>${shortageLabel(d)}</span><span>-Rs. ${fmt2(d.amount)}</span></div>`).join('')}
                 <div class="tot"><span>Adjusted Total Deductions</span><span>-Rs. ${fmt2(lessAmt)}</span></div>
               </div>`
             : '';
@@ -183,7 +234,7 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
         ? `<tr><td colspan="6">
             <div class="less">
               <div class="head">LESS: Additional Shortages / Adjustments</div>
-              ${orphanDeds.map((d) => `<div class="row"><span>• ${d.label || d.note || d.type || 'Deduction'}${d.employee_id ? ` (${d.employee_id})` : ''}${d.employee_name ? ` — ${d.employee_name}` : ''}</span><span>-Rs. ${fmt2(d.amount)}</span></div>`).join('')}
+              ${orphanDeds.map((d) => `<div class="row"><span>${orphanShortageLabel(d)}</span><span>-Rs. ${fmt2(d.amount)}</span></div>`).join('')}
             </div>
           </td></tr>`
         : '';
@@ -249,7 +300,7 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
     </div>
     <div class="totals">
       <div class="r"><span>Gross Total Contract Value</span><span>Rs. ${fmt2(gross)}</span></div>
-      <div class="r"><span>Shortage / Services Not Given</span><span>-Rs. ${fmt2(totalDeductions)}</span></div>
+      <div class="r"><span>LESS: Shortage / Deductions</span><span>-Rs. ${fmt2(totalDeductions)}</span></div>
       <div class="r strong"><span>Net Taxable Services Value</span><span>Rs. ${fmt2(net)}</span></div>
       <div class="r"><span>Provincial Sales Tax (${taxPct}%)</span><span>Rs. ${fmt2(pst)}</span></div>
       <div class="grand"><span>Grand Net Invoice Amount</span><span>PKR ${fmt2(grand)}</span></div>
@@ -264,4 +315,12 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
 </div></body></html>`;
 }
 
-module.exports = { renderInvoiceHtml, fmt, fmt2, readableMonth, numberToWords };
+module.exports = {
+    renderInvoiceHtml,
+    fmt,
+    fmt2,
+    readableMonth,
+    numberToWords,
+    attributeDeductions,
+    shortageLabel,
+};

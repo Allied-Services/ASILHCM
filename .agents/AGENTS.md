@@ -539,6 +539,21 @@ Per plan `fv_coro_contracts` (CORO onboarding & data-driven PSO North Zone).
 
 ---
 
+### 2026-08-12 — FV invoice per-line shortages (Chakpirana / PSO)
+
+Absence shortages on Fixed Value invoices now nest under the matching SO line item instead of consolidating at the bottom as "LESS: Additional Shortages / Adjustments".
+
+1. **`designationMatch.js`** — shared normalize/alias/`findLineForDesignation` extracted from `attendanceIngest.js` (one matcher for ingest + print).
+2. **`invoiceHtml.js`** — `attributeDeductions`: `line_id` match, else designation→roles, else orphan. Per-line label: `• Name (Designation) — N day(s) absent (@ Rs. X/day)`. Amount PKR = gross − line shortages. Footer: `LESS: Shortage / Deductions`.
+3. **`crud.js` `replaceLines`** — captures `so_deductions.line_id` before DELETE, re-points onto new serial ids (stops ON DELETE SET NULL orphans on SO re-sync).
+4. **`billing.js` `printInvoiceHtml`** — prefers live SO line id when stamped `lineId` is stale.
+5. **`backend/scripts/backfill_so_deduction_lines.js`** — dry-run by default; `--apply` writes `line_id` for existing orphans.
+6. **Tests** — Chakpirana July fixture in `fvInvoiceBilling.test.js` + `replaceLines` re-point mock.
+
+**Env vars needed:** none new. Optional staging backfill: `node backend/scripts/backfill_so_deduction_lines.js --contract CTR-PSO-NORTH-ZONE --month 7 --year 2026` then `--apply`.
+
+---
+
 ## Cursor Cloud specific instructions
 
 Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency install (`npm install` in `backend/` and `frontend/`) is handled by the environment update script; this section only covers the non-obvious startup/run caveats. Standard commands live in `backend/package.json` / `frontend/package.json` and `backend/.env.example` — refer to those; only the gotchas are repeated here.
