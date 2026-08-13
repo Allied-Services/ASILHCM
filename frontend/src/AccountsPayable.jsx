@@ -226,6 +226,7 @@ function PayrollQueuePanel() {
     const [monthDetail, setMonthDetail] = useState({});
     const [confirmTarget, setConfirmTarget] = useState(null);
     const [successMsg, setSuccessMsg] = useState(null);
+    const [selectedIds, setSelectedIds] = useState({});
 
     const loadQueue = useCallback(async () => {
         setLoading(true);
@@ -238,33 +239,85 @@ function PayrollQueuePanel() {
 
     useEffect(() => { loadQueue(); }, [loadQueue]);
 
+    const groupKey = (item) => `${item.year}-${item.month}-${item.client || ''}-${item.contract_name || ''}`;
+
+    const loadDetail = useCallback(async (yr, mo, client, contract) => {
+        const key = `${yr}-${mo}-${client || ''}-${contract || ''}`;
+        const params = new URLSearchParams();
+        if (client) params.set('client', client);
+        if (contract) params.set('contract', contract);
+        const d = await apiFetch(`/api/ap/payroll-queue/${yr}/${mo}?${params.toString()}`);
+        setMonthDetail(prev => ({ ...prev, [key]: d }));
+        return d;
+    }, []);
+
     const expandMonth = async (yr, mo, client, contract) => {
         const key = `${yr}-${mo}-${client||''}-${contract||''}`;
         if (expandedMonth === key) { setExpandedMonth(null); return; }
         setExpandedMonth(key);
         if (monthDetail[key]) return;
         try {
-            const params = new URLSearchParams();
-            if (client) params.set('client', client);
-            if (contract) params.set('contract', contract);
-            const d = await apiFetch(`/api/ap/payroll-queue/${yr}/${mo}?${params.toString()}`);
-            setMonthDetail(prev => ({ ...prev, [key]: d }));
+            await loadDetail(yr, mo, client, contract);
         } catch (e) { console.error(e); }
     };
 
+    // Month roll-up: a card is one client/contract slice, so show the whole month too.
+    const monthSummaries = queue.reduce((acc, item) => {
+        const mk = `${item.year}-${item.month}`;
+        const bucket = acc[mk] || { year: item.year, month: item.month, employees: 0, paid: 0, net: 0, unpaidNet: 0, items: [] };
+        bucket.employees += parseInt(item.employee_count) || 0;
+        bucket.paid += parseInt(item.paid_count) || 0;
+        bucket.net += parseFloat(item.total_net_pay) || 0;
+        bucket.unpaidNet += parseFloat(item.unpaid_net_pay ?? item.total_net_pay) || 0;
+        bucket.items.push(item);
+        acc[mk] = bucket;
+        return acc;
+    }, {});
+
+    const selectionFor = (key) => selectedIds[key] || [];
+
+    const toggleEmployee = (key, empId) => {
+        setSelectedIds(prev => {
+            const cur = prev[key] || [];
+            return { ...prev, [key]: cur.includes(empId) ? cur.filter(id => id !== empId) : [...cur, empId] };
+        });
+    };
+
+    const toggleAllUnpaid = (key, employees) => {
+        const unpaid = (employees || []).filter(e => !e.paid).map(e => e.employee_id);
+        setSelectedIds(prev => {
+            const cur = prev[key] || [];
+            const allSelected = unpaid.length > 0 && unpaid.every(id => cur.includes(id));
+            return { ...prev, [key]: allSelected ? [] : unpaid };
+        });
+    };
+
     const handleConfirm = async (item, formData) => {
+        const key = groupKey(item);
+        const picked = selectionFor(key);
         formData.client_filter = item.client || null;
         formData.contract_filter = item.contract_name || null;
-        await apiFetch(`/api/ap/payroll-queue/${item.year}/${item.month}/confirm`, {
+        if (picked.length) formData.employee_ids = picked;
+        const res = await apiFetch(`/api/ap/payroll-queue/${item.year}/${item.month}/confirm`, {
             method: 'POST',
             body: JSON.stringify(formData),
         });
-        setSuccessMsg(`Payment for ${item.contract_name || item.client || ''} — ${MONTH_NAMES[item.month - 1]} ${item.year} confirmed!`);
+        const skipped = (res.skipped_already_paid || []).length;
+        setSuccessMsg(
+            `Marked ${res.paid_count ?? 0} employee(s) paid for ${item.contract_name || item.client || ''} — `
+            + `${MONTH_NAMES[item.month - 1]} ${item.year}.`
+            + (skipped ? ` ${skipped} already paid earlier, skipped.` : '')
+        );
+        setSelectedIds(prev => ({ ...prev, [key]: [] }));
+        try { await loadDetail(item.year, item.month, item.client, item.contract_name); } catch { /* refreshed by loadQueue */ }
         loadQueue();
     };
 
-    const statusBadge = (batchCount) => {
-        if (parseInt(batchCount) > 0) return { label: 'Processed', color: '#22c55e', bg: 'rgba(34,197,94,0.1)' };
+    const statusBadge = (item) => {
+        const total = parseInt(item.employee_count) || 0;
+        const paid = parseInt(item.paid_count) || 0;
+        if (total > 0 && paid >= total) return { label: 'Fully Paid', color: '#22c55e', bg: 'rgba(34,197,94,0.1)' };
+        if (paid > 0) return { label: `Partly Paid ${paid}/${total}`, color: '#38bdf8', bg: 'rgba(56,189,248,0.12)' };
         return { label: 'Pending AP', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' };
     };
 
@@ -296,12 +349,35 @@ function PayrollQueuePanel() {
                     <div style={{ fontSize: '0.83rem', marginTop: '0.4rem' }}>Lock a payroll month in the Payroll Sheet to see it here.</div>
                 </div>
             ) : (
-                <div style={{ display: 'grid', gap: '0.75rem' }}>
-                    {queue.map(item => {
+                <div style={{ display: 'grid', gap: '1.5rem' }}>
+                    {Object.values(monthSummaries).map(ms => (
+                    <div key={`m-${ms.year}-${ms.month}`}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', padding: '0.75rem 1.25rem', marginBottom: '0.75rem' }}>
+                        <div style={{ fontWeight: 800, color: '#f0f4f8', fontSize: '0.95rem' }}>
+                            {MONTH_NAMES[ms.month - 1]} {ms.year} — all locked payroll
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                            <strong style={{ color: '#f0f4f8' }}>{ms.employees}</strong> employees
+                            {' · '}<strong style={{ color: '#22c55e' }}>{Rs(ms.net)}</strong> net
+                            {' · '}<strong style={{ color: '#38bdf8' }}>{ms.paid}</strong> paid
+                            {' · '}<strong style={{ color: '#f59e0b' }}>{Rs(ms.unpaidNet)}</strong> still to pay
+                        </div>
+                        {ms.items.length > 1 && (
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                Split into {ms.items.length} contract batches below
+                            </div>
+                        )}
+                    </div>
+                    <div style={{ display: 'grid', gap: '0.75rem' }}>
+                    {ms.items.map(item => {
                         const key = `${item.year}-${item.month}-${item.client||''}-${item.contract_name||''}`;
                         const isExpanded = expandedMonth === key;
-                        const badge = statusBadge(item.batch_count);
+                        const badge = statusBadge(item);
                         const detail = monthDetail[key];
+                        const picked = selectionFor(key);
+                        const groupTotal = parseInt(item.employee_count) || 0;
+                        const groupPaid = parseInt(item.paid_count) || 0;
+                        const remaining = groupTotal - groupPaid;
 
                         return (
                             <div key={key} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
@@ -316,7 +392,7 @@ function PayrollQueuePanel() {
                                         </div>
                                         <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
                                             {item.client && <span style={{ marginRight: '8px', color: '#94a3b8' }}>{item.client}</span>}
-                                            {item.employee_count} employees · Locked by {item.locked_by || '—'}
+                                            {item.employee_count} employees · {groupPaid} paid · {remaining} pending · Locked by {item.locked_by || '—'}
                                         </div>
                                     </div>
                                     <div style={{ textAlign: 'right' }}>
@@ -330,11 +406,12 @@ function PayrollQueuePanel() {
                                     <span style={{ background: badge.bg, color: badge.color, padding: '4px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, minWidth: '100px', textAlign: 'center' }}>
                                         {badge.label}
                                     </span>
-                                    {parseInt(item.batch_count) === 0 && (
+                                    {remaining > 0 && (
                                         <button
                                             onClick={e => { e.stopPropagation(); setConfirmTarget(item); }}
                                             style={{ background: '#22c55e', border: 'none', color: 'white', padding: '7px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.83rem', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-                                            <CreditCard size={14} /> Confirm Payment
+                                            <CreditCard size={14} />
+                                            {picked.length ? `Pay ${picked.length} Selected` : `Pay All ${remaining} Pending`}
                                         </button>
                                     )}
                                 </div>
@@ -355,31 +432,61 @@ function PayrollQueuePanel() {
                                                         <span>Confirmed by: <strong>{detail.batch.created_by}</strong></span>
                                                     </div>
                                                 )}
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                                                    <button onClick={() => toggleAllUnpaid(key, detail.employees)}
+                                                        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                                                        Select / clear all pending
+                                                    </button>
+                                                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                                                        {picked.length
+                                                            ? <><strong style={{ color: '#22c55e' }}>{picked.length}</strong> selected · {Rs((detail.employees||[]).filter(e => picked.includes(e.employee_id)).reduce((s,e)=>s+parseFloat(e.locked_net||e.net||0),0))}</>
+                                                            : 'Tick employees to pay only those. Leave empty to pay everyone still pending.'}
+                                                    </span>
+                                                    {picked.length > 0 && (
+                                                        <button onClick={() => setConfirmTarget(item)}
+                                                            style={{ background: '#22c55e', border: 'none', color: 'white', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            <CreditCard size={14} /> Confirm {picked.length} Payment(s)
+                                                        </button>
+                                                    )}
+                                                </div>
                                                 <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border)' }}>
                                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                                                         <thead style={{ background: 'var(--bg-dark)' }}>
-                                                            <tr>{['Employee', 'Contract', 'Bank', 'Account', 'Gross', 'Net Pay', 'Invoice'].map(h => (
-                                                                <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Employee' || h === 'Contract' || h === 'Bank' ? 'left' : 'right', color: '#64748b', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                                                            <tr>{['', 'Employee', 'Contract', 'Bank', 'Account', 'Status', 'Gross', 'Net Pay', 'Invoice'].map((h, hi) => (
+                                                                <th key={hi} style={{ padding: '8px 10px', textAlign: ['Gross','Net Pay','Invoice'].includes(h) ? 'right' : 'left', color: '#64748b', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                                                             ))}</tr>
                                                         </thead>
                                                         <tbody>
                                                             {(detail.employees || []).map((emp, i) => (
                                                                 <tr key={i} style={{ borderTop: '1px solid var(--border)', background: i % 2 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                                                                    <td style={{ padding: '7px 10px' }}>
+                                                                        <input type="checkbox" disabled={!!emp.paid}
+                                                                            checked={picked.includes(emp.employee_id)}
+                                                                            onChange={() => toggleEmployee(key, emp.employee_id)}
+                                                                            style={{ width: 15, height: 15, accentColor: '#22c55e', cursor: emp.paid ? 'not-allowed' : 'pointer' }} />
+                                                                    </td>
                                                                     <td style={{ padding: '7px 10px', fontWeight: 600, color: '#f0f4f8' }}>{emp.name}</td>
                                                                     <td style={{ padding: '7px 10px', color: '#64748b', fontSize: '0.78rem', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.contract_name || emp.client || '—'}</td>
                                                                     <td style={{ padding: '7px 10px', color: '#64748b' }}>{emp.bank_name || '—'}</td>
                                                                     <td style={{ padding: '7px 10px', color: '#64748b', fontFamily: 'monospace', fontSize: '0.78rem' }}>{emp.bank_account || '—'}</td>
+                                                                    <td style={{ padding: '7px 10px' }}>
+                                                                        <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '3px 8px', borderRadius: '12px', whiteSpace: 'nowrap', background: emp.paid ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)', color: emp.paid ? '#22c55e' : '#f59e0b' }}>
+                                                                            {emp.paid ? 'Paid' : 'Pending'}
+                                                                        </span>
+                                                                    </td>
                                                                     <td style={{ padding: '7px 10px', textAlign: 'right', color: '#94a3b8' }}>{fmt(emp.gross)}</td>
-                                                                    <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, color: '#22c55e' }}>{fmt(emp.net)}</td>
+                                                                    <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, color: '#22c55e' }}>{fmt(emp.locked_net ?? emp.net)}</td>
                                                                     <td style={{ padding: '7px 10px', textAlign: 'right', color: '#a78bfa' }}>{fmt(emp.total_invoice)}</td>
                                                                 </tr>
                                                             ))}
                                                         </tbody>
                                                         <tfoot style={{ background: '#0a1018', fontWeight: 800, borderTop: '2px solid var(--border)' }}>
                                                             <tr>
-                                                                <td colSpan={4} style={{ padding: '8px 10px', color: '#64748b' }}>TOTAL ({detail.employees?.length || 0} employees)</td>
+                                                                <td colSpan={6} style={{ padding: '8px 10px', color: '#64748b' }}>
+                                                                    BATCH TOTAL ({detail.employees?.length || 0} employees in this contract batch)
+                                                                </td>
                                                                 <td style={{ padding: '8px 10px', textAlign: 'right', color: '#94a3b8' }}>{fmt((detail.employees||[]).reduce((s,e)=>s+parseFloat(e.gross||0),0))}</td>
-                                                                <td style={{ padding: '8px 10px', textAlign: 'right', color: '#22c55e' }}>{fmt((detail.employees||[]).reduce((s,e)=>s+parseFloat(e.net||0),0))}</td>
+                                                                <td style={{ padding: '8px 10px', textAlign: 'right', color: '#22c55e' }}>{fmt((detail.employees||[]).reduce((s,e)=>s+parseFloat(e.locked_net ?? e.net ?? 0),0))}</td>
                                                                 <td style={{ padding: '8px 10px', textAlign: 'right', color: '#a78bfa' }}>{fmt((detail.employees||[]).reduce((s,e)=>s+parseFloat(e.total_invoice||0),0))}</td>
                                                             </tr>
                                                         </tfoot>
@@ -392,18 +499,33 @@ function PayrollQueuePanel() {
                             </div>
                         );
                     })}
+                    </div>
+                    </div>
+                    ))}
                 </div>
             )}
 
-            {confirmTarget && (
-                <ConfirmPaymentModal
-                    title={`Payroll — ${MONTH_NAMES[confirmTarget.month - 1]} ${confirmTarget.year}`}
-                    totalAmount={parseFloat(confirmTarget.total_net_pay) || 0}
-                    employeeCount={parseInt(confirmTarget.employee_count) || 0}
-                    onConfirm={(data) => handleConfirm(confirmTarget, data)}
-                    onClose={() => setConfirmTarget(null)}
-                />
-            )}
+            {confirmTarget && (() => {
+                const ck = groupKey(confirmTarget);
+                const cPicked = selectionFor(ck);
+                const cRows = monthDetail[ck]?.employees || [];
+                const pickedTotal = cRows
+                    .filter(e => cPicked.includes(e.employee_id))
+                    .reduce((s, e) => s + (parseFloat(e.locked_net ?? e.net) || 0), 0);
+                const pendingTotal = parseFloat(confirmTarget.unpaid_net_pay ?? confirmTarget.total_net_pay) || 0;
+                const pendingCount = (parseInt(confirmTarget.employee_count) || 0) - (parseInt(confirmTarget.paid_count) || 0);
+                return (
+                    <ConfirmPaymentModal
+                        title={cPicked.length
+                            ? `Payroll — ${MONTH_NAMES[confirmTarget.month - 1]} ${confirmTarget.year} · ${cPicked.length} selected employee(s)`
+                            : `Payroll — ${MONTH_NAMES[confirmTarget.month - 1]} ${confirmTarget.year} · all pending employees`}
+                        totalAmount={cPicked.length ? pickedTotal : pendingTotal}
+                        employeeCount={cPicked.length || pendingCount}
+                        onConfirm={(data) => handleConfirm(confirmTarget, data)}
+                        onClose={() => setConfirmTarget(null)}
+                    />
+                );
+            })()}
         </div>
     );
 }
