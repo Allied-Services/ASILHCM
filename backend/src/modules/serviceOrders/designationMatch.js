@@ -15,6 +15,18 @@ function normalizeDesignation(s) {
         .trim();
 }
 
+/** Match `needle` inside `haystack` on word boundaries (avoids office ⊂ officer). */
+function containsWholePhrase(haystack, needle) {
+    if (!haystack || !needle) return false;
+    if (haystack === needle) return true;
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`).test(haystack);
+}
+
+function phrasesOverlap(a, b) {
+    return containsWholePhrase(a, b) || containsWholePhrase(b, a);
+}
+
 /**
  * Expand a normalized designation into match keys (aliases + self).
  * Pump Room has no dedicated Tarujabba SO role — Habibabad/Faqirabad bill it
@@ -47,6 +59,9 @@ function designationMatchKeys(designation) {
         'mechanical technician': ['mechanical technician', 'fitter', 'm r support'],
         fitter: ['fitter', 'mechanical technician', 'm r support'],
         'm r support': ['m r support', 'fitter', 'mechanical technician'],
+        // Payroll roster titles vs SO role labels (PSO conservancy sheet)
+        'fuel oil handling officer': ['fuel oil handling', 'fuel oil handling services'],
+        'lube handling officer': ['lube handling', 'lube handling services', 'lubricant handling'],
     };
 
     return ALIASES[key] || [key];
@@ -57,19 +72,19 @@ function designationsMatch(a, b) {
     const nb = normalizeDesignation(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
-    if (na.includes(nb) || nb.includes(na)) return true;
+    if (phrasesOverlap(na, nb)) return true;
 
     const keysA = designationMatchKeys(a);
     const keysB = designationMatchKeys(b);
     for (const ka of keysA) {
         for (const kb of keysB) {
             if (ka === kb) return true;
-            if (ka.includes(kb) || kb.includes(ka)) return true;
+            if (phrasesOverlap(ka, kb)) return true;
         }
-        if (nb.includes(ka) || ka.includes(nb)) return true;
+        if (phrasesOverlap(nb, ka)) return true;
     }
     for (const kb of keysB) {
-        if (na.includes(kb) || kb.includes(na)) return true;
+        if (phrasesOverlap(na, kb)) return true;
     }
     return false;
 }
@@ -95,6 +110,8 @@ function findLineForDesignation(lines, designation) {
 
 module.exports = {
     normalizeDesignation,
+    containsWholePhrase,
+    phrasesOverlap,
     designationMatchKeys,
     designationsMatch,
     findLineForDesignation,

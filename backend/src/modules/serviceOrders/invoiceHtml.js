@@ -1,6 +1,6 @@
 'use strict';
 
-const { findLineForDesignation } = require('./designationMatch');
+const { findLineForDesignation, designationsMatch } = require('./designationMatch');
 
 const fmt = (n) => (Number(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 const fmt2 = (n) => (Number(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -95,9 +95,21 @@ function lineDeductionHtml(lineDeds) {
     return { netOff: split.totalDeductions, html: parts.join('') };
 }
 
+function lineRoles(line) {
+    return Array.isArray(line?.roles)
+        ? line.roles
+        : (typeof line?.roles === 'string' ? JSON.parse(line.roles || '[]') : []);
+}
+
+function lineMatchesDesignation(line, designation) {
+    const desig = String(designation || '').trim();
+    if (!line || !desig) return false;
+    return lineRoles(line).some((r) => designationsMatch(desig, r.designation || r.role));
+}
+
 /**
  * Attribute each deduction to an SO line:
- * 1) matching line_id / lineId
+ * 1) matching line_id / lineId when it still matches employee designation
  * 2) employee_designation matched against manpower line roles
  * 3) else orphan (manual / unmatched)
  */
@@ -113,11 +125,17 @@ function attributeDeductions(lines, deductions) {
 
     for (const d of deductions || []) {
         const dLine = d.line_id ?? d.lineId;
+        const desig = d.employee_designation || d.designation || d.employeeDesignation || '';
         let matched = null;
         if (dLine != null && byLineId.has(String(dLine))) {
-            matched = byLineId.get(String(dLine));
-        } else {
-            const desig = d.employee_designation || d.designation || d.employeeDesignation || '';
+            const candidate = byLineId.get(String(dLine));
+            // Manual adjustments keep the line the user picked. Absences may
+            // be re-pointed when stored line_id disagrees with designation (#80).
+            if (isManualInvoiceAdjustment(d) || !desig || lineMatchesDesignation(candidate, desig)) {
+                matched = candidate;
+            }
+        }
+        if (!matched && desig) {
             const found = findLineForDesignation(lines, desig);
             if (found?.line) matched = found.line;
         }
