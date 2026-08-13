@@ -4342,24 +4342,50 @@ app.get('/api/ap/payroll-queue', requireAuth, requireRole('ap_team','finance_man
         // CTE first: correlated batch_count subquery cannot reference non-grouped
         // pt.client / e.client under GROUP BY (Postgres 500 → empty AP UI).
         const { rows } = await pool.query(`
-            WITH locked AS (
+            WITH scoped AS (
                 SELECT
+                    pt.employee_id,
                     pt.year,
                     pt.month,
                     COALESCE(pt.client, e.client) AS client,
                     COALESCE(pt.contract_name, e.contract_name) AS contract_name,
-                    COUNT(*) AS employee_count,
-                    SUM(COALESCE(pt.locked_net, ROUND(pt.net))) AS total_net_pay,
-                    SUM(pt.gross) AS total_gross,
-                    SUM(pt.total_invoice) AS total_invoice,
-                    MAX(pt.locked_at) AS locked_at,
-                    MAX(pt.locked_by) AS locked_by
+                    COALESCE(pt.locked_net, ROUND(pt.net)) AS net_amount,
+                    pt.gross,
+                    pt.total_invoice,
+                    pt.locked_at,
+                    pt.locked_by
                 FROM payroll_transactions pt
                 LEFT JOIN employees e ON e.id = pt.employee_id
                 WHERE pt.locked=TRUE AND ${periodFloor}
-                GROUP BY pt.year, pt.month,
-                         COALESCE(pt.client, e.client),
-                         COALESCE(pt.contract_name, e.contract_name)
+            ),
+            paid AS (
+                SELECT DISTINCT pl.employee_id, pb.year, pb.month
+                FROM payment_ledger pl
+                JOIN payment_batches pb ON pb.id = pl.batch_id
+                WHERE pb.batch_type = 'PAYROLL'
+                  AND pl.payment_type = 'SALARY'
+                  AND pl.status = 'Paid'
+            ),
+            locked AS (
+                SELECT
+                    s.year,
+                    s.month,
+                    s.client,
+                    s.contract_name,
+                    COUNT(*) AS employee_count,
+                    COUNT(*) FILTER (WHERE p.employee_id IS NOT NULL) AS paid_count,
+                    SUM(s.net_amount) AS total_net_pay,
+                    COALESCE(SUM(s.net_amount) FILTER (WHERE p.employee_id IS NULL), 0) AS unpaid_net_pay,
+                    SUM(s.gross) AS total_gross,
+                    SUM(s.total_invoice) AS total_invoice,
+                    MAX(s.locked_at) AS locked_at,
+                    MAX(s.locked_by) AS locked_by
+                FROM scoped s
+                LEFT JOIN paid p
+                       ON p.employee_id = s.employee_id
+                      AND p.year = s.year
+                      AND p.month = s.month
+                GROUP BY s.year, s.month, s.client, s.contract_name
             )
             SELECT
                 l.*,
@@ -4388,7 +4414,15 @@ app.get('/api/ap/payroll-queue/:year/:month', requireAuth, requireRole('ap_team'
             SELECT pt.*, e.name, e.bank_name, e.bank_account, e.account_title, e.location,
                    COALESCE(pt.locked_net, ROUND(pt.net)) AS locked_net,
                    COALESCE(pt.client, e.client) AS client,
-                   COALESCE(pt.contract_name, e.contract_name) AS contract_name
+                   COALESCE(pt.contract_name, e.contract_name) AS contract_name,
+                   EXISTS (
+                       SELECT 1 FROM payment_ledger pl
+                       JOIN payment_batches pb ON pb.id = pl.batch_id
+                       WHERE pb.batch_type = 'PAYROLL'
+                         AND pb.year = pt.year AND pb.month = pt.month
+                         AND pl.payment_type = 'SALARY' AND pl.status = 'Paid'
+                         AND pl.employee_id = pt.employee_id
+                   ) AS paid
             FROM payroll_transactions pt
             LEFT JOIN employees e ON e.id = pt.employee_id
             ${where}
@@ -4409,8 +4443,13 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
     try {
         const { year, month } = req.params;
         const { bank_id, bank_name, payment_date, reference_no, notes, push_to_xero = false,
-                client_filter, contract_filter } = req.body;
+                client_filter, contract_filter, employee_ids } = req.body;
         const yr = parseInt(year), mo = parseInt(month);
+
+        // Partial payment: AP can confirm a subset of the locked scope (e.g. 10 of 305).
+        const selectedIds = Array.isArray(employee_ids)
+            ? [...new Set(employee_ids.map(v => String(v || '').trim()).filter(Boolean))]
+            : [];
 
         const { archive, config } = await cutover.resolveArchiveMode(req, pool);
         const periodFloor = cutover.applyPeriodFloor('pt.month', 'pt.year', { archive, cutoverMonth: config.cutoverMonth, cutoverYear: config.cutoverYear });
@@ -4425,19 +4464,66 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
             scopeParams.push(contract_filter);
             scopeFilter += ` AND COALESCE(pt.contract_name, e.contract_name)=$${scopeParams.length}`;
         }
+        if (selectedIds.length) {
+            scopeParams.push(selectedIds);
+            scopeFilter += ` AND pt.employee_id = ANY($${scopeParams.length}::text[])`;
+        }
 
-        // Total amounts — frozen money + frozen scope (LEFT JOIN so orphans still count)
-        const totals = await pool.query(`
-            SELECT SUM(COALESCE(pt.locked_net, ROUND(pt.net))) AS total_net, SUM(pt.gross) AS total_gross,
-                   SUM(pt.total_invoice) AS total_invoice, COUNT(*) AS employee_count
+        // Candidate rows — frozen money + frozen scope (LEFT JOIN so orphans still count).
+        // `already_paid` guards against a second batch paying the same person twice.
+        const empRows = await pool.query(`
+            SELECT pt.*, e.name, e.location, e.bank_name, e.bank_account,
+                   COALESCE(pt.locked_net, ROUND(pt.net)) AS pay_amount,
+                   COALESCE(pt.client, e.client) AS client,
+                   COALESCE(pt.contract_name, e.contract_name) AS contract_name,
+                   EXISTS (
+                       SELECT 1 FROM payment_ledger pl
+                       JOIN payment_batches pb2 ON pb2.id = pl.batch_id
+                       WHERE pb2.batch_type='PAYROLL' AND pb2.year=pt.year AND pb2.month=pt.month
+                         AND pl.payment_type='SALARY' AND pl.status='Paid'
+                         AND pl.employee_id = pt.employee_id
+                   ) AS already_paid
             FROM payroll_transactions pt
-            LEFT JOIN employees e ON e.id = pt.employee_id
+            LEFT JOIN employees e ON e.id=pt.employee_id
             WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE AND ${periodFloor}
             ${scopeFilter}
         `, scopeParams);
-        const t = totals.rows[0];
 
-        // Create payment batch — COALESCE-scoped uniqueness (blank client/contract = one batch)
+        if (empRows.rows.length === 0) {
+            return res.status(404).json({ error: 'No locked payroll rows match this selection', code: 'NO_ROWS' });
+        }
+
+        const toPay = empRows.rows.filter(r => r.already_paid !== true);
+        const skippedAlreadyPaid = empRows.rows
+            .filter(r => r.already_paid === true)
+            .map(r => ({ employee_id: r.employee_id, name: r.name || null }));
+
+        const existingBatch = await pool.query(
+            `SELECT * FROM payment_batches
+             WHERE batch_type='PAYROLL' AND year=$1 AND month=$2
+               AND COALESCE(client,'') = COALESCE($3,'')
+               AND COALESCE(contract_name,'') = COALESCE($4,'')`,
+            [yr, mo, client_filter || null, contract_filter || null]
+        );
+
+        if (toPay.length === 0) {
+            if (existingBatch.rows.length) {
+                return res.json({
+                    ok: true, created: false, batch: existingBatch.rows[0],
+                    paid_count: 0, skipped_already_paid: skippedAlreadyPaid,
+                });
+            }
+            return res.status(409).json({
+                error: 'Every selected employee is already paid for this month',
+                code: 'ALREADY_PAID',
+                skipped_already_paid: skippedAlreadyPaid,
+            });
+        }
+
+        const newTotal = toPay.reduce((s, r) => s + (parseFloat(r.pay_amount) || 0), 0);
+
+        // Create payment batch — COALESCE-scoped uniqueness (blank client/contract = one batch).
+        // Totals are recomputed from the ledger below so repeat partial confirms accumulate.
         const batchId = `PB-${yr}-${String(mo).padStart(2,'0')}-${(bank_name||'').replace(/\s+/g,'').slice(0,8)}-${Date.now()}`;
         const { rows: batchRows } = await pool.query(`
             INSERT INTO payment_batches
@@ -4446,37 +4532,25 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
             VALUES ($1,'PAYROLL',$2,$3,$4,$5,$6,$7,$8,$9,$10,'Confirmed',$11,$12,$13)
             ON CONFLICT (batch_type, year, month, (COALESCE(client, '')), (COALESCE(contract_name, ''))) DO UPDATE SET
                 bank_id=$4, bank_name=$5, payment_date=$6, reference_no=$7,
-                total_amount=$8, employee_count=$9, notes=$10, status='Confirmed',
+                notes=$10, status='Confirmed',
                 updated_at=NOW()
             RETURNING *
         `, [batchId, yr, mo, bank_id||null, bank_name||null, payment_date||null, reference_no||null,
-            parseFloat(t.total_net)||0, parseInt(t.employee_count)||0, notes||null, req.user.email,
+            newTotal, toPay.length, notes||null, req.user.email,
             client_filter||null, contract_filter||null]);
-
-        // Ledger rows — same frozen scope/money as the batch total
-        const empRows = await pool.query(`
-            SELECT pt.*, e.name, e.location, e.bank_name, e.bank_account,
-                   COALESCE(pt.locked_net, ROUND(pt.net)) AS pay_amount,
-                   COALESCE(pt.client, e.client) AS client,
-                   COALESCE(pt.contract_name, e.contract_name) AS contract_name
-            FROM payroll_transactions pt
-            LEFT JOIN employees e ON e.id=pt.employee_id
-            WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE AND ${periodFloor}
-            ${scopeFilter}
-        `, scopeParams);
 
         const monthName = new Date(2000, mo-1, 1).toLocaleString('en-US', { month: 'short' });
         const yr2 = String(yr).slice(-2);
 
-        const batchEmpIds = empRows.rows.map(e => e.employee_id);
-        if (empRows.rows.length > 0) {
-            const plBatch    = empRows.rows.map(() => batchRows[0].id);
+        const batchEmpIds = toPay.map(e => e.employee_id);
+        {
+            const plBatch    = toPay.map(() => batchRows[0].id);
             const plEmpIds   = batchEmpIds;
-            const plNames    = empRows.rows.map(e => e.name);
-            const plAmounts  = empRows.rows.map(e => parseFloat(e.pay_amount) || 0);
-            const plRefs     = empRows.rows.map(e => `PR${monthName}${yr2}-${e.employee_id}`);
-            const plBanks    = empRows.rows.map(e => e.bank_name || bank_name || '');
-            const plAccts    = empRows.rows.map(e => e.bank_account || '');
+            const plNames    = toPay.map(e => e.name);
+            const plAmounts  = toPay.map(e => parseFloat(e.pay_amount) || 0);
+            const plRefs     = toPay.map(e => `PR${monthName}${yr2}-${e.employee_id}`);
+            const plBanks    = toPay.map(e => e.bank_name || bank_name || '');
+            const plAccts    = toPay.map(e => e.bank_account || '');
             await pool.query(`
                 INSERT INTO payment_ledger
                     (batch_id, employee_id, employee_name, payment_type, amount, reference,
@@ -4498,6 +4572,21 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
             );
         }
 
+        // Batch header always equals its own ledger, so partial confirms stay additive.
+        const { rows: recomputed } = await pool.query(`
+            UPDATE payment_batches pb
+            SET total_amount = COALESCE(s.amt, 0),
+                employee_count = COALESCE(s.cnt, 0),
+                updated_at = NOW()
+            FROM (
+                SELECT SUM(amount) AS amt, COUNT(*) AS cnt
+                FROM payment_ledger
+                WHERE batch_id = $1 AND payment_type = 'SALARY'
+            ) s
+            WHERE pb.id = $1
+            RETURNING pb.*
+        `, [batchRows[0].id]);
+
         // Optional Xero push
         let xeroResult = null;
         if (push_to_xero) {
@@ -4506,7 +4595,7 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
                 const mLabel = new Date(2000, mo-1, 1).toLocaleString('en-PK', { month: 'long' }) + ' ' + yr;
                 // Group by client for Xero invoice lines
                 const byClient = {};
-                empRows.rows.forEach(emp => {
+                toPay.forEach(emp => {
                     const key = emp.client || 'Internal';
                     if (!byClient[key]) byClient[key] = { total: 0, count: 0, contract: emp.contract_name };
                     byClient[key].total += parseFloat(emp.total_invoice)||0;
@@ -4536,7 +4625,14 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
             } catch (xe) { xeroResult = { pushed: false, error: xe.message }; }
         }
 
-        res.json({ ok: true, batch: batchRows[0], xero: xeroResult });
+        res.json({
+            ok: true,
+            created: true,
+            batch: recomputed[0] || batchRows[0],
+            paid_count: batchEmpIds.length,
+            skipped_already_paid: skippedAlreadyPaid,
+            xero: xeroResult,
+        });
     } catch (err) { console.error('[POST /api/ap/payroll-queue/:year/:month/confirm]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
