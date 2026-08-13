@@ -506,6 +506,41 @@ describe('FV invoice — invoice number patch', () => {
 });
 
 describe('FV invoice — manual adjustments', () => {
+    const LINE_ID = 201;
+    function poolForInsert(inserted) {
+        return {
+            query: jest.fn()
+                .mockResolvedValueOnce({ rows: [{ id: LINE_ID }] })
+                .mockResolvedValueOnce({ rows: [inserted] }),
+        };
+    }
+    function insertArgs(pool) {
+        const call = pool.query.mock.calls.find((c) => /INSERT INTO so_deductions/i.test(c[0]));
+        return call ? call[1] : null;
+    }
+
+    test('addManualDeduction requires a line on that service order', async () => {
+        const pool = { query: jest.fn() };
+        await expect(addManualDeduction(pool, {
+            service_order_id: 'SO-PSO-CHAKPIRANA',
+            period_month: 7,
+            period_year: 2026,
+            amount: 1830.26,
+            note: 'Credit',
+        })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/line/i) });
+        expect(pool.query).not.toHaveBeenCalled();
+
+        const miss = { query: jest.fn().mockResolvedValueOnce({ rows: [] }) };
+        await expect(addManualDeduction(miss, {
+            service_order_id: 'SO-PSO-CHAKPIRANA',
+            period_month: 7,
+            period_year: 2026,
+            amount: 1830.26,
+            line_id: 999,
+            note: 'Credit',
+        })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/does not belong/i) });
+    });
+
     test('addManualDeduction persists note and defaults type to adjustment', async () => {
         const inserted = {
             id: 55,
@@ -517,32 +552,28 @@ describe('FV invoice — manual adjustments', () => {
             source: 'manual',
             note: 'Credit — June services not delivered',
         };
-        const pool = {
-            query: jest.fn().mockResolvedValueOnce({ rows: [inserted] }),
-        };
+        const pool = poolForInsert(inserted);
         const row = await addManualDeduction(pool, {
             service_order_id: 'SO-PSO-CHAKPIRANA',
             period_month: 7,
             period_year: 2026,
             amount: 1830.26,
+            line_id: LINE_ID,
             note: 'Credit — June services not delivered',
         }, 'ar@asil.com.pk');
         expect(row.note).toBe('Credit — June services not delivered');
-        expect(pool.query).toHaveBeenCalledWith(
-            expect.stringMatching(/INSERT INTO so_deductions/i),
-            expect.arrayContaining([
-                'SO-PSO-CHAKPIRANA',
-                null,
-                7,
-                2026,
-                'adjustment',
-                null,
-                null,
-                1830.26,
-                'ar@asil.com.pk',
-                'Credit — June services not delivered',
-            ])
-        );
+        expect(insertArgs(pool)).toEqual(expect.arrayContaining([
+            'SO-PSO-CHAKPIRANA',
+            LINE_ID,
+            7,
+            2026,
+            'adjustment',
+            null,
+            null,
+            1830.26,
+            'ar@asil.com.pk',
+            'Credit — June services not delivered',
+        ]));
     });
 
     test('addManualDeduction rejects zero amount', async () => {
@@ -558,16 +589,22 @@ describe('FV invoice — manual adjustments', () => {
     });
 
     test('addManualDeduction accepts unicode minus, commas, (n), and effect=deduct', async () => {
-        const pool = { query: jest.fn().mockResolvedValue({ rows: [{ id: 58, amount: -29523 }] }) };
+        const pool = {
+            query: jest.fn(async (sql) => {
+                if (/SELECT id FROM service_order_lines/i.test(sql)) return { rows: [{ id: LINE_ID }] };
+                return { rows: [{ id: 58, amount: -29523 }] };
+            }),
+        };
 
         await addManualDeduction(pool, {
             service_order_id: 'SO-PSO-X',
             period_month: 7,
             period_year: 2026,
             amount: '−29,523',
+            line_id: LINE_ID,
             note: 'unicode minus',
         }, 'ar@asil.com.pk');
-        expect(pool.query.mock.calls[0][1]).toEqual(expect.arrayContaining([-29523]));
+        expect(insertArgs(pool)).toEqual(expect.arrayContaining([-29523, LINE_ID]));
 
         pool.query.mockClear();
         await addManualDeduction(pool, {
@@ -575,9 +612,10 @@ describe('FV invoice — manual adjustments', () => {
             period_month: 7,
             period_year: 2026,
             amount: '(29,523)',
+            line_id: LINE_ID,
             note: 'accounting parens',
         }, 'ar@asil.com.pk');
-        expect(pool.query.mock.calls[0][1]).toEqual(expect.arrayContaining([-29523]));
+        expect(insertArgs(pool)).toEqual(expect.arrayContaining([-29523, LINE_ID]));
 
         pool.query.mockClear();
         await addManualDeduction(pool, {
@@ -586,9 +624,10 @@ describe('FV invoice — manual adjustments', () => {
             period_year: 2026,
             amount: 29523,
             effect: 'deduct',
+            line_id: LINE_ID,
             note: 'Deduct button, typed positive',
         }, 'ar@asil.com.pk');
-        expect(pool.query.mock.calls[0][1]).toEqual(expect.arrayContaining([-29523]));
+        expect(insertArgs(pool)).toEqual(expect.arrayContaining([-29523, LINE_ID]));
     });
 
     test('addManualDeduction error never requires a positive amount', async () => {
@@ -624,16 +663,17 @@ describe('FV invoice — manual adjustments', () => {
             source: 'manual',
             note: 'Credit — overbilled',
         };
-        const pool = { query: jest.fn().mockResolvedValueOnce({ rows: [inserted] }) };
+        const pool = poolForInsert(inserted);
         const row = await addManualDeduction(pool, {
             service_order_id: 'SO-PSO-X',
             period_month: 7,
             period_year: 2026,
             amount: -2500,
+            line_id: LINE_ID,
             note: 'Credit — overbilled',
         }, 'ar@asil.com.pk');
         expect(row.amount).toBe(-2500);
-        expect(pool.query.mock.calls[0][1]).toEqual(expect.arrayContaining([-2500]));
+        expect(insertArgs(pool)).toEqual(expect.arrayContaining([-2500, LINE_ID]));
     });
 
     test('addManualDeduction retries insert after missing note column', async () => {
@@ -644,6 +684,7 @@ describe('FV invoice — manual adjustments', () => {
         const inserted = { id: 57, amount: 1000, note: 'Extra manpower' };
         const pool = {
             query: jest.fn()
+                .mockResolvedValueOnce({ rows: [{ id: LINE_ID }] })
                 .mockRejectedValueOnce(missing)
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [inserted] }),
@@ -653,11 +694,12 @@ describe('FV invoice — manual adjustments', () => {
             period_month: 7,
             period_year: 2026,
             amount: 1000,
+            line_id: LINE_ID,
             note: 'Extra manpower',
         });
         expect(row.id).toBe(57);
-        expect(pool.query.mock.calls[1][0]).toMatch(/ADD COLUMN IF NOT EXISTS note/i);
-        expect(pool.query).toHaveBeenCalledTimes(3);
+        expect(pool.query.mock.calls[2][0]).toMatch(/ADD COLUMN IF NOT EXISTS note/i);
+        expect(pool.query).toHaveBeenCalledTimes(4);
     });
 
     test('deleteManualDeduction removes only source=manual rows', async () => {
@@ -741,6 +783,39 @@ describe('FV invoice — manual adjustments', () => {
         expect(deductHtml).toContain('Prior month credit');
         expect(deductHtml).toContain('-Rs. 800.00');
         expect(deductHtml).not.toContain('ADD: Invoice Adjustments');
+    });
+
+    test('print HTML nests line-linked adjustment under that SO line', () => {
+        const html = renderInvoiceHtml({
+            computed: {
+                invoiceNumber: 'DRAFT',
+                siteName: 'Chakpirana Depot',
+                periodMonth: 7,
+                periodYear: 2026,
+                lineItems: [
+                    { lineId: 201, description: 'Office/Misc Services', quantity: 1, rate: 823618, amount: 823618, soLineNumber: 1 },
+                    { lineId: 202, description: 'Forklift', quantity: 1, rate: 56991, amount: 56991, soLineNumber: 2 },
+                ],
+                deductions: [
+                    { id: 1, line_id: 201, type: 'adjustment', source: 'manual', amount: -29523, note: 'Prior month credit' },
+                ],
+                gross: 880609,
+                totalShortages: 0,
+                totalAdjustments: -29523,
+                totalDeductions: 29523,
+                netTaxable: 851086,
+                provincialSt: 0,
+                grandTotal: 851086,
+                taxRate: 0.16,
+            },
+        });
+        expect(html).toContain('LESS: Invoice Adjustments');
+        expect(html).toContain('Prior month credit');
+        expect(html).toContain('Rs. 794,095.00');
+        expect(html).toContain('Rs. 56,991.00');
+        expect(html).not.toContain('LESS: Additional Shortages / Adjustments');
+        expect(html).toContain('LESS: Invoice Adjustments');
+        expect(html).toContain('-Rs. 29,523.00');
     });
 
     test('printInvoiceHtml applies live +adjustment to Net Taxable, not stale stamped subtotal', async () => {

@@ -109,14 +109,36 @@ async function loadServiceOrdersByIds(pool, ids) {
 
 async function listDeductions(pool, serviceOrderId, month, year) {
     const { rows } = await pool.query(
-        `SELECT d.*, e.name AS employee_name, e.designation AS employee_designation
+        `SELECT d.*, e.name AS employee_name, e.designation AS employee_designation,
+                l.name AS line_name, l.line_number
          FROM so_deductions d
          LEFT JOIN employees e ON e.id = d.employee_id
+         LEFT JOIN service_order_lines l ON l.id = d.line_id
          WHERE d.service_order_id = $1 AND d.period_month = $2 AND d.period_year = $3
          ORDER BY d.id`,
         [serviceOrderId, month, year]
     );
     return rows;
+}
+
+async function resolveManualLineId(pool, serviceOrderId, rawLineId) {
+    const lineId = parseInt(rawLineId, 10);
+    if (!Number.isFinite(lineId) || lineId <= 0) {
+        const err = new Error('Select a service-order line for this location');
+        err.status = 400;
+        throw err;
+    }
+    const { rows } = await pool.query(
+        `SELECT id FROM service_order_lines
+         WHERE id = $1 AND service_order_id = $2`,
+        [lineId, serviceOrderId]
+    );
+    if (!rows[0]) {
+        const err = new Error('Line item does not belong to this location / service order');
+        err.status = 400;
+        throw err;
+    }
+    return lineId;
 }
 
 async function addManualDeduction(pool, payload, actor) {
@@ -129,6 +151,7 @@ async function addManualDeduction(pool, payload, actor) {
         days_absent,
         amount,
         line_id,
+        lineId,
         note,
         effect,
         sign,
@@ -138,6 +161,7 @@ async function addManualDeduction(pool, payload, actor) {
         err.status = 400;
         throw err;
     }
+    const lineIdResolved = await resolveManualLineId(pool, service_order_id, line_id ?? lineId);
     const effectRaw = String(effect || sign || '').trim().toLowerCase();
     const signPref = effectRaw === 'deduct' || effectRaw === 'add' ? effectRaw : undefined;
     const parsed = parseInvoiceAdjustmentAmount(amount, signPref);
@@ -150,7 +174,7 @@ async function addManualDeduction(pool, payload, actor) {
     const noteText = note != null ? String(note).trim() : '';
     const values = [
         service_order_id,
-        line_id || null,
+        lineIdResolved,
         period_month,
         period_year,
         type || 'adjustment',

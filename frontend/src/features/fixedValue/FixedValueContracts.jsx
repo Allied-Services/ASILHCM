@@ -13,8 +13,22 @@ const ALL_SITES = '__ALL__';
 const fmt = (n) => (n == null || Number.isNaN(n)) ? 'â€”' : Math.round(Number(n)).toLocaleString();
 const pct = (n) => (n == null || Number.isNaN(n)) ? 'â€”' : `${(Number(n) * 100).toFixed(0)}%`;
 
-function rowSiteCode(r) {
-    return String(r.site || '').trim().toUpperCase();
+function soLines(order) {
+    let lines = order?.lines;
+    if (typeof lines === 'string') {
+        try { lines = JSON.parse(lines); } catch { lines = []; }
+    }
+    return Array.isArray(lines) ? lines : [];
+}
+
+function lineItemLabel(l, idx) {
+    const num = l.line_number || l.lineNumber || (idx + 1);
+    const name = l.name || l.description || `Line ${num}`;
+    const rate = Number(l.rate);
+    const rateBit = Number.isFinite(rate) && rate !== 0
+        ? ` — Rs. ${Math.round(rate).toLocaleString()}`
+        : '';
+    return `${num}. ${name}${rateBit}`;
 }
 
 /** Sheet/override absent is authoritative; never invent from WD âˆ’ present when known. */
@@ -110,6 +124,7 @@ export default function FixedValueContracts({ user }) {
     const [adjNote, setAdjNote] = useState('');
     const [adjAmount, setAdjAmount] = useState('');
     const [adjSign, setAdjSign] = useState('deduct');
+    const [adjLineId, setAdjLineId] = useState('');
 
     const canWrite = ['superadmin', 'operations', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
         .includes(user?.role);
@@ -119,6 +134,8 @@ export default function FixedValueContracts({ user }) {
         () => orders.find(o => o.site_code === siteCode) || null,
         [orders, siteCode]
     );
+
+    const adjLines = useMemo(() => soLines(selectedOrder), [selectedOrder]);
 
     const manualAdjustments = useMemo(
         () => (deductions || []).filter((d) => String(d.source || '') === 'manual'),
@@ -346,6 +363,10 @@ export default function FixedValueContracts({ user }) {
         }
     }, [step, loadBillableConfirmations]);
     useEffect(() => { loadDeductions().catch(() => {}); }, [loadDeductions]);
+    useEffect(() => {
+        if (adjLines.length === 1) setAdjLineId(String(adjLines[0].id));
+        else setAdjLineId('');
+    }, [selectedOrder?.id, adjLines.length]);
     useEffect(() => { loadHubOverrides().catch(() => {}); }, [loadHubOverrides]);
     useEffect(() => {
         if (!loading) { setSlowLoad(false); return undefined; }
@@ -439,6 +460,7 @@ export default function FixedValueContracts({ user }) {
         }
         const note = String(adjNote || '').trim();
         if (!note) throw new Error('Comment is required — it prints on the invoice');
+        if (!adjLineId) throw new Error('Select a line item for this location');
         const parsed = parseAdjustmentAmount(adjAmount, adjSign);
         if (parsed.error) throw new Error(parsed.error);
         await api.addFixedValueDeduction(selectedOrder.id, {
@@ -447,10 +469,12 @@ export default function FixedValueContracts({ user }) {
             type: 'adjustment',
             amount: parsed.amount,
             effect: parsed.amount < 0 ? 'deduct' : 'add',
+            line_id: Number(adjLineId),
             note,
         });
         setAdjNote('');
         setAdjAmount('');
+        if (adjLines.length !== 1) setAdjLineId('');
         await loadDeductions();
         if (billablePack?.allReviewed) {
             const preview = await api.computeFixedValueInvoice(selectedOrder.id, month, year);
@@ -1297,25 +1321,56 @@ export default function FixedValueContracts({ user }) {
                     <div className="fv-adj-block">
                         <h4 style={{ margin: 0 }}>Invoice adjustment (one-off)</h4>
                         <p className="fv-lead">
-                            Applied <strong>before sales tax</strong>. Payroll is unchanged.
-                            <strong>− Deduct</strong> is the default: type <strong>29523</strong> — do not type a minus.
-                            Use <strong>+ Add</strong> to increase the invoice. Pasted -29523 or (29,523) also deducts.
-                            Print totals update immediately; Stamp to save AR.
+                            Applied <strong>before sales tax</strong> on the selected location and service-order line.
+                            Payroll is unchanged. <strong>− Deduct</strong> is the default: type the PKR amount — no minus required.
+                            Print nests the adjustment under that line; Stamp to save AR.
                         </p>
-                        {siteCode === ALL_SITES || !selectedOrder ? (
-                            <p className="fv-lead">Select one site (not All sites) to add or remove adjustments.</p>
+                        {!orders.length ? (
+                            <p className="fv-lead">Load a contract first.</p>
                         ) : (
                             <>
                                 <div className="fv-adj-form">
+                                    <label className="fv-adj-field fv-adj-location">
+                                        <span>Location</span>
+                                        <select
+                                            value={siteCode === ALL_SITES ? '' : siteCode}
+                                            disabled={!canWrite || loading}
+                                            onChange={(e) => setSiteCode(e.target.value || ALL_SITES)}
+                                        >
+                                            <option value="">Select location</option>
+                                            {orders.map((o) => (
+                                                <option key={o.id} value={o.site_code}>
+                                                    {o.name} ({o.site_code})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
                                     <label className="fv-adj-field fv-adj-note">
                                         <span>Comment on invoice</span>
                                         <input
                                             type="text"
                                             value={adjNote}
-                                            disabled={!canWrite || loading}
+                                            disabled={!canWrite || loading || !selectedOrder}
                                             placeholder="e.g. Credit — services billed in June but not delivered"
                                             onChange={(e) => setAdjNote(e.target.value)}
                                         />
+                                    </label>
+                                    <label className="fv-adj-field fv-adj-line">
+                                        <span>Line item</span>
+                                        <select
+                                            value={adjLineId}
+                                            disabled={!canWrite || loading || !selectedOrder || adjLines.length === 0}
+                                            onChange={(e) => setAdjLineId(e.target.value)}
+                                        >
+                                            <option value="">
+                                                {selectedOrder
+                                                    ? (adjLines.length ? 'Select line item' : 'No lines on this service order')
+                                                    : 'Select a location first'}
+                                            </option>
+                                            {adjLines.map((l, idx) => (
+                                                <option key={l.id} value={l.id}>{lineItemLabel(l, idx)}</option>
+                                            ))}
+                                        </select>
                                     </label>
                                     <div className="fv-adj-field">
                                         <span>Effect</span>
@@ -1345,7 +1400,7 @@ export default function FixedValueContracts({ user }) {
                                             inputMode="decimal"
                                             autoComplete="off"
                                             value={adjAmount}
-                                            disabled={!canWrite || loading}
+                                            disabled={!canWrite || loading || !selectedOrder}
                                             placeholder={adjSign === 'add' ? 'e.g. 29523 to add' : 'e.g. 29523 to deduct'}
                                             onChange={(e) => {
                                                 const v = e.target.value;
@@ -1357,16 +1412,20 @@ export default function FixedValueContracts({ user }) {
                                     <button
                                         type="button"
                                         className="btn-primary"
-                                        disabled={!canWrite || loading}
+                                        disabled={!canWrite || loading || !selectedOrder}
                                         onClick={handleAddInvoiceAdjustment}
                                     >
-                                        <Plus size={16} /> Save adjustment
+                                        <Plus size={16} /> Add adjustment
                                     </button>
                                 </div>
+                                {!selectedOrder ? (
+                                    <p className="fv-lead">Select a location to see and add adjustments for that site’s service order.</p>
+                                ) : (
                                 <div className="fv-table-wrap">
                                     <table className="fv-table">
                                         <thead>
                                             <tr>
+                                                <th>Line</th>
                                                 <th>Comment</th>
                                                 <th>Effect</th>
                                                 <th className="num">Amount</th>
@@ -1376,15 +1435,19 @@ export default function FixedValueContracts({ user }) {
                                         <tbody>
                                             {manualAdjustments.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={4} style={{ color: 'var(--text-muted)' }}>
+                                                    <td colSpan={5} style={{ color: 'var(--text-muted)' }}>
                                                         No manual adjustments for {selectedOrder.site_code || selectedOrder.name} this period.
                                                     </td>
                                                 </tr>
                                             ) : manualAdjustments.map((d) => {
                                                 const amt = Number(d.amount) || 0;
                                                 const add = amt > 0;
+                                                const lineLabel = d.line_name
+                                                    ? `${d.line_number ? `${d.line_number}. ` : ''}${d.line_name}`
+                                                    : (d.line_id ? `Line #${d.line_id}` : '—');
                                                 return (
                                                 <tr key={d.id}>
+                                                    <td>{lineLabel}</td>
                                                     <td>{d.note || d.type || 'Adjustment'}</td>
                                                     <td>{add ? 'Add to invoice' : 'Deduct from invoice'}</td>
                                                     <td className={`num ${add ? 'fv-adj-add' : 'fv-adj-deduct'}`}>
@@ -1407,6 +1470,7 @@ export default function FixedValueContracts({ user }) {
                                         </tbody>
                                     </table>
                                 </div>
+                                )}
                             </>
                         )}
                     </div>
