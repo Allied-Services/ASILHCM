@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-01 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-13 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -9,8 +9,8 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — July Wafi Calculate was wiping sheet OT when Monthly Hub had OT=0; fix on branch `fix/payroll-sheet-calc-preserves-sheet-ot` (do not Calculate on prod until merged).  
-LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix ships (OT would wipe again).
+STATUS: **AMBER** — Calculate forever-fix shipped (#44–#50); July Wafi Unlock → Calculate live proof still open.  
+LIVE: prod API healthy (`/health` 200, migrations ok, commit `3f1b248`); July payslip test-run deploy (#53) merged 2026-08-12.
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -18,7 +18,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## TOP LINE (for agents / morning brief)
-**Why Calculate changed July totals with no hour edits:** Monthly Hub rows with OT hours = 0 were treated as authoritative and overwrote sheet OT2/OT3. Default “Pull approved claims” made that path run. Fix: sheet OT is baseline; hub zeros never clear hours; Calculate defaults to sheet inputs. Remaining Excel net gap (~bonus/tax) is separate.
+**Next proof:** Unlock July → Calculate on staging, then prod; confirm SPL-208 / SPL-91 nets. Calculate OT wipe is fixed on main (#48). Pilot Excel export still blocks S5B shadow month. No open work PR needs a yes today.
 
 ---
 
@@ -33,13 +33,13 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ### Owner vision gaps (P1 — after pilot proof)
 5. **Portal payslips** — portal reads old pay table only; new-engine employees would see nothing
 6. **Claims** — four intake paths; not one configurable "who claims / who approves" UI
-7. **Payslip branding** — emails work if Resend is set; **no logo image** in templates today
+7. **Payslip branding** — Allied logo work shipped (#58/#59); confirm live look on a real send
 8. **Nothing is automatic** — compute, lock, disburse, email each need a human click
 
 ### Infrastructure / ops
 9. **Staging cold starts** — free tier sleeps; verify after wake before calling staging "broken"
 10. **Local tests on GDrive** — `jest` node_modules corrupt; use temp clone or CI for counts
-11. **Morning brief Automation** — email only; not switched on until you say so
+11. **Morning brief Automation** — weekday cron on; **email delivery still not connected**
 
 ### Parked until mission gate clears
 12. **Imprest workflow** — bill type exists; no dedicated process
@@ -53,15 +53,20 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 - Chief operating system — owner audit + 30-day execution plan (this change)
 - BPO / PSO contract matching on staging (separate track — do not block)
 
-## JUST SHIPPED (2026-08-02)
-- **FV PSO July payroll headcount** — compute was only paying 4 people on `CTR-PSO-NORTH-ZONE` while attendance had 182 overrides on legacy contract_ids. Fixed on `main` (`e0af43e`); live run #117 = **185 HC**, Model A wages verified, net **8,090,438**.
+## JUST SHIPPED (recent)
+- **Calculate forever-fix + OT wipe fix** — #44–#50 on main (server Calculate; sheet OT preserved)
+- **July payslip test-run → prod** — #53 merged 2026-08-12
+- **Payslip / snapshot / Send Payslips UI** — #55–#63 (logo, scope, SMS/PDF path)
+- **FV invoice + lock-scope work** — #64–#67
 
 ---
 
 ## BLOCKED ON YOU
+- **July live proof:** Unlock → Calculate on staging then prod; check SPL-208 / SPL-91
 - Payroll team **Excel export** for pilot shadow month (S5B) — see `scripts/VARIANCE_INPUT_FORMAT.md`
 - **MD sign-off** on zero-variance report before any production pay through new engine
 - **Go red:** production disbursement, prod engine-flag flip, Render secrets (Resend, Jazz, OpenAI, Xero)
+- Connect **morning email** on the Automation (briefs still cannot send)
 - Reply **yes / no / change …** on any open ship card
 
 ---
