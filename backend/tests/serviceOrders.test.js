@@ -251,6 +251,33 @@ describe('serviceOrders — designation → SO line match', () => {
         expect(m.line.id).toBe('cp-item-1');
         expect(m.roles.some(r => /sweeping|cleaning/i.test(r.designation))).toBe(true);
     });
+
+    test('Fuel/ Oil Handling Officer maps to Tank-lorry line, not Office service', () => {
+        const chak = require('../../scripts/seeds/pso_sites.json').find(s => s.id === 'CHAKPIRANA');
+        const chakLines = chak.lineItems.map(l => ({
+            id: l.id,
+            is_manpower_dependent: !!l.isManpowerDependent,
+            rate: l.rate,
+            roles: l.roles || [],
+        }));
+        const m = findLineForDesignation(chakLines, 'Fuel/ Oil Handling Officer');
+        expect(m).not.toBeNull();
+        expect(m.line.id).toBe('cp-item-5');
+        expect(m.roles.some(r => /fuel oil handling/i.test(r.designation))).toBe(true);
+    });
+
+    test('Lube Handling Officer maps to Office/Misc Lube Handling', () => {
+        const chak = require('../../scripts/seeds/pso_sites.json').find(s => s.id === 'CHAKPIRANA');
+        const chakLines = chak.lineItems.map(l => ({
+            id: l.id,
+            is_manpower_dependent: !!l.isManpowerDependent,
+            rate: l.rate,
+            roles: l.roles || [],
+        }));
+        const m = findLineForDesignation(chakLines, 'Lube Handling Officer');
+        expect(m).not.toBeNull();
+        expect(m.line.id).toBe('cp-item-1');
+    });
 });
 
 describe('serviceOrders — excel parse', () => {

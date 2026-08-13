@@ -60,7 +60,7 @@ async function main() {
     });
 
     const params = [];
-    const where = [`d.line_id IS NULL`];
+    const where = [`(d.line_id IS NULL OR d.type = 'absence')`];
     if (contractId) {
         params.push(contractId);
         where.push(`so.contract_id = $${params.length}`);
@@ -116,6 +116,7 @@ async function main() {
         const lines = linesBySo.get(d.service_order_id) || [];
         const found = findLineForDesignation(lines, d.employee_designation);
         if (found?.line?.id) {
+            if (Number(d.line_id) === Number(found.line.id)) continue;
             updates.push({
                 deductionId: d.id,
                 serviceOrderId: d.service_order_id,
@@ -126,7 +127,7 @@ async function main() {
                 daysAbsent: d.days_absent,
                 amount: Number(d.amount),
                 period: `${d.period_month}/${d.period_year}`,
-                oldLineId: null,
+                oldLineId: d.line_id,
                 newLineId: found.line.id,
                 newLineName: found.line.name,
             });
@@ -186,7 +187,7 @@ async function main() {
              FROM (
                SELECT UNNEST($1::int[]) AS id, UNNEST($2::int[]) AS new_line_id
              ) AS v
-             WHERE d.id = v.id AND d.line_id IS NULL`,
+             WHERE d.id = v.id`,
             [ids, lineIds]
         );
         await client.query('COMMIT');
