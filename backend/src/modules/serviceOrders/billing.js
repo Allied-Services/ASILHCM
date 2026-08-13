@@ -6,6 +6,7 @@ const { parseConfigValue } = require('../../core/jsonConfig');
 const { getServiceOrder } = require('./crud');
 const { siteProvince, roleCount } = require('./sitesMeta');
 const { renderInvoiceHtml, summarizeInvoiceDeductions } = require('./invoiceHtml');
+const { parseInvoiceAdjustmentAmount } = require('./parseInvoiceAdjustmentAmount');
 const {
     assertPeriodReviewed,
     loadConfirmationMap,
@@ -129,18 +130,23 @@ async function addManualDeduction(pool, payload, actor) {
         amount,
         line_id,
         note,
+        effect,
+        sign,
     } = payload;
-    if (!service_order_id || !period_month || !period_year || amount == null) {
+    if (!service_order_id || !period_month || !period_year || amount == null || amount === '') {
         const err = new Error('service_order_id, period_month, period_year, and amount are required');
         err.status = 400;
         throw err;
     }
-    const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt === 0) {
-        const err = new Error('amount must be a non-zero number (+ adds to the invoice, − deducts)');
+    const effectRaw = String(effect || sign || '').trim().toLowerCase();
+    const signPref = effectRaw === 'deduct' || effectRaw === 'add' ? effectRaw : undefined;
+    const parsed = parseInvoiceAdjustmentAmount(amount, signPref);
+    if (parsed.error) {
+        const err = new Error(parsed.error);
         err.status = 400;
         throw err;
     }
+    const amt = parsed.amount;
     const noteText = note != null ? String(note).trim() : '';
     const values = [
         service_order_id,
