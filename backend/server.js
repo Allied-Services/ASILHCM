@@ -4339,26 +4339,37 @@ app.get('/api/ap/payroll-queue', requireAuth, requireRole('ap_team','finance_man
     try {
         const { archive, config } = await cutover.resolveArchiveMode(req, pool);
         const periodFloor = cutover.applyPeriodFloor('pt.month', 'pt.year', { archive, cutoverMonth: config.cutoverMonth, cutoverYear: config.cutoverYear });
+        // CTE first: correlated batch_count subquery cannot reference non-grouped
+        // pt.client / e.client under GROUP BY (Postgres 500 → empty AP UI).
         const { rows } = await pool.query(`
+            WITH locked AS (
+                SELECT
+                    pt.year,
+                    pt.month,
+                    COALESCE(pt.client, e.client) AS client,
+                    COALESCE(pt.contract_name, e.contract_name) AS contract_name,
+                    COUNT(*) AS employee_count,
+                    SUM(COALESCE(pt.locked_net, ROUND(pt.net))) AS total_net_pay,
+                    SUM(pt.gross) AS total_gross,
+                    SUM(pt.total_invoice) AS total_invoice,
+                    MAX(pt.locked_at) AS locked_at,
+                    MAX(pt.locked_by) AS locked_by
+                FROM payroll_transactions pt
+                LEFT JOIN employees e ON e.id = pt.employee_id
+                WHERE pt.locked=TRUE AND ${periodFloor}
+                GROUP BY pt.year, pt.month,
+                         COALESCE(pt.client, e.client),
+                         COALESCE(pt.contract_name, e.contract_name)
+            )
             SELECT
-                pt.year, pt.month,
-                COALESCE(pt.client, e.client) AS client,
-                COALESCE(pt.contract_name, e.contract_name) AS contract_name,
-                COUNT(*) AS employee_count,
-                SUM(COALESCE(pt.locked_net, ROUND(pt.net))) AS total_net_pay,
-                SUM(pt.gross) AS total_gross,
-                SUM(pt.total_invoice) AS total_invoice,
-                MAX(pt.locked_at) AS locked_at,
-                MAX(pt.locked_by) AS locked_by,
+                l.*,
                 (SELECT COUNT(*) FROM payment_batches pb
-                 WHERE pb.year=pt.year AND pb.month=pt.month AND pb.batch_type='PAYROLL'
-                 AND COALESCE(pb.client,'') = COALESCE(COALESCE(pt.client, e.client),'')
-                 AND COALESCE(pb.contract_name,'') = COALESCE(COALESCE(pt.contract_name, e.contract_name),'')) AS batch_count
-            FROM payroll_transactions pt
-            LEFT JOIN employees e ON e.id = pt.employee_id
-            WHERE pt.locked=TRUE AND ${periodFloor}
-            GROUP BY pt.year, pt.month, COALESCE(pt.client, e.client), COALESCE(pt.contract_name, e.contract_name)
-            ORDER BY pt.year DESC, pt.month DESC, COALESCE(pt.client, e.client) ASC, COALESCE(pt.contract_name, e.contract_name) ASC
+                 WHERE pb.year = l.year AND pb.month = l.month AND pb.batch_type = 'PAYROLL'
+                   AND COALESCE(pb.client, '') = COALESCE(l.client, '')
+                   AND COALESCE(pb.contract_name, '') = COALESCE(l.contract_name, '')
+                ) AS batch_count
+            FROM locked l
+            ORDER BY l.year DESC, l.month DESC, l.client ASC NULLS LAST, l.contract_name ASC NULLS LAST
         `);
         res.json({ queue: rows });
     } catch (err) { console.error('[GET /api/ap/payroll-queue]', err); res.status(500).json({ error: 'Internal server error' }); }
