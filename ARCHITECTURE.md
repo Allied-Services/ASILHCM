@@ -1,6 +1,6 @@
 # ASIL HCM — Architecture (Verified Facts)
 
-**Last updated:** 2026-08-12 (P3 payslip paid gate)  
+**Last updated:** 2026-08-13 (P4 payroll vs AP reconciliation)  
 **Program:** See `.agents/REMEDIATION_PLAN.md` for the active multi-session remediation plan.
 
 ---
@@ -139,6 +139,9 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | QA test run | `POST /api/payslip/test-run` (superadmin) or `scripts/send_july_payslip_test_run.js` — 5 sample July slips to override email/SMS |
 | Support | `POST /api/payslip/support-case` → ops-support@asil.com.pk; resolve notifies employee email+SMS |
 | Migration | `20260810180000_payslip_delivery.js` — run `npm run migrate` on staging before deploy |
+
+### Payroll vs AP reconciliation (P4)
+`GET /api/payroll/:year/:month/reconciliation` (`backend/src/modules/payrollReconciliation/`) returns sheetTotal / lockedTotal (frozen `locked_net`) / apTotal / paidTotal plus named exception lists (unlocked, orphans, blankScope, excludedByDates, lockedNotPaid, paidNotLocked). Roles: finance_manager, finance_approver, payroll_initiator, ap_team, superadmin. Payroll Sheet shows a Locked (AP view) subtotal and Reconcile panel.
 
 ---
 

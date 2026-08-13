@@ -20,6 +20,7 @@ const { registerLeaveRoutes } = require('./src/modules/leave/routes');
 const { registerOrgMasterRoutes } = require('./src/modules/org/orgMasters');
 const { registerPayslipRoutes } = require('./src/modules/payslip/routes');
 const { registerPayrollSheetRoutes } = require('./src/modules/payrollSheet/routes');
+const { registerPayrollReconciliationRoutes } = require('./src/modules/payrollReconciliation/routes');
 const { registerServiceOrderRoutes } = require('./src/modules/serviceOrders/routes');
 const { runMigrations } = require('./src/core/runMigrations');
 const { initJobs, registerWorkers, scheduleJob } = require('./src/core/jobs');
@@ -53,6 +54,7 @@ function mountRestructureModules(app, deps) {
     registerServiceOrderRoutes(app, deps);
     registerPayslipRoutes(app, deps);
     registerPayrollSheetRoutes(app, deps);
+    registerPayrollReconciliationRoutes(app, deps);
 }
 
 let migrationStatus = 'ok';
