@@ -157,4 +157,22 @@ describe('payslip routes role guards', () => {
         expect(res.body.ok).toBe(true);
         expect(runJulyPayslipTestDelivery).toHaveBeenCalled();
     });
+
+    test('NOT_PAID returns an Accounts Payable message and forwards detail', async () => {
+        const err = new Error('NOT_PAID');
+        err.code = 'NOT_PAID';
+        err.detail = { unpaid: ['E2'] };
+        sendPayslips.mockRejectedValueOnce(err);
+        const app = buildApp();
+        const token = makeToken({ role: 'finance_manager', email: 'h@asil.com.pk' });
+        const res = await request(app)
+            .post('/api/payroll/2026/7/send-payslips')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ confirm: true, employeeIds: ['E1', 'E2'] });
+        expect(res.status).toBe(409);
+        expect(res.body.code).toBe('NOT_PAID');
+        expect(res.body.error).toMatch(/Accounts Payable/);
+        expect(res.body.error).toMatch(/1 selected employee/);
+        expect(res.body.detail).toEqual({ unpaid: ['E2'] });
+    });
 });

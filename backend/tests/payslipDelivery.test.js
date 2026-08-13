@@ -84,7 +84,7 @@ describe('payslip SMS message', () => {
 });
 
 describe('sendPayslips selection scope', () => {
-    const { sendPayslips } = require('../src/modules/payslip/service');
+    const { sendPayslips, getPayslipReadiness, getPaidEmployeeIds } = require('../src/modules/payslip/service');
 
     test('rejects empty selection without sendAll', async () => {
         const pool = { query: jest.fn() };
@@ -98,11 +98,11 @@ describe('sendPayslips selection scope', () => {
         const pool = {
             query: jest.fn(async (sql) => {
                 const s = String(sql);
-                if (s.includes('FROM payment_batches')) {
-                    return { rows: [{ id: 'b1', status: 'Confirmed' }] };
-                }
                 if (s.includes('SELECT employee_id, locked')) {
                     return { rows: [{ employee_id: 'E1', locked: false }] };
+                }
+                if (s.includes('FROM payment_ledger')) {
+                    return { rows: [{ employee_id: 'E1' }] };
                 }
                 return { rows: [] };
             }),
@@ -110,5 +110,142 @@ describe('sendPayslips selection scope', () => {
         await expect(sendPayslips(pool, {}, {
             year: 2026, month: 7, confirm: true, employeeIds: ['E1'], sendAll: false,
         })).rejects.toMatchObject({ code: 'NOT_ALL_LOCKED' });
+    });
+
+    test('rejects scoped send when one selected employee has no SALARY ledger row', async () => {
+        const pool = {
+            query: jest.fn(async (sql) => {
+                const s = String(sql);
+                if (s.includes('SELECT employee_id, locked')) {
+                    return { rows: [
+                        { employee_id: 'E1', locked: true },
+                        { employee_id: 'E2', locked: true },
+                    ] };
+                }
+                if (s.includes('FROM payment_ledger')) {
+                    return { rows: [{ employee_id: 'E1' }] };
+                }
+                return { rows: [] };
+            }),
+        };
+        await expect(sendPayslips(pool, {}, {
+            year: 2026, month: 7, confirm: true, employeeIds: ['E1', 'E2'], sendAll: false,
+        })).rejects.toMatchObject({
+            code: 'NOT_PAID',
+            detail: { unpaid: ['E2'] },
+        });
+    });
+
+    test('proceeds past paid gate when every selected employee has a SALARY ledger row', async () => {
+        const pool = {
+            query: jest.fn(async (sql) => {
+                const s = String(sql);
+                if (s.includes('SELECT employee_id, locked')) {
+                    return { rows: [{ employee_id: 'E1', locked: true }] };
+                }
+                if (s.includes('FROM payment_ledger')) {
+                    return { rows: [{ employee_id: 'E1' }] };
+                }
+                if (s.includes('COUNT(*)::int AS total')) {
+                    return { rows: [{ total: 1, locked_count: 1 }] };
+                }
+                if (s.includes('AS phone')) {
+                    return { rows: [{ id: 'E1', name: 'Emp 1', email: 'e1@x.test', phone: '03001234567', cnic: '4210112345678', locked: true }] };
+                }
+                if (s.includes('FROM payslip_delivery_batches') && s.includes('SELECT id, status')) {
+                    return { rows: [] };
+                }
+                if (s.includes('INSERT INTO payslip_delivery_batches')) {
+                    return { rows: [{ id: 99 }] };
+                }
+                if (s.includes('ANY($4::text[])')) {
+                    return { rows: [{
+                        id: 'E1', name: 'Emp 1', email: 'e1@x.test', primary_contact: '03001234567',
+                        contact: '03001234567', cnic: '4210112345678', designation: 'Guard',
+                        client: 'C', location: 'Karachi', bank_name: 'HBL', bank_account: '1',
+                        contract_name: 'CTR', contract: 'CTR', salary: 40000,
+                        paid_days: 31, gross: 40000, net: 38000, ot2_hrs: 0, ot3_hrs: 0,
+                        opd_claim: 0, reimbursement: 0, arrears: 0, special_allowance: 0,
+                        fuel_mobile: 0, bonus_amount: 0, wht: 0, eobi_ee: 400,
+                        advance_deduction: 0, loan_deduction: 0, other_deduction: 0,
+                        locked: true, year: 2026, month: 7, computed_json: null,
+                    }] };
+                }
+                if (s.includes('INSERT INTO payslip_documents')) {
+                    return { rows: [{ id: 1, pdf_bytes: Buffer.from('pdf') }] };
+                }
+                if (s.includes('INSERT INTO payslip_delivery_log')) {
+                    return { rows: [] };
+                }
+                if (s.includes('UPDATE payslip_delivery_batches')) {
+                    return { rows: [] };
+                }
+                if (s.includes("SET paid_on")) {
+                    return { rows: [] };
+                }
+                if (s.includes('eosb_type')) {
+                    return { rows: [{ eosb_type: 'None' }] };
+                }
+                return { rows: [] };
+            }),
+        };
+        const result = await sendPayslips(pool, {}, {
+            year: 2026, month: 7, confirm: true, employeeIds: ['E1'], sendAll: false,
+        });
+        expect(result.ok).toBe(true);
+        expect(result.total).toBe(1);
+        const recipientSql = pool.query.mock.calls
+            .map((c) => String(c[0]))
+            .find((s) => s.includes('FROM payroll_transactions pt') && s.includes('AND e.id = ANY($4::text[])'));
+        expect(recipientSql).toBeTruthy();
+        const recipientParams = pool.query.mock.calls.find((c) => String(c[0]) === recipientSql)[1];
+        expect(recipientParams[3]).toEqual(['E1']);
+    });
+});
+
+describe('getPayslipReadiness per-employee paid', () => {
+    const { getPayslipReadiness, getPaidEmployeeIds } = require('../src/modules/payslip/service');
+
+    test('getPaidEmployeeIds returns a Set from ledger join', async () => {
+        const pool = {
+            query: jest.fn(async () => ({ rows: [{ employee_id: 'E1' }, { employee_id: 'E3' }] })),
+        };
+        const paid = await getPaidEmployeeIds(pool, 2026, 7, ['E1', 'E2', 'E3']);
+        expect(paid).toEqual(new Set(['E1', 'E3']));
+        expect(String(pool.query.mock.calls[0][0])).toMatch(/payment_ledger/);
+        expect(pool.query.mock.calls[0][1]).toEqual([2026, 7, ['E1', 'E2', 'E3']]);
+    });
+
+    test('reports paidCount/notPaid and canSend only when every scoped employee is paid', async () => {
+        const pool = {
+            query: jest.fn(async (sql) => {
+                const s = String(sql);
+                if (s.includes('COUNT(*)::int AS total')) {
+                    return { rows: [{ total: 2, locked_count: 2 }] };
+                }
+                if (s.includes('FROM payment_ledger')) {
+                    return { rows: [{ employee_id: 'E1' }] };
+                }
+                if (s.includes('FROM payroll_transactions pt') && s.includes('JOIN employees e')) {
+                    return { rows: [
+                        { id: 'E1', name: 'Paid Emp', email: 'a@x.test', phone: '03001111111', cnic: '4210111111111', locked: true },
+                        { id: 'E2', name: 'Unpaid Emp', email: 'b@x.test', phone: '03002222222', cnic: '4210122222222', locked: true },
+                    ] };
+                }
+                if (s.includes('FROM payslip_delivery_batches')) {
+                    return { rows: [] };
+                }
+                return { rows: [] };
+            }),
+        };
+        const r = await getPayslipReadiness(pool, 2026, 7, ['E1', 'E2']);
+        expect(r.paid).toBe(false);
+        expect(r.paidCount).toBe(1);
+        expect(r.notPaid).toEqual([{ id: 'E2', name: 'Unpaid Emp' }]);
+        expect(r.employees.find((e) => e.id === 'E1').paid).toBe(true);
+        expect(r.employees.find((e) => e.id === 'E2').paid).toBe(false);
+        expect(r.canSend).toBe(false);
+        expect(r.allLocked).toBe(true);
+        expect(r.paidIds).toEqual(['E1']);
     });
 });
