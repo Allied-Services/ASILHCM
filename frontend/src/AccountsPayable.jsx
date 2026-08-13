@@ -258,7 +258,13 @@ function PayrollQueuePanel() {
         if (monthDetail[key]) return;
         try {
             await loadDetail(yr, mo, client, contract);
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+            setMonthDetail(prev => ({
+                ...prev,
+                [key]: { employees: [], error: e.message || 'Failed to load employees' },
+            }));
+        }
     };
 
     // Month roll-up: a card is one client/contract slice, so show the whole month too.
@@ -432,19 +438,24 @@ function PayrollQueuePanel() {
                                                         <span>Confirmed by: <strong>{detail.batch.created_by}</strong></span>
                                                     </div>
                                                 )}
+                                                {detail.error && (
+                                                    <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '0.75rem', color: '#f87171', fontSize: '0.85rem' }}>
+                                                        Could not load employees: {detail.error}
+                                                    </div>
+                                                )}
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
                                                     <button onClick={() => toggleAllUnpaid(key, detail.employees)}
-                                                        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                                                        style={{ background: '#14532d', border: '1px solid #22c55e', color: '#bbf7d0', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700 }}>
                                                         Select / clear all pending
                                                     </button>
-                                                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                                                    <span style={{ fontSize: '0.85rem', color: '#e2e8f0' }}>
                                                         {picked.length
                                                             ? <><strong style={{ color: '#22c55e' }}>{picked.length}</strong> selected · {Rs((detail.employees||[]).filter(e => picked.includes(e.employee_id)).reduce((s,e)=>s+parseFloat(e.locked_net||e.net||0),0))}</>
-                                                            : 'Tick employees to pay only those. Leave empty to pay everyone still pending.'}
+                                                            : 'Tick the green boxes, then Confirm. Leave empty to pay everyone still pending in this batch.'}
                                                     </span>
                                                     {picked.length > 0 && (
                                                         <button onClick={() => setConfirmTarget(item)}
-                                                            style={{ background: '#22c55e', border: 'none', color: 'white', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            style={{ background: '#22c55e', border: 'none', color: 'white', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                             <CreditCard size={14} /> Confirm {picked.length} Payment(s)
                                                         </button>
                                                     )}
@@ -452,18 +463,28 @@ function PayrollQueuePanel() {
                                                 <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border)' }}>
                                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                                                         <thead style={{ background: 'var(--bg-dark)' }}>
-                                                            <tr>{['', 'Employee', 'Contract', 'Bank', 'Account', 'Status', 'Gross', 'Net Pay', 'Invoice'].map((h, hi) => (
+                                                            <tr>{['Pay?', 'Employee', 'Contract', 'Bank', 'Account', 'Status', 'Gross', 'Net Pay', 'Invoice'].map((h, hi) => (
                                                                 <th key={hi} style={{ padding: '8px 10px', textAlign: ['Gross','Net Pay','Invoice'].includes(h) ? 'right' : 'left', color: '#64748b', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                                                             ))}</tr>
                                                         </thead>
                                                         <tbody>
-                                                            {(detail.employees || []).map((emp, i) => (
-                                                                <tr key={i} style={{ borderTop: '1px solid var(--border)', background: i % 2 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                                                            {(detail.employees || []).map((emp, i) => {
+                                                                const isPicked = picked.includes(emp.employee_id);
+                                                                return (
+                                                                <tr key={i} style={{ borderTop: '1px solid var(--border)', background: isPicked ? 'rgba(34,197,94,0.12)' : (i % 2 ? 'rgba(255,255,255,0.02)' : 'transparent') }}>
                                                                     <td style={{ padding: '7px 10px' }}>
-                                                                        <input type="checkbox" disabled={!!emp.paid}
-                                                                            checked={picked.includes(emp.employee_id)}
-                                                                            onChange={() => toggleEmployee(key, emp.employee_id)}
-                                                                            style={{ width: 15, height: 15, accentColor: '#22c55e', cursor: emp.paid ? 'not-allowed' : 'pointer' }} />
+                                                                        <button type="button" disabled={!!emp.paid}
+                                                                            title={emp.paid ? 'Already paid' : (isPicked ? 'Selected' : 'Select to pay')}
+                                                                            onClick={(e) => { e.stopPropagation(); toggleEmployee(key, emp.employee_id); }}
+                                                                            style={{
+                                                                                width: 22, height: 22, borderRadius: 4, padding: 0,
+                                                                                border: `2px solid ${emp.paid ? '#475569' : '#22c55e'}`,
+                                                                                background: emp.paid ? '#1e293b' : (isPicked ? '#22c55e' : '#052e16'),
+                                                                                color: '#fff', fontWeight: 800, fontSize: 13, lineHeight: 1,
+                                                                                cursor: emp.paid ? 'not-allowed' : 'pointer',
+                                                                            }}>
+                                                                            {(isPicked || emp.paid) ? '✓' : ''}
+                                                                        </button>
                                                                     </td>
                                                                     <td style={{ padding: '7px 10px', fontWeight: 600, color: '#f0f4f8' }}>{emp.name}</td>
                                                                     <td style={{ padding: '7px 10px', color: '#64748b', fontSize: '0.78rem', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.contract_name || emp.client || '—'}</td>
@@ -478,7 +499,8 @@ function PayrollQueuePanel() {
                                                                     <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, color: '#22c55e' }}>{fmt(emp.locked_net ?? emp.net)}</td>
                                                                     <td style={{ padding: '7px 10px', textAlign: 'right', color: '#a78bfa' }}>{fmt(emp.total_invoice)}</td>
                                                                 </tr>
-                                                            ))}
+                                                                );
+                                                            })}
                                                         </tbody>
                                                         <tfoot style={{ background: '#0a1018', fontWeight: 800, borderTop: '2px solid var(--border)' }}>
                                                             <tr>

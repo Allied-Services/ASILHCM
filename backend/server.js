@@ -4522,22 +4522,63 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
 
         const newTotal = toPay.reduce((s, r) => s + (parseFloat(r.pay_amount) || 0), 0);
 
-        // Create payment batch — COALESCE-scoped uniqueness (blank client/contract = one batch).
-        // Totals are recomputed from the ledger below so repeat partial confirms accumulate.
-        const batchId = `PB-${yr}-${String(mo).padStart(2,'0')}-${(bank_name||'').replace(/\s+/g,'').slice(0,8)}-${Date.now()}`;
-        const { rows: batchRows } = await pool.query(`
-            INSERT INTO payment_batches
-                (id, batch_type, year, month, bank_id, bank_name, payment_date, reference_no,
-                 total_amount, employee_count, notes, status, created_by, client, contract_name)
-            VALUES ($1,'PAYROLL',$2,$3,$4,$5,$6,$7,$8,$9,$10,'Confirmed',$11,$12,$13)
-            ON CONFLICT (batch_type, year, month, (COALESCE(client, '')), (COALESCE(contract_name, ''))) DO UPDATE SET
-                bank_id=$4, bank_name=$5, payment_date=$6, reference_no=$7,
-                notes=$10, status='Confirmed',
-                updated_at=NOW()
-            RETURNING *
-        `, [batchId, yr, mo, bank_id||null, bank_name||null, payment_date||null, reference_no||null,
-            newTotal, toPay.length, notes||null, req.user.email,
-            client_filter||null, contract_filter||null]);
+        // Upsert without ON CONFLICT (expression unique indexes cannot be inferred —
+        // that 500'd live Confirm Payment: "no unique or exclusion constraint matching").
+        let batchRows = existingBatch.rows;
+        if (batchRows.length) {
+            const upd = await pool.query(`
+                UPDATE payment_batches
+                SET bank_id=$2, bank_name=$3, payment_date=$4, reference_no=$5,
+                    notes=$6, status='Confirmed', updated_at=NOW()
+                WHERE id=$1
+                RETURNING *
+            `, [batchRows[0].id, bank_id||null, bank_name||null, payment_date||null,
+                reference_no||null, notes||null]);
+            batchRows = upd.rows;
+        } else {
+            const batchId = `PB-${yr}-${String(mo).padStart(2,'0')}-${(bank_name||'').replace(/\s+/g,'').slice(0,8)}-${Date.now()}`;
+            try {
+                const ins = await pool.query(`
+                    INSERT INTO payment_batches
+                        (id, batch_type, year, month, bank_id, bank_name, payment_date, reference_no,
+                         total_amount, employee_count, notes, status, created_by, client, contract_name)
+                    VALUES ($1,'PAYROLL',$2,$3,$4,$5,$6,$7,$8,$9,$10,'Confirmed',$11,$12,$13)
+                    RETURNING *
+                `, [batchId, yr, mo, bank_id||null, bank_name||null, payment_date||null, reference_no||null,
+                    newTotal, toPay.length, notes||null, req.user.email,
+                    client_filter||null, contract_filter||null]);
+                batchRows = ins.rows;
+            } catch (insErr) {
+                // Unique collision: COALESCE index already has this scope, or leftover
+                // UNIQUE (batch_type, year, month) still exists. Reuse that row.
+                if (insErr.code !== '23505') throw insErr;
+                const again = await pool.query(
+                    `SELECT * FROM payment_batches
+                     WHERE batch_type='PAYROLL' AND year=$1 AND month=$2
+                       AND COALESCE(client,'') = COALESCE($3,'')
+                       AND COALESCE(contract_name,'') = COALESCE($4,'')`,
+                    [yr, mo, client_filter || null, contract_filter || null]
+                );
+                const fallback = again.rows.length
+                    ? again
+                    : await pool.query(
+                        `SELECT * FROM payment_batches
+                         WHERE batch_type='PAYROLL' AND year=$1 AND month=$2
+                         ORDER BY created_at DESC NULLS LAST LIMIT 1`,
+                        [yr, mo]
+                    );
+                if (!fallback.rows.length) throw insErr;
+                const upd = await pool.query(`
+                    UPDATE payment_batches
+                    SET bank_id=$2, bank_name=$3, payment_date=$4, reference_no=$5,
+                        notes=$6, status='Confirmed', updated_at=NOW()
+                    WHERE id=$1
+                    RETURNING *
+                `, [fallback.rows[0].id, bank_id||null, bank_name||null, payment_date||null,
+                    reference_no||null, notes||null]);
+                batchRows = upd.rows;
+            }
+        }
 
         const monthName = new Date(2000, mo-1, 1).toLocaleString('en-US', { month: 'short' });
         const yr2 = String(yr).slice(-2);
