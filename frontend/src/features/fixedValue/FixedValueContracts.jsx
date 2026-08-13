@@ -12,6 +12,21 @@ const ALL_SITES = '__ALL__';
 const fmt = (n) => (n == null || Number.isNaN(n)) ? 'â€”' : Math.round(Number(n)).toLocaleString();
 const pct = (n) => (n == null || Number.isNaN(n)) ? 'â€”' : `${(Number(n) * 100).toFixed(0)}%`;
 
+/** Parse Step 5 adjustment amount. Explicit minus / (n) wins; otherwise apply +add / −deduct. */
+export function parseAdjustmentAmount(raw, signPref = 'add') {
+    let s = String(raw ?? '').trim();
+    if (!s) return { error: 'Enter an amount' };
+    s = s.replace(/,/g, '').replace(/\s/g, '').replace(/[−–—]/g, '-');
+    const wrapped = /^\((.+)\)$/.exec(s);
+    if (wrapped) s = `-${wrapped[1]}`;
+    const n = Number(s);
+    if (!Number.isFinite(n) || n === 0) {
+        return { error: 'Enter a non-zero amount: + adds to the invoice, − deducts' };
+    }
+    if (n < 0) return { amount: n };
+    return { amount: signPref === 'deduct' ? -Math.abs(n) : Math.abs(n) };
+}
+
 function rowSiteCode(r) {
     return String(r.site || '').trim().toUpperCase();
 }
@@ -108,6 +123,7 @@ export default function FixedValueContracts({ user }) {
     const [wizard, setWizard] = useState(null); // { mode: 'create'|'edit', contractId? }
     const [adjNote, setAdjNote] = useState('');
     const [adjAmount, setAdjAmount] = useState('');
+    const [adjSign, setAdjSign] = useState('add');
 
     const canWrite = ['superadmin', 'operations', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
         .includes(user?.role);
@@ -435,23 +451,37 @@ export default function FixedValueContracts({ user }) {
         if (!selectedOrder?.id || siteCode === ALL_SITES) {
             throw new Error('Select a single site before adding an adjustment');
         }
-        const amount = Number(String(adjAmount).replace(/,/g, ''));
         const note = String(adjNote || '').trim();
         if (!note) throw new Error('Comment is required — it prints on the invoice');
-        if (!Number.isFinite(amount) || amount === 0) {
-            throw new Error('Enter a non-zero amount: + adds to the invoice, − deducts');
-        }
+        const parsed = parseAdjustmentAmount(adjAmount, adjSign);
+        if (parsed.error) throw new Error(parsed.error);
         await api.addFixedValueDeduction(selectedOrder.id, {
             period_month: month,
             period_year: year,
             type: 'adjustment',
-            amount,
+            amount: parsed.amount,
             note,
         });
         setAdjNote('');
         setAdjAmount('');
         await loadDeductions();
-        setMsg('Adjustment saved. Preview / Stamp again so invoice totals refresh.');
+        if (billablePack?.allReviewed) {
+            const preview = await api.computeFixedValueInvoice(selectedOrder.id, month, year);
+            setInvoicePack({
+                sites: [preview],
+                totals: {
+                    sites: 1,
+                    gross: preview.gross,
+                    shortage: preview.totalShortages ?? preview.totalDeductions,
+                    adjustments: preview.totalAdjustments,
+                    netTaxable: preview.netTaxable,
+                    salesTax: preview.provincialSt,
+                    grandTotal: preview.grandTotal,
+                    netReceivable: preview.netReceivable,
+                },
+            });
+        }
+        setMsg('Adjustment saved. Print now includes it in Net Taxable; Stamp to persist AR totals.');
     });
 
     const handleDeleteInvoiceAdjustment = (deductionId) => runAction(async () => {
@@ -459,7 +489,23 @@ export default function FixedValueContracts({ user }) {
         if (!window.confirm('Remove this invoice adjustment?')) return;
         await api.deleteFixedValueDeduction(selectedOrder.id, deductionId);
         await loadDeductions();
-        setMsg('Adjustment removed. Preview / Stamp again so invoice totals refresh.');
+        if (selectedOrder?.id && billablePack?.allReviewed) {
+            const preview = await api.computeFixedValueInvoice(selectedOrder.id, month, year);
+            setInvoicePack({
+                sites: [preview],
+                totals: {
+                    sites: 1,
+                    gross: preview.gross,
+                    shortage: preview.totalShortages ?? preview.totalDeductions,
+                    adjustments: preview.totalAdjustments,
+                    netTaxable: preview.netTaxable,
+                    salesTax: preview.provincialSt,
+                    grandTotal: preview.grandTotal,
+                    netReceivable: preview.netReceivable,
+                },
+            });
+        }
+        setMsg('Adjustment removed. Print now reflects the change; Stamp to persist AR totals.');
     });
 
     const saveRegistryInvoiceNumber = (inv) => runAction(async () => {
@@ -1203,7 +1249,9 @@ export default function FixedValueContracts({ user }) {
                                     totals: {
                                         sites: 1,
                                         gross: preview.gross,
-                                        shortage: preview.totalDeductions,
+                                        shortage: preview.totalShortages ?? preview.totalDeductions,
+                                        adjustments: preview.totalAdjustments,
+                                        netTaxable: preview.netTaxable,
                                         salesTax: preview.provincialSt,
                                         grandTotal: preview.grandTotal,
                                         netReceivable: preview.netReceivable,
@@ -1219,6 +1267,8 @@ export default function FixedValueContracts({ user }) {
                         <div className="fv-kpi-grid">
                             <div className="fv-kpi"><div className="label">Gross</div><div className="value">{fmt(invoicePack.totals.gross)}</div></div>
                             <div className="fv-kpi"><div className="label">Shortage</div><div className="value">{fmt(invoicePack.totals.shortage)}</div></div>
+                            <div className="fv-kpi"><div className="label">Adjustments</div><div className="value">{fmt(invoicePack.totals.adjustments ?? invoicePack.sites?.[0]?.totalAdjustments)}</div></div>
+                            <div className="fv-kpi"><div className="label">Net taxable</div><div className="value">{fmt(invoicePack.totals.netTaxable ?? invoicePack.sites?.[0]?.netTaxable)}</div></div>
                             <div className="fv-kpi"><div className="label">Sales tax</div><div className="value">{fmt(invoicePack.totals.salesTax)}</div></div>
                             <div className="fv-kpi"><div className="label">Stamped grand</div><div className="value">{fmt(invoicePack.totals.grandTotal)}</div></div>
                             <div className="fv-kpi"><div className="label">Net receivable</div><div className="value">{fmt(invoicePack.totals.netReceivable)}</div></div>
@@ -1260,10 +1310,9 @@ export default function FixedValueContracts({ user }) {
                     <div className="fv-adj-block">
                         <h4 style={{ margin: 0 }}>Invoice adjustment (one-off)</h4>
                         <p className="fv-lead">
-                            Signed amount applied <strong>before sales tax</strong>. Payroll is unchanged.
-                            <strong> + </strong> adds to the invoice (extra billing);
-                            <strong> − </strong> deducts (credit / reduction).
-                            Select a single site above. After saving, Preview / Stamp again.
+                            Applied <strong>before sales tax</strong>. Payroll is unchanged.
+                            Choose <strong>+</strong> to add to the invoice or <strong>−</strong> to deduct.
+                            Type 29523, or paste -29523 / (29,523). Print totals update immediately; Stamp to save AR.
                         </p>
                         {siteCode === ALL_SITES || !selectedOrder ? (
                             <p className="fv-lead">Select one site (not All sites) to add or remove adjustments.</p>
@@ -1280,14 +1329,35 @@ export default function FixedValueContracts({ user }) {
                                             onChange={(e) => setAdjNote(e.target.value)}
                                         />
                                     </label>
+                                    <div className="fv-adj-field">
+                                        <span>Effect</span>
+                                        <div className="fv-adj-sign">
+                                            <button
+                                                type="button"
+                                                className={adjSign === 'add' ? 'active' : ''}
+                                                disabled={!canWrite || loading}
+                                                onClick={() => setAdjSign('add')}
+                                            >
+                                                + Add
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={adjSign === 'deduct' ? 'active' : ''}
+                                                disabled={!canWrite || loading}
+                                                onClick={() => setAdjSign('deduct')}
+                                            >
+                                                − Deduct
+                                            </button>
+                                        </div>
+                                    </div>
                                     <label className="fv-adj-field">
-                                        <span>Amount (PKR) — + add / − deduct</span>
+                                        <span>Amount (PKR)</span>
                                         <input
-                                            type="number"
-                                            step="0.01"
+                                            type="text"
+                                            inputMode="decimal"
                                             value={adjAmount}
                                             disabled={!canWrite || loading}
-                                            placeholder="+1000 or -1000"
+                                            placeholder={adjSign === 'add' ? 'e.g. 29523' : 'e.g. 29523 (deducted)'}
                                             onChange={(e) => setAdjAmount(e.target.value)}
                                         />
                                     </label>

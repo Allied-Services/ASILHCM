@@ -671,6 +671,54 @@ describe('FV invoice — manual adjustments', () => {
         expect(deductHtml).not.toContain('ADD: Invoice Adjustments');
     });
 
+    test('printInvoiceHtml applies live +adjustment to Net Taxable, not stale stamped subtotal', async () => {
+        const invRow = {
+            id: 8,
+            invoice_number: 'INV-JUL26-ADJ',
+            client: 'PSO',
+            contract: 'North Zone',
+            period_month: 7,
+            period_year: 2026,
+            subtotal: 10000,
+            sales_tax: 1600,
+            wht: 1500,
+            grand_total: 11600,
+            line_items: JSON.stringify([
+                { description: 'Manpower — 7/2026', quantity: 1, rate: 10000, amount: 10000 },
+            ]),
+            notes: JSON.stringify({
+                source: 'fixed_value_service_order',
+                service_order_id: 'SO-PSO-X',
+                site_code: 'X',
+                site_name: 'Test Site',
+                tax_rate: 0.16,
+                gross: 10000,
+                total_deductions: 0,
+            }),
+        };
+        const pool = {
+            query: jest.fn()
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({
+                    rows: [{
+                        id: 1,
+                        line_id: null,
+                        type: 'adjustment',
+                        source: 'manual',
+                        amount: 800,
+                        note: 'Extra night shift',
+                    }],
+                }),
+        };
+        const html = await printInvoiceHtml(pool, invRow, 'invoice');
+        expect(html).toContain('ADD: Invoice Adjustments');
+        expect(html).toContain('Extra night shift');
+        expect(html).toContain('+Rs. 800.00');
+        expect(html).toContain('Net Taxable Services Value');
+        expect(html).toContain('Rs. 10,800.00');
+        expect(html).not.toMatch(/Net Taxable Services Value<\/span><span>Rs\. 10,000\.00/);
+    });
+
     test('print HTML escapes adjustment notes', () => {
         const html = renderInvoiceHtml({
             computed: {

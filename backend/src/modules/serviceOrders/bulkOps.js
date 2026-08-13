@@ -95,6 +95,8 @@ async function computeInvoicesAllSites(pool, { contractId, month, year, siteCode
     const sites = [];
     let gross = 0;
     let shortage = 0;
+    let adjustments = 0;
+    let netTaxable = 0;
     let salesTax = 0;
     let grandTotal = 0;
     let netReceivable = 0;
@@ -103,7 +105,9 @@ async function computeInvoicesAllSites(pool, { contractId, month, year, siteCode
         const computed = await computeSoInvoice(pool, { serviceOrderId: so.id, month, year });
         sites.push(computed);
         gross += Number(computed.gross || 0);
-        shortage += Number(computed.totalDeductions || 0);
+        shortage += Number(computed.totalShortages != null ? computed.totalShortages : (computed.totalDeductions || 0));
+        adjustments += Number(computed.totalAdjustments || 0);
+        netTaxable += Number(computed.netTaxable || 0);
         salesTax += Number(computed.provincialSt || 0);
         grandTotal += Number(computed.grandTotal || 0);
         netReceivable += Number(computed.netReceivable || 0);
@@ -119,6 +123,8 @@ async function computeInvoicesAllSites(pool, { contractId, month, year, siteCode
             sites: sites.length,
             gross: Math.round(gross * 100) / 100,
             shortage: Math.round(shortage * 100) / 100,
+            adjustments: Math.round(adjustments * 100) / 100,
+            netTaxable: Math.round(netTaxable * 100) / 100,
             salesTax: Math.round(salesTax * 100) / 100,
             grandTotal: Math.round(grandTotal * 100) / 100,
             netReceivable: Math.round(netReceivable * 100) / 100,
