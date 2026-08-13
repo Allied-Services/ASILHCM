@@ -141,7 +141,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Migration | `20260810180000_payslip_delivery.js` — run `npm run migrate` on staging before deploy |
 
 ### AP partial payroll payment
-`POST /api/ap/payroll-queue/:year/:month/confirm` accepts an optional `employee_ids[]`, so AP can pay part of a locked contract batch (e.g. 10 of 305). Anyone already holding a paid SALARY `payment_ledger` row for that month is skipped and returned in `skipped_already_paid` — never paid twice. The batch header (`total_amount`, `employee_count`) is recomputed from its own ledger after each confirm, so repeat partial confirms accumulate instead of overwriting. `409 ALREADY_PAID` when nothing remains and no batch exists.
+`POST /api/ap/payroll-queue/:year/:month/confirm` accepts an optional `employee_ids[]`, so AP can pay part of a locked contract batch (e.g. 10 of 305). Anyone already holding a paid SALARY `payment_ledger` row for that month is skipped and returned in `skipped_already_paid` — never paid twice. The batch header (`total_amount`, `employee_count`) is recomputed from its own ledger after each confirm, so repeat partial confirms accumulate instead of overwriting. `409 ALREADY_PAID` when nothing remains and no batch exists. Confirm upserts `payment_batches` with SELECT-then-INSERT/UPDATE (not expression `ON CONFLICT`) because Postgres cannot infer unique indexes on `COALESCE(client,'')`.
 
 `GET /api/ap/payroll-queue` returns `paid_count` and `unpaid_net_pay` per client/contract group; the detail route returns a per-employee `paid` flag. The AP UI groups cards under a month roll-up header (all locked employees + net for the month) because each card is only one client/contract slice of that month.
 

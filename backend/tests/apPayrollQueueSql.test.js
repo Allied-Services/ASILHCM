@@ -32,3 +32,22 @@ describe('GET /api/ap/payroll-queue SQL shape', () => {
         expect(block).not.toMatch(/COALESCE\(COALESCE\(pt\.client,\s*e\.client\)/);
     });
 });
+
+describe('POST /api/ap/payroll-queue confirm SQL shape', () => {
+    const serverSrc = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+    const marker = '// POST /api/ap/payroll-queue/:year/:month/confirm';
+    const start = serverSrc.indexOf(marker);
+    const end = serverSrc.indexOf("app.get('/api/ap/bills-queue'", start);
+    const block = serverSrc.slice(start, end);
+
+    test('does not use expression ON CONFLICT (Postgres cannot infer the unique index)', () => {
+        expect(block).not.toMatch(/ON CONFLICT \(batch_type,\s*year,\s*month/);
+        expect(block).toMatch(/INSERT INTO payment_batches/);
+        expect(block).toMatch(/UPDATE payment_batches/);
+    });
+
+    test('accepts employee_ids for partial payment', () => {
+        expect(block).toMatch(/employee_ids/);
+        expect(block).toMatch(/already_paid/);
+    });
+});
