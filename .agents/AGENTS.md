@@ -554,6 +554,12 @@ Absence shortages on Fixed Value invoices now nest under the matching SO line it
 
 ---
 
+### 2026-08-13 — FV invoice signed adjustments (fix Add-adjustment 500)
+
+Step 5 “Add adjustment” returned Internal Server Error because `logAudit()` does not return a promise and the route called `.catch()` on `undefined`. Signed amounts are now allowed: **+ adds to the invoice**, **− deducts**, both before sales tax. Missing `so_deductions.note` column is auto-added on insert. Print notes are HTML-escaped.
+
+---
+
 ## Cursor Cloud specific instructions
 
 Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency install (`npm install` in `backend/` and `frontend/`) is handled by the environment update script; this section only covers the non-obvious startup/run caveats. Standard commands live in `backend/package.json` / `frontend/package.json` and `backend/.env.example` — refer to those; only the gotchas are repeated here.

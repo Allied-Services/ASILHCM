@@ -16,6 +16,7 @@ const {
     renderInvoiceHtml,
     attributeDeductions,
     shortageLabel,
+    summarizeInvoiceDeductions,
 } = require('../src/modules/serviceOrders/invoiceHtml');
 const { replaceLines, buildOldToNewLineIdMap } = require('../src/modules/serviceOrders/crud');
 
@@ -267,7 +268,7 @@ describe('FV invoice — per-line shortages (Chakpirana July)', () => {
                 lineItems,
                 deductions: [
                     ...deductions,
-                    { id: 99, line_id: null, type: 'adjustment', amount: 500, note: 'Other adjustment' },
+                    { id: 99, line_id: null, type: 'adjustment', amount: -500, note: 'Other adjustment' },
                 ],
                 gross,
                 totalDeductions: totalDeductions + 500,
@@ -530,7 +531,7 @@ describe('FV invoice — manual adjustments', () => {
         );
     });
 
-    test('addManualDeduction rejects zero or negative amount', async () => {
+    test('addManualDeduction rejects zero amount', async () => {
         const pool = { query: jest.fn() };
         await expect(addManualDeduction(pool, {
             service_order_id: 'SO-PSO-X',
@@ -540,6 +541,51 @@ describe('FV invoice — manual adjustments', () => {
             note: 'x',
         })).rejects.toMatchObject({ status: 400 });
         expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    test('addManualDeduction accepts negative amount (deduct from invoice)', async () => {
+        const inserted = {
+            id: 56,
+            service_order_id: 'SO-PSO-X',
+            type: 'adjustment',
+            amount: -2500,
+            source: 'manual',
+            note: 'Credit — overbilled',
+        };
+        const pool = { query: jest.fn().mockResolvedValueOnce({ rows: [inserted] }) };
+        const row = await addManualDeduction(pool, {
+            service_order_id: 'SO-PSO-X',
+            period_month: 7,
+            period_year: 2026,
+            amount: -2500,
+            note: 'Credit — overbilled',
+        }, 'ar@asil.com.pk');
+        expect(row.amount).toBe(-2500);
+        expect(pool.query.mock.calls[0][1]).toEqual(expect.arrayContaining([-2500]));
+    });
+
+    test('addManualDeduction retries insert after missing note column', async () => {
+        const missing = Object.assign(
+            new Error('column "note" of relation "so_deductions" does not exist'),
+            { code: '42703' }
+        );
+        const inserted = { id: 57, amount: 1000, note: 'Extra manpower' };
+        const pool = {
+            query: jest.fn()
+                .mockRejectedValueOnce(missing)
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [inserted] }),
+        };
+        const row = await addManualDeduction(pool, {
+            service_order_id: 'SO-PSO-X',
+            period_month: 7,
+            period_year: 2026,
+            amount: 1000,
+            note: 'Extra manpower',
+        });
+        expect(row.id).toBe(57);
+        expect(pool.query.mock.calls[1][0]).toMatch(/ADD COLUMN IF NOT EXISTS note/i);
+        expect(pool.query).toHaveBeenCalledTimes(3);
     });
 
     test('deleteManualDeduction removes only source=manual rows', async () => {
@@ -559,5 +605,90 @@ describe('FV invoice — manual adjustments', () => {
         const miss = { query: jest.fn().mockResolvedValueOnce({ rows: [] }) };
         await expect(deleteManualDeduction(miss, 'SO-PSO-CHAKPIRANA', 99))
             .rejects.toMatchObject({ status: 404 });
+    });
+
+    test('summarizeInvoiceDeductions: +adjustment adds, −adjustment deducts, absences deduct', () => {
+        const split = summarizeInvoiceDeductions([
+            { type: 'absence', source: 'attendance_ledger', amount: 1000 },
+            { type: 'adjustment', source: 'manual', amount: 400 },
+            { type: 'adjustment', source: 'manual', amount: -250 },
+        ]);
+        expect(split.shortage).toBe(1000);
+        expect(split.adjustment).toBe(150);
+        expect(split.totalDeductions).toBe(850);
+    });
+
+    test('print HTML: +adjustment is ADD, −adjustment is LESS', () => {
+        const addHtml = renderInvoiceHtml({
+            computed: {
+                invoiceNumber: 'DRAFT',
+                siteName: 'Test Site',
+                periodMonth: 7,
+                periodYear: 2026,
+                lineItems: [{ description: 'Manpower', quantity: 1, rate: 10000, amount: 10000 }],
+                deductions: [
+                    { id: 1, line_id: null, type: 'adjustment', source: 'manual', amount: 800, note: 'Extra night shift' },
+                ],
+                gross: 10000,
+                totalShortages: 0,
+                totalAdjustments: 800,
+                totalDeductions: -800,
+                netTaxable: 10800,
+                provincialSt: 0,
+                grandTotal: 10800,
+                taxRate: 0.16,
+            },
+        });
+        expect(addHtml).toContain('ADD: Invoice Adjustments');
+        expect(addHtml).toContain('Extra night shift');
+        expect(addHtml).toContain('+Rs. 800.00');
+        expect(addHtml).not.toContain('LESS: Additional Shortages / Adjustments');
+
+        const deductHtml = renderInvoiceHtml({
+            computed: {
+                invoiceNumber: 'DRAFT',
+                siteName: 'Test Site',
+                periodMonth: 7,
+                periodYear: 2026,
+                lineItems: [{ description: 'Manpower', quantity: 1, rate: 10000, amount: 10000 }],
+                deductions: [
+                    { id: 2, line_id: null, type: 'adjustment', source: 'manual', amount: -800, note: 'Prior month credit' },
+                ],
+                gross: 10000,
+                totalShortages: 0,
+                totalAdjustments: -800,
+                totalDeductions: 800,
+                netTaxable: 9200,
+                provincialSt: 0,
+                grandTotal: 9200,
+                taxRate: 0.16,
+            },
+        });
+        expect(deductHtml).toContain('LESS: Additional Shortages / Adjustments');
+        expect(deductHtml).toContain('LESS: Invoice Adjustments');
+        expect(deductHtml).toContain('Prior month credit');
+        expect(deductHtml).toContain('-Rs. 800.00');
+        expect(deductHtml).not.toContain('ADD: Invoice Adjustments');
+    });
+
+    test('print HTML escapes adjustment notes', () => {
+        const html = renderInvoiceHtml({
+            computed: {
+                invoiceNumber: 'DRAFT',
+                siteName: 'Test Site',
+                periodMonth: 7,
+                periodYear: 2026,
+                lineItems: [{ description: 'Manpower', quantity: 1, rate: 100, amount: 100 }],
+                deductions: [
+                    { id: 3, line_id: null, type: 'adjustment', source: 'manual', amount: -10, note: '<img src=x onerror=alert(1)>' },
+                ],
+                gross: 100,
+                netTaxable: 90,
+                provincialSt: 0,
+                grandTotal: 90,
+            },
+        });
+        expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+        expect(html).not.toContain('<img src=x');
     });
 });

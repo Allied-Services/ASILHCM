@@ -5,7 +5,7 @@ const { provinceSalesTaxRate } = require('../../core/regionTax');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { getServiceOrder } = require('./crud');
 const { siteProvince, roleCount } = require('./sitesMeta');
-const { renderInvoiceHtml } = require('./invoiceHtml');
+const { renderInvoiceHtml, summarizeInvoiceDeductions } = require('./invoiceHtml');
 const {
     assertPeriodReviewed,
     loadConfirmationMap,
@@ -136,31 +136,40 @@ async function addManualDeduction(pool, payload, actor) {
         throw err;
     }
     const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
-        const err = new Error('amount must be a positive number (credit/reduction on the invoice)');
+    if (!Number.isFinite(amt) || amt === 0) {
+        const err = new Error('amount must be a non-zero number (+ adds to the invoice, − deducts)');
         err.status = 400;
         throw err;
     }
     const noteText = note != null ? String(note).trim() : '';
-    const { rows } = await pool.query(
-        `INSERT INTO so_deductions
+    const values = [
+        service_order_id,
+        line_id || null,
+        period_month,
+        period_year,
+        type || 'adjustment',
+        employee_id || null,
+        days_absent != null ? Number(days_absent) : null,
+        round2(amt),
+        actor || null,
+        noteText || null,
+    ];
+    const insertSql = `INSERT INTO so_deductions
          (service_order_id, line_id, period_month, period_year, type, employee_id, days_absent, amount, source, approved_by, note)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manual',$9,$10)
-         RETURNING *`,
-        [
-            service_order_id,
-            line_id || null,
-            period_month,
-            period_year,
-            type || 'adjustment',
-            employee_id || null,
-            days_absent != null ? Number(days_absent) : null,
-            round2(amt),
-            actor || null,
-            noteText || null,
-        ]
-    );
-    return rows[0];
+         RETURNING *`;
+    try {
+        const { rows } = await pool.query(insertSql, values);
+        return rows[0];
+    } catch (err) {
+        // Production can 500 if the note-column migration has not applied yet.
+        if (err && err.code === '42703') {
+            await pool.query('ALTER TABLE so_deductions ADD COLUMN IF NOT EXISTS note TEXT');
+            const { rows } = await pool.query(insertSql, values);
+            return rows[0];
+        }
+        throw err;
+    }
 }
 
 /**
@@ -251,7 +260,10 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year, requireConf
     const gross = round2(grossLines.reduce((s, l) => s + l.amount, 0));
 
     const deductions = await listDeductions(pool, serviceOrderId, month, year);
-    const totalDeductions = round2(deductions.reduce((s, d) => s + Number(d.amount || 0), 0));
+    const split = summarizeInvoiceDeductions(deductions);
+    const totalShortages = round2(split.shortage);
+    const totalAdjustments = round2(split.adjustment);
+    const totalDeductions = round2(split.totalDeductions);
     const netTaxable = round2(Math.max(0, gross - totalDeductions));
 
     const taxRate = await resolveTaxRate(pool, so, contract);
@@ -280,6 +292,8 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year, requireConf
         billableSnapshot,
         deductions,
         gross,
+        totalShortages,
+        totalAdjustments,
         totalDeductions,
         netTaxable,
         taxRate,
@@ -351,6 +365,8 @@ async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy
         province: computed.province,
         gross: computed.gross,
         total_deductions: computed.totalDeductions,
+        total_shortages: computed.totalShortages,
+        total_adjustments: computed.totalAdjustments,
         income_wht: computed.incomeWht,
         st_withholding: computed.stWithholding,
         net_receivable: computed.netReceivable,
@@ -602,6 +618,7 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
         });
     }
 
+    const split = summarizeInvoiceDeductions(deductions);
     const payload = {
         invoiceNumber: inv.invoice_number,
         clientName: inv.client,
@@ -622,9 +639,11 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
         netReceivable: notes.net_receivable,
         taxRate: notes.tax_rate,
         gross: notes.gross,
-        totalDeductions: notes.total_deductions != null
-            ? notes.total_deductions
-            : deductions.reduce((s, d) => s + Number(d.amount || 0), 0),
+        totalShortages: deductions.length ? split.shortage : notes.total_shortages,
+        totalAdjustments: deductions.length ? split.adjustment : notes.total_adjustments,
+        totalDeductions: deductions.length
+            ? split.totalDeductions
+            : (notes.total_deductions != null ? notes.total_deductions : split.totalDeductions),
         poNumber: inv.po_number,
         ntn: notes.ntn,
         strn: notes.strn,
@@ -638,6 +657,7 @@ module.exports = {
     listDeductions,
     addManualDeduction,
     deleteManualDeduction,
+    summarizeInvoiceDeductions,
     computeSoInvoice,
     persistSoInvoice,
     updateFvInvoiceNumber,

@@ -323,3 +323,11 @@
 .fv-adj-remove {
   padding: 6px 8px;
 }
+.fv-adj-add {
+  color: #22c55e;
+  font-weight: 700;
+}
+.fv-adj-deduct {
+  color: #f87171;
+  font-weight: 700;
+}
