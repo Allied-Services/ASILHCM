@@ -229,6 +229,7 @@ export const api = {
     lockPayroll:   (year, month, employeeIds) => apiFetch(`/api/payroll/${year}/${month}/lock`,   { method: 'PATCH', body: JSON.stringify({ employee_ids: employeeIds || [] }) }),
     unlockPayroll: (year, month, employeeIds) => apiFetch(`/api/payroll/${year}/${month}/unlock`, { method: 'PATCH', body: JSON.stringify({ employee_ids: employeeIds || [] }) }),
     resetPayroll:  (year, month, password)    => apiFetch(`/api/payroll/${year}/${month}`,        { method: 'DELETE', body: JSON.stringify({ password }) }),
+    getPayrollReconciliation: (year, month) => apiFetch(`/api/payroll/${year}/${month}/reconciliation`),
     xeroStatus:    ()                         => apiFetch('/api/xero/status'),
     syncXeroBills: (body)                    => apiFetch('/api/xero/bills/sync', { method: 'POST', body: JSON.stringify(body || {}) }),
     getXeroReviewQueue: ()                  => apiFetch('/api/xero/bills/review-queue'),

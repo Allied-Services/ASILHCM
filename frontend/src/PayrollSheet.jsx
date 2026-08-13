@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon, Lock, Unlock, Save, RefreshCw } from 'lucide-react';
+import { Calculator, Send, Download, Upload, ChevronDown, Filter, AlertCircle, CheckCircle, X, CheckSquare, Square, MessageSquare, FileText as FileTextIcon, CreditCard as CreditCardIcon, Lock, Unlock, Save, RefreshCw, Scale } from 'lucide-react';
 import {
     PAYROLL_CONTRACT_CFG as CONTRACT_CFG,
     downloadCSV,
@@ -8,6 +8,7 @@ import {
 } from './payrollUtils';
 import { api } from './api';
 import { claimsBadgeStyle } from './utils/claimsRouting';
+import './PayrollSheet.css';
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -688,8 +689,17 @@ export default function PayrollSheet({ user }) {
         || user?.role === 'finance_manager'
         || user?.role === 'finance_approver'
         || user?.role === 'payroll_initiator';
+    const canReconcile = isSuperAdmin
+        || user?.role === 'finance_manager'
+        || user?.role === 'finance_approver'
+        || user?.role === 'payroll_initiator'
+        || user?.role === 'ap_team';
     const [forceResendPayslips, setForceResendPayslips] = useState(false);
     const [sendAllPayslips, setSendAllPayslips] = useState(false);
+    const [reconOpen, setReconOpen] = useState(false);
+    const [reconData, setReconData] = useState(null);
+    const [reconLoading, setReconLoading] = useState(false);
+    const [reconError, setReconError] = useState(null);
     const selectedIdsRef = useRef(selectedIds);
     useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
     const [PROVINCE_RATES, setPROVINCE_RATES] = useState([]); // from System Config Tax by Region
@@ -858,6 +868,9 @@ export default function PayrollSheet({ user }) {
         setLockedIds(new Set());
         setLockedBy(null);
         setCalcMsg(null);
+        setReconOpen(false);
+        setReconData(null);
+        setReconError(null);
         api.getPayroll(yr, mo).then(applyPayrollPayload).catch(() => {});
         api.getPayrollInvoiceStatus(yr, mo)
             .then(d => setInvoiceStatus(d || { invoicedClients: [], invoicedContracts: [] }))
@@ -1201,6 +1214,27 @@ export default function PayrollSheet({ user }) {
             .catch(() => setPayslipReadiness(null));
     }, [month, canSendPayslips, lockedIds.size, selectedIds.size, payslipReadiness?.paid]);
 
+    useEffect(() => {
+        if (!month) return;
+        const [yr2, mo2] = month.split('-');
+        api.getPayrollReconciliation(yr2, mo2)
+            .then(setPayrollRecon)
+            .catch(() => setPayrollRecon(null));
+    }, [month, lockedIds.size]);
+
+    const loadPayrollRecon = async () => {
+        const [yr2, mo2] = month.split('-');
+        setReconLoading(true);
+        try {
+            const d = await api.getPayrollReconciliation(yr2, mo2);
+            setPayrollRecon(d);
+            setShowReconPanel(true);
+        } catch {
+            setPayrollRecon(null);
+        }
+        setReconLoading(false);
+    };
+
     // Contract cfg lookup: ID first (exact), then name, then client fuzzy fallback
     const rows = filtered.map(emp => {
         // 1. Primary: exact contract ID match (most precise)
@@ -1295,6 +1329,80 @@ export default function PayrollSheet({ user }) {
         });
         return acc;
     }, {});
+
+    // Frozen AP figure for locked rows in the current filtered view (P1 locked_net).
+    const lockedApTotal = rows.reduce((sum, { emp, calc }) => {
+        if (!lockedIds.has(emp.id)) return sum;
+        const srv = serverRows[emp.id] || serverRowsRef.current[emp.id];
+        const frozen = srv?.locked_net != null
+            ? parseFloat(srv.locked_net)
+            : Math.round(parseFloat(calc?.netPay) || 0);
+        return sum + (Number.isFinite(frozen) ? frozen : 0);
+    }, 0);
+    const lockedCountInView = rows.filter(({ emp }) => lockedIds.has(emp.id)).length;
+    const sheetVsLockedGap = Math.round(T.netPay || 0) - Math.round(lockedApTotal);
+
+    const loadReconciliation = async () => {
+        if (!canReconcile || !month) return;
+        const [yr, mo] = month.split('-');
+        setReconLoading(true);
+        setReconError(null);
+        try {
+            const data = await api.getPayrollReconciliation(yr, mo);
+            setReconData(data);
+            setShowRecon(true);
+        } catch (e) {
+            setReconError(e?.message || 'Failed to load reconciliation');
+            setShowRecon(true);
+        } finally {
+            setReconLoading(false);
+        }
+    };
+
+    const reconList = (items, renderItem) => {
+        if (!items?.length) return <div className="payroll-recon-empty">None</div>;
+        return <ul>{items.map((item, i) => <li key={item.id || item.employee_id || i}>{renderItem(item)}</li>)}</ul>;
+    };
+
+    // Locked (AP view): prefer API lockedTotal; else sum frozen locked_net / ROUND(net) for locked rows.
+    const lockedApViewLocal = rows.reduce((sum, { emp, calc }) => {
+        if (!lockedIds.has(emp.id)) return sum;
+        const sr = serverRows[emp.id];
+        const frozen = sr?.locked_net != null && sr.locked_net !== ''
+            ? Math.round(parseFloat(sr.locked_net) || 0)
+            : Math.round(parseFloat(sr?.net != null ? sr.net : calc.netPay) || 0);
+        return sum + frozen;
+    }, 0);
+    const lockedApViewTotal = reconData?.lockedTotal != null ? reconData.lockedTotal : lockedApViewLocal;
+
+    const loadReconciliation = async () => {
+        if (!canReconcile) return;
+        const [yr2, mo2] = month.split('-');
+        setReconOpen(true);
+        setReconLoading(true);
+        setReconError(null);
+        try {
+            const data = await api.getPayrollReconciliation(yr2, mo2);
+            setReconData(data);
+        } catch (e) {
+            setReconError(e.message || 'Failed to load reconciliation');
+            setReconData(null);
+        } finally {
+            setReconLoading(false);
+        }
+    };
+
+    const reconLists = [
+        { key: 'unlocked', title: 'Unlocked', rows: reconData?.unlocked, money: true },
+        { key: 'orphans', title: 'Orphans (no employee)', rows: reconData?.orphans, money: true, idKey: 'employee_id' },
+        { key: 'blankScope', title: 'Blank scope', rows: reconData?.blankScope },
+        { key: 'excludedByDates', title: 'Excluded by DOJ/LWD', rows: reconData?.excludedByDates, dates: true },
+        { key: 'lockedNotPaid', title: 'Locked not paid', rows: reconData?.lockedNotPaid },
+        { key: 'paidNotLocked', title: 'Paid not locked', rows: reconData?.paidNotLocked },
+    ];
+    const lockedApGap = reconData
+        ? Math.round((reconData.lockedTotal || 0) - (reconData.apTotal || 0))
+        : 0;
 
     const applyImport = async (parsed) => {
         const newOv = { ...overrides };
@@ -1974,11 +2082,12 @@ export default function PayrollSheet({ user }) {
             )}
 
             {/* Summary Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
                 {[
                     { l: 'Employees', v: rows.length, c: 'var(--primary)', s: 'In this run' },
                     { l: 'Total Gross Pay', v: Rs(T.grossMonthly), c: '#22c55e', s: 'Before deductions' },
-                    { l: 'Total Net Pay', v: Rs(T.netPay), c: '#22c55e', s: 'Take-home' },
+                    { l: 'Total Net Pay', v: Rs(T.netPay), c: '#22c55e', s: 'Visible rows' },
+                    { l: 'Locked (AP view)', v: Rs(payrollRecon?.lockedTotal ?? 0), c: '#38bdf8', s: 'Frozen locked net' },
                     { l: 'Total Payroll Cost', v: Rs(T.totalPayrollCost), c: '#a78bfa', s: 'Gross + employer costs' },
                     { l: 'Total Invoice', v: Rs(T.totalInvoice), c: '#f59e0b', s: 'Incl. svc charges + ST' },
                 ].map(c => (
@@ -1989,6 +2098,90 @@ export default function PayrollSheet({ user }) {
                     </div>
                 ))}
             </div>
+
+            <div className="payroll-recon-bar">
+                <div className="payroll-recon-bar__item">
+                    <span className="payroll-recon-bar__label">AP batches</span>
+                    <span className="payroll-recon-bar__value payroll-recon-bar__value--ap">{Rs(payrollRecon?.apTotal ?? 0)}</span>
+                </div>
+                <div className="payroll-recon-bar__item">
+                    <span className="payroll-recon-bar__label">Ledger paid</span>
+                    <span className="payroll-recon-bar__value">{Rs(payrollRecon?.paidTotal ?? 0)}</span>
+                </div>
+                <div className="payroll-recon-bar__item">
+                    <span className="payroll-recon-bar__label">Exceptions</span>
+                    <span className={`payroll-recon-bar__value${(
+                        (payrollRecon?.unlocked?.length || 0)
+                        + (payrollRecon?.orphans?.length || 0)
+                        + (payrollRecon?.blankScope?.length || 0)
+                        + (payrollRecon?.lockedNotPaid?.length || 0)
+                    ) > 0 ? ' payroll-recon-bar__value--warn' : ''}`}>
+                        {(payrollRecon?.unlocked?.length || 0)
+                            + (payrollRecon?.orphans?.length || 0)
+                            + (payrollRecon?.blankScope?.length || 0)
+                            + (payrollRecon?.excludedByDates?.length || 0)
+                            + (payrollRecon?.lockedNotPaid?.length || 0)
+                            + (payrollRecon?.paidNotLocked?.length || 0)}
+                    </span>
+                </div>
+                <div className="payroll-recon-bar__actions">
+                    <button type="button" className="payroll-recon-btn" onClick={loadPayrollRecon} disabled={reconLoading}>
+                        <Scale size={15} /> {reconLoading ? 'Loading…' : 'Reconcile'}
+                    </button>
+                </div>
+            </div>
+
+            {showReconPanel && payrollRecon && (
+                <div className="payroll-recon-panel">
+                    <div className="payroll-recon-panel__head">
+                        <div>
+                            <h3>Payroll vs AP — {month}</h3>
+                            <p>Locked total must equal AP batch total after full confirm.</p>
+                        </div>
+                        <button type="button" className="payroll-recon-panel__close" onClick={() => setShowReconPanel(false)} aria-label="Close">
+                            <X size={16} />
+                        </button>
+                    </div>
+                    <div className="payroll-recon-kpis">
+                        {[
+                            ['Sheet total', payrollRecon.sheetTotal],
+                            ['Locked (AP view)', payrollRecon.lockedTotal],
+                            ['AP batches', payrollRecon.apTotal],
+                            ['Ledger paid', payrollRecon.paidTotal],
+                        ].map(([label, val]) => (
+                            <div key={label} className="payroll-recon-kpi">
+                                <div className="payroll-recon-bar__label">{label}</div>
+                                <div className="payroll-recon-bar__value">{Rs(val)}</div>
+                            </div>
+                        ))}
+                    </div>
+                    {[
+                        ['Unlocked', payrollRecon.unlocked],
+                        ['Orphans (no employee)', payrollRecon.orphans],
+                        ['Blank lock scope', payrollRecon.blankScope],
+                        ['Excluded by DOJ/LWD', payrollRecon.excludedByDates],
+                        ['Locked not paid', payrollRecon.lockedNotPaid],
+                        ['Paid not locked', payrollRecon.paidNotLocked],
+                    ].map(([title, list]) => (
+                        <div key={title} className="payroll-recon-list">
+                            <h4>{title} ({list?.length || 0})</h4>
+                            {!list?.length ? (
+                                <p className="payroll-recon-empty">None</p>
+                            ) : (
+                                <ul>
+                                    {list.slice(0, 40).map((row, i) => (
+                                        <li key={`${title}-${row.id || row.employee_id || i}`}>
+                                            {row.name || row.employee_id || row.id}
+                                            {row.net != null ? ` — ${Rs(row.net)}` : ''}
+                                        </li>
+                                    ))}
+                                    {list.length > 40 && <li>…and {list.length - 40} more</li>}
+                                </ul>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Table */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', marginBottom: '1.25rem' }}>
