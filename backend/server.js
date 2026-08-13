@@ -4334,7 +4334,7 @@ app.post('/api/banks', requireAuth, requireRole('superadmin'), async (req, res) 
 // AP PAYMENT QUEUE Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ Accounts Payable
 // Γö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ëΓö£├│╬ô├ç├│Γö¼├ë
 
-// GET /api/ap/payroll-queue Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ locked payroll batches grouped by client+contract+month
+// GET /api/ap/payroll-queue — locked payroll batches grouped by frozen client+contract+month (P2)
 app.get('/api/ap/payroll-queue', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
     try {
         const { archive, config } = await cutover.resolveArchiveMode(req, pool);
@@ -4342,43 +4342,46 @@ app.get('/api/ap/payroll-queue', requireAuth, requireRole('ap_team','finance_man
         const { rows } = await pool.query(`
             SELECT
                 pt.year, pt.month,
-                e.client, e.contract_name,
+                COALESCE(pt.client, e.client) AS client,
+                COALESCE(pt.contract_name, e.contract_name) AS contract_name,
                 COUNT(*) AS employee_count,
-                SUM(pt.net) AS total_net_pay,
+                SUM(COALESCE(pt.locked_net, ROUND(pt.net))) AS total_net_pay,
                 SUM(pt.gross) AS total_gross,
                 SUM(pt.total_invoice) AS total_invoice,
                 MAX(pt.locked_at) AS locked_at,
                 MAX(pt.locked_by) AS locked_by,
                 (SELECT COUNT(*) FROM payment_batches pb
                  WHERE pb.year=pt.year AND pb.month=pt.month AND pb.batch_type='PAYROLL'
-                 AND COALESCE(pb.client,'') = COALESCE(e.client,'') 
-                 AND COALESCE(pb.contract_name,'') = COALESCE(e.contract_name,'')) AS batch_count
+                 AND COALESCE(pb.client,'') = COALESCE(COALESCE(pt.client, e.client),'')
+                 AND COALESCE(pb.contract_name,'') = COALESCE(COALESCE(pt.contract_name, e.contract_name),'')) AS batch_count
             FROM payroll_transactions pt
-            JOIN employees e ON e.id = pt.employee_id
+            LEFT JOIN employees e ON e.id = pt.employee_id
             WHERE pt.locked=TRUE AND ${periodFloor}
-            GROUP BY pt.year, pt.month, e.client, e.contract_name
-            ORDER BY pt.year DESC, pt.month DESC, e.client ASC, e.contract_name ASC
+            GROUP BY pt.year, pt.month, COALESCE(pt.client, e.client), COALESCE(pt.contract_name, e.contract_name)
+            ORDER BY pt.year DESC, pt.month DESC, COALESCE(pt.client, e.client) ASC, COALESCE(pt.contract_name, e.contract_name) ASC
         `);
         res.json({ queue: rows });
     } catch (err) { console.error('[GET /api/ap/payroll-queue]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// GET /api/ap/payroll-queue/:year/:month Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ employee details scoped by client+contract
+// GET /api/ap/payroll-queue/:year/:month — employee details scoped by frozen client+contract (P2)
 app.get('/api/ap/payroll-queue/:year/:month', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
     try {
         const { year, month } = req.params;
         const { client: filterClient, contract: filterContract } = req.query;
         let where = 'WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE';
         const params = [parseInt(year), parseInt(month)];
-        if (filterClient) { params.push(filterClient); where += ` AND e.client=$${params.length}`; }
-        if (filterContract) { params.push(filterContract); where += ` AND e.contract_name=$${params.length}`; }
+        if (filterClient) { params.push(filterClient); where += ` AND COALESCE(pt.client, e.client)=$${params.length}`; }
+        if (filterContract) { params.push(filterContract); where += ` AND COALESCE(pt.contract_name, e.contract_name)=$${params.length}`; }
         const { rows } = await pool.query(`
-            SELECT pt.*, e.name, e.bank_name, e.bank_account, e.account_title,
-                   e.client, e.contract_name, e.location
+            SELECT pt.*, e.name, e.bank_name, e.bank_account, e.account_title, e.location,
+                   COALESCE(pt.locked_net, ROUND(pt.net)) AS locked_net,
+                   COALESCE(pt.client, e.client) AS client,
+                   COALESCE(pt.contract_name, e.contract_name) AS contract_name
             FROM payroll_transactions pt
-            JOIN employees e ON e.id = pt.employee_id
+            LEFT JOIN employees e ON e.id = pt.employee_id
             ${where}
-            ORDER BY e.name ASC
+            ORDER BY e.name ASC NULLS LAST
         `, params);
         // Also get existing payment batch if any
         let batchQuery = 'SELECT * FROM payment_batches WHERE year=$1 AND month=$2 AND batch_type=$3';
@@ -4390,7 +4393,7 @@ app.get('/api/ap/payroll-queue/:year/:month', requireAuth, requireRole('ap_team'
     } catch (err) { console.error('[GET /api/ap/payroll-queue/:year/:month]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// POST /api/ap/payroll-queue/:year/:month/confirm Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ AP team confirms payment + selects bank
+// POST /api/ap/payroll-queue/:year/:month/confirm — AP confirms payment; Paid is batch-scoped (P2)
 app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
     try {
         const { year, month } = req.params;
@@ -4398,33 +4401,39 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
                 client_filter, contract_filter } = req.body;
         const yr = parseInt(year), mo = parseInt(month);
 
-        // Build locked employee scope (filtered by client+contract if provided)
-        let lockedWhere = 'WHERE year=$1 AND month=$2 AND locked=TRUE';
-        const lockedParams = [yr, mo];
+        const { archive, config } = await cutover.resolveArchiveMode(req, pool);
+        const periodFloor = cutover.applyPeriodFloor('pt.month', 'pt.year', { archive, cutoverMonth: config.cutoverMonth, cutoverYear: config.cutoverYear });
 
-        // Total amounts
+        const scopeParams = [yr, mo];
+        let scopeFilter = '';
+        if (client_filter) {
+            scopeParams.push(client_filter);
+            scopeFilter += ` AND COALESCE(pt.client, e.client)=$${scopeParams.length}`;
+        }
+        if (contract_filter) {
+            scopeParams.push(contract_filter);
+            scopeFilter += ` AND COALESCE(pt.contract_name, e.contract_name)=$${scopeParams.length}`;
+        }
+
+        // Total amounts — frozen money + frozen scope (LEFT JOIN so orphans still count)
         const totals = await pool.query(`
-            SELECT SUM(pt.net) AS total_net, SUM(pt.gross) AS total_gross,
+            SELECT SUM(COALESCE(pt.locked_net, ROUND(pt.net))) AS total_net, SUM(pt.gross) AS total_gross,
                    SUM(pt.total_invoice) AS total_invoice, COUNT(*) AS employee_count
             FROM payroll_transactions pt
-            JOIN employees e ON e.id = pt.employee_id
-            WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
-            ${client_filter ? `AND e.client=$3` : ''}
-            ${contract_filter ? `AND e.contract_name=$${client_filter ? 4 : 3}` : ''}
-        `, client_filter && contract_filter ? [yr, mo, client_filter, contract_filter]
-           : client_filter ? [yr, mo, client_filter]
-           : contract_filter ? [yr, mo, contract_filter]
-           : [yr, mo]);
+            LEFT JOIN employees e ON e.id = pt.employee_id
+            WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE AND ${periodFloor}
+            ${scopeFilter}
+        `, scopeParams);
         const t = totals.rows[0];
 
-        // Create payment batch Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ scoped to client+contract if provided
+        // Create payment batch — COALESCE-scoped uniqueness (blank client/contract = one batch)
         const batchId = `PB-${yr}-${String(mo).padStart(2,'0')}-${(bank_name||'').replace(/\s+/g,'').slice(0,8)}-${Date.now()}`;
         const { rows: batchRows } = await pool.query(`
             INSERT INTO payment_batches
                 (id, batch_type, year, month, bank_id, bank_name, payment_date, reference_no,
                  total_amount, employee_count, notes, status, created_by, client, contract_name)
             VALUES ($1,'PAYROLL',$2,$3,$4,$5,$6,$7,$8,$9,$10,'Confirmed',$11,$12,$13)
-            ON CONFLICT (batch_type, year, month, client, contract_name) DO UPDATE SET
+            ON CONFLICT (batch_type, year, month, (COALESCE(client, '')), (COALESCE(contract_name, ''))) DO UPDATE SET
                 bank_id=$4, bank_name=$5, payment_date=$6, reference_no=$7,
                 total_amount=$8, employee_count=$9, notes=$10, status='Confirmed',
                 updated_at=NOW()
@@ -4433,28 +4442,27 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
             parseFloat(t.total_net)||0, parseInt(t.employee_count)||0, notes||null, req.user.email,
             client_filter||null, contract_filter||null]);
 
-        // Create payment ledger entries Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ scoped to client+contract filter
+        // Ledger rows — same frozen scope/money as the batch total
         const empRows = await pool.query(`
-            SELECT pt.*, e.name, e.client, e.contract_name, e.location, e.bank_name, e.bank_account
+            SELECT pt.*, e.name, e.location, e.bank_name, e.bank_account,
+                   COALESCE(pt.locked_net, ROUND(pt.net)) AS pay_amount,
+                   COALESCE(pt.client, e.client) AS client,
+                   COALESCE(pt.contract_name, e.contract_name) AS contract_name
             FROM payroll_transactions pt
-            JOIN employees e ON e.id=pt.employee_id
-            WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE
-            ${client_filter ? `AND e.client=$3` : ''}
-            ${contract_filter ? `AND e.contract_name=$${client_filter ? 4 : 3}` : ''}
-        `, client_filter && contract_filter ? [yr, mo, client_filter, contract_filter]
-           : client_filter ? [yr, mo, client_filter]
-           : contract_filter ? [yr, mo, contract_filter]
-           : [yr, mo]);
+            LEFT JOIN employees e ON e.id=pt.employee_id
+            WHERE pt.year=$1 AND pt.month=$2 AND pt.locked=TRUE AND ${periodFloor}
+            ${scopeFilter}
+        `, scopeParams);
 
         const monthName = new Date(2000, mo-1, 1).toLocaleString('en-US', { month: 'short' });
         const yr2 = String(yr).slice(-2);
 
-        // ΓöÇΓöÇ Bulk payment_ledger INSERT (replaces N+1 per-employee loop) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+        const batchEmpIds = empRows.rows.map(e => e.employee_id);
         if (empRows.rows.length > 0) {
             const plBatch    = empRows.rows.map(() => batchRows[0].id);
-            const plEmpIds   = empRows.rows.map(e => e.employee_id);
+            const plEmpIds   = batchEmpIds;
             const plNames    = empRows.rows.map(e => e.name);
-            const plAmounts  = empRows.rows.map(e => parseFloat(e.net) || 0);
+            const plAmounts  = empRows.rows.map(e => parseFloat(e.pay_amount) || 0);
             const plRefs     = empRows.rows.map(e => `PR${monthName}${yr2}-${e.employee_id}`);
             const plBanks    = empRows.rows.map(e => e.bank_name || bank_name || '');
             const plAccts    = empRows.rows.map(e => e.bank_account || '');
@@ -4469,11 +4477,15 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
             `, [plBatch, plEmpIds, plNames, plAmounts, plRefs, plBanks, plAccts]);
         }
 
-        await pool.query(
-            `UPDATE payroll_transactions SET paid_on = COALESCE(paid_on, $3::date), status = 'Paid'
-             WHERE year = $1 AND month = $2 AND locked = TRUE`,
-            [yr, mo, payment_date || new Date().toISOString().slice(0, 10)]
-        );
+        // Paid only for employees in this batch (not every locked row for the month)
+        if (batchEmpIds.length > 0) {
+            await pool.query(
+                `UPDATE payroll_transactions SET paid_on = COALESCE(paid_on, $3::date), status = 'Paid'
+                 WHERE year = $1 AND month = $2 AND locked = TRUE
+                   AND employee_id = ANY($4::text[])`,
+                [yr, mo, payment_date || new Date().toISOString().slice(0, 10), batchEmpIds]
+            );
+        }
 
         // Optional Xero push
         let xeroResult = null;
@@ -4517,7 +4529,6 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
     } catch (err) { console.error('[POST /api/ap/payroll-queue/:year/:month/confirm]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// GET /api/ap/bills-queue Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ bills pending AP confirmation
 app.get('/api/ap/bills-queue', requireAuth, requireRole('ap_team','finance_manager','superadmin'), async (req, res) => {
     try {
         const { rows } = await pool.query(`
