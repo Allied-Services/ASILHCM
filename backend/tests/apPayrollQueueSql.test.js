@@ -15,9 +15,15 @@ describe('GET /api/ap/payroll-queue SQL shape', () => {
     const end = serverSrc.indexOf('// GET /api/ap/payroll-queue/:year/:month', start);
     const block = serverSrc.slice(start, end);
 
-    test('aggregates locked rows in a CTE named locked', () => {
-        expect(block).toMatch(/WITH\s+locked\s+AS\s*\(/i);
+    test('aggregates locked rows in CTEs before joining batch data', () => {
+        expect(block).toMatch(/WITH\s+scoped\s+AS\s*\(/i);
+        expect(block).toMatch(/locked\s+AS\s*\(/i);
         expect(block).toMatch(/FROM\s+locked\s+l/i);
+    });
+
+    test('reports per-group paid counts so AP can see partial payment', () => {
+        expect(block).toMatch(/paid_count/);
+        expect(block).toMatch(/unpaid_net_pay/);
     });
 
     test('batch_count correlates on CTE aliases, not raw pt/e columns under GROUP BY', () => {
