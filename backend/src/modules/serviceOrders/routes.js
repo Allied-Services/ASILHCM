@@ -265,7 +265,7 @@ function registerServiceOrderRoutes(app, deps) {
                 ...req.body,
                 service_order_id: req.params.id,
             }, req.user?.email);
-            if (logAudit) logAudit(req, 'CREATE', 'so_deduction', row.id).catch(() => {});
+            if (logAudit) logAudit(req, 'CREATE', 'so_deduction', row.id);
             res.json(row);
         } catch (err) {
             handleRouteError(res, 'fixed-value.deductions.add', err);
@@ -275,7 +275,7 @@ function registerServiceOrderRoutes(app, deps) {
     app.delete('/api/fixed-value/service-orders/:id/deductions/:deductionId', requireAuth, writeRoles, async (req, res) => {
         try {
             const row = await deleteManualDeduction(pool, req.params.id, req.params.deductionId);
-            if (logAudit) logAudit(req, 'DELETE', 'so_deduction', row.id).catch(() => {});
+            if (logAudit) logAudit(req, 'DELETE', 'so_deduction', row.id);
             res.json(row);
         } catch (err) {
             handleRouteError(res, 'fixed-value.deductions.delete', err);

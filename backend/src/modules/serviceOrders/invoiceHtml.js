@@ -25,6 +25,45 @@ function lineKey(line) {
     return id != null ? String(id) : null;
 }
 
+function escapeHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function isManualInvoiceAdjustment(d) {
+    const type = String(d?.type || '').toLowerCase();
+    const source = String(d?.source || '').toLowerCase();
+    return source === 'manual' || type === 'adjustment' || type === 'manual';
+}
+
+/** +adjustment adds to the invoice; −adjustment deducts. Absences always deduct. */
+function summarizeInvoiceDeductions(deductions) {
+    let shortage = 0;
+    let adjustment = 0;
+    for (const d of deductions || []) {
+        const amt = Number(d.amount || 0) || 0;
+        if (isManualInvoiceAdjustment(d)) adjustment += amt;
+        else shortage += amt;
+    }
+    shortage = Math.round(shortage * 100) / 100;
+    adjustment = Math.round(adjustment * 100) / 100;
+    return {
+        shortage,
+        adjustment,
+        totalDeductions: Math.round((shortage - adjustment) * 100) / 100,
+    };
+}
+
+function signedRs(n) {
+    const v = Number(n) || 0;
+    if (v > 0) return `+Rs. ${fmt2(v)}`;
+    if (v < 0) return `-Rs. ${fmt2(Math.abs(v))}`;
+    return `Rs. ${fmt2(0)}`;
+}
+
 /**
  * Attribute each deduction to an SO line:
  * 1) matching line_id / lineId
@@ -65,8 +104,8 @@ function attributeDeductions(lines, deductions) {
 }
 
 function shortageLabel(d) {
-    const name = d.employee_name || d.employeeName || d.employee_id || 'Resource';
-    const desig = d.employee_designation || d.designation || d.employeeDesignation || '';
+    const name = escapeHtml(d.employee_name || d.employeeName || d.employee_id || 'Resource');
+    const desig = escapeHtml(d.employee_designation || d.designation || d.employeeDesignation || '');
     const daysRaw = d.days_absent != null ? d.days_absent : d.daysAbsent;
     const days = daysRaw != null && daysRaw !== '' ? Number(daysRaw) : null;
     const amount = Number(d.amount || 0);
@@ -81,17 +120,26 @@ function shortageLabel(d) {
         return label;
     }
 
-    return `• ${d.label || d.note || d.type || 'Shortage'}${d.employee_id ? ` (${d.employee_id})` : ''}${d.employee_name || d.employeeName ? ` — ${d.employee_name || d.employeeName}` : ''}`;
+    const fallback = escapeHtml(d.label || d.note || d.type || 'Shortage');
+    const empId = d.employee_id ? ` (${escapeHtml(d.employee_id)})` : '';
+    const empName = d.employee_name || d.employeeName
+        ? ` — ${escapeHtml(d.employee_name || d.employeeName)}`
+        : '';
+    return `• ${fallback}${empId}${empName}`;
 }
 
 function orphanShortageLabel(d) {
     if (d.note || d.label) {
-        return `• ${d.label || d.note}`;
+        return `• ${escapeHtml(d.label || d.note)}`;
     }
     if (d.type === 'adjustment' || d.type === 'manual') {
-        return `• Invoice adjustment${d.employee_id ? ` (${d.employee_id})` : ''}`;
+        return `• Invoice adjustment${d.employee_id ? ` (${escapeHtml(d.employee_id)})` : ''}`;
     }
-    return `• ${d.type || 'Deduction'}${d.employee_id ? ` (${d.employee_id})` : ''}${d.employee_name || d.employeeName ? ` — ${d.employee_name || d.employeeName}` : ''}`;
+    const empId = d.employee_id ? ` (${escapeHtml(d.employee_id)})` : '';
+    const empName = d.employee_name || d.employeeName
+        ? ` — ${escapeHtml(d.employee_name || d.employeeName)}`
+        : '';
+    return `• ${escapeHtml(d.type || 'Deduction')}${empId}${empName}`;
 }
 
 function baseStyles(letterhead) {
@@ -130,6 +178,7 @@ function baseStyles(letterhead) {
     margin-top: 6px; padding: 6px 8px; background: #f8fafc; border: 1px solid #e2e8f0;
     border-left: 3px solid #64748b; border-radius: 6px; font-size: 10.5px;
   }
+  .less.add { border-left-color: #16a34a; }
   .less .head { font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
   .less .row { display: flex; justify-content: space-between; gap: 10px; font-family: ui-monospace, monospace; }
   .less .tot { margin-top: 3px; padding-top: 3px; border-top: 1px solid #cbd5e1; font-weight: 800; display: flex; justify-content: space-between; }
@@ -186,10 +235,13 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
     const taxPct = ((Number(data.taxRate || 0)) * 100).toFixed(0);
 
     const gross = Number(data.gross != null ? data.gross : lines.reduce((s, l) => s + Number(l.amount || l.rate || 0), 0));
+    const split = summarizeInvoiceDeductions(deductions);
+    const shortageAmt = Number(data.totalShortages != null ? data.totalShortages : split.shortage);
+    const adjustmentAmt = Number(data.totalAdjustments != null ? data.totalAdjustments : split.adjustment);
     const totalDeductions = Number(
         data.totalDeductions != null
             ? data.totalDeductions
-            : deductions.reduce((s, d) => s + Number(d.amount || 0), 0)
+            : split.totalDeductions
     );
     const net = Number(data.netTaxable ?? data.subtotal ?? Math.max(0, gross - totalDeductions));
     const pst = Number(data.provincialSt ?? data.salesTax ?? 0);
@@ -236,13 +288,22 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
         </tr>`;
     }).join('');
 
-    const orphanRows = orphanDeds.length
-        ? `<tr><td colspan="6">
-            <div class="less">
+    const addOrphans = orphanDeds.filter((d) => isManualInvoiceAdjustment(d) && Number(d.amount) > 0);
+    const lessOrphans = orphanDeds.filter((d) => !(isManualInvoiceAdjustment(d) && Number(d.amount) > 0));
+    const lessOrphanBlock = lessOrphans.length
+        ? `<div class="less">
               <div class="head">LESS: Additional Shortages / Adjustments</div>
-              ${orphanDeds.map((d) => `<div class="row"><span>${orphanShortageLabel(d)}</span><span>-Rs. ${fmt2(d.amount)}</span></div>`).join('')}
-            </div>
-          </td></tr>`
+              ${lessOrphans.map((d) => `<div class="row"><span>${orphanShortageLabel(d)}</span><span>${signedRs(-Math.abs(Number(d.amount) || 0))}</span></div>`).join('')}
+            </div>`
+        : '';
+    const addOrphanBlock = addOrphans.length
+        ? `<div class="less add">
+              <div class="head">ADD: Invoice Adjustments</div>
+              ${addOrphans.map((d) => `<div class="row"><span>${orphanShortageLabel(d)}</span><span>${signedRs(Number(d.amount) || 0)}</span></div>`).join('')}
+            </div>`
+        : '';
+    const orphanRows = (lessOrphans.length || addOrphans.length)
+        ? `<tr><td colspan="6">${lessOrphanBlock}${addOrphanBlock}</td></tr>`
         : '';
 
     const logoBlock = letterhead
@@ -306,7 +367,13 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
     </div>
     <div class="totals">
       <div class="r"><span>Gross Total Contract Value</span><span>Rs. ${fmt2(gross)}</span></div>
-      <div class="r"><span>LESS: Shortage / Deductions</span><span>-Rs. ${fmt2(totalDeductions)}</span></div>
+      ${shortageAmt
+        ? `<div class="r"><span>LESS: Shortage / Deductions</span><span>-Rs. ${fmt2(shortageAmt)}</span></div>`
+        : (adjustmentAmt === 0 && totalDeductions
+            ? `<div class="r"><span>LESS: Shortage / Deductions</span><span>-Rs. ${fmt2(totalDeductions)}</span></div>`
+            : '')}
+      ${adjustmentAmt > 0 ? `<div class="r"><span>ADD: Invoice Adjustments</span><span>+Rs. ${fmt2(adjustmentAmt)}</span></div>` : ''}
+      ${adjustmentAmt < 0 ? `<div class="r"><span>LESS: Invoice Adjustments</span><span>-Rs. ${fmt2(Math.abs(adjustmentAmt))}</span></div>` : ''}
       <div class="r strong"><span>Net Taxable Services Value</span><span>Rs. ${fmt2(net)}</span></div>
       <div class="r"><span>Provincial Sales Tax (${taxPct}%)</span><span>Rs. ${fmt2(pst)}</span></div>
       <div class="grand"><span>Grand Net Invoice Amount</span><span>PKR ${fmt2(grand)}</span></div>
@@ -329,4 +396,7 @@ module.exports = {
     numberToWords,
     attributeDeductions,
     shortageLabel,
+    escapeHtml,
+    isManualInvoiceAdjustment,
+    summarizeInvoiceDeductions,
 };

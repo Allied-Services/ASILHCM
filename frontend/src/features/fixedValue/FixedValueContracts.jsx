@@ -438,8 +438,8 @@ export default function FixedValueContracts({ user }) {
         const amount = Number(String(adjAmount).replace(/,/g, ''));
         const note = String(adjNote || '').trim();
         if (!note) throw new Error('Comment is required — it prints on the invoice');
-        if (!Number.isFinite(amount) || amount <= 0) {
-            throw new Error('Adjustment amount must be a positive PKR amount (reduces the invoice)');
+        if (!Number.isFinite(amount) || amount === 0) {
+            throw new Error('Enter a non-zero amount: + adds to the invoice, − deducts');
         }
         await api.addFixedValueDeduction(selectedOrder.id, {
             period_month: month,
@@ -1258,11 +1258,11 @@ export default function FixedValueContracts({ user }) {
                     )}
 
                     <div className="fv-adj-block">
-                        <h4 style={{ margin: 0 }}>Invoice adjustment (one-off credit)</h4>
+                        <h4 style={{ margin: 0 }}>Invoice adjustment (one-off)</h4>
                         <p className="fv-lead">
-                            Reduces this site&apos;s invoice <strong>before sales tax</strong> (same bucket as shortages).
-                            Use when payroll must stay unchanged but the client needs a credit —
-                            e.g. prior month billed a resource that was not delivered.
+                            Signed amount applied <strong>before sales tax</strong>. Payroll is unchanged.
+                            <strong> + </strong> adds to the invoice (extra billing);
+                            <strong> − </strong> deducts (credit / reduction).
                             Select a single site above. After saving, Preview / Stamp again.
                         </p>
                         {siteCode === ALL_SITES || !selectedOrder ? (
@@ -1281,14 +1281,13 @@ export default function FixedValueContracts({ user }) {
                                         />
                                     </label>
                                     <label className="fv-adj-field">
-                                        <span>Amount (PKR)</span>
+                                        <span>Amount (PKR) — + add / − deduct</span>
                                         <input
                                             type="number"
-                                            min="0"
                                             step="0.01"
                                             value={adjAmount}
                                             disabled={!canWrite || loading}
-                                            placeholder="0.00"
+                                            placeholder="+1000 or -1000"
                                             onChange={(e) => setAdjAmount(e.target.value)}
                                         />
                                     </label>
@@ -1306,6 +1305,7 @@ export default function FixedValueContracts({ user }) {
                                         <thead>
                                             <tr>
                                                 <th>Comment</th>
+                                                <th>Effect</th>
                                                 <th className="num">Amount</th>
                                                 <th style={{ width: 72 }} />
                                             </tr>
@@ -1313,14 +1313,20 @@ export default function FixedValueContracts({ user }) {
                                         <tbody>
                                             {manualAdjustments.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={3} style={{ color: 'var(--text-muted)' }}>
+                                                    <td colSpan={4} style={{ color: 'var(--text-muted)' }}>
                                                         No manual adjustments for {selectedOrder.site_code || selectedOrder.name} this period.
                                                     </td>
                                                 </tr>
-                                            ) : manualAdjustments.map((d) => (
+                                            ) : manualAdjustments.map((d) => {
+                                                const amt = Number(d.amount) || 0;
+                                                const add = amt > 0;
+                                                return (
                                                 <tr key={d.id}>
                                                     <td>{d.note || d.type || 'Adjustment'}</td>
-                                                    <td className="num">{fmt(d.amount)}</td>
+                                                    <td>{add ? 'Add to invoice' : 'Deduct from invoice'}</td>
+                                                    <td className={`num ${add ? 'fv-adj-add' : 'fv-adj-deduct'}`}>
+                                                        {add ? '+' : '−'}{fmt(Math.abs(amt))}
+                                                    </td>
                                                     <td>
                                                         <button
                                                             type="button"
@@ -1333,7 +1339,8 @@ export default function FixedValueContracts({ user }) {
                                                         </button>
                                                     </td>
                                                 </tr>
-                                            ))}
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
