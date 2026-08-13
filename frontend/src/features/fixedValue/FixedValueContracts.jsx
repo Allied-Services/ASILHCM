@@ -6,26 +6,12 @@ import {
 } from 'lucide-react';
 import { api } from '../../api';
 import FixedValueContractWizard from './FixedValueContractWizard';
+import { parseAdjustmentAmount, amountLooksNegative } from './parseAdjustmentAmount';
 import './FixedValueOps.css';
 
 const ALL_SITES = '__ALL__';
 const fmt = (n) => (n == null || Number.isNaN(n)) ? 'â€”' : Math.round(Number(n)).toLocaleString();
 const pct = (n) => (n == null || Number.isNaN(n)) ? 'â€”' : `${(Number(n) * 100).toFixed(0)}%`;
-
-/** Parse Step 5 adjustment amount. Explicit minus / (n) wins; otherwise apply +add / −deduct. */
-export function parseAdjustmentAmount(raw, signPref = 'add') {
-    let s = String(raw ?? '').trim();
-    if (!s) return { error: 'Enter an amount' };
-    s = s.replace(/,/g, '').replace(/\s/g, '').replace(/[−–—]/g, '-');
-    const wrapped = /^\((.+)\)$/.exec(s);
-    if (wrapped) s = `-${wrapped[1]}`;
-    const n = Number(s);
-    if (!Number.isFinite(n) || n === 0) {
-        return { error: 'Enter a non-zero amount: + adds to the invoice, − deducts' };
-    }
-    if (n < 0) return { amount: n };
-    return { amount: signPref === 'deduct' ? -Math.abs(n) : Math.abs(n) };
-}
 
 function rowSiteCode(r) {
     return String(r.site || '').trim().toUpperCase();
@@ -123,7 +109,7 @@ export default function FixedValueContracts({ user }) {
     const [wizard, setWizard] = useState(null); // { mode: 'create'|'edit', contractId? }
     const [adjNote, setAdjNote] = useState('');
     const [adjAmount, setAdjAmount] = useState('');
-    const [adjSign, setAdjSign] = useState('add');
+    const [adjSign, setAdjSign] = useState('deduct');
 
     const canWrite = ['superadmin', 'operations', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
         .includes(user?.role);
@@ -460,6 +446,7 @@ export default function FixedValueContracts({ user }) {
             period_year: year,
             type: 'adjustment',
             amount: parsed.amount,
+            effect: parsed.amount < 0 ? 'deduct' : 'add',
             note,
         });
         setAdjNote('');
@@ -1311,8 +1298,9 @@ export default function FixedValueContracts({ user }) {
                         <h4 style={{ margin: 0 }}>Invoice adjustment (one-off)</h4>
                         <p className="fv-lead">
                             Applied <strong>before sales tax</strong>. Payroll is unchanged.
-                            Choose <strong>+</strong> to add to the invoice or <strong>−</strong> to deduct.
-                            Type 29523, or paste -29523 / (29,523). Print totals update immediately; Stamp to save AR.
+                            <strong>− Deduct</strong> is the default: type <strong>29523</strong> — do not type a minus.
+                            Use <strong>+ Add</strong> to increase the invoice. Pasted -29523 or (29,523) also deducts.
+                            Print totals update immediately; Stamp to save AR.
                         </p>
                         {siteCode === ALL_SITES || !selectedOrder ? (
                             <p className="fv-lead">Select one site (not All sites) to add or remove adjustments.</p>
@@ -1355,10 +1343,15 @@ export default function FixedValueContracts({ user }) {
                                         <input
                                             type="text"
                                             inputMode="decimal"
+                                            autoComplete="off"
                                             value={adjAmount}
                                             disabled={!canWrite || loading}
-                                            placeholder={adjSign === 'add' ? 'e.g. 29523' : 'e.g. 29523 (deducted)'}
-                                            onChange={(e) => setAdjAmount(e.target.value)}
+                                            placeholder={adjSign === 'add' ? 'e.g. 29523 to add' : 'e.g. 29523 to deduct'}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                setAdjAmount(v);
+                                                if (amountLooksNegative(v)) setAdjSign('deduct');
+                                            }}
                                         />
                                     </label>
                                     <button
@@ -1367,7 +1360,7 @@ export default function FixedValueContracts({ user }) {
                                         disabled={!canWrite || loading}
                                         onClick={handleAddInvoiceAdjustment}
                                     >
-                                        <Plus size={16} /> Add adjustment
+                                        <Plus size={16} /> Save adjustment
                                     </button>
                                 </div>
                                 <div className="fv-table-wrap">

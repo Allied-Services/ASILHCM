@@ -543,6 +543,64 @@ describe('FV invoice — manual adjustments', () => {
         expect(pool.query).not.toHaveBeenCalled();
     });
 
+    test('addManualDeduction accepts unicode minus, commas, (n), and effect=deduct', async () => {
+        const pool = { query: jest.fn().mockResolvedValue({ rows: [{ id: 58, amount: -29523 }] }) };
+
+        await addManualDeduction(pool, {
+            service_order_id: 'SO-PSO-X',
+            period_month: 7,
+            period_year: 2026,
+            amount: '−29,523',
+            note: 'unicode minus',
+        }, 'ar@asil.com.pk');
+        expect(pool.query.mock.calls[0][1]).toEqual(expect.arrayContaining([-29523]));
+
+        pool.query.mockClear();
+        await addManualDeduction(pool, {
+            service_order_id: 'SO-PSO-X',
+            period_month: 7,
+            period_year: 2026,
+            amount: '(29,523)',
+            note: 'accounting parens',
+        }, 'ar@asil.com.pk');
+        expect(pool.query.mock.calls[0][1]).toEqual(expect.arrayContaining([-29523]));
+
+        pool.query.mockClear();
+        await addManualDeduction(pool, {
+            service_order_id: 'SO-PSO-X',
+            period_month: 7,
+            period_year: 2026,
+            amount: 29523,
+            effect: 'deduct',
+            note: 'Deduct button, typed positive',
+        }, 'ar@asil.com.pk');
+        expect(pool.query.mock.calls[0][1]).toEqual(expect.arrayContaining([-29523]));
+    });
+
+    test('addManualDeduction error never requires a positive amount', async () => {
+        const pool = { query: jest.fn() };
+        await expect(addManualDeduction(pool, {
+            service_order_id: 'SO-PSO-X',
+            period_month: 7,
+            period_year: 2026,
+            amount: 0,
+            note: 'x',
+        })).rejects.toMatchObject({
+            status: 400,
+            message: expect.not.stringMatching(/positive/i),
+        });
+        await expect(addManualDeduction(pool, {
+            service_order_id: 'SO-PSO-X',
+            period_month: 7,
+            period_year: 2026,
+            amount: '−',
+            note: 'x',
+        })).rejects.toMatchObject({
+            status: 400,
+            message: expect.not.stringMatching(/positive/i),
+        });
+    });
+
     test('addManualDeduction accepts negative amount (deduct from invoice)', async () => {
         const inserted = {
             id: 56,
@@ -738,5 +796,27 @@ describe('FV invoice — manual adjustments', () => {
         });
         expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
         expect(html).not.toContain('<img src=x');
+    });
+});
+
+describe('parseInvoiceAdjustmentAmount', () => {
+    const { parseInvoiceAdjustmentAmount } = require('../src/modules/serviceOrders/parseInvoiceAdjustmentAmount');
+
+    test('Deduct + 29523 stores −29523; explicit minus / (n) win', () => {
+        expect(parseInvoiceAdjustmentAmount('29523', 'deduct')).toEqual({ amount: -29523 });
+        expect(parseInvoiceAdjustmentAmount('29523', 'add')).toEqual({ amount: 29523 });
+        expect(parseInvoiceAdjustmentAmount('-29523', 'add')).toEqual({ amount: -29523 });
+        expect(parseInvoiceAdjustmentAmount('−29523', 'add')).toEqual({ amount: -29523 });
+        expect(parseInvoiceAdjustmentAmount('(29,523)', 'add')).toEqual({ amount: -29523 });
+        expect(parseInvoiceAdjustmentAmount('PKR 29,523.50', 'deduct')).toEqual({ amount: -29523.5 });
+        expect(parseInvoiceAdjustmentAmount(-2500)).toEqual({ amount: -2500 });
+    });
+
+    test('zero / blank / NaN never say the amount must be positive', () => {
+        for (const raw of [0, '0', '', 'abc', '−']) {
+            const parsed = parseInvoiceAdjustmentAmount(raw, 'deduct');
+            expect(parsed.error).toBeTruthy();
+            expect(parsed.error).not.toMatch(/positive/i);
+        }
     });
 });
