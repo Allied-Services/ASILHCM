@@ -181,7 +181,7 @@ describe('FV invoice — per-line shortages (Chakpirana July)', () => {
         },
         {
             id: 8, line_id: null, type: 'absence', employee_id: 'ASIL/PSO-091/25',
-            employee_name: 'Zubair Ali', employee_designation: 'Fuel Oil Handling Services',
+            employee_name: 'Zubair Ali', employee_designation: 'Fuel/ Oil Handling Officer',
             days_absent: 1, amount: 1910.13,
         },
         {
@@ -206,6 +206,19 @@ describe('FV invoice — per-line shortages (Chakpirana July)', () => {
         const line5Amt = byLine.get('205').reduce((s, d) => s + d.amount, 0);
         expect(Math.round(line1Amt * 100) / 100).toBe(23793.39);
         expect(Math.round(line5Amt * 100) / 100).toBe(5730.39);
+    });
+
+    test('stale line_id on fuel officer re-attributes to Tank-lorry line', () => {
+        const wrongLineDed = {
+            id: 91, line_id: 201, type: 'absence', employee_id: 'ASIL/PSO-068/25',
+            employee_name: 'Zubair Ali', employee_designation: 'Fuel/ Oil Handling Officer',
+            days_absent: 1, amount: 1910.13,
+        };
+        const { byLine, orphans } = attributeDeductions(lineItems, [wrongLineDed]);
+        expect(orphans).toHaveLength(0);
+        expect(byLine.get('201') || []).toHaveLength(0);
+        expect(byLine.get('205')).toHaveLength(1);
+        expect(byLine.get('205')[0].employee_name).toBe('Zubair Ali');
     });
 
     test('shortage label matches June mockup format with daily rate', () => {
@@ -247,6 +260,7 @@ describe('FV invoice — per-line shortages (Chakpirana July)', () => {
         expect(html).toContain('Nabeel Hussain (Lube Handling Services) — 1 day absent (@ Rs. 1,830.26/day)');
         expect(html).toContain('Rafaqat Masih (Sweeping / Cleaning Services) — 6 days absent (@ Rs. 1,830.26/day)');
         expect(html).toContain('Sheraz Ahmad (Fuel Oil Handling Services) — 1 day absent (@ Rs. 1,910.13/day)');
+        expect(html).toContain('Zubair Ali (Fuel/ Oil Handling Officer) — 1 day absent (@ Rs. 1,910.13/day)');
         expect(html).toContain('Rs. 799,824.61'); // Line 1 net
         expect(html).toContain('Rs. 796,525.61'); // Line 5 net
         expect(html).toContain('Rs. 1,710,671.00');
