@@ -31,6 +31,9 @@ async function runMigrations(direction = 'up') {
         dir: migrationsDir,
         direction,
         migrationsTable: 'pgmigrations',
+        // Per-migration commits: one failing file must not roll back earlier successful DDL
+        // (prod outage 2026-08-13 — P2 duplicate check rolled back P1 lock-scope columns).
+        singleTransaction: false,
         log: console.log,
     });
 }

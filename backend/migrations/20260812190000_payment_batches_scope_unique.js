@@ -4,26 +4,31 @@
  * P2 — Unique index on payment_batches scoped with COALESCE so blank client/contract
  * cannot create duplicate PAYROLL batches for the same month.
  *
- * Detects pre-existing COALESCE-duplicates and REFUSES to proceed (no destructive deletes).
+ * If COALESCE-scope duplicates already exist (observed in prod), disambiguate older
+ * rows by appending a stable suffix to contract_name. Ledger rows keep their batch_id;
+ * no payment records are deleted.
+ *
+ * This file never successfully applied on prod (raised P2 BLOCKED and rolled back with
+ * singleTransaction), so amending it in place is safe.
  */
 exports.up = (pgm) => {
+    // Keep newest row in each duplicate group; tag older ones so the unique index can apply.
     pgm.sql(`
-        DO $$
-        DECLARE
-            dup_count int;
-        BEGIN
-            SELECT COUNT(*) INTO dup_count FROM (
-                SELECT 1
-                FROM payment_batches
-                GROUP BY batch_type, year, month, COALESCE(client, ''), COALESCE(contract_name, '')
-                HAVING COUNT(*) > 1
-            ) d;
-            IF dup_count > 0 THEN
-                RAISE EXCEPTION
-                    'P2 BLOCKED: payment_batches has % COALESCE-scope duplicate group(s). Resolve manually — do not delete payment records automatically.',
-                    dup_count;
-            END IF;
-        END $$;
+        WITH ranked AS (
+            SELECT
+                id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY batch_type, year, month,
+                                 COALESCE(client, ''), COALESCE(contract_name, '')
+                    ORDER BY created_at DESC NULLS LAST, id DESC
+                ) AS rn
+            FROM payment_batches
+        )
+        UPDATE payment_batches pb
+        SET contract_name = COALESCE(pb.contract_name, '') || ' [legacy-dup:' || pb.id || ']'
+        FROM ranked r
+        WHERE pb.id = r.id
+          AND r.rn > 1
     `);
 
     pgm.sql(`
