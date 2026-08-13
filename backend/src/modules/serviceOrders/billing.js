@@ -619,6 +619,24 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
     }
 
     const split = summarizeInvoiceDeductions(deductions);
+    const gross = Number(
+        notes.gross != null
+            ? notes.gross
+            : lineItems.reduce((s, l) => s + Number(l.amount || 0), 0)
+    );
+    // Live deductions (absences + signed adjustments) must drive net taxable.
+    // Stamped subtotal is stale until the next Stamp — that is why ADD lines
+    // could print without changing Net Taxable Services Value.
+    const netTaxable = round2(Math.max(0, gross - split.totalDeductions));
+    const taxRate = Number(notes.tax_rate) || 0;
+    const provincialSt = round2(netTaxable * taxRate);
+    const grandTotal = round2(netTaxable + provincialSt);
+    const prevNet = Number(inv.subtotal);
+    const whtPct = prevNet > 0 && inv.wht != null ? Number(inv.wht) / prevNet : 0.15;
+    const incomeWht = round2(netTaxable * whtPct);
+    const stWithholding = round2(provincialSt * ST_WITHHOLDING_RATE);
+    const netReceivable = round2(grandTotal - incomeWht - stWithholding);
+
     const payload = {
         invoiceNumber: inv.invoice_number,
         clientName: inv.client,
@@ -631,19 +649,17 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
         periodYear: inv.period_year,
         lineItems,
         deductions,
-        netTaxable: inv.subtotal,
-        provincialSt: inv.sales_tax,
-        grandTotal: inv.grand_total,
-        incomeWht: inv.wht,
-        stWithholding: notes.st_withholding,
-        netReceivable: notes.net_receivable,
-        taxRate: notes.tax_rate,
-        gross: notes.gross,
-        totalShortages: deductions.length ? split.shortage : notes.total_shortages,
-        totalAdjustments: deductions.length ? split.adjustment : notes.total_adjustments,
-        totalDeductions: deductions.length
-            ? split.totalDeductions
-            : (notes.total_deductions != null ? notes.total_deductions : split.totalDeductions),
+        netTaxable,
+        provincialSt,
+        grandTotal,
+        incomeWht,
+        stWithholding,
+        netReceivable,
+        taxRate,
+        gross,
+        totalShortages: split.shortage,
+        totalAdjustments: split.adjustment,
+        totalDeductions: split.totalDeductions,
         poNumber: inv.po_number,
         ntn: notes.ntn,
         strn: notes.strn,
