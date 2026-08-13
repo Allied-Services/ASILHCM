@@ -305,13 +305,20 @@
   font-size: 0.78rem;
   color: var(--text-muted);
 }
-.fv-adj-field input {
+.fv-adj-field input,
+.fv-adj-field select {
   background: var(--bg-dark);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
   color: var(--text);
   min-width: 140px;
+  min-height: 38px;
+}
+.fv-adj-location select,
+.fv-adj-line select {
+  min-width: 220px;
+  max-width: 360px;
 }
 .fv-adj-note {
   flex: 1 1 280px;

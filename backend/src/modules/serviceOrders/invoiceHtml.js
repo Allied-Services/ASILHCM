@@ -64,6 +64,37 @@ function signedRs(n) {
     return `Rs. ${fmt2(0)}`;
 }
 
+/** Nest absences and signed manual adjustments under one SO line. */
+function lineDeductionHtml(lineDeds) {
+    const split = summarizeInvoiceDeductions(lineDeds);
+    const absences = (lineDeds || []).filter((d) => !isManualInvoiceAdjustment(d));
+    const manuals = (lineDeds || []).filter((d) => isManualInvoiceAdjustment(d));
+    const addManuals = manuals.filter((d) => Number(d.amount) > 0);
+    const lessManuals = manuals.filter((d) => Number(d.amount) < 0);
+    const parts = [];
+    if (absences.length) {
+        const shortageAmt = absences.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+        parts.push(`<div class="less">
+                <div class="head">LESS: Services Not Fully Delivered / Shortages:</div>
+                ${absences.map((d) => `<div class="row"><span>${shortageLabel(d)}</span><span>-Rs. ${fmt2(d.amount)}</span></div>`).join('')}
+                <div class="tot"><span>Adjusted Total Deductions</span><span>-Rs. ${fmt2(shortageAmt)}</span></div>
+              </div>`);
+    }
+    if (lessManuals.length) {
+        parts.push(`<div class="less">
+                <div class="head">LESS: Invoice Adjustments</div>
+                ${lessManuals.map((d) => `<div class="row"><span>${orphanShortageLabel(d)}</span><span>-Rs. ${fmt2(Math.abs(Number(d.amount) || 0))}</span></div>`).join('')}
+              </div>`);
+    }
+    if (addManuals.length) {
+        parts.push(`<div class="less add">
+                <div class="head">ADD: Invoice Adjustments</div>
+                ${addManuals.map((d) => `<div class="row"><span>${orphanShortageLabel(d)}</span><span>+Rs. ${fmt2(Number(d.amount) || 0)}</span></div>`).join('')}
+              </div>`);
+    }
+    return { netOff: split.totalDeductions, html: parts.join('') };
+}
+
 /**
  * Attribute each deduction to an SO line:
  * 1) matching line_id / lineId
@@ -256,22 +287,15 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
     const lineRows = lines.map((l, idx) => {
         const key = lineKey(l);
         const lineDeds = (key != null && byLine.get(key)) || [];
-        const lessAmt = lineDeds.reduce((s, d) => s + Number(d.amount || 0), 0);
         const unit = Number(l.rate ?? l.amount ?? 0);
         const qty = Number(l.quantity ?? 1);
         const grossAmt = Number(l.amount != null ? l.amount : unit * qty);
-        const netAmt = Math.max(0, grossAmt - lessAmt);
+        const { netOff, html: lessHtml } = lineDeductionHtml(lineDeds);
+        const netAmt = Math.max(0, grossAmt - netOff);
         const soLine = l.soLineNumber || l.so_line_number || l.lineNumber || (idx + 1);
         const roles = Array.isArray(l.roles) ? l.roles : [];
         const rolesHtml = roles.length
             ? `<div class="roles">${roles.map((r) => `• ${r.designation || r.role || 'Role'} = ${String(Number(r.count) || 0).padStart(2, '0')} per month`).join('<br/>')}</div>`
-            : '';
-        const lessHtml = lessAmt > 0
-            ? `<div class="less">
-                <div class="head">LESS: Services Not Fully Delivered / Shortages:</div>
-                ${lineDeds.map((d) => `<div class="row"><span>${shortageLabel(d)}</span><span>-Rs. ${fmt2(d.amount)}</span></div>`).join('')}
-                <div class="tot"><span>Adjusted Total Deductions</span><span>-Rs. ${fmt2(lessAmt)}</span></div>
-              </div>`
             : '';
 
         return `<tr>
