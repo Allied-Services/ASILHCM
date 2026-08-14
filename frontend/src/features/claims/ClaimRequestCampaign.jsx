@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 
 const PROFILE_LABEL = {
@@ -98,6 +98,12 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
     setYear(y);
     if (onPeriodChange) onPeriodChange(m, y);
   };
+
+  useEffect(() => {
+    buildPreview();
+    // Load the roster as soon as the panel opens so Client/Contract/Location are usable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, year, campaignMode]);
 
   const resetFilters = () => {
     setFilterClient('');
@@ -233,40 +239,41 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
         <span style={{ fontSize: 12, color: 'var(--text-muted)', paddingBottom: 8 }}>Submit by day 17 · LM approve by day 22</span>
       </div>
 
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+        <Field label="2. Client">
+          <select value={filterClient} disabled={!employees.length}
+            onChange={e => { setFilterClient(e.target.value); setFilterContract(''); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
+            style={{ ...selectStyle, opacity: employees.length ? 1 : 0.5 }}>
+            <option value="">{employees.length ? 'Select client…' : (busy ? 'Loading clients…' : 'Waiting for roster…')}</option>
+            {clients.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="3. Contract">
+          <select value={filterContract} disabled={!filterClient}
+            onChange={e => { setFilterContract(e.target.value); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
+            style={{ ...selectStyle, opacity: filterClient ? 1 : 0.5 }}>
+            <option value="">{filterClient ? 'All contracts' : 'Select client first'}</option>
+            {contracts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        </Field>
+        <Field label="4. Location">
+          <select value={filterLoc} disabled={!filterClient}
+            onChange={e => { setFilterLoc(e.target.value); setSelected(new Set()); setActiveId(null); }}
+            style={{ ...selectStyle, opacity: filterClient ? 1 : 0.5 }}>
+            <option value="">{filterClient ? 'All locations' : 'Select client first'}</option>
+            {locations.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </Field>
+        {filterClient && (
+          <button type="button" onClick={resetFilters}
+            style={{ height: 38, fontSize: 12, color: '#f87171', background: 'transparent', border: '1px solid #ef444440', borderRadius: 8, padding: '0 12px', cursor: 'pointer' }}>
+            Clear filters
+          </button>
+        )}
+      </div>
+
       {preview && (
         <>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
-            <Field label="2. Client">
-              <select value={filterClient} onChange={e => { setFilterClient(e.target.value); setFilterContract(''); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
-                style={selectStyle}>
-                <option value="">Select client…</option>
-                {clients.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </Field>
-            <Field label="3. Contract">
-              <select value={filterContract} disabled={!filterClient}
-                onChange={e => { setFilterContract(e.target.value); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
-                style={{ ...selectStyle, opacity: filterClient ? 1 : 0.5 }}>
-                <option value="">{filterClient ? 'All contracts' : 'Select client first'}</option>
-                {contracts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-              </select>
-            </Field>
-            <Field label="4. Location">
-              <select value={filterLoc} disabled={!filterClient}
-                onChange={e => { setFilterLoc(e.target.value); setSelected(new Set()); setActiveId(null); }}
-                style={{ ...selectStyle, opacity: filterClient ? 1 : 0.5 }}>
-                <option value="">{filterClient ? 'All locations' : 'Select client first'}</option>
-                {locations.map(l => <option key={l} value={l}>{l}</option>)}
-              </select>
-            </Field>
-            {filterClient && (
-              <button type="button" onClick={resetFilters}
-                style={{ height: 38, fontSize: 12, color: '#f87171', background: 'transparent', border: '1px solid #ef444440', borderRadius: 8, padding: '0 12px', cursor: 'pointer' }}>
-                Clear filters
-              </button>
-            )}
-          </div>
-
           {gates && (
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
               SAMPLE inbox: {gates.sampleEmailConfigured ? gates.sampleEmail : 'not configured (CLAIMS_SAMPLE_EMAIL)'}

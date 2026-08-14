@@ -214,43 +214,47 @@ export default function PortalClaimsHub({ user }) {
         <button type="button" className="btn-secondary" onClick={exportTieout}>Export claims→payroll</button>
       </div>
 
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, padding: '12px 14px', background: 'rgba(56,189,248,0.08)', borderRadius: 10, border: '1px solid rgba(56,189,248,0.2)' }}>
-        <span style={{ fontWeight: 700, fontSize: 13 }}>Campaign mode:</span>
-        {['sample', 'actual'].map(m => (
-          <button key={m} type="button" onClick={() => setCampaignMode(m)}
-            style={{
-              padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13,
-              border: campaignMode === m ? '2px solid #38bdf8' : '1px solid var(--border)',
-              background: campaignMode === m ? 'rgba(56,189,248,0.15)' : 'transparent',
-              color: campaignMode === m ? '#38bdf8' : 'var(--text-muted)',
-            }}>
-            {m.toUpperCase()}
-          </button>
-        ))}
-        {campaignMode === 'sample' && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>All emails → Shezad · no payroll write · no confirmation emails</span>}
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
-        <button type="button" className="btn-secondary" disabled={busy} onClick={() => runCampaign(true)}>Dry-run campaign</button>
-        <button type="button" className="btn-primary" disabled={busy} onClick={() => runCampaign(false)}>
-          Launch {campaignMode.toUpperCase()} campaign
-        </button>
-        {campaignMode === 'sample' && (
-          <button type="button" className="btn-secondary" disabled={busy} onClick={() => runCampaign(false, { testPackFour: true })}>
-            Send 4-routing test pack
-          </button>
-        )}
-        <button type="button" className="btn-secondary" disabled={busy} onClick={notifyApprovers}>Notify approvers</button>
-        {user?.role === 'superadmin' && (
-          <>
-            <button type="button" className="btn-secondary" disabled={busy} onClick={resetSample}>Reset legacy sample employees</button>
-            <button type="button" className="btn-secondary" disabled={busy} onClick={flushSample} style={{ borderColor: '#b91c1c', color: '#fca5a5' }}>
-              Flush SAMPLE Wafi data
+      <details style={{ marginBottom: 20, padding: '10px 14px', background: 'rgba(56,189,248,0.06)', borderRadius: 10, border: '1px solid rgba(56,189,248,0.18)' }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: 13, color: 'var(--text-muted)' }}>
+          Advanced: send-all campaign, test pack, flush
+        </summary>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
+          <span style={{ fontWeight: 700, fontSize: 13 }}>Campaign mode:</span>
+          {['sample', 'actual'].map(m => (
+            <button key={m} type="button" onClick={() => setCampaignMode(m)}
+              style={{
+                padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13,
+                border: campaignMode === m ? '2px solid #38bdf8' : '1px solid var(--border)',
+                background: campaignMode === m ? 'rgba(56,189,248,0.15)' : 'transparent',
+                color: campaignMode === m ? '#38bdf8' : 'var(--text-muted)',
+              }}>
+              {m.toUpperCase()}
             </button>
-          </>
-        )}
-        {periodId && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>periodId={periodId}</span>}
-      </div>
+          ))}
+          {campaignMode === 'sample' && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>All emails → Shezad · no payroll write · no confirmation emails</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={() => runCampaign(true)}>Dry-run campaign</button>
+          <button type="button" className="btn-primary" disabled={busy} onClick={() => runCampaign(false)}>
+            Launch {campaignMode.toUpperCase()} campaign
+          </button>
+          {campaignMode === 'sample' && (
+            <button type="button" className="btn-secondary" disabled={busy} onClick={() => runCampaign(false, { testPackFour: true })}>
+              Send 4-routing test pack
+            </button>
+          )}
+          <button type="button" className="btn-secondary" disabled={busy} onClick={notifyApprovers}>Notify approvers</button>
+          {user?.role === 'superadmin' && (
+            <>
+              <button type="button" className="btn-secondary" disabled={busy} onClick={resetSample}>Reset legacy sample employees</button>
+              <button type="button" className="btn-secondary" disabled={busy} onClick={flushSample} style={{ borderColor: '#b91c1c', color: '#fca5a5' }}>
+                Flush SAMPLE Wafi data
+              </button>
+            </>
+          )}
+          {periodId && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>periodId={periodId}</span>}
+        </div>
+      </details>
 
       {rules.length > 0 && (
         <div style={{ marginBottom: 20, padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid var(--border)' }}>
