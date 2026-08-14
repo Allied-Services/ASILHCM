@@ -5,7 +5,14 @@ const { buildWorldAPayslipData, normalizeCnic } = require('./dataBuilder');
 const { buildProtectedPayslipPdf } = require('./pdfProtect');
 const { mintAccessToken } = require('./tokenStore');
 const { renderEmailCoverHtml, OPS_SUPPORT } = require('./template');
-const { normalisePhone } = require('../../../lib/sms');
+const { firstValidPkMobile } = require('../../../lib/sms');
+
+function isUsableEmail(raw) {
+    const email = String(raw || '').trim();
+    if (!email || !email.includes('@')) return '';
+    if (/^(n\/?a|none|null|nil|-)$/i.test(email)) return '';
+    return email;
+}
 
 function frontendBase() {
     return (process.env.FRONTEND_URL || process.env.APP_BASE_URL || 'https://asilhcm.onrender.com').replace(/\/$/, '');
@@ -112,10 +119,12 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
     );
     const batch = batchRows[0] || null;
 
-    const withEmail = employees.filter(e => e.email && String(e.email).trim()).length;
-    const withPhone = employees.filter(e => e.phone && normalisePhone(e.phone)).length;
+    const withEmail = employees.filter(e => isUsableEmail(e.email)).length;
+    const withPhone = employees.filter(e => firstValidPkMobile(e.phone)).length;
     const withCnic = employees.filter(e => normalizeCnic(e.cnic).length >= 5).length;
     const missingCnic = employees.filter(e => normalizeCnic(e.cnic).length < 5);
+    const missingEmail = employees.filter(e => !isUsableEmail(e.email));
+    const missingPhone = employees.filter(e => !firstValidPkMobile(e.phone));
 
     // Scoped send: only the selected employees must be locked.
     // Full-month send: every payroll row for the month must be locked.
@@ -173,6 +182,8 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
         withPhone,
         withCnic,
         missingCnic: missingCnic.map(e => ({ id: e.id, name: e.name })),
+        missingEmail: missingEmail.map(e => ({ id: e.id, name: e.name, email: e.email || '' })),
+        missingPhone: missingPhone.map(e => ({ id: e.id, name: e.name, phone: e.phone || '' })),
         canSend: scopeLocked && everyEmployeeInScopeIsPaid,
     };
 }
@@ -211,6 +222,8 @@ async function generateAndStorePdf(pool, emp, pay, contractEosbType, batchId, ye
 
 async function sendPayslips(pool, deps, opts) {
     const { year, month, confirm, forceResend, actorEmail, sendAll = false } = opts;
+    const destEmailOverride = isUsableEmail(opts.destEmail);
+    const destPhoneOverride = firstValidPkMobile(opts.destPhone);
     const { sendAppEmail, sendJazzSMS } = deps;
     const yr = parseInt(year, 10);
     const mo = parseInt(month, 10);
@@ -307,8 +320,8 @@ async function sendPayslips(pool, deps, opts) {
     const batchId = batchRows[0].id;
 
     let empQ = `
-        SELECT e.id, e.name, e.email, e.primary_contact, e.contact, e.cnic, e.designation,
-               e.client, e.location, e.bank_name, e.bank_account, e.contract_name, e.contract, e.salary,
+        SELECT e.id, e.name, e.email, e.primary_contact, e.cnic, e.designation,
+               e.client, e.location, e.bank_name, e.bank_account, e.contract_name, e.salary,
                pt.paid_days, pt.gross, pt.net, pt.ot2_hrs, pt.ot3_hrs, pt.opd_claim, pt.reimbursement,
                pt.arrears, pt.special_allowance, pt.fuel_mobile, pt.bonus_amount, pt.wht, pt.eobi_ee,
                pt.advance_deduction, pt.loan_deduction, pt.other_deduction, pt.locked,
@@ -350,56 +363,109 @@ async function sendPayslips(pool, deps, opts) {
     let failedCount = 0;
     const failed = [];
     const skipped = [];
+    const deliveries = [];
 
     for (const row of targets) {
         const emp = row;
         const pay = row;
         try {
-            const eosbType = await getContractEosbType(pool, emp.contract_name || emp.contract);
+            const eosbType = await getContractEosbType(pool, emp.contract_name);
             const doc = await generateAndStorePdf(pool, emp, pay, eosbType, batchId, yr, mo);
 
             let emailStatus = 'skipped';
             let smsStatus = 'skipped';
+            let emailDetail = null;
+            let smsDetail = null;
             let tokenId = null;
+            const destEmail = destEmailOverride || isUsableEmail(emp.email);
+            const destPhone = destPhoneOverride || firstValidPkMobile(emp.primary_contact);
 
-            if (emp.email && String(emp.email).trim() && sendAppEmail) {
-                const slipData = buildWorldAPayslipData(emp, pay, eosbType);
-                const cover = renderEmailCoverHtml({
-                    emp,
-                    monthName,
-                    year: yr,
-                    frontendUrl: frontendBase(),
-                    netPay: slipData.netPay,
-                });
-                const safeName = (emp.name || 'Employee').replace(/[^a-zA-Z0-9 ]/g, '_').trim();
-                const pdfBuf = Buffer.isBuffer(doc.pdf_bytes) ? doc.pdf_bytes : Buffer.from(doc.pdf_bytes);
-                await sendAppEmail({
-                    to: emp.email,
-                    subject: `TRIAL — Salary Slip — ${monthName} ${yr} | ASIL`,
-                    html: cover,
-                    attachments: [{
-                        filename: `PaySlip_${safeName}_${monthName}_${yr}.pdf`,
-                        content: pdfBuf,
-                    }],
-                });
-                emailStatus = 'sent';
-                emailCount += 1;
+            if (destEmail && sendAppEmail) {
+                try {
+                    const slipData = buildWorldAPayslipData(emp, pay, eosbType);
+                    const cover = renderEmailCoverHtml({
+                        emp,
+                        monthName,
+                        year: yr,
+                        frontendUrl: frontendBase(),
+                        netPay: slipData.netPay,
+                    });
+                    const safeName = (emp.name || 'Employee').replace(/[^a-zA-Z0-9 ]/g, '_').trim();
+                    const pdfBuf = Buffer.isBuffer(doc.pdf_bytes) ? doc.pdf_bytes : Buffer.from(doc.pdf_bytes);
+                    const mailResult = await sendAppEmail({
+                        to: destEmail,
+                        subject: `TRIAL — Salary Slip — ${monthName} ${yr} | ASIL`,
+                        html: cover,
+                        attachments: [{
+                            filename: `PaySlip_${safeName}_${monthName}_${yr}.pdf`,
+                            content: pdfBuf,
+                        }],
+                    });
+                    if (mailResult?.skipped) {
+                        emailStatus = 'skipped';
+                        emailDetail = mailResult.reason || 'email provider unavailable';
+                    } else if (mailResult?.ok === false || mailResult?.result?.error) {
+                        emailStatus = 'failed';
+                        emailDetail = 'email_rejected';
+                    } else {
+                        emailStatus = 'sent';
+                        emailCount += 1;
+                    }
+                } catch (mailErr) {
+                    console.error('[send-payslips email]', emp.id, mailErr);
+                    emailStatus = 'failed';
+                    emailDetail = 'email_failed';
+                }
+            } else if (!destEmail) {
+                emailDetail = 'no valid email on file';
             }
 
-            const phone = normalisePhone(emp.primary_contact || emp.contact);
-            if (phone && sendJazzSMS) {
-                const { rawToken, tokenId: tid } = await mintAccessToken(pool, {
-                    employeeId: emp.id,
-                    year: yr,
-                    month: mo,
-                    documentId: doc.id,
-                });
-                tokenId = tid;
-                const sms = buildSmsMessage(rawToken);
-                await sendJazzSMS(phone, sms);
-                smsStatus = sms.length > 160 ? 'sent_long' : 'sent';
-                smsCount += 1;
+            if (destPhone && sendJazzSMS) {
+                try {
+                    const { rawToken, tokenId: tid } = await mintAccessToken(pool, {
+                        employeeId: emp.id,
+                        year: yr,
+                        month: mo,
+                        documentId: doc.id,
+                    });
+                    tokenId = tid;
+                    const sms = buildSmsMessage(rawToken);
+                    const smsResult = await sendJazzSMS(destPhone, sms);
+                    if (smsResult && smsResult.ok === false) {
+                        smsStatus = 'failed';
+                        smsDetail = 'sms_rejected';
+                    } else {
+                        smsStatus = sms.length > 160 ? 'sent_long' : 'sent';
+                        smsCount += 1;
+                    }
+                } catch (smsErr) {
+                    console.error('[send-payslips sms]', emp.id, smsErr);
+                    smsStatus = 'failed';
+                    smsDetail = 'sms_failed';
+                }
+            } else if (!destPhone) {
+                smsDetail = 'no valid mobile on file';
             }
+
+            if (emailStatus === 'failed' || smsStatus === 'failed') {
+                failedCount += 1;
+                failed.push({
+                    id: emp.id,
+                    name: emp.name,
+                    err: emailDetail || smsDetail || 'channel_failed',
+                });
+            }
+
+            deliveries.push({
+                id: emp.id,
+                name: emp.name,
+                email: destEmail,
+                phone: destPhone,
+                emailStatus,
+                smsStatus,
+                emailDetail,
+                smsDetail,
+            });
 
             await pool.query(
                 `INSERT INTO payslip_delivery_log (batch_id, employee_id, email_status, sms_status, token_id)
@@ -412,6 +478,16 @@ async function sendPayslips(pool, deps, opts) {
             if (e.code === 'MISSING_CNIC') {
                 skipped.push({ id: emp.id, name: emp.name, reason: 'missing_cnic' });
             }
+            deliveries.push({
+                id: emp.id,
+                name: emp.name,
+                email: destEmailOverride || isUsableEmail(emp.email),
+                phone: destPhoneOverride || firstValidPkMobile(emp.primary_contact),
+                emailStatus: 'failed',
+                smsStatus: 'failed',
+                emailDetail: e.code || 'send_failed',
+                smsDetail: e.code || 'send_failed',
+            });
             await pool.query(
                 `INSERT INTO payslip_delivery_log (batch_id, employee_id, email_status, sms_status, error_detail)
                  VALUES ($1, $2, 'failed', 'failed', $3)`,
@@ -420,7 +496,10 @@ async function sendPayslips(pool, deps, opts) {
         }
     }
 
-    const status = failedCount > 0 && (emailCount + smsCount) === 0 ? 'failed' : (failedCount > 0 ? 'partial' : 'sent');
+    const channelFailed = deliveries.some(d => d.emailStatus === 'failed' || d.smsStatus === 'failed');
+    const status = failedCount > 0 && (emailCount + smsCount) === 0
+        ? 'failed'
+        : ((failedCount > 0 || channelFailed) ? 'partial' : 'sent');
     await pool.query(
         `UPDATE payslip_delivery_batches
          SET status = $2, sent_at = NOW(), employee_count = $3, email_count = $4, sms_count = $5, failed_count = $6
@@ -438,11 +517,12 @@ async function sendPayslips(pool, deps, opts) {
         ok: true,
         batchId,
         status,
-        sent: targets.length - failedCount,
+        sent: deliveries.filter(d => d.emailStatus === 'sent' || String(d.smsStatus).startsWith('sent')).length,
         emailCount,
         smsCount,
         failed,
         skipped,
+        deliveries,
         total: targets.length,
     };
 }
@@ -500,7 +580,7 @@ async function resolveSupportCase(pool, deps, caseId, { resolutionNote, resolved
         }).catch(err => console.error('[payslip-resolve-email]', err));
     }
     if (emp?.primary_contact && deps.sendJazzSMS) {
-        const phone = normalisePhone(emp.primary_contact);
+        const phone = firstValidPkMobile(emp.primary_contact);
         if (phone) await deps.sendJazzSMS(phone, msg.slice(0, 160)).catch(() => {});
     }
     return c;
@@ -517,5 +597,6 @@ module.exports = {
     backendBase,
     payslipPdfLink,
     buildSmsMessage,
+    isUsableEmail,
     OPS_SUPPORT,
 };

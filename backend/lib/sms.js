@@ -14,6 +14,25 @@ function normalisePhone(raw = '') {
   return digits;
 }
 
+/** Jazz-deliverable Pakistani mobile: 03XXXXXXXXX after normalisation. */
+function isValidPkMobile(raw = '') {
+  return /^03\d{9}$/.test(normalisePhone(raw));
+}
+
+/**
+ * First valid PK mobile from a contact field.
+ * Accepts dual numbers like "0313-4468633/0313-5536560".
+ */
+function firstValidPkMobile(raw = '') {
+  const parts = String(raw || '').split(/[/,;|]+/).map((s) => s.trim()).filter(Boolean);
+  for (const part of parts) {
+    const n = normalisePhone(part);
+    if (/^03\d{9}$/.test(n)) return n;
+  }
+  const whole = normalisePhone(raw);
+  return /^03\d{9}$/.test(whole) ? whole : '';
+}
+
 function jazzResponseIndicatesHardFailure(response) {
   const s = String(response || '').toLowerCase();
   if (!s.trim()) return false;
@@ -152,6 +171,8 @@ module.exports = {
   sendJazzSMS,
   sendJazzOtpSMS,
   normalisePhone,
+  isValidPkMobile,
+  firstValidPkMobile,
   isJazzSmsDeliveryOk,
   jazzResponseIndicatesHardFailure,
 };

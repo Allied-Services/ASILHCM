@@ -1144,14 +1144,23 @@ export default function PayrollSheet({ user }) {
             const scope = targets.length
                 ? `selected ${targets.length}`
                 : 'all locked';
-            const msg = `✅ Delivered ${d.sent}/${d.total} (${scope}) — email: ${d.emailCount}, SMS: ${d.smsCount}${d.failed?.length ? `, failed: ${d.failed.length}` : ''}.`;
-            setEmailResult({ ok: true, msg });
-            setShowSendPayslips(false);
+            const msg = `Delivered ${d.sent}/${d.total} (${scope}) — email: ${d.emailCount}, SMS: ${d.smsCount}${d.failed?.length ? `, failed: ${d.failed.length}` : ''}.`;
+            setEmailResult({
+                ok: d.status !== 'failed',
+                msg,
+                emailCount: d.emailCount || 0,
+                smsCount: d.smsCount || 0,
+                status: d.status,
+                deliveries: d.deliveries || [],
+                failed: d.failed || [],
+            });
             setSendPayslipConfirm(false);
             setForceResendPayslips(false);
             setSendAllPayslips(false);
             api.getPayslipReadiness(yr2, mo2, targets).then(setPayslipReadiness).catch(() => {});
-        } catch (e) { setEmailResult({ ok: false, msg: '❌ ' + e.message }); }
+        } catch (e) {
+            setEmailResult({ ok: false, msg: e.message || 'Send failed', deliveries: [] });
+        }
         setSendingEmails(false);
     };
 
@@ -1774,7 +1783,40 @@ export default function PayrollSheet({ user }) {
                             <div style={{ background: '#fef3c7', color: '#92400e', padding: '10px 12px', borderRadius: 8, marginBottom: '1rem', fontSize: '0.82rem' }}>
                                 <strong>TRIAL MODE</strong> until Nov 2026 — employees should report issues to ops-support@asil.com.pk
                             </div>
-                            {!payslipReadiness ? (
+                            {emailResult ? (
+                                <div>
+                                    <div style={{
+                                        background: emailResult.ok ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                                        border: `1px solid ${emailResult.ok ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                                        color: emailResult.ok ? '#86efac' : '#fca5a5',
+                                        padding: '12px 14px', borderRadius: 8, marginBottom: '1rem',
+                                    }}>
+                                        <strong>{emailResult.ok ? 'Send finished.' : 'Send did not complete.'}</strong>
+                                        <div style={{ marginTop: 6 }}>{emailResult.msg}</div>
+                                        {emailResult.emailCount != null && (
+                                            <div style={{ marginTop: 8 }}>
+                                                <div>Email confirmed: <strong>{emailResult.emailCount}</strong></div>
+                                                <div>SMS confirmed: <strong>{emailResult.smsCount}</strong></div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    {emailResult.deliveries?.length > 0 && (
+                                        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
+                                            {emailResult.deliveries.map((d) => (
+                                                <li key={d.id} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
+                                                    <div style={{ fontWeight: 700 }}>{d.name || d.id}</div>
+                                                    <div style={{ marginTop: 4, color: String(d.emailStatus).startsWith('sent') ? '#86efac' : d.emailStatus === 'failed' ? '#fca5a5' : '#fbbf24' }}>
+                                                        Email: {String(d.emailStatus).startsWith('sent') ? `sent to ${d.email}` : (d.emailDetail || d.emailStatus || 'not sent')}
+                                                    </div>
+                                                    <div style={{ marginTop: 2, color: String(d.smsStatus).startsWith('sent') ? '#86efac' : d.smsStatus === 'failed' ? '#fca5a5' : '#fbbf24' }}>
+                                                        SMS: {String(d.smsStatus).startsWith('sent') ? `sent to ${d.phone}` : (d.smsDetail || d.smsStatus || 'not sent')}
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            ) : !payslipReadiness ? (
                                 <p style={{ color: 'var(--text-muted)' }}>Loading readiness…</p>
                             ) : (
                                 <>
@@ -1866,7 +1908,8 @@ export default function PayrollSheet({ user }) {
                             )}
                         </div>
                         <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-                            <button type="button" onClick={() => setShowSendPayslips(false)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                            <button type="button" onClick={() => { setShowSendPayslips(false); setEmailResult(null); }} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>{emailResult ? 'Close' : 'Cancel'}</button>
+                            {!emailResult && (
                             <button
                                 type="button"
                                 onClick={sendPayslipEmails}
@@ -1895,6 +1938,7 @@ export default function PayrollSheet({ user }) {
                                         ? `Send to ${selectedIds.size} selected`
                                         : 'Send to all locked'}
                             </button>
+                            )}
                         </div>
                     </div>
                 </div>
