@@ -89,6 +89,10 @@ async function sendAppEmail({ to, subject, html, cc, bcc, attachments }) {
             }));
         }
         const result = await resend.emails.send(payload);
+        if (result?.error) {
+            console.error('[sendAppEmail]', result.error);
+            throw new Error('Email send failed');
+        }
         return { ok: true, result };
     } catch (err) {
         console.error('[sendAppEmail]', err);

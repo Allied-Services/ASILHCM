@@ -135,7 +135,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Module | `backend/src/modules/payslip/` — single PDF per employee/month, CNIC password, ASIL logo |
 | Layout | OT 2X/3X hours + PKR amounts, medical & expense reimbursements, tax vs other deductions, net payable |
 | Gate | Per employee: payroll row **locked** and a `payment_ledger` SALARY row in a PAYROLL batch for that year/month with `status='Paid'`. Send is refused until every selected employee is both locked and paid. Roles: **finance_manager**, **finance_approver**, **payroll_initiator**, **superadmin**. |
-| Channels | Email (PDF attach via Resend), SMS (7-day link `/p/:token` via Jazz), portal download |
+| Channels | Email (PDF attach via Resend), SMS (7-day PDF link `/api/payslip/link/:token` via Jazz), portal download. SMS requires a valid `employees.primary_contact` (03XXXXXXXXX). Placeholder `N/A` email/phone is skipped. Send result stays in the modal with per-employee email + SMS confirmation. Superadmin may pass `destEmail` / `destPhone` for a one-off delivery. |
 | QA test run | `POST /api/payslip/test-run` (superadmin) or `scripts/send_july_payslip_test_run.js` — 5 sample July slips to override email/SMS |
 | Support | `POST /api/payslip/support-case` → ops-support@asil.com.pk; resolve notifies employee email+SMS |
 | Migration | `20260810180000_payslip_delivery.js` — run `npm run migrate` on staging before deploy |

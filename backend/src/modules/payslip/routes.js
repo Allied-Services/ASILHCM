@@ -80,6 +80,7 @@ function registerPayslipRoutes(app, deps) {
         try {
             const { year, month } = req.params;
             const { employeeIds = [], confirm = false, forceResend = false, sendAll = false } = req.body || {};
+            const isSuper = req.user?.role === 'superadmin';
             const result = await sendPayslips(pool, mailDeps, {
                 year,
                 month,
@@ -88,6 +89,8 @@ function registerPayslipRoutes(app, deps) {
                 forceResend: !!forceResend,
                 sendAll: !!sendAll,
                 actorEmail: req.user?.email,
+                destEmail: isSuper ? req.body?.destEmail : undefined,
+                destPhone: isSuper ? req.body?.destPhone : undefined,
             });
             if (deps.logAudit) deps.logAudit(req, 'SEND_PAYSLIPS', 'payroll_month', `${year}-${month}`);
             res.json(result);

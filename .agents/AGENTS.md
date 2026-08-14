@@ -560,6 +560,19 @@ Step 5 “Add adjustment” returned Internal Server Error because `logAudit()` 
 
 ---
 
+### 2026-08-14 — Payslip send confirmation + broken July send
+
+July 2026 send created a `payslip_delivery_batches` row (`pending`, 0 email / 0 SMS) because `sendPayslips` SELECTed `employees.contact` and `employees.contract`, which do not exist.
+
+1. **`payslip/service.js`** — SELECT only real columns. Treat `N/A` / invalid contacts as missing. Record email/SMS from the actual Resend/Jazz result. Return per-employee `deliveries[]`. Superadmin `destEmail` / `destPhone` override.
+2. **`lib/sms.js`** — `firstValidPkMobile` (03XXXXXXXXX; first of dual numbers).
+3. **`PayrollSheet.jsx`** — modal stays open with email + SMS confirmation.
+4. **`server.js` / `mailer.js`** — treat Resend `{ error }` as failure.
+
+**Env vars needed:** none new.
+
+---
+
 ## Cursor Cloud specific instructions
 
 Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency install (`npm install` in `backend/` and `frontend/`) is handled by the environment update script; this section only covers the non-obvious startup/run caveats. Standard commands live in `backend/package.json` / `frontend/package.json` and `backend/.env.example` — refer to those; only the gotchas are repeated here.

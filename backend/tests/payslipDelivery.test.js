@@ -83,6 +83,32 @@ describe('payslip SMS message', () => {
     });
 });
 
+describe('payslip contact validation', () => {
+    const { isUsableEmail } = require('../src/modules/payslip/service');
+    const { firstValidPkMobile } = require('../lib/sms');
+
+    test('rejects placeholder emails', () => {
+        expect(isUsableEmail('N/A')).toBe('');
+        expect(isUsableEmail('A.Ahmed-Contractor@wafi-energy.com')).toBe('A.Ahmed-Contractor@wafi-energy.com');
+    });
+
+    test('accepts first valid PK mobile and rejects N/A', () => {
+        expect(firstValidPkMobile('N/A')).toBe('');
+        expect(firstValidPkMobile('0300-1234567')).toBe('03001234567');
+        expect(firstValidPkMobile('0313-4468633/0313-5536560')).toBe('03134468633');
+    });
+
+    test('send query does not select nonexistent employees.contact / employees.contract', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(path.join(__dirname, '../src/modules/payslip/service.js'), 'utf8');
+        expect(src).not.toMatch(/e\.contact\b/);
+        expect(src).not.toMatch(/e\.contract,/);
+        expect(src).toMatch(/e\.primary_contact/);
+        expect(src).toMatch(/e\.contract_name/);
+    });
+});
+
 describe('sendPayslips selection scope', () => {
     const { sendPayslips, getPayslipReadiness, getPaidEmployeeIds } = require('../src/modules/payslip/service');
 
