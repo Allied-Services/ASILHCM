@@ -573,6 +573,27 @@ July 2026 send created a `payslip_delivery_batches` row (`pending`, 0 email / 0 
 
 ---
 
+### 2026-08-14 — Portal Claims request-email preview (Wafi August)
+
+Preview-before-send UI for OT / Expense / Medical invite emails. No new env vars.
+
+1. **`claimsCampaign.js`** — `preview` mode builds the same subject/HTML/To as the live send (`buildInvitePayload`) with no `portal_claim_batches` / submissions writes and no `sendAppEmail`. `onlyEmails` now applies in SAMPLE as well as ACTUAL.
+2. **`claimsEligibility.js`** — skipped rows include `name`, `client`, `dept`, `category` (`not_eligible` / `setup_needed`).
+3. **`POST /api/portal-claims/campaign/preview`** — same role guard as campaign; returns `recipients`, `skipped`, `summary`, and `gates` (`CLAIMS_ALLOW_ACTUAL_SEND`, `CLAIMS_SAMPLE_EMAIL`).
+4. **UI** — `ClaimRequestCampaign.jsx` at the top of Portal Claims: recipient table, iframe email preview (focal vs employee templates), excluded list, SAMPLE then ACTUAL send with confirm gate.
+
+**Env vars needed:** none new. SAMPLE still requires `CLAIMS_SAMPLE_EMAIL`. ACTUAL still requires `CLAIMS_ALLOW_ACTUAL_SEND=true` on Render after MD sign-off.
+
+---
+
+### 2026-08-15 — Claim request campaign: AP-style filter + select
+
+Same send engine. UI now filters Month → Client → Contract → Location, then green tick boxes (AP Confirm pattern). Send posts `onlyEmployeeIds` so only ticked people are in the email. Preview `employees[]` includes contract/location for the cascade.
+
+**Env vars needed:** none new.
+
+---
+
 ## Cursor Cloud specific instructions
 
 Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency install (`npm install` in `backend/` and `frontend/`) is handled by the environment update script; this section only covers the non-obvious startup/run caveats. Standard commands live in `backend/package.json` / `frontend/package.json` and `backend/.env.example` — refer to those; only the gotchas are repeated here.

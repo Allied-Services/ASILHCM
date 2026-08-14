@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
+import ClaimRequestCampaign from './ClaimRequestCampaign';
 
 const SHEZAD_TEST = 'shezad.mumtaz@asil.com.pk';
 
@@ -190,6 +191,11 @@ export default function PortalClaimsHub({ user }) {
         Production modes via env <code>CLAIMS_APPROVER_NOTIFY_MODE</code>: <code>immediate</code> | <code>daily</code> | <code>day22</code>.
         After day 25 the approval window closes; pending items wait for next month.
       </p>
+
+      <ClaimRequestCampaign
+        user={user}
+        onPeriodChange={(m, y) => { setMonth(m); setYear(y); }}
+      />
 
       {err && <div style={{ color: '#b91c1c', marginBottom: 10 }}>{err}</div>}
       {msg && <div style={{ color: '#15803d', marginBottom: 10 }}>{msg}</div>}

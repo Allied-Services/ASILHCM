@@ -91,21 +91,124 @@ function applyTestPackFour(eligible) {
     return picked;
 }
 
+function safeOutboundEmail(period, fillerEmail, roleLabel) {
+    try {
+        return resolveOutboundEmail(period, fillerEmail, { roleLabel });
+    } catch {
+        return { to: fillerEmail, originalTo: fillerEmail, sample: false, roleLabel: null };
+    }
+}
+
+/** Same subject + HTML the live send uses — preview and send must not drift. */
+function buildInvitePayload({
+    period, fillerEmail, emps, cohortType, routingProfile, roleLabel,
+    FRONTEND_URL, buildFillerInviteHtml,
+}) {
+    const token = stableFillerToken(period.id, fillerEmail);
+    const tokenHash = hashToken(token);
+    const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
+    const mail = safeOutboundEmail(period, fillerEmail, roleLabel);
+    const approverSummary = emps[0]?.approver_email && emps[0].approver_email !== fillerEmail
+        ? emps[0].approver_email : null;
+    const rawHtml = cohortType === 'employee'
+        ? buildEmployeeInviteHtml({
+            period, link,
+            employeeName: emps[0].name,
+            employeeId: emps[0].id,
+            approverEmail: emps[0].approver_email,
+            roleLabel,
+            intendedEmail: fillerEmail,
+        })
+        : (buildFillerInviteHtml || buildShortFillerInviteHtml)({
+            period,
+            employeeCount: emps.length,
+            link,
+            fillerEmail,
+            employees: emps.map(e => ({ id: e.id, name: e.name })),
+            routingProfile,
+            approverSummary,
+            roleLabel,
+            intendedEmail: fillerEmail,
+        });
+    const html = typeof rawHtml === 'string'
+        ? rawHtml
+        : buildShortFillerInviteHtml({
+            period, employeeCount: emps.length, link, fillerEmail,
+            employees: emps, routingProfile, approverSummary, roleLabel, intendedEmail: fillerEmail,
+        });
+    const subject = `${sampleSubjectPrefix(period, roleLabel)}ASIL Claims ${period.claim_month}/${period.claim_year} — ${emps.length} employee(s)`;
+    return { token, tokenHash, link, mail, html, subject, approverSummary };
+}
+
+function mapPreviewEmployee(e) {
+    return {
+        id: e.id,
+        name: e.name,
+        client: e.client || '',
+        location: e.location || '',
+        contract_id: e.contract_id || '',
+        contract_name: e.contract_name || e.contract_id || '',
+        dept: e.dept || '',
+        filler_email: e.filler_email || null,
+        approver_email: e.approver_email || null,
+        routing_profile: e.routing_profile || null,
+        claims_category: e.claims_category || null,
+        cohort_type: e.cohort_type || null,
+    };
+}
+
+function flattenPreviewEmployees(recipients) {
+    const rows = [];
+    for (const r of recipients || []) {
+        for (const e of r.employees || []) {
+            rows.push({
+                ...e,
+                fillerEmail: r.fillerEmail,
+                mailTo: r.mailTo,
+                sampleRedirect: !!r.sampleRedirect,
+                approverEmail: e.approver_email || r.approverEmail,
+                routingProfile: e.routing_profile || r.routingProfile,
+                roleLabel: e.claims_category || r.roleLabel,
+                template: r.template,
+                subject: r.subject,
+            });
+        }
+    }
+    return rows;
+}
+
+function summarizeRecipients(recipients) {
+    const byProfile = {};
+    for (const r of recipients) {
+        const key = r.routingProfile || 'unknown';
+        byProfile[key] = (byProfile[key] || 0) + 1;
+    }
+    return {
+        recipientCount: recipients.length,
+        employeeCount: recipients.reduce((n, r) => n + (r.employeeCount || 0), 0),
+        byProfile,
+    };
+}
+
 async function createCampaignAugust(pool, {
     period,
     campaignMonth,
     campaignYear,
     sendAppEmail,
     dryRun,
+    preview,
     onlyEmails,
+    onlyEmployeeIds,
     campaignMode,
     testPackFour,
     FRONTEND_URL,
     FILL_CLOSE_DAY,
     buildFillerInviteHtml,
 }) {
-    await ensurePeriodMode(pool, period.id, campaignMode);
     period.campaign_mode = campaignMode === 'sample' ? 'sample' : 'actual';
+    if (!preview) {
+        await ensurePeriodMode(pool, period.id, campaignMode);
+    }
 
     const { eligible, skipped, rules } = await countEligibleEmployees(pool);
     let filtered = eligible;
@@ -115,16 +218,24 @@ async function createCampaignAugust(pool, {
             return {
                 period,
                 invites: [],
+                recipients: [],
                 skipped: [...skipped, { reason: 'testPackFour: no employee found for each routing profile' }],
                 fillerCount: 0,
                 employeeCount: 0,
                 campaignMode: period.campaign_mode,
                 testPackFour: true,
+                summary: { recipientCount: 0, employeeCount: 0, byProfile: {} },
             };
         }
-    } else if (onlyEmails && onlyEmails.length && campaignMode !== 'sample') {
-        const set = new Set(onlyEmails.map(x => x.toLowerCase()));
-        filtered = eligible.filter(e => set.has(e.filler_email));
+    } else {
+        if (onlyEmails && onlyEmails.length) {
+            const set = new Set(onlyEmails.map(x => String(x).toLowerCase()));
+            filtered = filtered.filter(e => set.has(String(e.filler_email || '').toLowerCase()));
+        }
+        if (onlyEmployeeIds && onlyEmployeeIds.length) {
+            const set = new Set(onlyEmployeeIds.map(x => String(x)));
+            filtered = filtered.filter(e => set.has(String(e.id)));
+        }
     }
 
     const byFiller = new Map();
@@ -135,12 +246,34 @@ async function createCampaignAugust(pool, {
     }
 
     const invites = [];
+    const recipients = [];
     for (const [fillerEmail, emps] of byFiller) {
         const cohortType = emps[0]?.cohort_type || 'focal';
         const routingProfile = emps[0]?.routing_profile || 'focal_then_lm';
-        const token = stableFillerToken(period.id, fillerEmail);
-        const tokenHash = hashToken(token);
         const roleLabel = emps[0]?.claims_category || (cohortType === 'employee' ? 'Employee path' : 'Focal path');
+        const payload = buildInvitePayload({
+            period, fillerEmail, emps, cohortType, routingProfile, roleLabel,
+            FRONTEND_URL, buildFillerInviteHtml,
+        });
+
+        if (preview) {
+            recipients.push({
+                fillerEmail,
+                mailTo: payload.mail.to,
+                sampleRedirect: !!payload.mail.sample,
+                roleLabel,
+                cohortType,
+                routingProfile,
+                approverEmail: emps[0]?.approver_email || null,
+                employeeCount: emps.length,
+                employees: emps.map(e => mapPreviewEmployee(e)),
+                subject: payload.subject,
+                link: payload.link,
+                html: payload.html,
+                template: cohortType === 'employee' ? 'employee' : 'focal',
+            });
+            continue;
+        }
 
         if (!dryRun) {
             const { rows: batchRows } = await pool.query(
@@ -155,7 +288,7 @@ async function createCampaignAugust(pool, {
                    cohort_type = EXCLUDED.cohort_type,
                    status = CASE WHEN portal_claim_batches.status IN ('submitted','no_claims') THEN portal_claim_batches.status ELSE 'invited' END
                  RETURNING *`,
-                [period.id, fillerEmail, tokenHash, routingProfile, cohortType]
+                [period.id, fillerEmail, payload.tokenHash, routingProfile, cohortType]
             );
             const batch = batchRows[0];
 
@@ -175,40 +308,12 @@ async function createCampaignAugust(pool, {
                 );
             }
 
-            const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
-            const mail = resolveOutboundEmail(period, fillerEmail, { roleLabel });
-            const approverSummary = emps[0]?.approver_email && emps[0].approver_email !== fillerEmail
-                ? emps[0].approver_email : null;
-
             if (sendAppEmail) {
                 try {
-                    const html = cohortType === 'employee'
-                        ? buildEmployeeInviteHtml({
-                            period, link,
-                            employeeName: emps[0].name,
-                            employeeId: emps[0].id,
-                            approverEmail: emps[0].approver_email,
-                            roleLabel,
-                            intendedEmail: fillerEmail,
-                        })
-                        : (buildFillerInviteHtml || buildShortFillerInviteHtml)({
-                            period,
-                            employeeCount: emps.length,
-                            link,
-                            fillerEmail,
-                            employees: emps.map(e => ({ id: e.id, name: e.name })),
-                            routingProfile,
-                            approverSummary,
-                            roleLabel,
-                            intendedEmail: fillerEmail,
-                        });
                     await sendAppEmail({
-                        to: mail.to,
-                        subject: `${sampleSubjectPrefix(period, roleLabel)}ASIL Claims ${period.claim_month}/${period.claim_year} — ${emps.length} employee(s)`,
-                        html: typeof html === 'string' ? html : buildShortFillerInviteHtml({
-                            period, employeeCount: emps.length, link, fillerEmail,
-                            employees: emps, routingProfile, approverSummary, roleLabel, intendedEmail: fillerEmail,
-                        }),
+                        to: payload.mail.to,
+                        subject: payload.subject,
+                        html: payload.html,
                     });
                 } catch (err) {
                     await pool.query(`UPDATE portal_claim_batches SET invite_delivered = FALSE WHERE id = $1`, [batch.id]);
@@ -217,8 +322,8 @@ async function createCampaignAugust(pool, {
                 }
             }
             invites.push({
-                fillerEmail, ok: true, employeeCount: emps.length, link, batchId: batch.id,
-                roleLabel, cohortType, routingProfile, mailTo: mail.to,
+                fillerEmail, ok: true, employeeCount: emps.length, link: payload.link, batchId: batch.id,
+                roleLabel, cohortType, routingProfile, mailTo: payload.mail.to,
             });
         } else {
             invites.push({
@@ -228,7 +333,7 @@ async function createCampaignAugust(pool, {
         }
     }
 
-    if (!dryRun) {
+    if (!dryRun && !preview) {
         await pool.query(
             `UPDATE portal_claim_periods SET eligibility_snapshot = $2::jsonb WHERE id = $1`,
             [period.id, JSON.stringify({ rules: rules.map(r => ({ id: r.id, name: r.name })), at: new Date().toISOString() })]
@@ -238,11 +343,17 @@ async function createCampaignAugust(pool, {
     return {
         period,
         invites,
+        recipients,
         skipped,
         fillerCount: byFiller.size,
         employeeCount: filtered.length,
         campaignMode: period.campaign_mode,
         testPackFour,
+        summary: summarizeRecipients(preview ? recipients : invites.map(i => ({
+            routingProfile: i.routingProfile,
+            employeeCount: i.employeeCount,
+        }))),
+        employees: preview ? flattenPreviewEmployees(recipients) : undefined,
     };
 }
 
@@ -290,5 +401,7 @@ module.exports = {
     computeBatchTotals,
     buildShortFillerInviteHtml,
     buildEmployeeInviteHtml,
+    buildInvitePayload,
+    summarizeRecipients,
     isSamplePeriod,
 };
