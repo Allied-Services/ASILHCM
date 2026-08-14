@@ -37,6 +37,32 @@ import ARDashboard from './features/ar/ARDashboard';
 import AuditLogViewer from './features/audit/AuditLogViewer';
 import FixedValueContracts from './features/fixedValue/FixedValueContracts';
 
+class PayrollSheetErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { err: null };
+    }
+    static getDerivedStateFromError(err) {
+        return { err };
+    }
+    componentDidCatch(err, info) {
+        // #region agent log
+        fetch('http://127.0.0.1:7862/ingest/e9557106-2f42-4248-bcaf-ee841cde492e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ea0c85'},body:JSON.stringify({sessionId:'ea0c85',hypothesisId:'D',runId:'pre-fix',location:'App.jsx:PayrollSheetErrorBoundary',message:'PayrollSheet render crash',data:{name:err?.name,errorMessage:err?.message,stack:(err?.stack||'').slice(0,500),componentStack:(info?.componentStack||'').slice(0,300)},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        console.error('[PayrollSheet crash]', err);
+    }
+    render() {
+        if (this.state.err) {
+            return (
+                <div style={{ padding: '2rem', color: '#f87171' }}>
+                    Payroll Sheet failed to render: {this.state.err.message}
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 /** Hard ceiling for JWT bootstrap — never leave the loading spinner past this. */
 const AUTH_BOOTSTRAP_MS = 14000;
@@ -417,7 +443,7 @@ function App() {
         <main className="main-content">
           {effectiveTab === 'dashboard'  && <Dashboard />}
           {effectiveTab === 'employee'   && <EmployeeInformation user={user} />}
-          {effectiveTab === 'payroll'    && <PayrollSheet user={user} />}
+          {effectiveTab === 'payroll'    && <PayrollSheetErrorBoundary><PayrollSheet user={user} /></PayrollSheetErrorBoundary>}
           {effectiveTab === 'payroll_run' && <PayrollRun user={user} />}
           {effectiveTab === 'fixed_value' && <FixedValueContracts user={user} />}
           {effectiveTab === 'documents'  && <DocumentGenerator />}

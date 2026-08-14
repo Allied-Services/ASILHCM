@@ -696,10 +696,21 @@ export default function PayrollSheet({ user }) {
         || user?.role === 'ap_team';
     const [forceResendPayslips, setForceResendPayslips] = useState(false);
     const [sendAllPayslips, setSendAllPayslips] = useState(false);
-    const [reconOpen, setReconOpen] = useState(false);
-    const [reconData, setReconData] = useState(null);
+    const [payrollRecon, setPayrollRecon] = useState(null);
+    const [showReconPanel, setShowReconPanel] = useState(false);
     const [reconLoading, setReconLoading] = useState(false);
     const [reconError, setReconError] = useState(null);
+    // #region agent log
+    {
+        const reconBindings = {};
+        try { reconBindings.payrollRecon = typeof payrollRecon; } catch (e) { reconBindings.payrollReconErr = e.name + ': ' + e.message; }
+        try { reconBindings.setPayrollRecon = typeof setPayrollRecon; } catch (e) { reconBindings.setPayrollReconErr = e.name + ': ' + e.message; }
+        try { reconBindings.showReconPanel = typeof showReconPanel; } catch (e) { reconBindings.showReconPanelErr = e.name + ': ' + e.message; }
+        try { reconBindings.setShowReconPanel = typeof setShowReconPanel; } catch (e) { reconBindings.setShowReconPanelErr = e.name + ': ' + e.message; }
+        reconBindings.hasReconError = reconError != null;
+        fetch('http://127.0.0.1:7862/ingest/e9557106-2f42-4248-bcaf-ee841cde492e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ea0c85'},body:JSON.stringify({sessionId:'ea0c85',hypothesisId:'A',runId:'post-fix',location:'PayrollSheet.jsx:recon-bindings',message:'PayrollSheet recon identifier bindings',data:reconBindings,timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
     const selectedIdsRef = useRef(selectedIds);
     useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
     const [PROVINCE_RATES, setPROVINCE_RATES] = useState([]); // from System Config Tax by Region
@@ -868,8 +879,8 @@ export default function PayrollSheet({ user }) {
         setLockedIds(new Set());
         setLockedBy(null);
         setCalcMsg(null);
-        setReconOpen(false);
-        setReconData(null);
+        setShowReconPanel(false);
+        setPayrollRecon(null);
         setReconError(null);
         api.getPayroll(yr, mo).then(applyPayrollPayload).catch(() => {});
         api.getPayrollInvoiceStatus(yr, mo)
@@ -1482,6 +1493,9 @@ export default function PayrollSheet({ user }) {
         </div>
     );
 
+    // #region agent log
+    fetch('http://127.0.0.1:7862/ingest/e9557106-2f42-4248-bcaf-ee841cde492e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ea0c85'},body:JSON.stringify({sessionId:'ea0c85',hypothesisId:'C',runId:'pre-fix',location:'PayrollSheet.jsx:pre-return',message:'PayrollSheet reached JSX return',data:{month,employeeCount:EMPLOYEES.length,filteredCount:filtered.length,rowCount:rows.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     return (
         <div className="dashboard">
             <header className="header">
