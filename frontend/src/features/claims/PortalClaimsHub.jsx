@@ -203,7 +203,7 @@ export default function PortalClaimsHub({ user }) {
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
         <label>Claim month <input type="number" min={1} max={12} value={month} onChange={e => setMonth(+e.target.value)} style={{ width: 60 }} title="Month work was done (e.g. 7 = July)" /></label>
         <label>Year <input type="number" value={year} onChange={e => setYear(+e.target.value)} style={{ width: 80 }} /></label>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Submit by day 17 · LM approve by day 22 · paid following month</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Submit by day 18 · LM approve by day 22 · paid following month</span>
         <select value={channel} onChange={e => setChannel(e.target.value)}>
           <option value="">All channels</option>
           <option value="portal">Portal only</option>

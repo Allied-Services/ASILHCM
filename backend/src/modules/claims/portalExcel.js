@@ -564,7 +564,7 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
         '3. OT Start / OT End = overtime hours claimed AFTER normal duty. Do NOT enter the full shift start/end (e.g. not 9:00 AM–6:00 PM).',
         '4. OT Hours calculates automatically as OT End − OT Start. Do not type hours by hand.',
         '5. Use the SAMPLE row under the header as your format guide. Dates: 15-07-2026. Times: 05:00 PM and 08:00 PM.',
-        '6. Submit by day 17 of the claim month. LM approves by day 22. Approved amounts pay with the following month’s salary.',
+        '6. Submit by day 18 of the claim month. LM approves by day 22. Approved amounts pay with the following month’s salary.',
         '7. Only this claim month’s dates are accepted. Older months → email claims@asil.com.pk.',
         '8. After upload: attach Expense Reimbursement and Medical supports as separate files before Submit.',
         '9. Questions: ops-support@asil.com.pk or claims@asil.com.pk',

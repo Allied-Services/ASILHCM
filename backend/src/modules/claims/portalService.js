@@ -40,7 +40,7 @@ const {
 } = require('./claimsCampaign');
 
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '1', 10);
-const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '17', 10);
+const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '18', 10);
 const APPROVE_CLOSE_DAY = parseInt(process.env.CLAIMS_APPROVE_CLOSE_DAY || '22', 10);
 const { getClaimsPolicy, getDefaultClaimsPolicy } = require('./claimsPolicy');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://asil-hcm-frontend.onrender.com';
@@ -409,7 +409,7 @@ async function getOrCreatePeriod(pool, campaignMonth, campaignYear, policyOverri
         `SELECT * FROM portal_claim_periods WHERE campaign_month = $1 AND campaign_year = $2`,
         [campaignMonth, campaignYear]
     );
-    if (existing[0]) return existing[0];
+    if (existing[0]) return refreshOpenPeriodFillClose(pool, existing[0], w);
 
     const { rows } = await pool.query(
         `INSERT INTO portal_claim_periods
@@ -425,13 +425,25 @@ async function getOrCreatePeriod(pool, campaignMonth, campaignYear, policyOverri
     return rows[0];
 }
 
+async function refreshOpenPeriodFillClose(pool, period, w) {
+    if (!period || period.status !== 'open') return period;
+    const { rows } = await pool.query(
+        `UPDATE portal_claim_periods
+         SET fill_close_at = $2
+         WHERE id = $1 AND status = 'open'
+         RETURNING *`,
+        [period.id, w.fillCloseAt.toISOString()]
+    );
+    return rows[0] || period;
+}
+
 async function getOrCreatePeriodForClaimMonth(pool, claimMonth, claimYear, policyOverride = null) {
     const policy = policyOverride || await getDefaultClaimsPolicy(pool);
     const { rows: existing } = await pool.query(
         `SELECT * FROM portal_claim_periods WHERE claim_month = $1 AND claim_year = $2 ORDER BY id DESC LIMIT 1`,
         [claimMonth, claimYear]
     );
-    if (existing[0]) return existing[0];
+    if (existing[0]) return refreshOpenPeriodFillClose(pool, existing[0], periodWindowFromClaim(claimYear, claimMonth, policy));
     const w = periodWindowFromClaim(claimYear, claimMonth, policy);
     const { rows } = await pool.query(
         `INSERT INTO portal_claim_periods

@@ -249,7 +249,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
           style={{ height: 38 }}>
           {busy ? 'Working…' : preview ? 'Reload roster' : 'Load employees'}
         </button>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)', paddingBottom: 8 }}>Submit by day 17 · LM approve by day 22</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', paddingBottom: 8 }}>Submit by day 18 · LM approve by day 22</span>
       </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>

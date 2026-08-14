@@ -2,7 +2,7 @@
 
 const DEFAULTS = {
     claims_pay_timing: 'following_month',
-    submit_deadline_day: 17,
+    submit_deadline_day: 18,
     approve_deadline_day: 22,
 };
 

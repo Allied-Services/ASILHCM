@@ -223,7 +223,7 @@ export default function ClaimsFillPage() {
         <h1 style={{ margin: '4px 0 8px', fontSize: '1.55rem', color: '#0f172a', fontWeight: 700 }}>Submit monthly claims</h1>
         <p style={{ margin: 0, color: '#334155', maxWidth: 720, lineHeight: 1.55 }}>
           Claiming for: <strong>{claimLabel}</strong>
-          {' · '}Submit by: <strong>day {data.period.submit_deadline_day || 17}</strong>
+          {' · '}Submit by: <strong>day {data.period.submit_deadline_day || 18}</strong>
           {' · '}LM approve by: <strong>day {data.period.approve_deadline_day || 22}</strong>
           {' · '}Paid with: <strong>{settleLabel} salary</strong>
         </p>
@@ -233,7 +233,7 @@ export default function ClaimsFillPage() {
       <div style={{ ...card, marginBottom: 16, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
         <div style={{ fontWeight: 700, color: '#1e3a8a', marginBottom: 6 }}>Your deadlines</div>
         <p style={{ margin: 0, color: '#334155', fontSize: 14, lineHeight: 1.55 }}>
-          Submit all claims for <strong>{claimLabel}</strong> by <strong>day {data.period.submit_deadline_day || 17}</strong>.
+          Submit all claims for <strong>{claimLabel}</strong> by <strong>day {data.period.submit_deadline_day || 18}</strong>.
           Your Line Manager approves by <strong>day {data.period.approve_deadline_day || 22}</strong>.
           Approved amounts are paid with your <strong>{settleLabel}</strong> salary.
         </p>
@@ -467,7 +467,7 @@ function HowItWorks({ templateHref }) {
       <ol style={{ margin: 0, paddingLeft: 18, color: '#334155', fontSize: 14, lineHeight: 1.65 }}>
         <li><strong>Option A:</strong> Download <a href={templateHref} style={{ color: '#1d4ed8' }}>your Excel</a> (sample row shows format). <strong>Option B:</strong> enter step-by-step on screen.</li>
         <li>If you enter <strong>Expense Reimbursement</strong> and/or <strong>Medical Reimbursement</strong>, upload support files before Submit.</li>
-        <li>Submit by <strong>day 17</strong> of the claim month · LM approves by <strong>day 22</strong> · approved amounts pay with <strong>next month’s</strong> salary.</li>
+        <li>Submit by <strong>day 18</strong> of the claim month · LM approves by <strong>day 22</strong> · approved amounts pay with <strong>next month’s</strong> salary.</li>
         <li>Errors or questions: <a href="mailto:ops-support@asil.com.pk" style={{ color: '#1d4ed8' }}>ops-support@asil.com.pk</a></li>
       </ol>
     </div>

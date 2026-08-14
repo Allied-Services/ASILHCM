@@ -614,6 +614,14 @@ Send audience is the Portal Claims filter cascade (Month → Client → Contract
 
 ---
 
+### 2026-08-15 — Claims submit deadline day 17 → 18
+
+August send is late (15th). Focal/employee submit close is now day **18**; LM approve stays day **22**. Open `portal_claim_periods` refresh `fill_close_at` on next campaign/preview. Optional env `CLAIMS_FILL_CLOSE_DAY` (default 18).
+
+**Env vars needed:** none unless Render already set `CLAIMS_FILL_CLOSE_DAY=17` — change that to 18 or remove it.
+
+---
+
 ## Cursor Cloud specific instructions
 
 Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency install (`npm install` in `backend/` and `frontend/`) is handled by the environment update script; this section only covers the non-obvious startup/run caveats. Standard commands live in `backend/package.json` / `frontend/package.json` and `backend/.env.example` — refer to those; only the gotchas are repeated here.
