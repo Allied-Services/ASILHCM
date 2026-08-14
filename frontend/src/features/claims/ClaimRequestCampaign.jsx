@@ -33,6 +33,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
   const [campaignMode, setCampaignMode] = useState('sample');
   const [filterClient, setFilterClient] = useState('');
   const [filterContract, setFilterContract] = useState('');
+  const [filterDept, setFilterDept] = useState('');
   const [filterLoc, setFilterLoc] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -63,23 +64,34 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
     return [...map.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
   }, [employees, filterClient]);
 
+  const departments = useMemo(() => {
+    if (!filterClient) return [];
+    return [...new Set(employees
+      .filter(e => e.client === filterClient)
+      .filter(e => !filterContract || e.contract_id === filterContract || e.contract_name === filterContract)
+      .map(e => e.dept)
+      .filter(Boolean))].sort();
+  }, [employees, filterClient, filterContract]);
+
   const locations = useMemo(() => {
     if (!filterClient) return [];
     return [...new Set(employees
       .filter(e => e.client === filterClient)
       .filter(e => !filterContract || e.contract_id === filterContract || e.contract_name === filterContract)
+      .filter(e => !filterDept || e.dept === filterDept)
       .map(e => e.location)
       .filter(Boolean))].sort();
-  }, [employees, filterClient, filterContract]);
+  }, [employees, filterClient, filterContract, filterDept]);
 
   const visible = useMemo(() => {
     if (!filterClient) return [];
     return employees.filter(e =>
       e.client === filterClient
       && (!filterContract || e.contract_id === filterContract || e.contract_name === filterContract)
+      && (!filterDept || e.dept === filterDept)
       && (!filterLoc || e.location === filterLoc)
     );
-  }, [employees, filterClient, filterContract, filterLoc]);
+  }, [employees, filterClient, filterContract, filterDept, filterLoc]);
 
   const selectedVisible = visible.filter(e => selected.has(e.id));
   const allVisibleSelected = visible.length > 0 && visible.every(e => selected.has(e.id));
@@ -108,6 +120,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
   const resetFilters = () => {
     setFilterClient('');
     setFilterContract('');
+    setFilterDept('');
     setFilterLoc('');
     setSelected(new Set());
     setActiveId(null);
@@ -121,7 +134,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
         month, year, campaignMode, dryRun: true,
       });
       setPreview(d);
-      setMsg(`Roster loaded — ${d.employees?.length || d.summary?.employeeCount || 0} eligible employee(s). Select Client → Contract → Location, tick who to send, then Send.`);
+      setMsg(`Roster loaded — ${d.employees?.length || d.summary?.employeeCount || 0} employee(s) with a filler email. Select Client → Contract → Department → Location, tick who to send, then Send.`);
       if (onPeriodChange) onPeriodChange(month, year);
     } catch (e) {
       setErr(e.message);
@@ -204,7 +217,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
     }}>
       <h3 style={{ margin: '0 0 4px' }}>Send claim request emails</h3>
       <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-muted)', maxWidth: 860, lineHeight: 1.5 }}>
-        Month → Client → Contract → Location, then tick employees and Send.
+        Month → Client → Contract → Department → Location, then tick employees and Send.
         Focals get one email for their nominated people; employees with no focal get the mail themselves.
       </p>
 
@@ -242,7 +255,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
         <Field label="2. Client">
           <select value={filterClient} disabled={!employees.length}
-            onChange={e => { setFilterClient(e.target.value); setFilterContract(''); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
+            onChange={e => { setFilterClient(e.target.value); setFilterContract(''); setFilterDept(''); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
             style={{ ...selectStyle, opacity: employees.length ? 1 : 0.5 }}>
             <option value="">{employees.length ? 'Select client…' : (busy ? 'Loading clients…' : 'Waiting for roster…')}</option>
             {clients.map(c => <option key={c} value={c}>{c}</option>)}
@@ -250,13 +263,21 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
         </Field>
         <Field label="3. Contract">
           <select value={filterContract} disabled={!filterClient}
-            onChange={e => { setFilterContract(e.target.value); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
+            onChange={e => { setFilterContract(e.target.value); setFilterDept(''); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
             style={{ ...selectStyle, opacity: filterClient ? 1 : 0.5 }}>
             <option value="">{filterClient ? 'All contracts' : 'Select client first'}</option>
             {contracts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
         </Field>
-        <Field label="4. Location">
+        <Field label="4. Department">
+          <select value={filterDept} disabled={!filterClient}
+            onChange={e => { setFilterDept(e.target.value); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
+            style={{ ...selectStyle, opacity: filterClient ? 1 : 0.5 }}>
+            <option value="">{filterClient ? 'All departments' : 'Select client first'}</option>
+            {departments.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </Field>
+        <Field label="5. Location">
           <select value={filterLoc} disabled={!filterClient}
             onChange={e => { setFilterLoc(e.target.value); setSelected(new Set()); setActiveId(null); }}
             style={{ ...selectStyle, opacity: filterClient ? 1 : 0.5 }}>
@@ -304,14 +325,14 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead style={{ background: 'var(--bg-dark, #0c0f14)', position: 'sticky', top: 0 }}>
                       <tr>
-                        {['Send?', 'Employee', 'Contract', 'Location', 'Path', 'Email goes to', 'Approver'].map(h => (
+                        {['Send?', 'Employee', 'Dept', 'Contract', 'Location', 'Path', 'Email goes to', 'Approver'].map(h => (
                           <th key={h} style={th}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {visible.length === 0 && (
-                        <tr><td colSpan={7} style={{ ...td, color: 'var(--text-muted)' }}>No eligible employees for this filter.</td></tr>
+                        <tr><td colSpan={8} style={{ ...td, color: 'var(--text-muted)' }}>No employees for this filter.</td></tr>
                       )}
                       {visible.map((e, i) => {
                         const picked = selected.has(e.id);
@@ -341,6 +362,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
                               {e.name}
                               <div style={{ fontSize: 11, color: '#64748b' }}>{e.id}</div>
                             </td>
+                            <td style={{ ...td, color: '#94a3b8', fontSize: 12 }}>{e.dept || '—'}</td>
                             <td style={{ ...td, color: '#94a3b8', fontSize: 12 }}>{e.contract_name || e.contract_id || '—'}</td>
                             <td style={{ ...td, color: '#94a3b8' }}>{e.location || '—'}</td>
                             <td style={td}><PathBadge profile={e.routingProfile} label={e.roleLabel} /></td>
@@ -487,19 +509,19 @@ function ExcludedPanel({ skipped }) {
       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Excluded — fix in Employee Information</div>
       <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 8px' }}>
         Setup needed ({setup.length}) = missing filler email.
-        {' '}Not eligible ({notEligible.length}) = outside the Wafi (non-FM) rule.
         {notEligible.length > 0 && (
           <>
+            {' '}Other skipped ({notEligible.length}).
             {' '}
             <button type="button" className="btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }}
               onClick={() => setShowNotEligible(v => !v)}>
-              {showNotEligible ? 'Hide non-Wafi' : 'Show non-Wafi list'}
+              {showNotEligible ? 'Hide skipped' : 'Show skipped'}
             </button>
           </>
         )}
       </p>
       {rows.length === 0 && (
-        <p style={{ fontSize: 12, color: '#86efac', margin: 0 }}>No roster setup gaps — every eligible Wafi employee has a filler email.</p>
+        <p style={{ fontSize: 12, color: '#86efac', margin: 0 }}>No roster setup gaps — every listed employee has a filler email.</p>
       )}
       {rows.length > 0 && (
         <div style={{ overflowX: 'auto', maxHeight: 220, overflowY: 'auto' }}>

@@ -44,7 +44,9 @@ async function evaluateEmployeeEligibility(pool, emp, rules = null) {
         return { eligible: true, ruleId: null, ruleName: 'default (no rules)' };
     }
     const match = rls.find(r => ruleMatchesEmployee(r, emp));
-    if (!match) return { eligible: false, ruleId: null, ruleName: 'No matching rule' };
+    if (!match) {
+        return { eligible: true, ruleId: null, ruleName: 'No matching rule (send-screen filters decide)' };
+    }
     return {
         eligible: !!match.eligible,
         ruleId: match.id,
@@ -207,7 +209,7 @@ async function countEligibleEmployees(pool) {
     const rules = await loadEligibilityRules(pool);
     const { rows: emps } = await pool.query(
         `SELECT e.id, e.name, e.email, e.claim_authority, e.supervisor_email, e.line_manager_email,
-                e.client,
+                e.client, e.active,
                 COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) AS location,
                 e.dept, e.salary, e.contract_id,
                 COALESCE(c.contract_name, e.contract_name) AS contract_name
