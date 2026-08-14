@@ -606,6 +606,14 @@ July 304-send timed out after ~10 minutes (`Failed to fetch`) with 177 delivered
 
 ---
 
+### 2026-08-15 — Drop Wafi/FM claim eligibility gate
+
+Send audience is the Portal Claims filter cascade (Month → Client → Contract → Department → Location). Unmatched eligibility rules are now eligible. Migration deactivates the seeded `Wafi BPO — exclude Facility Management` rule. Campaign SELECT includes `employees.active` so `Active = No` leavers are not invited.
+
+**Env vars needed:** none new.
+
+---
+
 ## Cursor Cloud specific instructions
 
 Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency install (`npm install` in `backend/` and `frontend/`) is handled by the environment update script; this section only covers the non-obvious startup/run caveats. Standard commands live in `backend/package.json` / `frontend/package.json` and `backend/.env.example` — refer to those; only the gotchas are repeated here.

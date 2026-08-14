@@ -6,6 +6,7 @@ const {
     resolveClaimsRouting,
     resolveClaimsCategory,
     ruleMatchesEmployee,
+    evaluateEmployeeEligibility,
 } = require('../src/modules/claims/claimsEligibility');
 
 describe('claimsEligibility routing', () => {
@@ -53,7 +54,7 @@ describe('claimsEligibility routing', () => {
 });
 
 describe('claimsEligibility rules', () => {
-    test('wafi rule excludes facility management dept', () => {
+    test('wafi rule matcher still knows FM vs non-FM', () => {
         const rule = {
             active: true,
             client_pattern: 'wafi',
@@ -62,5 +63,20 @@ describe('claimsEligibility rules', () => {
         };
         assert.equal(ruleMatchesEmployee(rule, { client: 'Wafi Energy', dept: 'IT' }), true);
         assert.equal(ruleMatchesEmployee(rule, { client: 'Wafi Energy', dept: 'Facility Management' }), false);
+    });
+
+    test('no matching rule is eligible — send-screen filters decide the audience', async () => {
+        const wafiRule = {
+            active: true,
+            client_pattern: 'wafi',
+            dept_exclude: ['Facility Management'],
+            eligible: true,
+        };
+        const fm = await evaluateEmployeeEligibility(null, { client: 'Wafi Energy', dept: 'Facility Management' }, [wafiRule]);
+        const pso = await evaluateEmployeeEligibility(null, { client: 'PSO', dept: 'Operations' }, [wafiRule]);
+        const none = await evaluateEmployeeEligibility(null, { client: 'Wafi Energy', dept: 'IT' }, []);
+        assert.equal(fm.eligible, true);
+        assert.equal(pso.eligible, true);
+        assert.equal(none.eligible, true);
     });
 });
