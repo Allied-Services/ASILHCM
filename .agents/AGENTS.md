@@ -594,6 +594,18 @@ Same send engine. UI now filters Month → Client → Contract → Location, the
 
 ---
 
+### 2026-08-15 — Payslip Email/SMS status + send remaining
+
+July 304-send timed out after ~10 minutes (`Failed to fetch`) with 177 delivered and 128 still outstanding. The send modal and Payroll Sheet now show month-level Email/SMS status, and remaining-only send does not re-hit people who already got that channel.
+
+1. **`payslip/service.js`** — readiness returns `emailSentCount`, `smsSentCount`, `remainingEmail`, `remainingSms`, per-employee `emailStatus`/`smsStatus`. `onlyMissing: 'email'|'sms'` sends one channel. Already-sent channels are skipped unless force resend. Batch totals recomputed from the delivery log (a 1-person send no longer marks the whole month `sent`).
+2. **`PayrollSheet.jsx`** — Email/SMS chips on each row; send modal lists month status and **Send remaining email / SMS**. Remaining IDs go in chunks of 20.
+3. **`api.js`** — `sendPayslipEmails(..., { onlyMissing })`.
+
+**Env vars needed:** none new.
+
+---
+
 ### 2026-08-15 — Drop Wafi/FM claim eligibility gate
 
 Send audience is the Portal Claims filter cascade (Month → Client → Contract → Department → Location). Unmatched eligibility rules are now eligible. Migration deactivates the seeded `Wafi BPO — exclude Facility Management` rule. Campaign SELECT includes `employees.active` so `Active = No` leavers are not invited.

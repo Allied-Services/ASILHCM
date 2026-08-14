@@ -70,7 +70,7 @@ describe('payslip routes role guards', () => {
         expect(sendPayslips).toHaveBeenCalledWith(
             expect.anything(),
             expect.anything(),
-            expect.objectContaining({ employeeIds: ['E1'], sendAll: false, confirm: true })
+            expect.objectContaining({ employeeIds: ['E1'], sendAll: false, confirm: true, onlyMissing: null })
         );
     });
 
@@ -86,6 +86,21 @@ describe('payslip routes role guards', () => {
             expect.anything(),
             expect.anything(),
             expect.objectContaining({ sendAll: true, employeeIds: [] })
+        );
+    });
+
+    test('forwards onlyMissing remaining-channel send', async () => {
+        const app = buildApp();
+        const token = makeToken({ role: 'finance_manager', email: 'h@asil.com.pk' });
+        const res = await request(app)
+            .post('/api/payroll/2026/7/send-payslips')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ confirm: true, employeeIds: ['E1'], onlyMissing: 'sms' });
+        expect(res.status).toBe(200);
+        expect(sendPayslips).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ onlyMissing: 'sms', employeeIds: ['E1'] })
         );
     });
 
