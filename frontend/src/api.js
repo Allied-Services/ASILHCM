@@ -248,10 +248,10 @@ export const api = {
             : '';
         return apiFetch(`/api/payroll/${year}/${month}/payslip-readiness${qs}`);
     },
-    sendPayslipEmails: (year, month, { employeeIds = [], confirm = true, forceResend = false, sendAll = false } = {}) =>
+    sendPayslipEmails: (year, month, { employeeIds = [], confirm = true, forceResend = false, sendAll = false, onlyMissing = null } = {}) =>
         apiFetch(`/api/payroll/${year}/${month}/send-payslips`, {
             method: 'POST',
-            body: JSON.stringify({ employeeIds, confirm, forceResend, sendAll }),
+            body: JSON.stringify({ employeeIds, confirm, forceResend, sendAll, onlyMissing }),
         }),
     sendPayslipTestRun: ({ email, phone, dryRun = false } = {}) =>
         apiFetch('/api/payslip/test-run', {

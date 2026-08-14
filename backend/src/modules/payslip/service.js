@@ -14,6 +14,49 @@ function isUsableEmail(raw) {
     return email;
 }
 
+function isSentStatus(status) {
+    return String(status || '').startsWith('sent');
+}
+
+function normalizeOnlyMissing(raw) {
+    const v = String(raw || '').trim().toLowerCase();
+    return (v === 'email' || v === 'sms') ? v : null;
+}
+
+/** Latest email/SMS status per employee for this payroll month. */
+async function getMonthDeliveryMap(pool, year, month) {
+    const { rows } = await pool.query(
+        `SELECT DISTINCT ON (l.employee_id)
+                l.employee_id, l.email_status, l.sms_status
+         FROM payslip_delivery_log l
+         JOIN payslip_delivery_batches b ON b.id = l.batch_id
+         WHERE b.year = $1 AND b.month = $2
+         ORDER BY l.employee_id, l.created_at DESC`,
+        [year, month]
+    );
+    return new Map(rows.map((r) => [r.employee_id, r]));
+}
+
+async function recomputeBatchTotals(pool, batchId) {
+    const { rows } = await pool.query(
+        `WITH latest AS (
+            SELECT DISTINCT ON (employee_id)
+                   employee_id, email_status, sms_status
+            FROM payslip_delivery_log
+            WHERE batch_id = $1
+            ORDER BY employee_id, created_at DESC
+         )
+         SELECT
+            COUNT(*) FILTER (WHERE email_status LIKE 'sent%' OR sms_status LIKE 'sent%')::int AS delivered,
+            COUNT(*) FILTER (WHERE email_status LIKE 'sent%')::int AS email_count,
+            COUNT(*) FILTER (WHERE sms_status LIKE 'sent%')::int AS sms_count,
+            COUNT(*) FILTER (WHERE email_status LIKE 'failed%' OR sms_status LIKE 'failed%')::int AS failed_count
+         FROM latest`,
+        [batchId]
+    );
+    return rows[0] || { delivered: 0, email_count: 0, sms_count: 0, failed_count: 0 };
+}
+
 function frontendBase() {
     return (process.env.FRONTEND_URL || process.env.APP_BASE_URL || 'https://asilhcm.onrender.com').replace(/\/$/, '');
 }
@@ -131,34 +174,46 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
     const scopeLocked = lockStats.total > 0 && lockStats.locked_count === lockStats.total
         && (!ids.length || lockStats.total === ids.length);
 
-    const employeeList = employees.map((e) => ({
-        id: e.id,
-        name: e.name,
-        locked: e.locked === true,
-        paid: paidSet.has(e.id),
-    }));
+    const deliveryMap = await getMonthDeliveryMap(pool, yr, mo);
+
+    const employeeList = employees.map((e) => {
+        const prior = deliveryMap.get(e.id);
+        return {
+            id: e.id,
+            name: e.name,
+            locked: e.locked === true,
+            paid: paidSet.has(e.id),
+            emailStatus: prior?.email_status || 'none',
+            smsStatus: prior?.sms_status || 'none',
+            hasEmail: !!isUsableEmail(e.email),
+            hasPhone: !!firstValidPkMobile(e.phone),
+            hasCnic: normalizeCnic(e.cnic).length >= 5,
+        };
+    });
     const notPaid = employeeList.filter((e) => !e.paid).map((e) => ({ id: e.id, name: e.name }));
     const paidCount = employeeList.filter((e) => e.paid).length;
     const everyEmployeeInScopeIsPaid = employeeList.length > 0 && notPaid.length === 0;
     // Backward compatible `paid`: every employee in scope is paid (not "any batch exists").
     const paid = everyEmployeeInScopeIsPaid;
 
-    let alreadyDeliveredCount = 0;
-    if (batch?.id && employees.length) {
-        const empIds = employees.map((e) => e.id);
-        const { rows: prior } = await pool.query(
-            `SELECT COUNT(DISTINCT employee_id)::int AS c FROM payslip_delivery_log
-             WHERE batch_id = $1
-               AND employee_id = ANY($2::text[])
-               AND (email_status LIKE 'sent%' OR sms_status LIKE 'sent%')`,
-            [batch.id, empIds]
-        );
-        alreadyDeliveredCount = prior[0]?.c || 0;
-    }
+    const alreadyDeliveredCount = employeeList.filter((e) => (
+        isSentStatus(e.emailStatus) || isSentStatus(e.smsStatus)
+    )).length;
+    const emailSentCount = employeeList.filter((e) => isSentStatus(e.emailStatus)).length;
+    const smsSentCount = employeeList.filter((e) => isSentStatus(e.smsStatus)).length;
+    const remainingEmail = employeeList
+        .filter((e) => e.paid && e.hasEmail && e.hasCnic && !isSentStatus(e.emailStatus))
+        .map((e) => ({ id: e.id, name: e.name }));
+    const remainingSms = employeeList
+        .filter((e) => e.paid && e.hasPhone && e.hasCnic && !isSentStatus(e.smsStatus))
+        .map((e) => ({ id: e.id, name: e.name }));
+
     const alreadySent = batch?.status === 'sent';
-    // Force only when every employee currently in scope was already delivered.
-    const needsForceResend = alreadySent && employees.length > 0
-        && alreadyDeliveredCount >= employees.length;
+    // Force only when nobody in scope still needs email or SMS.
+    const needsForceResend = employees.length > 0
+        && alreadyDeliveredCount > 0
+        && remainingEmail.length === 0
+        && remainingSms.length === 0;
 
     return {
         year: yr,
@@ -175,6 +230,10 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
         employees: employeeList,
         alreadySent,
         alreadyDeliveredCount,
+        emailSentCount,
+        smsSentCount,
+        remainingEmail,
+        remainingSms,
         needsForceResend,
         batch,
         employeeCount: employees.length,
@@ -222,6 +281,7 @@ async function generateAndStorePdf(pool, emp, pay, contractEosbType, batchId, ye
 
 async function sendPayslips(pool, deps, opts) {
     const { year, month, confirm, forceResend, actorEmail, sendAll = false } = opts;
+    const onlyMissing = normalizeOnlyMissing(opts.onlyMissing);
     const destEmailOverride = isUsableEmail(opts.destEmail);
     const destPhoneOverride = firstValidPkMobile(opts.destPhone);
     const { sendAppEmail, sendJazzSMS } = deps;
@@ -230,8 +290,8 @@ async function sendPayslips(pool, deps, opts) {
     const ids = normalizeEmployeeIds(opts.employeeIds);
     const scoped = ids.length > 0;
 
-    // Empty selection must explicitly opt into send-all — never silently expand a partial intent.
-    if (!scoped && !sendAll) {
+    // Empty selection must explicitly opt into send-all or remaining-channel — never silently expand.
+    if (!scoped && !sendAll && !onlyMissing) {
         const err = new Error('SELECTION_REQUIRED');
         err.code = 'SELECTION_REQUIRED';
         throw err;
@@ -258,7 +318,7 @@ async function sendPayslips(pool, deps, opts) {
             err.detail = { missing, unlocked };
             throw err;
         }
-    } else {
+    } else if (!onlyMissing) {
         const lockReadiness = await getPayslipReadiness(pool, yr, mo, []);
         if (!lockReadiness.allLocked) {
             const err = new Error('NOT_ALL_LOCKED');
@@ -279,29 +339,20 @@ async function sendPayslips(pool, deps, opts) {
     }
 
     const readiness = await getPayslipReadiness(pool, yr, mo, ids);
-    if (!scoped && !readiness.paid) {
+    if (!scoped && !onlyMissing && !readiness.paid) {
         const err = new Error('NOT_PAID');
         err.code = 'NOT_PAID';
         err.detail = { unpaid: (readiness.notPaid || []).map((e) => e.id) };
         throw err;
     }
-    if (readiness.alreadySent && !forceResend) {
-        // Partial send to new recipients is allowed; only block when every selected
-        // employee was already delivered in this month's batch.
-        if (scoped && readiness.batch?.id) {
-            const { rows: prior } = await pool.query(
-                `SELECT DISTINCT employee_id FROM payslip_delivery_log
-                 WHERE batch_id = $1
-                   AND employee_id = ANY($2::text[])
-                   AND (email_status LIKE 'sent%' OR sms_status LIKE 'sent%')`,
-                [readiness.batch.id, ids]
-            );
-            if (prior.length >= ids.length) {
-                const err = new Error('ALREADY_SENT');
-                err.code = 'ALREADY_SENT';
-                throw err;
-            }
-        } else if (!scoped) {
+    if (!forceResend) {
+        const remainingForAction = onlyMissing === 'email'
+            ? (readiness.remainingEmail || [])
+            : onlyMissing === 'sms'
+                ? (readiness.remainingSms || [])
+                : [...(readiness.remainingEmail || []), ...(readiness.remainingSms || [])];
+        if ((readiness.employees || []).length > 0 && remainingForAction.length === 0
+            && readiness.alreadyDeliveredCount > 0) {
             const err = new Error('ALREADY_SENT');
             err.code = 'ALREADY_SENT';
             throw err;
@@ -340,7 +391,7 @@ async function sendPayslips(pool, deps, opts) {
         params.push(paidIds);
         empQ += ` AND e.id = ANY($3::text[])`;
     }
-    const { rows: targets } = await pool.query(empQ, params);
+    let { rows: targets } = await pool.query(empQ, params);
 
     if (scoped && targets.length !== ids.length) {
         const found = new Set(targets.map((t) => t.id));
@@ -358,6 +409,22 @@ async function sendPayslips(pool, deps, opts) {
         throw err;
     }
 
+    const deliveryMap = await getMonthDeliveryMap(pool, yr, mo);
+    const planned = targets.map((row) => {
+        const prior = deliveryMap.get(row.id);
+        const destEmail = destEmailOverride || isUsableEmail(row.email);
+        const destPhone = destPhoneOverride || firstValidPkMobile(row.primary_contact);
+        const wantEmail = (!onlyMissing || onlyMissing === 'email')
+            && (forceResend || !isSentStatus(prior?.email_status))
+            && !!destEmail;
+        const wantSms = (!onlyMissing || onlyMissing === 'sms')
+            && (forceResend || !isSentStatus(prior?.sms_status))
+            && !!destPhone;
+        return { row, wantEmail, wantSms, destEmail, destPhone };
+    }).filter((p) => p.wantEmail || p.wantSms);
+    targets = planned.map((p) => p.row);
+    const planById = new Map(planned.map((p) => [p.row.id, p]));
+
     let emailCount = 0;
     let smsCount = 0;
     let failedCount = 0;
@@ -368,19 +435,20 @@ async function sendPayslips(pool, deps, opts) {
     for (const row of targets) {
         const emp = row;
         const pay = row;
+        const plan = planById.get(emp.id) || {};
         try {
             const eosbType = await getContractEosbType(pool, emp.contract_name);
             const doc = await generateAndStorePdf(pool, emp, pay, eosbType, batchId, yr, mo);
 
             let emailStatus = 'skipped';
             let smsStatus = 'skipped';
-            let emailDetail = null;
-            let smsDetail = null;
+            let emailDetail = plan.wantEmail ? null : (onlyMissing === 'sms' ? 'channel_not_requested' : 'already sent');
+            let smsDetail = plan.wantSms ? null : (onlyMissing === 'email' ? 'channel_not_requested' : 'already sent');
             let tokenId = null;
-            const destEmail = destEmailOverride || isUsableEmail(emp.email);
-            const destPhone = destPhoneOverride || firstValidPkMobile(emp.primary_contact);
+            const destEmail = plan.destEmail || '';
+            const destPhone = plan.destPhone || '';
 
-            if (destEmail && sendAppEmail) {
+            if (plan.wantEmail && destEmail && sendAppEmail) {
                 try {
                     const slipData = buildWorldAPayslipData(emp, pay, eosbType);
                     const cover = renderEmailCoverHtml({
@@ -416,11 +484,11 @@ async function sendPayslips(pool, deps, opts) {
                     emailStatus = 'failed';
                     emailDetail = 'email_failed';
                 }
-            } else if (!destEmail) {
+            } else if (plan.wantEmail && !destEmail) {
                 emailDetail = 'no valid email on file';
             }
 
-            if (destPhone && sendJazzSMS) {
+            if (plan.wantSms && destPhone && sendJazzSMS) {
                 try {
                     const { rawToken, tokenId: tid } = await mintAccessToken(pool, {
                         employeeId: emp.id,
@@ -443,7 +511,7 @@ async function sendPayslips(pool, deps, opts) {
                     smsStatus = 'failed';
                     smsDetail = 'sms_failed';
                 }
-            } else if (!destPhone) {
+            } else if (plan.wantSms && !destPhone) {
                 smsDetail = 'no valid mobile on file';
             }
 
@@ -497,14 +565,15 @@ async function sendPayslips(pool, deps, opts) {
     }
 
     const channelFailed = deliveries.some(d => d.emailStatus === 'failed' || d.smsStatus === 'failed');
+    const totals = await recomputeBatchTotals(pool, batchId);
     const status = failedCount > 0 && (emailCount + smsCount) === 0
         ? 'failed'
-        : ((failedCount > 0 || channelFailed) ? 'partial' : 'sent');
+        : ((onlyMissing || scoped || failedCount > 0 || channelFailed) ? 'partial' : 'sent');
     await pool.query(
         `UPDATE payslip_delivery_batches
          SET status = $2, sent_at = NOW(), employee_count = $3, email_count = $4, sms_count = $5, failed_count = $6
          WHERE id = $1`,
-        [batchId, status, targets.length, emailCount, smsCount, failedCount]
+        [batchId, status, totals.delivered, totals.email_count, totals.sms_count, totals.failed_count]
     );
 
     await pool.query(

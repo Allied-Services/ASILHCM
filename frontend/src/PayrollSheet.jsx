@@ -669,7 +669,9 @@ export default function PayrollSheet({ user }) {
     const [bulkSMSSending, setBulkSMSSending] = useState(false);
     const [bulkSMSResult, setBulkSMSResult] = useState(null);
     const [payslipReadiness, setPayslipReadiness] = useState(null);
+    const [payslipMonthReadiness, setPayslipMonthReadiness] = useState(null);
     const [showSendPayslips, setShowSendPayslips] = useState(false);
+    const [payslipDetailsOpen, setPayslipDetailsOpen] = useState(false);
     const [sendPayslipConfirm, setSendPayslipConfirm] = useState(false);
     const [showPayslipTestRun, setShowPayslipTestRun] = useState(false);
     const [payslipTestEmail, setPayslipTestEmail] = useState('shezad.mumtaz@asil.com.pk');
@@ -1101,16 +1103,31 @@ export default function PayrollSheet({ user }) {
         }
     };
 
+    const refreshPayslipReadiness = (selected = [...selectedIdsRef.current]) => {
+        const [yr2, mo2] = month.split('-');
+        api.getPayslipReadiness(yr2, mo2, [])
+            .then(setPayslipMonthReadiness)
+            .catch(() => setPayslipMonthReadiness(null));
+        api.getPayslipReadiness(yr2, mo2, selected)
+            .then(setPayslipReadiness)
+            .catch(() => setPayslipReadiness(null));
+    };
+
     const openSendPayslipsModal = () => {
         setShowSendPayslips(true);
         setSendPayslipConfirm(false);
         setForceResendPayslips(false);
         setSendAllPayslips(false);
-        const [yr2, mo2] = month.split('-');
-        const ids = [...selectedIdsRef.current];
-        api.getPayslipReadiness(yr2, mo2, ids)
-            .then(setPayslipReadiness)
-            .catch(() => setPayslipReadiness(null));
+        setPayslipDetailsOpen(false);
+        setEmailResult(null);
+        refreshPayslipReadiness();
+    };
+
+    const closeSendPayslipsModal = () => {
+        setShowSendPayslips(false);
+        setEmailResult(null);
+        setPayslipDetailsOpen(false);
+        setSendingEmails(false);
     };
 
     // Send payslips (PDF email + SMS) — selection-scoped; month must be bank-paid
@@ -1131,7 +1148,7 @@ export default function PayrollSheet({ user }) {
             );
             return;
         }
-        setSendingEmails(true); setEmailResult(null);
+        setSendingEmails(true); setEmailResult(null); setPayslipDetailsOpen(false);
         try {
             const [yr2, mo2] = month.split('-');
             const d = await api.sendPayslipEmails(yr2, mo2, {
@@ -1157,9 +1174,76 @@ export default function PayrollSheet({ user }) {
             setSendPayslipConfirm(false);
             setForceResendPayslips(false);
             setSendAllPayslips(false);
-            api.getPayslipReadiness(yr2, mo2, targets).then(setPayslipReadiness).catch(() => {});
+            refreshPayslipReadiness(targets);
         } catch (e) {
             setEmailResult({ ok: false, msg: e.message || 'Send failed', deliveries: [] });
+            refreshPayslipReadiness(targets);
+        }
+        setSendingEmails(false);
+    };
+
+    const sendRemainingPayslips = async (channel) => {
+        const list = channel === 'email'
+            ? (payslipMonthReadiness?.remainingEmail || [])
+            : (payslipMonthReadiness?.remainingSms || []);
+        if (!list.length) return;
+        if (!sendPayslipConfirm) {
+            alert('Tick the confirmation box first.');
+            return;
+        }
+        setSendingEmails(true);
+        setEmailResult(null);
+        setPayslipDetailsOpen(false);
+        const [yr2, mo2] = month.split('-');
+        const chunks = [];
+        const ids = list.map((e) => e.id);
+        for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i + 20));
+        let emailCount = 0;
+        let smsCount = 0;
+        let sent = 0;
+        let failed = [];
+        let deliveries = [];
+        try {
+            for (let i = 0; i < chunks.length; i++) {
+                setEmailResult({
+                    ok: true,
+                    progress: true,
+                    msg: `Sending remaining ${channel === 'email' ? 'email' : 'SMS'} ${Math.min(i * 20, ids.length)}/${ids.length}…`,
+                    deliveries: [],
+                });
+                const d = await api.sendPayslipEmails(yr2, mo2, {
+                    employeeIds: chunks[i],
+                    confirm: true,
+                    onlyMissing: channel,
+                });
+                if (d.error) throw new Error(d.error);
+                emailCount += d.emailCount || 0;
+                smsCount += d.smsCount || 0;
+                sent += d.sent || 0;
+                failed = failed.concat(d.failed || []);
+                deliveries = deliveries.concat(d.deliveries || []);
+            }
+            setEmailResult({
+                ok: true,
+                msg: `Remaining ${channel === 'email' ? 'email' : 'SMS'}: delivered ${sent}/${ids.length} — email ${emailCount}, SMS ${smsCount}${failed.length ? `, failed ${failed.length}` : ''}.`,
+                emailCount,
+                smsCount,
+                status: failed.length ? 'partial' : 'sent',
+                deliveries,
+                failed,
+            });
+            setSendPayslipConfirm(false);
+            refreshPayslipReadiness();
+        } catch (e) {
+            setEmailResult({
+                ok: false,
+                msg: e.message || 'Send failed',
+                emailCount,
+                smsCount,
+                deliveries,
+                failed,
+            });
+            refreshPayslipReadiness();
         }
         setSendingEmails(false);
     };
@@ -1229,10 +1313,17 @@ export default function PayrollSheet({ user }) {
         if (!canSendPayslips || !month) return;
         const [yr2, mo2] = month.split('-');
         const ids = [...selectedIds];
-        api.getPayslipReadiness(yr2, mo2, ids)
-            .then(setPayslipReadiness)
-            .catch(() => setPayslipReadiness(null));
+        refreshPayslipReadiness(ids);
     }, [month, canSendPayslips, lockedIds.size, selectedIds.size, payslipReadiness?.paid]);
+
+    useEffect(() => {
+        if (!showSendPayslips) return undefined;
+        const onKey = (e) => {
+            if (e.key === 'Escape') closeSendPayslipsModal();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [showSendPayslips]);
 
     useEffect(() => {
         if (!month) return;
@@ -1325,6 +1416,12 @@ export default function PayrollSheet({ user }) {
         ? rows.filter(r => selectedIds.has(r.emp.id) && !paidIdSet.has(r.emp.id))
             .map(r => ({ id: r.emp.id, name: r.emp.name }))
         : (payslipReadiness?.notPaid || []);
+    const monthDelivery = payslipMonthReadiness || payslipReadiness;
+    const deliveryById = new Map((monthDelivery?.employees || []).map((e) => [e.id, e]));
+    const remainingEmailCount = monthDelivery?.remainingEmail?.length || 0;
+    const remainingSmsCount = monthDelivery?.remainingSms?.length || 0;
+    const hasRemaining = remainingEmailCount > 0 || remainingSmsCount > 0;
+    const channelSent = (status) => String(status || '').startsWith('sent');
 
 
     // Bulk helpers — placed HERE so filtered + rows are already defined
@@ -1771,45 +1868,123 @@ export default function PayrollSheet({ user }) {
 
             {/* Send Payslips Modal */}
             {showSendPayslips && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '2rem' }}>
-                    <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '560px' }}>
-                        <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
-                            <h3 style={{ margin: 0 }}>Send Payslips — {month}</h3>
-                            <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                                Password-protected PDF (CNIC 13 digits, no dashes) via email + SMS PDF link (7 days). No salary/OT amounts in SMS.
-                            </p>
+                <div
+                    className="payslip-send-overlay"
+                    onClick={closeSendPayslipsModal}
+                    onKeyDown={(e) => { if (e.key === 'Escape') closeSendPayslipsModal(); }}
+                    role="presentation"
+                >
+                    <div
+                        className="payslip-send-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="payslip-send-title"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="payslip-send-modal__head">
+                            <div>
+                                <h3 id="payslip-send-title">Send Payslips — {month}</h3>
+                                <p>Password-protected PDF via email + SMS link. No salary/OT amounts in SMS.</p>
+                            </div>
+                            <button type="button" className="payslip-send-modal__x" onClick={closeSendPayslipsModal} aria-label="Close">
+                                <X size={18} />
+                            </button>
                         </div>
-                        <div style={{ padding: '1.5rem 2rem', fontSize: '0.88rem' }}>
+                        <div className="payslip-send-modal__body">
                             <div style={{ background: '#fef3c7', color: '#92400e', padding: '10px 12px', borderRadius: 8, marginBottom: '1rem', fontSize: '0.82rem' }}>
                                 <strong>TRIAL MODE</strong> until Nov 2026 — employees should report issues to ops-support@asil.com.pk
                             </div>
-                            {emailResult ? (
-                                <div>
-                                    <div style={{
-                                        background: emailResult.ok ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
-                                        border: `1px solid ${emailResult.ok ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)'}`,
-                                        color: emailResult.ok ? '#86efac' : '#fca5a5',
-                                        padding: '12px 14px', borderRadius: 8, marginBottom: '1rem',
-                                    }}>
-                                        <strong>{emailResult.ok ? 'Send finished.' : 'Send did not complete.'}</strong>
-                                        <div style={{ marginTop: 6 }}>{emailResult.msg}</div>
-                                        {emailResult.emailCount != null && (
-                                            <div style={{ marginTop: 8 }}>
-                                                <div>Email confirmed: <strong>{emailResult.emailCount}</strong></div>
-                                                <div>SMS confirmed: <strong>{emailResult.smsCount}</strong></div>
-                                            </div>
-                                        )}
+                            {monthDelivery && (
+                                <div className="payslip-delivery-summary">
+                                    <div className="payslip-delivery-summary__title">This month — {month}</div>
+                                    <div className="payslip-delivery-chips">
+                                        <span className={`payslip-ch ${monthDelivery.emailSentCount ? 'payslip-ch--sent' : 'payslip-ch--pending'}`}>
+                                            Email {monthDelivery.emailSentCount || 0}/{monthDelivery.employeeCount || 0}
+                                        </span>
+                                        <span className={`payslip-ch ${monthDelivery.smsSentCount ? 'payslip-ch--sent' : 'payslip-ch--pending'}`}>
+                                            SMS {monthDelivery.smsSentCount || 0}/{monthDelivery.employeeCount || 0}
+                                        </span>
+                                        <span className={`payslip-ch ${remainingEmailCount ? 'payslip-ch--pending' : 'payslip-ch--sent'}`}>
+                                            Remaining email {remainingEmailCount}
+                                        </span>
+                                        <span className={`payslip-ch ${remainingSmsCount ? 'payslip-ch--pending' : 'payslip-ch--sent'}`}>
+                                            Remaining SMS {remainingSmsCount}
+                                        </span>
                                     </div>
-                                    {emailResult.deliveries?.length > 0 && (
-                                        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
-                                            {emailResult.deliveries.map((d) => (
-                                                <li key={d.id} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
-                                                    <div style={{ fontWeight: 700 }}>{d.name || d.id}</div>
-                                                    <div style={{ marginTop: 4, color: String(d.emailStatus).startsWith('sent') ? '#86efac' : d.emailStatus === 'failed' ? '#fca5a5' : '#fbbf24' }}>
-                                                        Email: {String(d.emailStatus).startsWith('sent') ? `sent to ${d.email}` : (d.emailDetail || d.emailStatus || 'not sent')}
+                                    {!emailResult && hasRemaining && (
+                                        <>
+                                            <label className="payslip-remaining-confirm">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={sendPayslipConfirm}
+                                                    onChange={e => setSendPayslipConfirm(e.target.checked)}
+                                                />
+                                                <span>I confirm payroll is locked, bank-paid, and ready to send remaining payslips.</span>
+                                            </label>
+                                            <div className="payslip-remaining-actions">
+                                                <button
+                                                    type="button"
+                                                    className="payslip-remaining-btn"
+                                                    disabled={sendingEmails || remainingEmailCount === 0 || !sendPayslipConfirm}
+                                                    onClick={() => sendRemainingPayslips('email')}
+                                                >
+                                                    {sendingEmails ? 'Sending…' : `Send remaining email (${remainingEmailCount})`}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="payslip-remaining-btn"
+                                                    disabled={sendingEmails || remainingSmsCount === 0 || !sendPayslipConfirm}
+                                                    onClick={() => sendRemainingPayslips('sms')}
+                                                >
+                                                    {sendingEmails ? 'Sending…' : `Send remaining SMS (${remainingSmsCount})`}
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                            {emailResult ? (
+                                <div className={`payslip-send-result ${emailResult.ok ? 'payslip-send-result--ok' : 'payslip-send-result--err'}`}>
+                                    <strong>{emailResult.ok ? 'Send finished.' : 'Send did not complete.'}</strong>
+                                    <p>{emailResult.msg}</p>
+                                    {emailResult.emailCount != null && (
+                                        <p>
+                                            Email {emailResult.emailCount}
+                                            <span className="payslip-delivery-bar__sep">·</span>
+                                            SMS {emailResult.smsCount}
+                                            {emailResult.failed?.length ? (
+                                                <>
+                                                    <span className="payslip-delivery-bar__sep">·</span>
+                                                    Failed {emailResult.failed.length}
+                                                </>
+                                            ) : null}
+                                        </p>
+                                    )}
+                                    {(emailResult.deliveries?.length > 0 || emailResult.failed?.length > 0) && (
+                                        <button
+                                            type="button"
+                                            className="payslip-details-toggle"
+                                            onClick={() => setPayslipDetailsOpen((v) => !v)}
+                                        >
+                                            {payslipDetailsOpen ? 'Hide details' : `View delivered / failed (${emailResult.deliveries?.length || emailResult.failed?.length || 0})`}
+                                        </button>
+                                    )}
+                                    {payslipDetailsOpen && emailResult.deliveries?.length > 0 && (
+                                        <ul className="payslip-result-list">
+                                            {[...emailResult.deliveries]
+                                                .sort((a, b) => {
+                                                    const af = a.emailStatus === 'failed' || a.smsStatus === 'failed' ? 0 : 1;
+                                                    const bf = b.emailStatus === 'failed' || b.smsStatus === 'failed' ? 0 : 1;
+                                                    return af - bf;
+                                                })
+                                                .map((d) => (
+                                                <li key={d.id}>
+                                                    <div className="payslip-delivery-table__name">{d.name || d.id}</div>
+                                                    <div className={channelSent(d.emailStatus) ? 'payslip-ch--sent' : d.emailStatus === 'failed' ? 'payslip-ch--fail' : 'payslip-ch--pending'}>
+                                                        Email: {channelSent(d.emailStatus) ? `sent to ${d.email}` : (d.emailDetail || d.emailStatus || 'not sent')}
                                                     </div>
-                                                    <div style={{ marginTop: 2, color: String(d.smsStatus).startsWith('sent') ? '#86efac' : d.smsStatus === 'failed' ? '#fca5a5' : '#fbbf24' }}>
-                                                        SMS: {String(d.smsStatus).startsWith('sent') ? `sent to ${d.phone}` : (d.smsDetail || d.smsStatus || 'not sent')}
+                                                    <div className={channelSent(d.smsStatus) ? 'payslip-ch--sent' : d.smsStatus === 'failed' ? 'payslip-ch--fail' : 'payslip-ch--pending'}>
+                                                        SMS: {channelSent(d.smsStatus) ? `sent to ${d.phone}` : (d.smsDetail || d.smsStatus || 'not sent')}
                                                     </div>
                                                 </li>
                                             ))}
@@ -1900,15 +2075,59 @@ export default function PayrollSheet({ user }) {
                                             type="checkbox"
                                             checked={sendPayslipConfirm}
                                             onChange={e => setSendPayslipConfirm(e.target.checked)}
-                                            disabled={!payslipReadiness.canSend || unpaidSelectedList.length > 0 || (selectedIds.size === 0 && !sendAllPayslips)}
+                                            disabled={!hasRemaining && (!payslipReadiness.canSend || unpaidSelectedList.length > 0 || (selectedIds.size === 0 && !sendAllPayslips))}
                                         />
                                         <span>I confirm payroll is locked, bank-paid, and ready to send payslips.</span>
                                     </label>
                                 </>
                             )}
+                            {!emailResult && monthDelivery?.employees?.length > 0 && (
+                                <>
+                                    <button
+                                        type="button"
+                                        className="payslip-details-toggle"
+                                        onClick={() => setPayslipDetailsOpen((v) => !v)}
+                                    >
+                                        {payslipDetailsOpen ? 'Hide month status' : `View month Email / SMS status (${monthDelivery.employees.length})`}
+                                    </button>
+                                    {payslipDetailsOpen && (
+                                        <div className="payslip-delivery-table-wrap">
+                                            <table className="payslip-delivery-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Employee</th>
+                                                        <th>Email</th>
+                                                        <th>SMS</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {monthDelivery.employees.map((e) => (
+                                                        <tr key={e.id}>
+                                                            <td>
+                                                                <div className="payslip-delivery-table__name">{e.name}</div>
+                                                                <div className="payslip-delivery-table__id">{e.id}</div>
+                                                            </td>
+                                                            <td>
+                                                                <span className={`payslip-ch ${channelSent(e.emailStatus) ? 'payslip-ch--sent' : e.emailStatus === 'failed' ? 'payslip-ch--fail' : 'payslip-ch--pending'}`}>
+                                                                    Email {channelSent(e.emailStatus) ? 'sent' : (e.hasEmail ? (e.emailStatus === 'none' ? 'not sent' : e.emailStatus) : 'no address')}
+                                                                </span>
+                                                            </td>
+                                                            <td>
+                                                                <span className={`payslip-ch ${channelSent(e.smsStatus) ? 'payslip-ch--sent' : e.smsStatus === 'failed' ? 'payslip-ch--fail' : 'payslip-ch--pending'}`}>
+                                                                    SMS {channelSent(e.smsStatus) ? 'sent' : (e.hasPhone ? (e.smsStatus === 'none' ? 'not sent' : e.smsStatus) : 'no phone')}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </>
+                            )}
                         </div>
-                        <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-                            <button type="button" onClick={() => { setShowSendPayslips(false); setEmailResult(null); }} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>{emailResult ? 'Close' : 'Cancel'}</button>
+                        <div className="payslip-send-modal__footer">
+                            <button type="button" className="payslip-send-modal__close" onClick={closeSendPayslipsModal}>{emailResult ? 'Close' : 'Cancel'}</button>
                             {!emailResult && (
                             <button
                                 type="button"
@@ -2167,6 +2386,27 @@ export default function PayrollSheet({ user }) {
                 </div>
             )}
 
+            {canSendPayslips && monthDelivery && (
+                <div className="payslip-delivery-bar">
+                    <div className="payslip-delivery-bar__item">
+                        <span className="payslip-delivery-bar__label">Payslips {month}</span>
+                        <span className="payslip-delivery-bar__value">
+                            Email {monthDelivery.emailSentCount || 0}/{monthDelivery.employeeCount || 0}
+                            <span className="payslip-delivery-bar__sep">·</span>
+                            SMS {monthDelivery.smsSentCount || 0}/{monthDelivery.employeeCount || 0}
+                        </span>
+                    </div>
+                    <div className="payslip-delivery-bar__item">
+                        <span className="payslip-delivery-bar__label">Still to send</span>
+                        <span className={`payslip-delivery-bar__value${hasRemaining ? ' payslip-delivery-bar__value--warn' : ''}`}>
+                            Email {remainingEmailCount}
+                            <span className="payslip-delivery-bar__sep">·</span>
+                            SMS {remainingSmsCount}
+                        </span>
+                    </div>
+                </div>
+            )}
+
             {/* Table */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', marginBottom: '1.25rem' }}>
                 <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 280px)', position: 'relative' }}>
@@ -2293,6 +2533,26 @@ export default function PayrollSheet({ user }) {
                                                             }}>
                                                             locked {isEmpLocked ? '✓' : '—'} / paid {isEmpPaid ? '✓' : '—'}
                                                         </span>
+                                                        {(() => {
+                                                            const del = deliveryById.get(emp.id);
+                                                            if (!del) return null;
+                                                            return (
+                                                                <>
+                                                                    <span
+                                                                        className={`payslip-ch ${channelSent(del.emailStatus) ? 'payslip-ch--sent' : 'payslip-ch--pending'}`}
+                                                                        title={channelSent(del.emailStatus) ? 'Email sent this month' : 'Email not sent this month'}
+                                                                    >
+                                                                        Email {channelSent(del.emailStatus) ? '✓' : '—'}
+                                                                    </span>
+                                                                    <span
+                                                                        className={`payslip-ch ${channelSent(del.smsStatus) ? 'payslip-ch--sent' : 'payslip-ch--pending'}`}
+                                                                        title={channelSent(del.smsStatus) ? 'SMS sent this month' : 'SMS not sent this month'}
+                                                                    >
+                                                                        SMS {channelSent(del.smsStatus) ? '✓' : '—'}
+                                                                    </span>
+                                                                </>
+                                                            );
+                                                        })()}
                                                         {(() => {
                                                             const isInvoiced =
                                                                 invoiceStatus.invoicedClients.includes((emp.client || '').toLowerCase()) ||

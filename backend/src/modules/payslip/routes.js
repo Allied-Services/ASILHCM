@@ -79,7 +79,7 @@ function registerPayslipRoutes(app, deps) {
     app.post('/api/payroll/:year/:month/send-payslips', requireAuth, requireRole('finance_manager', 'finance_approver', 'payroll_initiator', 'superadmin'), async (req, res) => {
         try {
             const { year, month } = req.params;
-            const { employeeIds = [], confirm = false, forceResend = false, sendAll = false } = req.body || {};
+            const { employeeIds = [], confirm = false, forceResend = false, sendAll = false, onlyMissing = null } = req.body || {};
             const isSuper = req.user?.role === 'superadmin';
             const result = await sendPayslips(pool, mailDeps, {
                 year,
@@ -88,6 +88,7 @@ function registerPayslipRoutes(app, deps) {
                 confirm: !!confirm,
                 forceResend: !!forceResend,
                 sendAll: !!sendAll,
+                onlyMissing,
                 actorEmail: req.user?.email,
                 destEmail: isSuper ? req.body?.destEmail : undefined,
                 destPhone: isSuper ? req.body?.destPhone : undefined,
