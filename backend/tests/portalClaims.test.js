@@ -30,7 +30,7 @@ describe('portalClaims helpers', () => {
         assert.equal(w.claimYear, 2026);
         assert.equal(w.settlementMonth, 8);
         assert.equal(w.settlementYear, 2026);
-        assert.equal(FILL_CLOSE_DAY, 17);
+        assert.equal(FILL_CLOSE_DAY, 18);
         assert.equal(APPROVE_CLOSE_DAY, 22);
     });
 
@@ -39,7 +39,7 @@ describe('portalClaims helpers', () => {
         const w = periodWindowFromClaim(2026, 7);
         assert.equal(w.claimMonth, 7);
         assert.equal(w.settlementMonth, 8);
-        assert.equal(w.fillCloseAt.getUTCDate(), 17);
+        assert.equal(w.fillCloseAt.getUTCDate(), 18);
         assert.equal(w.approveCloseAt.getUTCDate(), 22);
         assert.equal(w.fillOpenAt.getUTCDate(), 1);
     });
