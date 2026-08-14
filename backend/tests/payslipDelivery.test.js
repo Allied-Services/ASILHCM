@@ -1,5 +1,9 @@
 'use strict';
 
+jest.mock('../src/modules/payslip/pdfProtect', () => ({
+    buildProtectedPayslipPdf: jest.fn(async () => Buffer.from('%PDF-fake')),
+}));
+
 const { buildWorldAPayslipData, normalizeCnic } = require('../src/modules/payslip/dataBuilder');
 const { buildSmsMessage, payslipPdfLink, backendBase } = require('../src/modules/payslip/service');
 const { renderPayslipHtml } = require('../src/modules/payslip/template');
@@ -273,5 +277,149 @@ describe('getPayslipReadiness per-employee paid', () => {
         expect(r.canSend).toBe(false);
         expect(r.allLocked).toBe(true);
         expect(r.paidIds).toEqual(['E1']);
+        expect(r.emailSentCount).toBe(0);
+        expect(r.smsSentCount).toBe(0);
+        expect(r.remainingEmail).toEqual([{ id: 'E1', name: 'Paid Emp' }]);
+        expect(r.needsForceResend).toBe(false);
+    });
+
+    test('counts Email/SMS sent and remaining from latest delivery log', async () => {
+        const pool = {
+            query: jest.fn(async (sql) => {
+                const s = String(sql);
+                if (s.includes('COUNT(*)::int AS total')) {
+                    return { rows: [{ total: 2, locked_count: 2 }] };
+                }
+                if (s.includes('FROM payment_ledger')) {
+                    return { rows: [{ employee_id: 'E1' }, { employee_id: 'E2' }] };
+                }
+                if (s.includes('FROM payroll_transactions pt') && s.includes('JOIN employees e')) {
+                    return { rows: [
+                        { id: 'E1', name: 'Has Email', email: 'a@x.test', phone: '03001111111', cnic: '4210111111111', locked: true },
+                        { id: 'E2', name: 'Sms Only', email: 'N/A', phone: '03002222222', cnic: '4210122222222', locked: true },
+                    ] };
+                }
+                if (s.includes('FROM payslip_delivery_batches')) {
+                    return { rows: [{ id: 1, status: 'sent', sent_at: '2026-08-14T20:00:00Z' }] };
+                }
+                if (s.includes('DISTINCT ON (l.employee_id)')) {
+                    return { rows: [
+                        { employee_id: 'E1', email_status: 'sent', sms_status: 'skipped' },
+                        { employee_id: 'E2', email_status: 'skipped', sms_status: 'sent' },
+                    ] };
+                }
+                return { rows: [] };
+            }),
+        };
+        const r = await getPayslipReadiness(pool, 2026, 7, []);
+        expect(r.emailSentCount).toBe(1);
+        expect(r.smsSentCount).toBe(1);
+        expect(r.alreadyDeliveredCount).toBe(2);
+        expect(r.remainingEmail).toEqual([]);
+        expect(r.remainingSms.map((e) => e.id)).toEqual(['E1']);
+        expect(r.needsForceResend).toBe(false);
+        expect(r.employees.find((e) => e.id === 'E1').emailStatus).toBe('sent');
+        expect(r.employees.find((e) => e.id === 'E2').smsStatus).toBe('sent');
+    });
+});
+
+describe('sendPayslips remaining channel', () => {
+    const { sendPayslips } = require('../src/modules/payslip/service');
+
+    function mockPool({ lockRows, paidIds, employees, batch, deliveries, targets }) {
+        return {
+            query: jest.fn(async (sql) => {
+                const s = String(sql);
+                if (s.includes('SELECT employee_id, locked')) {
+                    return { rows: lockRows };
+                }
+                if (s.includes('FROM payment_ledger')) {
+                    return { rows: paidIds.map((employee_id) => ({ employee_id })) };
+                }
+                if (s.includes('COUNT(*)::int AS total')) {
+                    return { rows: [{ total: employees.length, locked_count: employees.length }] };
+                }
+                if (s.includes('AS phone')) {
+                    return { rows: employees };
+                }
+                if (s.includes('FROM payslip_delivery_batches') && s.includes('SELECT id, status')) {
+                    return { rows: batch ? [batch] : [] };
+                }
+                if (s.includes('DISTINCT ON (l.employee_id)')) {
+                    return { rows: deliveries };
+                }
+                if (s.includes('INSERT INTO payslip_delivery_batches')) {
+                    return { rows: [{ id: 99 }] };
+                }
+                if (s.includes('FROM payroll_transactions pt') && s.includes('e.primary_contact')) {
+                    return { rows: targets };
+                }
+                if (s.includes('INSERT INTO payslip_documents')) {
+                    return { rows: [{ id: 1, pdf_bytes: Buffer.from('pdf') }] };
+                }
+                if (s.includes('INSERT INTO payslip_delivery_log')) {
+                    return { rows: [] };
+                }
+                if (s.includes('WITH latest AS')) {
+                    return { rows: [{ delivered: 1, email_count: 1, sms_count: 0, failed_count: 0 }] };
+                }
+                if (s.includes('UPDATE payslip_delivery_batches')) {
+                    return { rows: [] };
+                }
+                if (s.includes('SET paid_on')) {
+                    return { rows: [] };
+                }
+                if (s.includes('eosb_type')) {
+                    return { rows: [{ eosb_type: 'None' }] };
+                }
+                return { rows: [] };
+            }),
+        };
+    }
+
+    const empRow = {
+        id: 'E1', name: 'Emp 1', email: 'e1@x.test', primary_contact: '03001234567',
+        phone: '03001234567', cnic: '4210112345678', designation: 'Guard',
+        client: 'C', location: 'Karachi', bank_name: 'HBL', bank_account: '1',
+        contract_name: 'CTR', salary: 40000, locked: true,
+        paid_days: 31, gross: 40000, net: 38000, ot2_hrs: 0, ot3_hrs: 0,
+        opd_claim: 0, reimbursement: 0, arrears: 0, special_allowance: 0,
+        fuel_mobile: 0, bonus_amount: 0, wht: 0, eobi_ee: 400,
+        advance_deduction: 0, loan_deduction: 0, other_deduction: 0,
+        year: 2026, month: 7, computed_json: null,
+    };
+
+    test('blocks send-all only when no remaining email or SMS', async () => {
+        const pool = mockPool({
+            lockRows: [{ employee_id: 'E1', locked: true }],
+            paidIds: ['E1'],
+            employees: [{ ...empRow, phone: '03001234567' }],
+            batch: { id: 1, status: 'sent', sent_at: '2026-08-14' },
+            deliveries: [{ employee_id: 'E1', email_status: 'sent', sms_status: 'sent' }],
+            targets: [empRow],
+        });
+        await expect(sendPayslips(pool, {}, {
+            year: 2026, month: 7, confirm: true, employeeIds: [], sendAll: true,
+        })).rejects.toMatchObject({ code: 'ALREADY_SENT' });
+    });
+
+    test('onlyMissing email is allowed when SMS already went out', async () => {
+        const sendAppEmail = jest.fn(async () => ({ ok: true }));
+        const sendJazzSMS = jest.fn(async () => ({ ok: true }));
+        const pool = mockPool({
+            lockRows: [{ employee_id: 'E1', locked: true }],
+            paidIds: ['E1'],
+            employees: [{ ...empRow, phone: '03001234567' }],
+            batch: { id: 1, status: 'sent', sent_at: '2026-08-14' },
+            deliveries: [{ employee_id: 'E1', email_status: 'skipped', sms_status: 'sent' }],
+            targets: [empRow],
+        });
+        const result = await sendPayslips(pool, { sendAppEmail, sendJazzSMS }, {
+            year: 2026, month: 7, confirm: true, employeeIds: ['E1'], onlyMissing: 'email',
+        });
+        expect(result.ok).toBe(true);
+        expect(sendAppEmail).toHaveBeenCalledTimes(1);
+        expect(sendJazzSMS).not.toHaveBeenCalled();
+        expect(result.deliveries[0].smsDetail).toBe('channel_not_requested');
     });
 });
