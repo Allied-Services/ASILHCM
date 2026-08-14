@@ -50,4 +50,10 @@ describe('POST /api/ap/payroll-queue confirm SQL shape', () => {
         expect(block).toMatch(/employee_ids/);
         expect(block).toMatch(/already_paid/);
     });
+
+    test('resolves modal bank slugs before writing integer bank_id', () => {
+        expect(block).toMatch(/resolvePaymentBatchBankId/);
+        expect(block).toMatch(/bankIdInt/);
+        expect(block).not.toMatch(/,\s*bank_id\|\|null/);
+    });
 });

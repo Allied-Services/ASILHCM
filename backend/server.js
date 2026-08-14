@@ -21,6 +21,7 @@ const { isJazzProxyConfigured, jazzProxyLogLabel } = require('./lib/jazz_http_tr
 const { canApproveBill } = require('./src/modules/procurement/service');
 const { getLeavePolicy } = require('./src/modules/leave/service');
 const cutover = require('./src/core/cutover');
+const { resolvePaymentBatchBankId } = require('./src/core/paymentBankId');
 const wafiApproval = require('./src/modules/wafiClaims/approvalService');
 const {
     isValidEmail,
@@ -4445,6 +4446,8 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
         const { bank_id, bank_name, payment_date, reference_no, notes, push_to_xero = false,
                 client_filter, contract_filter, employee_ids } = req.body;
         const yr = parseInt(year), mo = parseInt(month);
+        // Modal sends slugs ('hbl'/'nbp'); column is INTEGER — never write the slug.
+        const bankIdInt = await resolvePaymentBatchBankId(pool, bank_id, bank_name);
 
         // Partial payment: AP can confirm a subset of the locked scope (e.g. 10 of 305).
         const selectedIds = Array.isArray(employee_ids)
@@ -4532,7 +4535,7 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
                     notes=$6, status='Confirmed', updated_at=NOW()
                 WHERE id=$1
                 RETURNING *
-            `, [batchRows[0].id, bank_id||null, bank_name||null, payment_date||null,
+            `, [batchRows[0].id, bankIdInt, bank_name||null, payment_date||null,
                 reference_no||null, notes||null]);
             batchRows = upd.rows;
         } else {
@@ -4544,7 +4547,7 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
                          total_amount, employee_count, notes, status, created_by, client, contract_name)
                     VALUES ($1,'PAYROLL',$2,$3,$4,$5,$6,$7,$8,$9,$10,'Confirmed',$11,$12,$13)
                     RETURNING *
-                `, [batchId, yr, mo, bank_id||null, bank_name||null, payment_date||null, reference_no||null,
+                `, [batchId, yr, mo, bankIdInt, bank_name||null, payment_date||null, reference_no||null,
                     newTotal, toPay.length, notes||null, req.user.email,
                     client_filter||null, contract_filter||null]);
                 batchRows = ins.rows;
@@ -4574,7 +4577,7 @@ app.post('/api/ap/payroll-queue/:year/:month/confirm', requireAuth, requireRole(
                         notes=$6, status='Confirmed', updated_at=NOW()
                     WHERE id=$1
                     RETURNING *
-                `, [fallback.rows[0].id, bank_id||null, bank_name||null, payment_date||null,
+                `, [fallback.rows[0].id, bankIdInt, bank_name||null, payment_date||null,
                     reference_no||null, notes||null]);
                 batchRows = upd.rows;
             }
@@ -4697,6 +4700,7 @@ app.post('/api/ap/bills/:id/confirm', requireAuth, requireRole('ap_team','financ
         const bill = await pool.query('SELECT * FROM bills WHERE id=$1', [req.params.id]);
         if (!bill.rows.length) return res.status(404).json({ error: 'Bill not found' });
         const b = bill.rows[0];
+        const bankIdInt = await resolvePaymentBatchBankId(pool, bank_id, bank_name);
 
         const batchId = `BB-${b.id}-${Date.now()}`;
         const { rows: batchRows } = await pool.query(`
@@ -4705,7 +4709,7 @@ app.post('/api/ap/bills/:id/confirm', requireAuth, requireRole('ap_team','financ
                  total_amount, notes, status, created_by)
             VALUES ($1,'BILL',$2,$3,$4,$5,$6,$7,$8,'Confirmed',$9)
             RETURNING *
-        `, [batchId, b.id, bank_id||null, bank_name||null, payment_date||null, reference_no||null,
+        `, [batchId, b.id, bankIdInt, bank_name||null, payment_date||null, reference_no||null,
             parseFloat(b.total)||0, notes||null, req.user.email]);
 
         // Add to payment ledger
