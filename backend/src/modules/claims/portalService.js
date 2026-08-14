@@ -478,8 +478,8 @@ async function listEligibleEmployees(pool) {
 }
 
 async function createCampaign(pool, {
-    campaignMonth, campaignYear, claimMonth, claimYear, sendAppEmail, dryRun = false, onlyEmails = null,
-    campaignMode = 'actual', testPackFour = false,
+    campaignMonth, campaignYear, claimMonth, claimYear, sendAppEmail, dryRun = false, preview = false,
+    onlyEmails = null, onlyEmployeeIds = null, campaignMode = 'actual', testPackFour = false,
 }) {
     let period;
     if (claimMonth && claimYear) {
@@ -493,7 +493,9 @@ async function createCampaign(pool, {
         campaignYear,
         sendAppEmail,
         dryRun,
+        preview,
         onlyEmails,
+        onlyEmployeeIds,
         campaignMode,
         testPackFour,
         FRONTEND_URL,

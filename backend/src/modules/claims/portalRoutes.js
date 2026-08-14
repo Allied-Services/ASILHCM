@@ -200,6 +200,7 @@ function registerPortalClaimsRoutes(app, deps) {
             const claimYear = parseInt(req.body?.claimYear || req.body?.year || now.getFullYear(), 10);
             const dryRun = !!req.body?.dryRun;
             const onlyEmails = Array.isArray(req.body?.onlyEmails) ? req.body.onlyEmails : null;
+            const onlyEmployeeIds = Array.isArray(req.body?.onlyEmployeeIds) ? req.body.onlyEmployeeIds : null;
             const campaignMode = String(req.body?.campaignMode || 'sample').toLowerCase() === 'actual' ? 'actual' : 'sample';
             const testPackFour = !!req.body?.testPackFour;
 
@@ -213,11 +214,43 @@ function registerPortalClaimsRoutes(app, deps) {
             }
 
             const result = await portal.createCampaign(pool, {
-                claimMonth, claimYear, sendAppEmail, dryRun, onlyEmails, campaignMode, testPackFour,
+                claimMonth, claimYear, sendAppEmail, dryRun, onlyEmails, onlyEmployeeIds, campaignMode, testPackFour,
             });
             res.json(result);
         } catch (err) {
             handleRouteError(res, 'portalClaims.campaign', err);
+        }
+    });
+
+    app.post('/api/portal-claims/campaign/preview', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+        try {
+            const now = new Date();
+            const claimMonth = parseInt(req.body?.claimMonth || req.body?.month || now.getMonth(), 10);
+            const claimYear = parseInt(req.body?.claimYear || req.body?.year || now.getFullYear(), 10);
+            const onlyEmails = Array.isArray(req.body?.onlyEmails) ? req.body.onlyEmails : null;
+            const onlyEmployeeIds = Array.isArray(req.body?.onlyEmployeeIds) ? req.body.onlyEmployeeIds : null;
+            const campaignMode = String(req.body?.campaignMode || 'sample').toLowerCase() === 'actual' ? 'actual' : 'sample';
+            const testPackFour = !!req.body?.testPackFour;
+            const sampleEmail = process.env.CLAIMS_SAMPLE_EMAIL || process.env.CLAIMS_TEST_EMAIL || '';
+            const result = await portal.createCampaign(pool, {
+                claimMonth, claimYear, sendAppEmail: null, dryRun: true, preview: true,
+                onlyEmails, onlyEmployeeIds, campaignMode, testPackFour,
+            });
+            res.json({
+                period: result.period,
+                campaignMode: result.campaignMode,
+                summary: result.summary || { recipientCount: 0, employeeCount: 0, byProfile: {} },
+                recipients: result.recipients || [],
+                employees: result.employees || [],
+                skipped: result.skipped || [],
+                gates: {
+                    actualSendAllowed: process.env.CLAIMS_ALLOW_ACTUAL_SEND === 'true',
+                    sampleEmailConfigured: String(sampleEmail).includes('@'),
+                    sampleEmail: String(sampleEmail).includes('@') ? String(sampleEmail).trim().toLowerCase() : null,
+                },
+            });
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.campaignPreview', err);
         }
     });
 

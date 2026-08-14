@@ -206,9 +206,14 @@ async function previewRuleMatch(pool, ruleId) {
 async function countEligibleEmployees(pool) {
     const rules = await loadEligibilityRules(pool);
     const { rows: emps } = await pool.query(
-        `SELECT id, name, email, claim_authority, supervisor_email, line_manager_email, client, location, dept, salary, contract_id
-         FROM employees
-         WHERE (last_working_day IS NULL OR last_working_day >= CURRENT_DATE)`
+        `SELECT e.id, e.name, e.email, e.claim_authority, e.supervisor_email, e.line_manager_email,
+                e.client,
+                COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) AS location,
+                e.dept, e.salary, e.contract_id,
+                COALESCE(c.contract_name, e.contract_name) AS contract_name
+         FROM employees e
+         LEFT JOIN contracts c ON c.id::text = e.contract_id::text
+         WHERE (e.last_working_day IS NULL OR e.last_working_day >= CURRENT_DATE)`
     );
     const eligible = [];
     const skipped = [];
@@ -216,13 +221,27 @@ async function countEligibleEmployees(pool) {
         if (!isActiveEmployee(e)) continue;
         const elig = await evaluateEmployeeEligibility(pool, e, rules);
         if (!elig.eligible) {
-            skipped.push({ employee_id: e.id, reason: elig.ruleName || 'Not eligible' });
+            skipped.push({
+                employee_id: e.id,
+                name: e.name,
+                client: e.client,
+                dept: e.dept,
+                reason: elig.ruleName || 'Not eligible',
+                category: 'not_eligible',
+            });
             continue;
         }
         const routing = resolveClaimsRouting(e);
         const cat = resolveClaimsCategory(e, elig);
         if (cat.category === 'Setup needed') {
-            skipped.push({ employee_id: e.id, reason: 'Setup needed — missing email' });
+            skipped.push({
+                employee_id: e.id,
+                name: e.name,
+                client: e.client,
+                dept: e.dept,
+                reason: 'Setup needed — missing email',
+                category: 'setup_needed',
+            });
             continue;
         }
         eligible.push({

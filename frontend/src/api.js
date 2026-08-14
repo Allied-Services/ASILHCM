@@ -656,6 +656,7 @@ export const api = {
     // ── Portal Claims ────────────────────────────────────────────────────────────
     portalClaimsList: (q = {}) => apiFetch('/api/portal-claims/admin/list?' + new URLSearchParams(q).toString()),
     portalClaimsCampaign: (data) => apiFetch('/api/portal-claims/campaign', { method: 'POST', body: JSON.stringify(data) }),
+    portalClaimsCampaignPreview: (data) => apiFetch('/api/portal-claims/campaign/preview', { method: 'POST', body: JSON.stringify(data) }),
     portalClaimsNotifyApprovers: (periodId, month, year) => apiFetch('/api/portal-claims/notify-approvers', {
         method: 'POST',
         body: JSON.stringify({ periodId: periodId || undefined, month, year }),
