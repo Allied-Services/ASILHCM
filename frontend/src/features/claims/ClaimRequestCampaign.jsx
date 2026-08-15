@@ -300,6 +300,12 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
               SAMPLE inbox: {gates.sampleEmailConfigured ? gates.sampleEmail : 'not configured (CLAIMS_SAMPLE_EMAIL)'}
               {' · '}
               ACTUAL send: {gates.actualSendAllowed ? 'allowed' : 'blocked until CLAIMS_ALLOW_ACTUAL_SEND=true'}
+              {Array.isArray(gates.monitorCc) && gates.monitorCc.length > 0 && (
+                <>
+                  {' · '}
+                  CC: {gates.monitorCc.join(', ')}
+                </>
+              )}
             </div>
           )}
 
@@ -388,6 +394,9 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
                   <>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>Email preview</div>
                     <div style={{ fontSize: 13, marginBottom: 4 }}><strong>To:</strong> {activeRecipient.mailTo}</div>
+                    {(activeRecipient.cc || gates.monitorCc || []).length > 0 && (
+                      <div style={{ fontSize: 13, marginBottom: 4 }}><strong>CC:</strong> {(activeRecipient.cc || gates.monitorCc).join(', ')}</div>
+                    )}
                     {activeRecipient.sampleRedirect && (
                       <div style={{ fontSize: 12, color: '#fcd34d', marginBottom: 4 }}>Would go to {activeRecipient.fillerEmail}</div>
                     )}

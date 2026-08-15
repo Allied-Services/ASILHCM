@@ -2,12 +2,50 @@
 
 const crypto = require('crypto');
 
+const DEFAULT_MONITOR_CC = 'claims@asil.com.pk';
+const DEFAULT_MONITOR_CC_UNTIL = '2026-11-15';
+
 function getSampleEmail() {
     const v = process.env.CLAIMS_SAMPLE_EMAIL || process.env.CLAIMS_TEST_EMAIL;
     if (!v || !String(v).includes('@')) {
         throw new Error('FATAL: CLAIMS_SAMPLE_EMAIL env var is not set (required for SAMPLE-mode sends).');
     }
     return String(v).trim().toLowerCase();
+}
+
+function normalizeEmailList(v) {
+    if (v == null || v === '') return [];
+    const arr = Array.isArray(v) ? v : String(v).split(/[,;]/);
+    return [...new Set(arr.map((s) => String(s || '').trim().toLowerCase()).filter((s) => s.includes('@')))];
+}
+
+/** Ops inbox copy while the August claims rollout is being proven. Empty CLAIMS_MONITOR_CC disables. */
+function getClaimsMonitorCc(now = new Date()) {
+    if (process.env.CLAIMS_MONITOR_CC === '') return [];
+    const untilRaw = process.env.CLAIMS_MONITOR_CC_UNTIL || DEFAULT_MONITOR_CC_UNTIL;
+    if (untilRaw) {
+        const until = new Date(`${untilRaw}T23:59:59+05:00`);
+        if (!Number.isNaN(until.getTime()) && now > until) return [];
+    }
+    const raw = process.env.CLAIMS_MONITOR_CC;
+    const list = raw && String(raw).includes('@') ? raw : DEFAULT_MONITOR_CC;
+    return normalizeEmailList(list);
+}
+
+function mergeClaimsMonitorCc(opts = {}, now = new Date()) {
+    const monitor = getClaimsMonitorCc(now);
+    const to = normalizeEmailList(opts.to);
+    const existing = normalizeEmailList(opts.cc);
+    const cc = [...new Set([...existing, ...monitor])].filter((e) => !to.includes(e));
+    return cc;
+}
+
+function withClaimsMonitorCc(sendAppEmail) {
+    if (typeof sendAppEmail !== 'function') return sendAppEmail;
+    return async function sendWithMonitorCc(opts) {
+        const cc = mergeClaimsMonitorCc(opts);
+        return sendAppEmail(cc.length ? { ...opts, cc } : opts);
+    };
 }
 
 function linkSecret() {
@@ -67,6 +105,11 @@ function canInjectPayroll(period) {
 
 module.exports = {
     getSampleEmail,
+    getClaimsMonitorCc,
+    mergeClaimsMonitorCc,
+    withClaimsMonitorCc,
+    DEFAULT_MONITOR_CC,
+    DEFAULT_MONITOR_CC_UNTIL,
     stableFillerToken,
     hashToken,
     resolveOutboundEmail,
