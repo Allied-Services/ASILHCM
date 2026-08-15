@@ -11,6 +11,7 @@ const {
     sampleSubjectPrefix,
     sampleBodyBanner,
     isSamplePeriod,
+    getClaimsMonitorCc,
 } = require('./claimsMail');
 
 function buildShortFillerInviteHtml({
@@ -137,7 +138,8 @@ function buildInvitePayload({
             employees: emps, routingProfile, approverSummary, roleLabel, intendedEmail: fillerEmail,
         });
     const subject = `${sampleSubjectPrefix(period, roleLabel)}ASIL Claims ${period.claim_month}/${period.claim_year} — ${emps.length} employee(s)`;
-    return { token, tokenHash, link, mail, html, subject, approverSummary };
+    const cc = getClaimsMonitorCc();
+    return { token, tokenHash, link, mail, html, subject, approverSummary, cc };
 }
 
 function mapPreviewEmployee(e) {
@@ -270,6 +272,7 @@ async function createCampaignAugust(pool, {
                 subject: payload.subject,
                 link: payload.link,
                 html: payload.html,
+                cc: payload.cc,
                 template: cohortType === 'employee' ? 'employee' : 'focal',
             });
             continue;
@@ -314,6 +317,7 @@ async function createCampaignAugust(pool, {
                         to: payload.mail.to,
                         subject: payload.subject,
                         html: payload.html,
+                        cc: payload.cc,
                     });
                 } catch (err) {
                     await pool.query(`UPDATE portal_claim_batches SET invite_delivered = FALSE WHERE id = $1`, [batch.id]);

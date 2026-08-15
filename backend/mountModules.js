@@ -116,7 +116,8 @@ async function bootstrapRestructure(deps) {
         'portal.claims.reminders': async () => {
             const portalClaims = require('./src/modules/claims/portalService');
             await portalClaims.autoCloseNoClaims(pool);
-            return portalClaims.sendReminders(pool, sendAppEmail);
+            const { withClaimsMonitorCc } = require('./src/modules/claims/claimsMail');
+            return portalClaims.sendReminders(pool, withClaimsMonitorCc(sendAppEmail));
         },
     });
 

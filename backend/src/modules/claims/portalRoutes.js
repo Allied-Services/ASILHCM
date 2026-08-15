@@ -3,6 +3,7 @@
 const path = require('path');
 const { handleRouteError } = require('../../core/validate');
 const portal = require('./portalService');
+const { withClaimsMonitorCc, getClaimsMonitorCc } = require('./claimsMail');
 
 function hasManualOverridePerm(user) {
     if (!user) return false;
@@ -21,7 +22,8 @@ function hasManualOverridePerm(user) {
 }
 
 function registerPortalClaimsRoutes(app, deps) {
-    const { pool, requireAuth, requireRole, sendAppEmail } = deps;
+    const { pool, requireAuth, requireRole } = deps;
+    const sendAppEmail = withClaimsMonitorCc(deps.sendAppEmail);
 
     // ── Public filler ─────────────────────────────────────────────────────────
     app.get('/api/portal-claims/fill/:token', async (req, res) => {
@@ -247,6 +249,7 @@ function registerPortalClaimsRoutes(app, deps) {
                     actualSendAllowed: process.env.CLAIMS_ALLOW_ACTUAL_SEND === 'true',
                     sampleEmailConfigured: String(sampleEmail).includes('@'),
                     sampleEmail: String(sampleEmail).includes('@') ? String(sampleEmail).trim().toLowerCase() : null,
+                    monitorCc: getClaimsMonitorCc(),
                 },
             });
         } catch (err) {

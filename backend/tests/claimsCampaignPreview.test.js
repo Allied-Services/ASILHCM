@@ -40,6 +40,8 @@ describe('createCampaignAugust preview', () => {
     beforeEach(() => {
         pool.query.mockReset();
         process.env.CLAIMS_SAMPLE_EMAIL = 'shezad.mumtaz@asil.com.pk';
+        delete process.env.CLAIMS_MONITOR_CC;
+        delete process.env.CLAIMS_MONITOR_CC_UNTIL;
         countEligibleEmployees.mockResolvedValue({
             eligible: [FOCAL, EMP],
             skipped: [],
@@ -63,6 +65,7 @@ describe('createCampaignAugust preview', () => {
         const focal = result.recipients.find(r => r.template === 'focal');
         const emp = result.recipients.find(r => r.template === 'employee');
         expect(focal.mailTo).toBe('focal@wafi.example');
+        expect(focal.cc).toEqual(['claims@asil.com.pk']);
         expect(focal.sampleRedirect).toBe(false);
         expect(focal.subject).toMatch(/ASIL Claims 8\/2026/);
         expect(focal.html).toContain('FOCAL focal@wafi.example');

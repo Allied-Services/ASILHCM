@@ -622,6 +622,14 @@ August send is late (15th). Focal/employee submit close is now day **18**; LM ap
 
 ---
 
+### 2026-08-15 — Portal claims monitor CC (`claims@asil.com.pk`)
+
+Every portal-claims email (campaign invite, reminder, LM pack, submit record, decision notice) CCs `claims@asil.com.pk` while the August rollout is being proven. Default on until **2026-11-15**. Set `CLAIMS_MONITOR_CC=` (empty) to disable, or extend `CLAIMS_MONITOR_CC_UNTIL`. Preview UI shows the CC line.
+
+**Env vars needed:** none required (default is on). Optional on Render: `CLAIMS_MONITOR_CC`, `CLAIMS_MONITOR_CC_UNTIL`.
+
+---
+
 ## Cursor Cloud specific instructions
 
 Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency install (`npm install` in `backend/` and `frontend/`) is handled by the environment update script; this section only covers the non-obvious startup/run caveats. Standard commands live in `backend/package.json` / `frontend/package.json` and `backend/.env.example` — refer to those; only the gotchas are repeated here.
