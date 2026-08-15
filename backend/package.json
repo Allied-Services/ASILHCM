@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node --max-old-space-size=400 server.js",
     "worker": "node worker.js",
-    "dev": "node server.js",
+    "dev": "node -r dotenv/config server.js",
     "migrate": "node src/core/runMigrations.js",
     "migrate:up": "node src/core/runMigrations.js up",
     "test": "jest --runInBand --forceExit",
