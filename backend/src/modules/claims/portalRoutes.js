@@ -283,6 +283,41 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
+    app.get('/api/portal-claims/admin/response', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'payroll_initiator', 'payroll'), async (req, res) => {
+        try {
+            const result = await portal.getResponseBoard(pool, {
+                workMonth: req.query.workMonth || req.query.month,
+                workYear: req.query.workYear || req.query.year,
+                payMonth: req.query.payMonth,
+                payYear: req.query.payYear,
+                client: req.query.client || '',
+                contract: req.query.contract || '',
+                location: req.query.location || '',
+                dept: req.query.dept || '',
+            });
+            if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.response', err);
+        }
+    });
+
+    app.post('/api/portal-claims/admin/import-if-empty', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+        try {
+            const employeeId = String(req.body?.employeeId || '').trim();
+            const workMonth = parseInt(req.body?.workMonth, 10);
+            const workYear = parseInt(req.body?.workYear, 10);
+            if (!employeeId || !workMonth || !workYear) {
+                return res.status(400).json({ error: 'employeeId, workMonth, workYear required' });
+            }
+            const result = await portal.importIfSheetEmpty(pool, { employeeId, workMonth, workYear });
+            if (!result.ok) return res.status(result.status || 400).json(result);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.importIfEmpty', err);
+        }
+    });
+
     app.get('/api/portal-claims/admin/tieout', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
         try {
             const month = parseInt(req.query.month, 10);

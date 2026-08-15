@@ -622,6 +622,14 @@ August send is late (15th). Focal/employee submit close is now day **18**; LM ap
 
 ---
 
+### 2026-08-15 — Portal Claims Response board (July work vs August sheet)
+
+One Claims page: Response (full audience vs Payroll Sheet) · Request emails · Manual add. Auto-import writes OT / medical / expense only when those four sheet columns are empty; otherwise OTHER DATA and Manual add.
+
+**Env vars needed:** none new.
+
+---
+
 ### 2026-08-15 — Portal claims monitor CC (`claims@asil.com.pk`)
 
 Every portal-claims email (campaign invite, reminder, LM pack, submit record, decision notice) CCs `claims@asil.com.pk` while the August rollout is being proven. Default on until **2026-11-15**. Set `CLAIMS_MONITOR_CC=` (empty) to disable, or extend `CLAIMS_MONITOR_CC_UNTIL`. Preview UI shows the CC line.

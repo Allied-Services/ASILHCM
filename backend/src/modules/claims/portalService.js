@@ -38,6 +38,11 @@ const {
     createCampaignAugust,
     computeBatchTotals,
 } = require('./claimsCampaign');
+const {
+    portalAmountsFromItems,
+    listResponseBoard,
+    writePortalAmountsToSheet,
+} = require('./claimsResponse');
 
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '1', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '18', 10);
@@ -1352,15 +1357,21 @@ async function approverDecide(pool, { token, submissionId, decision, comment, se
     );
 
     // Inject into employee_claims for payroll run spine
-    await injectApprovedToEmployeeClaims(pool, sub, items, pack);
-
-    await pool.query(
-        `UPDATE portal_claim_submissions SET status = 'in_payroll', updated_at = NOW() WHERE id = $1`,
-        [submissionId]
-    );
+    const inject = await injectApprovedToEmployeeClaims(pool, sub, items, pack);
+    if (inject.wrotePayroll) {
+        await pool.query(
+            `UPDATE portal_claim_submissions SET status = 'in_payroll', updated_at = NOW() WHERE id = $1`,
+            [submissionId]
+        );
+    }
 
     await notifyFillerDecision(pool, sendAppEmail, sub, 'approved', comment);
-    return { ok: true, decision: 'approved' };
+    return {
+        ok: true,
+        decision: 'approved',
+        wrotePayroll: !!inject.wrotePayroll,
+        payrollBlocked: inject.blocked || null,
+    };
 }
 
 async function notifyFillerDecision(pool, sendAppEmail, sub, decision, comment) {
@@ -1392,7 +1403,7 @@ async function injectApprovedToEmployeeClaims(pool, sub, items, pack) {
     const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [sub.period_id]);
     const period = periodRows[0];
     if (!canInjectPayroll(period)) {
-        return { skipped: true, reason: 'sample_mode' };
+        return { skipped: true, reason: 'sample_mode', wrotePayroll: false };
     }
 
     const { rows: empRows } = await pool.query(`SELECT contract_id FROM employees WHERE id = $1`, [sub.employee_id]);
@@ -1440,38 +1451,78 @@ async function injectApprovedToEmployeeClaims(pool, sub, items, pack) {
         await upsertClaim('medical', claimed);
     }
 
-    // Also write hours into payroll_transactions (correct columns)
-    let ot2 = 0; let ot3 = 0; let ot1 = 0;
-    for (const i of otItems) {
-        const h = Number(i.ot_hours) || 0;
-        const f = Number(i.ot_multiplier_factor) || 1;
-        if (f >= 3) ot3 += h;
-        else if (f >= 2) ot2 += h;
-        else ot1 += h;
-    }
-    // Treat 1x as ot2_hrs contribution at 1x is unusual — store 1x into ot2 with note via reimbursement path? 
-    // Payroll sheet uses ot2_hrs/ot3_hrs. Map 1x into ot2_hrs as hours (rate applied in calc). Prefer: add 1x hours to a field — use ot2_hrs for double only.
-    // Store single as half of double equivalent by putting in ot2_hrs * 0.5? Cleaner: put single hours in ot2_hrs and document — actually payroll multiplies ot2 by 2x.
-    // Best: write single hours into a JSON note; for amounts write reimbursement. For hours: ot2 gets double hours, ot3 triple; single → add to ot2_hrs as hours/2 so payout matches 1x? 
-    // Simpler approach matching plan: ot2_hrs += double hours, ot3_hrs += triple; for single write hours into ot2_hrs and finance knows — NO.
-    // Write single into employee_claims only; for payroll_transactions: ot2_hrs += double, ot3_hrs += triple, and single hours * 0.5 into ot2 so 2x rate * 0.5h = 1x.
-    const ot2Write = ot2 + (ot1 * 0.5);
-    const exp = expItems.reduce((s, i) => s + (Number(i.amount) || 0), 0);
-    const med = medItems.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const portal = portalAmountsFromItems(items);
+    const payWrite = await writePortalAmountsToSheet(pool, {
+        employeeId: sub.employee_id,
+        month,
+        year,
+        portal,
+    });
+    return payWrite;
+}
 
-    if (ot2Write || ot3 || exp || med) {
+async function importIfSheetEmpty(pool, { employeeId, workMonth, workYear }) {
+    const { rows: subs } = await pool.query(
+        `SELECT s.*, p.campaign_mode, p.claim_month, p.claim_year, p.settlement_month, p.settlement_year
+         FROM portal_claim_submissions s
+         JOIN portal_claim_periods p ON p.id = s.period_id
+         WHERE s.employee_id = $1 AND p.claim_month = $2 AND p.claim_year = $3
+           AND s.status IN ('approved','in_payroll')
+         ORDER BY CASE WHEN p.campaign_mode = 'sample' THEN 1 ELSE 0 END, s.id DESC
+         LIMIT 1`,
+        [employeeId, parseInt(workMonth, 10), parseInt(workYear, 10)]
+    );
+    const sub = subs[0];
+    if (!sub) return { ok: false, status: 404, error: 'No approved portal claim for this person and work month' };
+    if (String(sub.campaign_mode || '').toLowerCase() === 'sample') {
+        return { ok: false, status: 409, error: 'SAMPLE claims never write to the Payroll Sheet' };
+    }
+    const { rows: items } = await pool.query(
+        `SELECT * FROM portal_claim_items WHERE submission_id = $1 AND active = TRUE`,
+        [sub.id]
+    );
+    const { rows: empRows } = await pool.query(`SELECT contract_id FROM employees WHERE id = $1`, [sub.employee_id]);
+    const policy = await getClaimsPolicy(pool, empRows[0]?.contract_id);
+    const month = policy.claims_pay_timing === 'same_month' ? sub.claim_month : sub.settlement_month;
+    const year = policy.claims_pay_timing === 'same_month' ? sub.claim_year : sub.settlement_year;
+    const portal = portalAmountsFromItems(items);
+    const payWrite = await writePortalAmountsToSheet(pool, {
+        employeeId: sub.employee_id,
+        month,
+        year,
+        portal,
+    });
+    if (payWrite.blocked === 'SHEET_HAS_OTHER_DATA') {
+        return {
+            ok: false,
+            status: 409,
+            code: 'SHEET_HAS_OTHER_DATA',
+            error: 'Payroll Sheet already has OT, medical, or expense. Verify those numbers, then use Manual add.',
+            before: payWrite.before,
+            portal,
+        };
+    }
+    if (payWrite.blocked === 'PAYROLL_LOCKED') {
+        return {
+            ok: false,
+            status: 409,
+            code: 'PAYROLL_LOCKED',
+            error: 'This Payroll Sheet month is locked.',
+            before: payWrite.before,
+            portal,
+        };
+    }
+    if (payWrite.wrotePayroll) {
         await pool.query(
-            `INSERT INTO payroll_transactions (employee_id, month, year, ot2_hrs, ot3_hrs, opd_claim, reimbursement)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)
-             ON CONFLICT (employee_id, month, year) DO UPDATE SET
-               ot2_hrs = payroll_transactions.ot2_hrs + EXCLUDED.ot2_hrs,
-               ot3_hrs = payroll_transactions.ot3_hrs + EXCLUDED.ot3_hrs,
-               opd_claim = payroll_transactions.opd_claim + EXCLUDED.opd_claim,
-               reimbursement = payroll_transactions.reimbursement + EXCLUDED.reimbursement,
-               updated_at = NOW()`,
-            [sub.employee_id, month, year, ot2Write, ot3, med, exp]
+            `UPDATE portal_claim_submissions SET status = 'in_payroll', updated_at = NOW() WHERE id = $1`,
+            [sub.id]
         );
     }
+    return { ok: true, wrotePayroll: !!payWrite.wrotePayroll, portal, month, year };
+}
+
+async function getResponseBoard(pool, query) {
+    return listResponseBoard(pool, countEligibleEmployees, query);
 }
 
 async function listClaimsForAdmin(pool, { month, year, channel, approver, filler, status, client }) {
@@ -1890,8 +1941,10 @@ async function autoApproveFocalOnly(pool, batch, sendAppEmail) {
             [sub.id, JSON.stringify(snapshot)]
         );
         const pack = { period_id: sub.period_id, approver_email: sub.approver_email };
-        await injectApprovedToEmployeeClaims(pool, sub, items, pack);
-        await pool.query(`UPDATE portal_claim_submissions SET status = 'in_payroll', updated_at = NOW() WHERE id = $1`, [sub.id]);
+        const inject = await injectApprovedToEmployeeClaims(pool, sub, items, pack);
+        if (inject.wrotePayroll) {
+            await pool.query(`UPDATE portal_claim_submissions SET status = 'in_payroll', updated_at = NOW() WHERE id = $1`, [sub.id]);
+        }
         count++;
     }
     return { autoApproved: count };
@@ -2027,6 +2080,9 @@ module.exports = {
     openApproverSession,
     approverDecide,
     listClaimsForAdmin,
+    getResponseBoard,
+    importIfSheetEmpty,
+    writePortalAmountsToSheet,
     exportClaimsPayrollTieout,
     applyManualOverride,
     notifyManualOverride,
