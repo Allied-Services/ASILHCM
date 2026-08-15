@@ -80,8 +80,33 @@ services:
     staticPublishPath: dist
     routes:
       - type: rewrite
+        source: /portal
+        destination: /portal.html
+      - type: rewrite
+        source: /cmms
+        destination: /cmms.html
+      - type: rewrite
+        source: /claims-fill
+        destination: /claims-fill.html
+      - type: rewrite
+        source: /claims-approve
+        destination: /claims-approve.html
+      - type: rewrite
         source: /*
         destination: /index.html
+    headers:
+      - path: /portal
+        name: Content-Type
+        value: text/html; charset=utf-8
+      - path: /cmms
+        name: Content-Type
+        value: text/html; charset=utf-8
+      - path: /claims-fill
+        name: Content-Type
+        value: text/html; charset=utf-8
+      - path: /claims-approve
+        name: Content-Type
+        value: text/html; charset=utf-8
     envVars:
       - key: VITE_API_URL
         value: https://asilhcm.onrender.com
@@ -135,8 +160,33 @@ services:
     staticPublishPath: dist
     routes:
       - type: rewrite
+        source: /portal
+        destination: /portal.html
+      - type: rewrite
+        source: /cmms
+        destination: /cmms.html
+      - type: rewrite
+        source: /claims-fill
+        destination: /claims-fill.html
+      - type: rewrite
+        source: /claims-approve
+        destination: /claims-approve.html
+      - type: rewrite
         source: /*
         destination: /index.html
+    headers:
+      - path: /portal
+        name: Content-Type
+        value: text/html; charset=utf-8
+      - path: /cmms
+        name: Content-Type
+        value: text/html; charset=utf-8
+      - path: /claims-fill
+        name: Content-Type
+        value: text/html; charset=utf-8
+      - path: /claims-approve
+        name: Content-Type
+        value: text/html; charset=utf-8
     envVars:
       - key: VITE_API_URL
         value: https://asil-hcm-staging.onrender.com

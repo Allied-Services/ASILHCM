@@ -145,10 +145,10 @@ function isPublicMagicPath(pathname, search = '') {
   const asilClaims = params.get('asil_claims');
   if (asilClaims === 'fill' || asilClaims === 'approve') return true;
   return (
-    pathname === '/portal' || pathname === '/portal/' ||
-    pathname === '/cmms' || pathname === '/cmms/' ||
-    pathname === '/claims-fill' || pathname.startsWith('/claims-fill/') ||
-    pathname === '/claims-approve' || pathname.startsWith('/claims-approve/') ||
+    pathname === '/portal' || pathname === '/portal/' || pathname === '/portal.html' ||
+    pathname === '/cmms' || pathname === '/cmms/' || pathname === '/cmms.html' ||
+    pathname === '/claims-fill' || pathname.startsWith('/claims-fill/') || pathname === '/claims-fill.html' ||
+    pathname === '/claims-approve' || pathname.startsWith('/claims-approve/') || pathname === '/claims-approve.html' ||
     /^\/p\/[^/]+\/?$/.test(pathname)
   );
 }
@@ -157,10 +157,10 @@ function App() {
   const pathname = window.location.pathname;
   const search = window.location.search;
   const asilClaims = new URLSearchParams(search).get('asil_claims');
-  const portalPath = pathname === '/portal' || pathname === '/portal/';
-  const claimsFillPath = asilClaims === 'fill' || pathname === '/claims-fill' || pathname.startsWith('/claims-fill/');
-  const claimsApprovePath = asilClaims === 'approve' || pathname === '/claims-approve' || pathname.startsWith('/claims-approve/');
-  const cmmsPath = pathname === '/cmms' || pathname === '/cmms/';
+  const portalPath = pathname === '/portal' || pathname === '/portal/' || pathname === '/portal.html';
+  const claimsFillPath = asilClaims === 'fill' || pathname === '/claims-fill' || pathname.startsWith('/claims-fill/') || pathname === '/claims-fill.html';
+  const claimsApprovePath = asilClaims === 'approve' || pathname === '/claims-approve' || pathname.startsWith('/claims-approve/') || pathname === '/claims-approve.html';
+  const cmmsPath = pathname === '/cmms' || pathname === '/cmms/' || pathname === '/cmms.html';
   const payslipLinkMatch = pathname.match(/^\/p\/([^/]+)\/?$/);
 
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -290,7 +290,12 @@ function App() {
   };
 
   if (payslipLinkMatch) return <PayslipLinkPage token={payslipLinkMatch[1]} />;
-  if (portalPath) return <EmployeePortal />;
+  if (portalPath) {
+    // #region agent log
+    fetch('http://127.0.0.1:7681/ingest/e193b6d7-95a0-49cb-9d01-81662d58f7db',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bac354'},body:JSON.stringify({sessionId:'bac354',runId:'post-fix',hypothesisId:'A',location:'App.jsx:portalPath',message:'App routed to EmployeePortal',data:{pathname,search,hasPortalToken:!!(typeof localStorage!=='undefined'&&localStorage.getItem('asil_portal_token'))},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return <EmployeePortal />;
+  }
   if (claimsFillPath) return <ClaimsFillPage />;
   if (claimsApprovePath) return <ClaimsApprovePage />;
   if (cmmsPath) return <ClientCMMSPortal />;

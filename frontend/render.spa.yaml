@@ -1,6 +1,6 @@
 # Optional Render Blueprint fragment for the HCM frontend static site.
 # Apply in Render (or merge into your existing blueprint) so /portal and other
-# client routes serve index.html instead of an empty 200.
+# client routes serve HTML instead of an empty 200.
 services:
   - type: web
     name: asil-hcm-frontend
@@ -10,5 +10,21 @@ services:
     rootDir: frontend
     routes:
       - type: rewrite
+        source: /portal
+        destination: /portal.html
+      - type: rewrite
+        source: /cmms
+        destination: /cmms.html
+      - type: rewrite
+        source: /claims-fill
+        destination: /claims-fill.html
+      - type: rewrite
+        source: /claims-approve
+        destination: /claims-approve.html
+      - type: rewrite
         source: /*
         destination: /index.html
+    headers:
+      - path: /portal
+        name: Content-Type
+        value: text/html; charset=utf-8
