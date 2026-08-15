@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build && node ./scripts/copy-spa-fallbacks.mjs",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "preview:spa": "node spa-server.mjs"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

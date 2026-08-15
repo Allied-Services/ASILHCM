@@ -1,4 +1,13 @@
 # SPA client-route fallback for Netlify / Cloudflare Pages style hosts.
 # Render Static Sites: also add Dashboard → Redirects/Rewrites:
-#   Source: /*   Destination: /index.html   Action: Rewrite
-/*    /index.html   200
+#   Source: /portal   Destination: /portal.html   Action: Rewrite
+#   Source: /*        Destination: /index.html    Action: Rewrite
+/portal           /portal.html          200
+/portal/          /portal.html          200
+/cmms             /cmms.html            200
+/cmms/            /cmms.html            200
+/claims-fill      /claims-fill.html     200
+/claims-fill/     /claims-fill.html     200
+/claims-approve   /claims-approve.html  200
+/claims-approve/  /claims-approve.html  200
+/*                /index.html           200

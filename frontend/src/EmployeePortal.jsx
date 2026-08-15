@@ -774,6 +774,9 @@ export default function EmployeePortal() {
     const [empBasic, setEmpBasic] = useState(() => {
         try { return JSON.parse(localStorage.getItem(PORTAL_EMP_KEY)); } catch { return null; }
     });
+    // #region agent log
+    fetch('http://127.0.0.1:7681/ingest/e193b6d7-95a0-49cb-9d01-81662d58f7db',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bac354'},body:JSON.stringify({sessionId:'bac354',runId:'post-fix',hypothesisId:'A',location:'EmployeePortal.jsx:mount',message:'EmployeePortal function ran',data:{pathname:typeof window!=='undefined'?window.location.pathname:'',hasToken:!!token,hasEmpBasic:!!empBasic},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 
     function handleLogin(t, e) { setToken(t); setEmpBasic(e); }
     function handleLogout() {
