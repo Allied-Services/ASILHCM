@@ -340,6 +340,44 @@ describe('FV invoice — per-line shortages (Chakpirana July)', () => {
     });
 });
 
+describe('FV invoice — Excel line map (Faqirabad / Sihala)', () => {
+    test('Faqirabad Mechanical Technician nests under Technical item 6', () => {
+        const lines = [
+            {
+                lineId: 255, id: 255, line_number: 1, name: 'Office/Misc Services',
+                isManpowerDependent: true,
+                roles: [{ designation: 'M&R Support services', count: 1 }, { designation: 'Gardening Services', count: 2 }],
+            },
+            {
+                lineId: 260, id: 260, line_number: 6, name: 'Office/Misc Services (Technical services)',
+                isManpowerDependent: true,
+                roles: [{ designation: 'Electrical services', count: 1 }, { designation: 'Fitter services', count: 1 }],
+            },
+        ];
+        const deds = [{
+            id: 706, line_id: null, type: 'absence',
+            employee_name: 'Akbar khan', employee_designation: 'Mechanical Technician',
+            days_absent: 11, amount: 20180.37,
+        }];
+        const { byLine, orphans } = attributeDeductions(lines, deds, { siteCode: 'FAQIRABAD' });
+        expect(orphans).toHaveLength(0);
+        expect(byLine.get('260')).toHaveLength(1);
+        expect(byLine.get('255') || []).toHaveLength(0);
+    });
+
+    test('Sihala consumables charged at contract rate 32002 when ticked', () => {
+        const lines = [
+            { id: 1, name: 'Office/Misc', is_manpower_dependent: true, rate: 1192940 },
+            { id: 3, name: 'Housekeeping service - Consumables items', is_manpower_dependent: false, rate: 32002 },
+        ];
+        const map = confirmationMapFromRows([{ line_id: 3, billable: true }]);
+        const stamped = mapLinesForInvoice(lines, map);
+        const cons = stamped.find((m) => m.line.id === 3);
+        expect(cons.quantity).toBe(1);
+        expect(cons.amount).toBe(32002);
+    });
+});
+
 describe('FV replaceLines — re-points so_deductions.line_id', () => {
     test('buildOldToNewLineIdMap prefers line_number then name', () => {
         const oldLines = [

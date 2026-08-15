@@ -114,7 +114,7 @@ async function main() {
     const unmatched = [];
     for (const d of rows) {
         const lines = linesBySo.get(d.service_order_id) || [];
-        const found = findLineForDesignation(lines, d.employee_designation);
+        const found = findLineForDesignation(lines, d.employee_designation, { siteCode: d.site_code });
         if (found?.line?.id) {
             if (Number(d.line_id) === Number(found.line.id)) continue;
             updates.push({
