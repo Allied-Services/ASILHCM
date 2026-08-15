@@ -50,7 +50,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## IN PROGRESS
-- Chief operating system — owner audit + 30-day execution plan (this change)
+- Portal Claims Response board (July work vs August sheet, OTHER DATA import block) — branch `feat/portal-claims-response`
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-02)

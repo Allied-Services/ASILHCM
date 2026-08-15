@@ -1,173 +1,192 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
+import './PortalClaimsHub.css';
 
-const SHEZAD_TEST = 'shezad.mumtaz@asil.com.pk';
+const MONTHS = [
+  [1, 'Jan'], [2, 'Feb'], [3, 'Mar'], [4, 'Apr'], [5, 'May'], [6, 'Jun'],
+  [7, 'Jul'], [8, 'Aug'], [9, 'Sep'], [10, 'Oct'], [11, 'Nov'], [12, 'Dec'],
+];
+
+const STATUS_LABEL = {
+  not_invited: 'Not invited',
+  invite_sent: 'Invite sent',
+  waiting_fill: 'Waiting fill',
+  waiting_lm: 'Waiting LM',
+  on_sheet: 'On sheet · match',
+  other_data: 'OTHER DATA',
+  ready_import: 'Approved · not on sheet',
+  closed: 'No claims / rejected',
+};
+
+function defaultPeriod() {
+  const n = new Date();
+  const payMonth = n.getMonth() + 1;
+  const payYear = n.getFullYear();
+  const work = new Date(payYear, payMonth - 2, 1);
+  return {
+    workMonth: work.getMonth() + 1,
+    workYear: work.getFullYear(),
+    payMonth,
+    payYear,
+  };
+}
+
+function followingMonth(month, year) {
+  const d = new Date(year, month, 1);
+  return { month: d.getMonth() + 1, year: d.getFullYear() };
+}
+
+function money(n) {
+  const v = Number(n) || 0;
+  return v ? v.toLocaleString('en-PK') : '—';
+}
+
+function hours(n) {
+  const v = Number(n) || 0;
+  return v ? String(v) : '—';
+}
+
+function rowClass(status, open) {
+  const bits = [];
+  if (status === 'on_sheet') bits.push('is-ok');
+  if (status === 'other_data') bits.push('is-bad');
+  if (status === 'waiting_lm' || status === 'ready_import') bits.push('is-warn');
+  if (open) bits.push('is-open');
+  return bits.join(' ');
+}
 
 export default function PortalClaimsHub({ user }) {
-  const now = new Date();
-  const [month, setMonth] = useState(() => {
-    const n = new Date();
-    return n.getMonth() === 0 ? 12 : n.getMonth();
-  });
-  const [year, setYear] = useState(() => {
-    const n = new Date();
-    return n.getMonth() === 0 ? n.getFullYear() - 1 : n.getFullYear();
-  });
-  const [campaignMode, setCampaignMode] = useState('sample');
-  const [channel, setChannel] = useState('');
-  const [claims, setClaims] = useState([]);
-  const [msg, setMsg] = useState('');
-  const [err, setErr] = useState('');
+  const start = defaultPeriod();
+  const [workMonth, setWorkMonth] = useState(start.workMonth);
+  const [workYear, setWorkYear] = useState(start.workYear);
+  const [payMonth, setPayMonth] = useState(start.payMonth);
+  const [payYear, setPayYear] = useState(start.payYear);
+  const [client, setClient] = useState('');
+  const [section, setSection] = useState('response');
+  const [filter, setFilter] = useState('all');
+  const [board, setBoard] = useState(null);
+  const [openId, setOpenId] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [periodId, setPeriodId] = useState(null);
-
-  // Manual override form
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+  const [rules, setRules] = useState([]);
   const [ov, setOv] = useState({
-    employeeId: '', month: now.getMonth() + 1, year: now.getFullYear(),
+    employeeId: '', month: start.payMonth, year: start.payYear,
     ot1Hours: 0, ot2Hours: 0, ot3Hours: 0, expenseAmount: 0, medicalAmount: 0,
-    mode: 'add', reason: '', dryRun: true,
+    mode: 'add', reason: '',
   });
   const [ovPreview, setOvPreview] = useState(null);
-  const [expanded, setExpanded] = useState({});
-  const [rules, setRules] = useState([]);
-  const [eligibleCount, setEligibleCount] = useState(null);
   const [rulePreview, setRulePreview] = useState(null);
   const [editingRule, setEditingRule] = useState(null);
 
-  const loadRules = useCallback(async () => {
-    try {
-      const d = await api.portalClaimsEligibilityRules();
-      setRules(d.rules || []);
-    } catch { /* ignore */ }
-  }, []);
+  const isSuper = user?.role === 'superadmin';
 
-  useEffect(() => { loadRules(); }, [loadRules]);
+  const setWork = (m, y) => {
+    setWorkMonth(m);
+    setWorkYear(y);
+    const next = followingMonth(m, y);
+    setPayMonth(next.month);
+    setPayYear(next.year);
+  };
 
-  const loadEligible = useCallback(async () => {
-    try {
-      const d = await api.portalClaimsEligible();
-      setEligibleCount((d.employees || []).length);
-    } catch { setEligibleCount(null); }
-  }, []);
-
-  useEffect(() => { loadEligible(); }, [loadEligible]);
-
-  const load = useCallback(async () => {
+  const loadBoard = useCallback(async () => {
     setErr('');
     try {
-      const q = new URLSearchParams({ month: String(month), year: String(year) });
-      if (channel) q.set('channel', channel);
-      const d = await api.portalClaimsList(Object.fromEntries(q));
-      setClaims(d.claims || []);
-    } catch (e) {
-      setErr(e.message);
-    }
-  }, [month, year, channel]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const runCampaign = async (dryRun, opts = {}) => {
-    setBusy(true); setMsg(''); setErr('');
-    try {
-      const payload = {
-        month, year, dryRun,
-        campaignMode,
-        testPackFour: !!opts.testPackFour,
+      const q = {
+        workMonth: String(workMonth),
+        workYear: String(workYear),
+        payMonth: String(payMonth),
+        payYear: String(payYear),
       };
-      const d = await api.portalClaimsCampaign(payload);
-      setPeriodId(d.period?.id || null);
-      setMsg(dryRun
-        ? `Dry-run (${campaignMode}): ${d.fillerCount} packs / ${d.employeeCount} employees. Skipped: ${d.skipped?.length || 0}`
-        : `${campaignMode.toUpperCase()} campaign sent — ${d.invites?.filter(i => i.ok).length || 0} email(s). ${campaignMode === 'sample' ? `Check ${SHEZAD_TEST}` : ''}`);
-      if (!dryRun && d.invites) console.log('[PortalClaims] invites', d.invites);
-      await load();
+      if (client) q.client = client;
+      const d = await api.portalClaimsResponse(q);
+      setBoard(d);
     } catch (e) {
       setErr(e.message);
-    } finally {
-      setBusy(false);
     }
+  }, [workMonth, workYear, payMonth, payYear, client]);
+
+  useEffect(() => { loadBoard(); }, [loadBoard]);
+
+  useEffect(() => {
+    if (client || !board?.people?.length) return;
+    const wafi = [...new Set(board.people.map(p => p.client).filter(Boolean))]
+      .find(c => /wafi/i.test(c));
+    if (wafi) setClient(wafi);
+  }, [board, client]);
+
+  useEffect(() => {
+    api.portalClaimsEligibilityRules().then(d => setRules(d.rules || [])).catch(() => {});
+  }, []);
+
+  const clients = useMemo(() => {
+    const set = new Set((board?.people || []).map(p => p.client).filter(Boolean));
+    return [...set].sort();
+  }, [board]);
+
+  const counts = board?.counts || {};
+  const people = (board?.people || []).filter(p => filter === 'all' || p.status === filter);
+  const open = (board?.people || []).find(p => p.employee_id === openId) || null;
+
+  const chips = [
+    ['all', `All ${board?.audience_count || 0}`],
+    ['invite_sent', `Invite sent ${counts.invite_sent || 0}`],
+    ['waiting_fill', `Waiting Employee / Focal ${counts.waiting_fill || 0}`],
+    ['waiting_lm', `Waiting LM ${counts.waiting_lm || 0}`],
+    ['on_sheet', `On sheet · match ${counts.on_sheet || 0}`],
+    ['other_data', `OTHER DATA ${counts.other_data || 0}`],
+    ['ready_import', `Approved · not on sheet ${counts.ready_import || 0}`],
+    ['closed', `No claims / rejected ${counts.closed || 0}`],
+    ['not_invited', `Not invited ${counts.not_invited || 0}`],
+  ];
+
+  const stillInChain = (counts.invite_sent || 0) + (counts.waiting_fill || 0) + (counts.waiting_lm || 0);
+
+  const fillManualFrom = (p) => {
+    if (!p) return;
+    setOv(o => ({
+      ...o,
+      employeeId: p.employee_id,
+      month: payMonth,
+      year: payYear,
+      ot1Hours: p.portal?.ot1 || 0,
+      ot2Hours: p.portal?.ot2 || 0,
+      ot3Hours: p.portal?.ot3 || 0,
+      expenseAmount: p.portal?.expense || 0,
+      medicalAmount: p.portal?.medical || 0,
+      mode: 'add',
+    }));
+    setSection('manual');
   };
 
-  const flushSample = async () => {
-    if (!window.confirm('Delete all SAMPLE-mode portal claim periods for Wafi? This cannot be undone.')) return;
+  const importIfEmpty = async (p) => {
+    if (!p) return;
     setBusy(true); setErr(''); setMsg('');
     try {
-      const d = await api.portalClaimsFlushSample({ claimMonth: month, claimYear: year, client: 'wafi' });
-      setMsg(`Flushed ${d.deletedPeriods || 0} sample period(s).`);
-      setPeriodId(null);
-      await load();
+      const d = await api.portalClaimsImportIfEmpty({
+        employeeId: p.employee_id, workMonth, workYear,
+      });
+      setMsg(d.wrotePayroll
+        ? `Imported ${p.name} onto the ${payMonth}/${payYear} Payroll Sheet.`
+        : 'Nothing to write — portal amounts are empty.');
+      await loadBoard();
     } catch (e) {
       setErr(e.message);
     } finally {
       setBusy(false);
-    }
-  };
-
-  const notifyApprovers = async () => {
-    setBusy(true); setErr(''); setMsg('');
-    try {
-      const d = await api.portalClaimsNotifyApprovers(periodId, month, year);
-      if (d.periodId) setPeriodId(d.periodId);
-      setMsg(`Approver packs: ${(d.packs || []).map(p => `${p.approverEmail} (${p.count} pending)`).join(', ') || 'none pending'}${d.periodId ? ` · periodId=${d.periodId}` : ''}`);
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const resetSample = async () => {
-    if (!window.confirm('Clear ONLY the 3 sample test employees’ portal claims (Shezad/Rabia/Laiba) so you can re-test? Payroll OT/expense columns for those test IDs will be zeroed.')) {
-      return;
-    }
-    setBusy(true); setErr(''); setMsg('');
-    try {
-      const d = await api.portalClaimsResetSample();
-      setPeriodId(null);
-      setMsg(`Sample cleared: ${(d.clearedSubmissions || []).map(s => `${s.employee_id} was ${s.status}`).join('; ') || 'nothing to clear'}. Now Send sample invites again.`);
-      await load();
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const exportTieout = async () => {
-    try {
-      const d = await api.portalClaimsTieout(month, year);
-      const lines = [['Employee', 'Name', 'Client', 'Channel', 'OT1', 'OT2', 'OT3', 'Expense', 'Medical', 'Status']];
-      for (const r of d.portal || []) {
-        lines.push([r.employee_id, r.name, r.client, r.channel, r.ot1_hours, r.ot2_hours, r.ot3_hours, r.expense, r.medical, r.status]);
-      }
-      lines.push([]);
-      lines.push(['MANUAL OVERRIDES']);
-      for (const r of d.manual || []) {
-        lines.push([r.employee_id, r.name, r.client, 'manual_override', r.ot1_hours, r.ot2_hours, r.ot3_hours, r.expense_amount, r.medical_amount, r.mode]);
-      }
-      const csv = lines.map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `claims_payroll_tieout_${year}_${month}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setErr(e.message);
     }
   };
 
   const runOverride = async (commit) => {
     setBusy(true); setErr(''); setMsg('');
     try {
-      const d = await api.portalClaimsManualOverride({ ...ov, dryRun: !commit });
+      const d = await api.portalClaimsManualOverride({ ...ov, month: payMonth, year: payYear, dryRun: !commit });
       setOvPreview(d);
       if (d.warning) setMsg(d.warning);
       if (commit) {
         setMsg('Override applied.');
-        await load();
+        await loadBoard();
       } else {
         setMsg('Dry-run preview ready — review before Commit.');
       }
@@ -178,293 +197,376 @@ export default function PortalClaimsHub({ user }) {
     }
   };
 
-  const isSuper = user?.role === 'superadmin';
+  const exportTieout = async () => {
+    try {
+      const d = await api.portalClaimsTieout(payMonth, payYear);
+      const lines = [['Employee', 'Name', 'Client', 'Channel', 'OT1', 'OT2', 'OT3', 'Expense', 'Medical', 'Status']];
+      for (const r of d.portal || []) {
+        lines.push([r.employee_id, r.name, r.client, r.channel, r.ot1_hours, r.ot2_hours, r.ot3_hours, r.expense, r.medical, r.status]);
+      }
+      const csv = lines.map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `claims_payroll_tieout_${payYear}_${payMonth}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
 
   return (
-    <div style={{ padding: '1.25rem' }}>
-      <h2 style={{ margin: '0 0 4px' }}>Claims</h2>
-      <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
-        Portal Claims — Wafi August rollout. Eligible employees: {eligibleCount ?? '…'} · Sample emails → {SHEZAD_TEST}
-      </p>
-      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: -4, maxWidth: 820, lineHeight: 1.5 }}>
-        Approver emails (default <strong>immediate</strong> on each submit): same stable link all month shows outstanding + already decided.
-        Production modes via env <code>CLAIMS_APPROVER_NOTIFY_MODE</code>: <code>immediate</code> | <code>daily</code> | <code>day22</code>.
-        After day 25 the approval window closes; pending items wait for next month.
+    <div className="pch">
+      <h2 className="pch-title">Portal Claims</h2>
+      <p className="pch-sub">
+        Work month is when OT / medical / expense happened. Paid on is the Payroll Sheet month.
+        Response lists everyone in the audience — not only people who already submitted.
       </p>
 
-      <ClaimRequestCampaign
-        user={user}
-        onPeriodChange={(m, y) => { setMonth(m); setYear(y); }}
-      />
-
-      {err && <div style={{ color: '#b91c1c', marginBottom: 10 }}>{err}</div>}
-      {msg && <div style={{ color: '#15803d', marginBottom: 10 }}>{msg}</div>}
-
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
-        <label>Claim month <input type="number" min={1} max={12} value={month} onChange={e => setMonth(+e.target.value)} style={{ width: 60 }} title="Month work was done (e.g. 7 = July)" /></label>
-        <label>Year <input type="number" value={year} onChange={e => setYear(+e.target.value)} style={{ width: 80 }} /></label>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Submit by day 18 · LM approve by day 22 · paid following month</span>
-        <select value={channel} onChange={e => setChannel(e.target.value)}>
-          <option value="">All channels</option>
-          <option value="portal">Portal only</option>
-          <option value="manual_override">Manual overrides only</option>
-          <option value="excel">Excel fallback</option>
-        </select>
-        <button type="button" className="btn-secondary" onClick={load}>Refresh</button>
-        <button type="button" className="btn-secondary" onClick={exportTieout}>Export claims→payroll</button>
+      <div className="pch-period">
+        <label>
+          <span className="lbl">Work month</span>
+          <select value={workMonth} onChange={e => setWork(+e.target.value, workYear)}>
+            {MONTHS.map(([n, lab]) => <option key={n} value={n}>{lab}</option>)}
+          </select>
+          <input type="number" value={workYear} onChange={e => setWork(workMonth, +e.target.value)} />
+          <span className="hint">OT / medical / expense happened here</span>
+        </label>
+        <label>
+          <span className="lbl">Paid on Payroll Sheet</span>
+          <select value={payMonth} onChange={e => setPayMonth(+e.target.value)}>
+            {MONTHS.map(([n, lab]) => <option key={n} value={n}>{lab}</option>)}
+          </select>
+          <input type="number" value={payYear} onChange={e => setPayYear(+e.target.value)} />
+          <span className="hint">Reimbursed the following month</span>
+        </label>
+        <label>
+          <span className="lbl">Client</span>
+          <select value={client} onChange={e => setClient(e.target.value)}>
+            <option value="">All clients</option>
+            {clients.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <span className="hint">Same audience as request emails</span>
+        </label>
+        <div>
+          <span className="lbl">Audience</span>
+          <strong>{board?.audience_count ?? '…'}</strong>
+          <span className="hint">Submit by day 18 · LM by day 22</span>
+        </div>
       </div>
 
-      <details style={{ marginBottom: 20, padding: '10px 14px', background: 'rgba(56,189,248,0.06)', borderRadius: 10, border: '1px solid rgba(56,189,248,0.18)' }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: 13, color: 'var(--text-muted)' }}>
-          Advanced: send-all campaign, test pack, flush
-        </summary>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
-          <span style={{ fontWeight: 700, fontSize: 13 }}>Campaign mode:</span>
-          {['sample', 'actual'].map(m => (
-            <button key={m} type="button" onClick={() => setCampaignMode(m)}
-              style={{
-                padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13,
-                border: campaignMode === m ? '2px solid #38bdf8' : '1px solid var(--border)',
-                background: campaignMode === m ? 'rgba(56,189,248,0.15)' : 'transparent',
-                color: campaignMode === m ? '#38bdf8' : 'var(--text-muted)',
-              }}>
-              {m.toUpperCase()}
-            </button>
-          ))}
-          {campaignMode === 'sample' && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>All emails → Shezad · no payroll write · no confirmation emails</span>}
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-          <button type="button" className="btn-secondary" disabled={busy} onClick={() => runCampaign(true)}>Dry-run campaign</button>
-          <button type="button" className="btn-primary" disabled={busy} onClick={() => runCampaign(false)}>
-            Launch {campaignMode.toUpperCase()} campaign
-          </button>
-          {campaignMode === 'sample' && (
-            <button type="button" className="btn-secondary" disabled={busy} onClick={() => runCampaign(false, { testPackFour: true })}>
-              Send 4-routing test pack
-            </button>
-          )}
-          <button type="button" className="btn-secondary" disabled={busy} onClick={notifyApprovers}>Notify approvers</button>
-          {user?.role === 'superadmin' && (
-            <>
-              <button type="button" className="btn-secondary" disabled={busy} onClick={resetSample}>Reset legacy sample employees</button>
-              <button type="button" className="btn-secondary" disabled={busy} onClick={flushSample} style={{ borderColor: '#b91c1c', color: '#fca5a5' }}>
-                Flush SAMPLE Wafi data
-              </button>
-            </>
-          )}
-          {periodId && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>periodId={periodId}</span>}
-        </div>
-      </details>
+      <div className="pch-jobs">
+        <button type="button" className={`pch-job${section === 'response' ? ' is-on' : ''}`} onClick={() => setSection('response')}>1. Response</button>
+        <button type="button" className={`pch-job${section === 'request' ? ' is-on' : ''}`} onClick={() => setSection('request')}>2. Request emails</button>
+        <button type="button" className={`pch-job${section === 'manual' ? ' is-on' : ''}`} onClick={() => setSection('manual')}>3. Manual add</button>
+      </div>
 
-      {rules.length > 0 && (
-        <div style={{ marginBottom: 20, padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid var(--border)' }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Eligibility rules</div>
-          {rules.map(r => (
-            <div key={r.id} style={{ fontSize: 13, marginBottom: 10, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <strong style={{ color: 'var(--text)' }}>{r.name}</strong>
-                {r.client_pattern ? <span>· client ~ {r.client_pattern}</span> : null}
-                {(r.dept_exclude || []).length ? <span>· exclude: {r.dept_exclude.join(', ')}</span> : null}
-                {!r.active ? <span style={{ color: '#fca5a5' }}>(inactive)</span> : null}
-                <button type="button" className="btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }}
-                  onClick={async () => {
-                    try {
-                      const d = await api.portalClaimsPreviewEligibilityRule(r.id);
-                      setRulePreview({ ruleId: r.id, name: r.name, ...d });
-                    } catch (e) { setErr(e.message); }
-                  }}>Preview matches</button>
-                {(user?.role === 'superadmin' || user?.role === 'finance_manager') && (
-                  <button type="button" className="btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }}
-                    onClick={() => setEditingRule({ ...r, dept_exclude_str: (r.dept_exclude || []).join(', ') })}>Edit</button>
+      {err && <div className="pch-err">{err}</div>}
+      {msg && <div className="pch-ok">{msg}</div>}
+
+      {section === 'response' && (
+        <>
+          <div className="pch-note is-info">
+            This is the page you open every morning. Compare portal numbers to the {MONTHS[payMonth - 1][1]} Payroll Sheet. Auto-import only when those four columns are empty.
+          </div>
+          <div className="pch-stats">
+            <div className="pch-stat"><strong>{board?.audience_count ?? '—'}</strong><span>In audience</span></div>
+            <div className="pch-stat is-ok"><strong>{counts.on_sheet || 0}</strong><span>On sheet · match</span></div>
+            <div className="pch-stat is-warn"><strong>{stillInChain}</strong><span>Still in the chain</span></div>
+            <div className="pch-stat is-bad"><strong>{counts.other_data || 0}</strong><span>OTHER DATA — do not auto-import</span></div>
+          </div>
+          <div className="pch-chips">
+            {chips.map(([id, label]) => (
+              <button key={id} type="button" className={`pch-chip${filter === id ? ' is-on' : ''}`} onClick={() => setFilter(id)}>{label}</button>
+            ))}
+            <button type="button" className="btn-secondary" onClick={loadBoard}>Refresh</button>
+          </div>
+          {filter === 'other_data' && (
+            <div className="pch-note is-bad">
+              Auto-import is blocked. The Payroll Sheet already has OT, medical, or expense. Verify what is there, then add this claim by hand for that person only.
+            </div>
+          )}
+          <div className="pch-table-wrap">
+            <table className="pch-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Status</th>
+                  <th>Mailed to</th>
+                  <th>Portal OT 2x / 3x</th>
+                  <th>Portal med / exp</th>
+                  <th>Sheet OT 2x / 3x</th>
+                  <th>Sheet med / exp</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {people.length === 0 && (
+                  <tr><td colSpan={8} className="pch-muted">No people for this filter.</td></tr>
                 )}
-              </div>
-            </div>
-          ))}
-          {rulePreview && (
-            <div style={{ marginTop: 8, padding: 10, background: 'var(--bg-dark)', borderRadius: 8, fontSize: 12 }}>
-              <strong>{rulePreview.name}</strong> matches <strong>{rulePreview.count}</strong> active employee(s).
-              {(rulePreview.employees || []).length > 0 && (
-                <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                  {rulePreview.employees.slice(0, 10).map(e => (
-                    <li key={e.id}>{e.id} — {e.name} ({e.dept || '—'})</li>
-                  ))}
-                </ul>
-              )}
-              <button type="button" className="btn-secondary" style={{ marginTop: 8, padding: '4px 10px', fontSize: 11 }} onClick={() => setRulePreview(null)}>Close</button>
-            </div>
-          )}
-          {editingRule && (
-            <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-dark)', borderRadius: 8 }}>
-              <div style={{ fontWeight: 700, marginBottom: 8 }}>Edit rule</div>
-              <div style={{ display: 'grid', gap: 8, maxWidth: 480 }}>
-                <input value={editingRule.name} onChange={e => setEditingRule(x => ({ ...x, name: e.target.value }))} placeholder="Name" style={fieldInp} />
-                <input value={editingRule.client_pattern || ''} onChange={e => setEditingRule(x => ({ ...x, client_pattern: e.target.value }))} placeholder="Client pattern (e.g. wafi)" style={fieldInp} />
-                <input value={editingRule.dept_exclude_str || ''} onChange={e => setEditingRule(x => ({ ...x, dept_exclude_str: e.target.value }))} placeholder="Exclude depts (comma-separated)" style={fieldInp} />
-                <label style={{ fontSize: 13 }}><input type="checkbox" checked={editingRule.active !== false} onChange={e => setEditingRule(x => ({ ...x, active: e.target.checked }))} /> Active</label>
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button type="button" className="btn-primary" disabled={busy} onClick={async () => {
-                  setBusy(true);
-                  try {
-                    await api.portalClaimsSaveEligibilityRule({
-                      id: editingRule.id,
-                      name: editingRule.name,
-                      priority: editingRule.priority,
-                      active: editingRule.active !== false,
-                      client_pattern: editingRule.client_pattern,
-                      dept_exclude: (editingRule.dept_exclude_str || '').split(',').map(s => s.trim()).filter(Boolean),
-                      eligible: editingRule.eligible !== false,
-                    });
-                    setEditingRule(null);
-                    await loadRules();
-                    setMsg('Eligibility rule saved.');
-                  } catch (e) { setErr(e.message); }
-                  finally { setBusy(false); }
-                }}>Save</button>
-                <button type="button" className="btn-secondary" onClick={() => setEditingRule(null)}>Cancel</button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div style={{ overflowX: 'auto', marginBottom: 28 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-              <th style={th}></th>
-              <th style={th}>Employee</th>
-              <th style={th}>Client</th>
-              <th style={th}>Status</th>
-              <th style={th}>OT 1× / 2× / 3×</th>
-              <th style={th}>Expense</th>
-              <th style={th}>Medical</th>
-              <th style={th}>Filler → Approver</th>
-            </tr>
-          </thead>
-          <tbody>
-            {claims.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 12, color: 'var(--text-muted)' }}>No claims for this filter.</td></tr>
-            )}
-            {claims.map(c => {
-              const open = !!expanded[c.id];
-              return (
-                <React.Fragment key={c.id}>
-                  <tr style={{ borderBottom: open ? 'none' : '1px solid var(--border)' }}>
-                    <td style={td}>
-                      <button type="button" className="btn-secondary" style={{ padding: '4px 8px', fontSize: 12 }}
-                        onClick={() => setExpanded(e => ({ ...e, [c.id]: !e[c.id] }))}>
-                        {open ? 'Hide' : 'Details'}
-                      </button>
+                {people.map(p => (
+                  <tr key={p.employee_id} className={rowClass(p.status, openId === p.employee_id)}>
+                    <td>
+                      {p.name}
+                      <div className="pch-muted">{p.employee_id} · {p.location || '—'}</div>
                     </td>
-                    <td style={td}>{c.employee_name}<div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.employee_id}</div></td>
-                    <td style={td}>{c.client || '—'}</td>
-                    <td style={td}>{c.status}<div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.channel}</div></td>
-                    <td style={td}>{Number(c.ot1_hours || 0)} / {Number(c.ot2_hours || 0)} / {Number(c.ot3_hours || 0)} h</td>
-                    <td style={td}>{Number(c.expense_amount || 0).toLocaleString()}</td>
-                    <td style={td}>{Number(c.medical_amount || 0).toLocaleString()}</td>
-                    <td style={td}>
-                      <div style={{ fontSize: 12 }}>{c.filler_email}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>→ {c.approver_email || '—'}</div>
+                    <td>{STATUS_LABEL[p.status] || p.status}</td>
+                    <td>
+                      {p.mailed_to || '—'}
+                      <div className="pch-muted">{p.path || '—'}</div>
+                    </td>
+                    <td>{hours(p.portal?.ot2)} / {hours(p.portal?.ot3)}</td>
+                    <td>{money(p.portal?.medical)} / {money(p.portal?.expense)}</td>
+                    <td>{hours(p.sheet?.ot2)} / {hours(p.sheet?.ot3)}</td>
+                    <td>{money(p.sheet?.medical)} / {money(p.sheet?.expense)}</td>
+                    <td>
+                      <button type="button" className="btn-secondary" onClick={() => setOpenId(p.employee_id)}>Open</button>
                     </td>
                   </tr>
-                  {open && (
-                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
-                      <td colSpan={8} style={{ padding: '10px 12px' }}>
-                        {(c.items || []).length === 0 && <span style={{ color: 'var(--text-muted)' }}>No line items</span>}
-                        <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.55 }}>
-                          {(c.items || []).map(i => (
-                            <li key={i.id}>
-                              <strong>{i.claim_type}</strong> · {String(i.claim_date || '').slice(0, 10)}
-                              {i.claim_type === 'OT'
-                                ? <> · {i.ot_hours}h {i.ot_multiplier} · {i.nature || i.description || '—'}</>
-                                : <> · PKR {Number(i.amount || 0).toLocaleString()} · {i.patient_name ? `${i.patient_name} · ` : ''}{i.description || '—'}</>}
-                            </li>
-                          ))}
-                        </ul>
-                        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted)' }}>
-                          Supports: {c.attachment_count || 0} · Claim month {c.claim_month}/{c.claim_year} · Settlement {c.settlement_month}/{c.settlement_year}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-      <h3 style={{ marginBottom: 8 }}>ADD OT / CLAIMS (Payroll override)</h3>
-      <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 820, lineHeight: 1.5 }}>
-        Use when claims missed the portal or need a correction. Finance can <strong>Add</strong>.
-        Superadmin can <strong>Replace</strong> or <strong>Remove</strong>. Always dry-run first.
-        Every committed override emails <strong>huzaifa.rafaqat@asil.com.pk</strong> and <strong>shezad.mumtaz@asil.com.pk</strong> with the change list.
-      </p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 10, maxWidth: 960 }}>
-        <Field label="ASIL Employee Code">
-          <input value={ov.employeeId} onChange={e => setOv(o => ({ ...o, employeeId: e.target.value }))} placeholder="e.g. ASIL/SPL-001" style={fieldInp} />
-        </Field>
-        <Field label="Period Month (1–12)">
-          <input type="number" min={1} max={12} value={ov.month} onChange={e => setOv(o => ({ ...o, month: +e.target.value }))} style={fieldInp} />
-        </Field>
-        <Field label="Period Year">
-          <input type="number" value={ov.year} onChange={e => setOv(o => ({ ...o, year: +e.target.value }))} style={fieldInp} />
-        </Field>
-        <Field label="OT 1× Hours">
-          <input type="number" value={ov.ot1Hours} onChange={e => setOv(o => ({ ...o, ot1Hours: e.target.value }))} style={fieldInp} />
-        </Field>
-        <Field label="OT 2× Hours">
-          <input type="number" value={ov.ot2Hours} onChange={e => setOv(o => ({ ...o, ot2Hours: e.target.value }))} style={fieldInp} />
-        </Field>
-        <Field label="OT 3× Hours (gazetted holidays)">
-          <input type="number" value={ov.ot3Hours} onChange={e => setOv(o => ({ ...o, ot3Hours: e.target.value }))} style={fieldInp} />
-        </Field>
-        <Field label="Expense Amount (PKR)">
-          <input type="number" value={ov.expenseAmount} onChange={e => setOv(o => ({ ...o, expenseAmount: e.target.value }))} style={fieldInp} />
-        </Field>
-        <Field label="Medical Amount (PKR)">
-          <input type="number" value={ov.medicalAmount} onChange={e => setOv(o => ({ ...o, medicalAmount: e.target.value }))} style={fieldInp} />
-        </Field>
-        <Field label="Mode">
-          <select value={ov.mode} onChange={e => setOv(o => ({ ...o, mode: e.target.value }))} style={fieldInp}>
-            <option value="add">Add</option>
-            {isSuper && <option value="replace">Replace (superadmin)</option>}
-            {isSuper && <option value="remove">Remove (superadmin)</option>}
-          </select>
-        </Field>
-        <Field label="Reason (required)" span>
-          <input value={ov.reason} onChange={e => setOv(o => ({ ...o, reason: e.target.value }))} placeholder="Why this override is needed" style={fieldInp} />
-        </Field>
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-        <button type="button" className="btn-secondary" disabled={busy} onClick={() => runOverride(false)}>Dry-run</button>
-        <button type="button" className="btn-primary" disabled={busy} onClick={() => runOverride(true)}>Commit</button>
-        <a
-          href={`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/portal-claims/manual-override/template`}
-          style={{ alignSelf: 'center', fontSize: 13 }}
-        >
-          Download import template
-        </a>
-      </div>
-      {ovPreview && (
-        <pre style={{ marginTop: 12, background: 'var(--bg-dark)', padding: 12, borderRadius: 8, fontSize: 12, overflow: 'auto' }}>
-          {JSON.stringify({ before: ovPreview.before, after: ovPreview.after, warning: ovPreview.warning }, null, 2)}
-        </pre>
+          {open && (
+            <div className="pch-detail">
+              <div>
+                <h3>{open.name}</h3>
+                <p className="pch-sub">{open.employee_id} · {open.location || '—'} · {open.path || '—'} · LM {open.lm || '—'}</p>
+                <div className="pch-table-wrap">
+                  <table className="pch-table">
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th>OT 2x hrs</th>
+                        <th>OT 3x hrs</th>
+                        <th>Medical PKR</th>
+                        <th>Expense PKR</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Portal ({MONTHS[workMonth - 1][1]} work)</td>
+                        <td>{hours(open.portal?.ot2)}</td>
+                        <td>{hours(open.portal?.ot3)}</td>
+                        <td>{money(open.portal?.medical)}</td>
+                        <td>{money(open.portal?.expense)}</td>
+                      </tr>
+                      <tr className={open.status === 'on_sheet' ? 'is-ok' : open.status === 'other_data' ? 'is-bad' : ''}>
+                        <td>Payroll Sheet ({MONTHS[payMonth - 1][1]})</td>
+                        <td>{hours(open.sheet?.ot2)}</td>
+                        <td>{hours(open.sheet?.ot3)}</td>
+                        <td>{money(open.sheet?.medical)}</td>
+                        <td>{money(open.sheet?.expense)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                {open.status === 'on_sheet' && <div className="pch-note is-ok">Match. August sheet equals the approved portal claim.</div>}
+                {open.status === 'other_data' && (
+                  <div className="pch-note is-bad">
+                    OTHER DATA — auto-import refused. Sheet already has numbers that are not this portal claim. Verify, then Manual add.
+                  </div>
+                )}
+                {open.status === 'ready_import' && (
+                  <div className="pch-note is-warn">Approved. Sheet columns are empty. Import is allowed.</div>
+                )}
+                {open.status === 'waiting_lm' && <div className="pch-note is-warn">Waiting on Line Manager. Not on the Payroll Sheet yet.</div>}
+                {open.status === 'waiting_fill' && <div className="pch-note is-info">Waiting on Employee / Focal to submit.</div>}
+                {open.status === 'invite_sent' && <div className="pch-note is-info">Invite sent to {open.mailed_to}. No draft yet.</div>}
+                {open.status === 'not_invited' && <div className="pch-note">In the audience — no email yet. Use Request emails.</div>}
+                {open.status === 'closed' && <div className="pch-note">No claims this month, or rejected. Sheet stays empty.</div>}
+              </div>
+              <div>
+                <h3>Import rule</h3>
+                <p className="pch-sub">
+                  Auto-import writes the work-month portal OT / medical / expense onto the pay-month sheet only when OT2, OT3, medical, and expense are all zero.
+                </p>
+                <div className="pch-actions">
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={busy || open.sample || open.status !== 'ready_import'}
+                    onClick={() => importIfEmpty(open)}
+                  >
+                    {open.status === 'other_data' || open.sheet_has_values ? 'Import blocked' : 'Import if empty'}
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={() => fillManualFrom(open)}>Manual add</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
+
+      {section === 'request' && (
+        <ClaimRequestCampaign
+          user={user}
+          hidePeriod
+          claimMonth={workMonth}
+          claimYear={workYear}
+          onPeriodChange={(m, y) => setWork(m, y)}
+        />
+      )}
+
+      {section === 'manual' && (
+        <>
+          <h3>Manual add</h3>
+          <p className="pch-sub">
+            Only for OTHER DATA rows, or someone who missed the portal. Finance can Add. Superadmin can Replace or Remove. Dry-run first.
+          </p>
+          <div className="pch-form">
+            <label><span>ASIL Employee Code</span>
+              <input value={ov.employeeId} onChange={e => setOv(o => ({ ...o, employeeId: e.target.value }))} placeholder="e.g. ASIL/SPL-001" />
+            </label>
+            <label><span>OT 1× Hours</span>
+              <input type="number" value={ov.ot1Hours} onChange={e => setOv(o => ({ ...o, ot1Hours: e.target.value }))} />
+            </label>
+            <label><span>OT 2× Hours</span>
+              <input type="number" value={ov.ot2Hours} onChange={e => setOv(o => ({ ...o, ot2Hours: e.target.value }))} />
+            </label>
+            <label><span>OT 3× Hours</span>
+              <input type="number" value={ov.ot3Hours} onChange={e => setOv(o => ({ ...o, ot3Hours: e.target.value }))} />
+            </label>
+            <label><span>Expense Amount (PKR)</span>
+              <input type="number" value={ov.expenseAmount} onChange={e => setOv(o => ({ ...o, expenseAmount: e.target.value }))} />
+            </label>
+            <label><span>Medical Amount (PKR)</span>
+              <input type="number" value={ov.medicalAmount} onChange={e => setOv(o => ({ ...o, medicalAmount: e.target.value }))} />
+            </label>
+            <label><span>Mode</span>
+              <select value={ov.mode} onChange={e => setOv(o => ({ ...o, mode: e.target.value }))}>
+                <option value="add">Add</option>
+                {isSuper && <option value="replace">Replace (superadmin)</option>}
+                {isSuper && <option value="remove">Remove (superadmin)</option>}
+              </select>
+            </label>
+            <label className="pch-span"><span>Reason (required)</span>
+              <input value={ov.reason} onChange={e => setOv(o => ({ ...o, reason: e.target.value }))} placeholder="Why this override is needed" />
+            </label>
+          </div>
+          <div className="pch-actions">
+            <button type="button" className="btn-secondary" disabled={busy} onClick={() => runOverride(false)}>Dry-run</button>
+            <button type="button" className="btn-primary" disabled={busy} onClick={() => runOverride(true)}>Commit</button>
+          </div>
+          {ovPreview && (
+            <pre className="pch-note">{JSON.stringify({ before: ovPreview.before, after: ovPreview.after, warning: ovPreview.warning }, null, 2)}</pre>
+          )}
+        </>
+      )}
+
+      <details className="pch-admin">
+        <summary>Admin — eligibility, SAMPLE flush, test pack, CSV</summary>
+        <div className="pch-actions">
+          <button type="button" className="btn-secondary" onClick={exportTieout}>Export CSV</button>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
+            setBusy(true); setErr(''); setMsg('');
+            try {
+              const d = await api.portalClaimsNotifyApprovers(null, workMonth, workYear);
+              setMsg(`Approver packs: ${(d.packs || []).map(p => `${p.approverEmail} (${p.count} pending)`).join(', ') || 'none pending'}`);
+            } catch (e) { setErr(e.message); }
+            finally { setBusy(false); }
+          }}>Notify approvers</button>
+          {['superadmin', 'finance_manager', 'finance_approver'].includes(user?.role) && (
+            <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
+              setBusy(true); setErr(''); setMsg('');
+              try {
+                const d = await api.portalClaimsCampaign({
+                  month: workMonth, year: workYear, dryRun: false, campaignMode: 'sample', testPackFour: true,
+                });
+                setMsg(`4-routing test pack: ${d.invites?.filter(i => i.ok).length || 0} email(s).`);
+              } catch (e) { setErr(e.message); }
+              finally { setBusy(false); }
+            }}>4-routing test pack</button>
+          )}
+          {isSuper && (
+            <>
+              <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
+                if (!window.confirm('Clear ONLY the 3 sample test employees’ portal claims?')) return;
+                setBusy(true);
+                try {
+                  const d = await api.portalClaimsResetSample();
+                  setMsg(`Sample cleared: ${(d.clearedSubmissions || []).map(s => s.employee_id).join(', ') || 'nothing'}.`);
+                  await loadBoard();
+                } catch (e) { setErr(e.message); }
+                finally { setBusy(false); }
+              }}>Reset sample employees</button>
+              <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
+                if (!window.confirm('Delete all SAMPLE-mode portal claim periods for Wafi?')) return;
+                setBusy(true);
+                try {
+                  const d = await api.portalClaimsFlushSample({ claimMonth: workMonth, claimYear: workYear, client: 'wafi' });
+                  setMsg(`Flushed ${d.deletedPeriods || 0} sample period(s).`);
+                  await loadBoard();
+                } catch (e) { setErr(e.message); }
+                finally { setBusy(false); }
+              }}>Flush SAMPLE Wafi data</button>
+            </>
+          )}
+        </div>
+        {rules.length > 0 && (
+          <div className="pch-note">
+            {rules.map(r => (
+              <div key={r.id}>
+                <strong>{r.name}</strong>
+                {r.client_pattern ? ` · client ~ ${r.client_pattern}` : ''}
+                {(r.dept_exclude || []).length ? ` · exclude: ${r.dept_exclude.join(', ')}` : ''}
+                {r.active === false ? ' (inactive)' : ''}
+                {' '}
+                <button type="button" className="btn-secondary" onClick={async () => {
+                  try {
+                    const d = await api.portalClaimsPreviewEligibilityRule(r.id);
+                    setRulePreview({ name: r.name, ...d });
+                  } catch (e) { setErr(e.message); }
+                }}>Preview</button>
+                {(user?.role === 'superadmin' || user?.role === 'finance_manager') && (
+                  <button type="button" className="btn-secondary" onClick={() => setEditingRule({ ...r, dept_exclude_str: (r.dept_exclude || []).join(', ') })}>Edit</button>
+                )}
+              </div>
+            ))}
+            {rulePreview && (
+              <p>{rulePreview.name} matches {rulePreview.count} employee(s).</p>
+            )}
+            {editingRule && (
+              <div className="pch-form">
+                <label><span>Name</span>
+                  <input value={editingRule.name} onChange={e => setEditingRule(x => ({ ...x, name: e.target.value }))} />
+                </label>
+                <label><span>Client pattern</span>
+                  <input value={editingRule.client_pattern || ''} onChange={e => setEditingRule(x => ({ ...x, client_pattern: e.target.value }))} />
+                </label>
+                <label className="pch-span"><span>Exclude depts</span>
+                  <input value={editingRule.dept_exclude_str || ''} onChange={e => setEditingRule(x => ({ ...x, dept_exclude_str: e.target.value }))} />
+                </label>
+                <div className="pch-actions">
+                  <button type="button" className="btn-primary" disabled={busy} onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await api.portalClaimsSaveEligibilityRule({
+                        id: editingRule.id,
+                        name: editingRule.name,
+                        priority: editingRule.priority,
+                        active: editingRule.active !== false,
+                        client_pattern: editingRule.client_pattern,
+                        dept_exclude: (editingRule.dept_exclude_str || '').split(',').map(s => s.trim()).filter(Boolean),
+                        eligible: editingRule.eligible !== false,
+                      });
+                      setEditingRule(null);
+                      const d = await api.portalClaimsEligibilityRules();
+                      setRules(d.rules || []);
+                      setMsg('Eligibility rule saved.');
+                    } catch (e) { setErr(e.message); }
+                    finally { setBusy(false); }
+                  }}>Save rule</button>
+                  <button type="button" className="btn-secondary" onClick={() => setEditingRule(null)}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </details>
     </div>
-  );
-}
-
-const th = { padding: '8px 6px', fontSize: 12, color: 'var(--text-muted)' };
-const td = { padding: '8px 6px', verticalAlign: 'top' };
-const fieldInp = { width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)', boxSizing: 'border-box' };
-
-function Field({ label, children, span }) {
-  return (
-    <label style={{ display: 'block', gridColumn: span ? '1 / -1' : undefined }}>
-      <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</span>
-      {children}
-    </label>
   );
 }

@@ -27,9 +27,9 @@ const selectStyle = {
   padding: '7px 12px', color: 'var(--text)', fontSize: 14, minWidth: 180,
 };
 
-export default function ClaimRequestCampaign({ user, onPeriodChange }) {
-  const [month, setMonth] = useState(8);
-  const [year, setYear] = useState(2026);
+export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth, claimYear, hidePeriod }) {
+  const [month, setMonth] = useState(() => claimMonth || 8);
+  const [year, setYear] = useState(() => claimYear || 2026);
   const [campaignMode, setCampaignMode] = useState('sample');
   const [filterClient, setFilterClient] = useState('');
   const [filterContract, setFilterContract] = useState('');
@@ -110,6 +110,13 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
     setYear(y);
     if (onPeriodChange) onPeriodChange(m, y);
   };
+
+  useEffect(() => {
+    if (claimMonth && claimYear && (claimMonth !== month || claimYear !== year)) {
+      setMonth(claimMonth);
+      setYear(claimYear);
+    }
+  }, [claimMonth, claimYear, month, year]);
 
   useEffect(() => {
     buildPreview();
@@ -225,6 +232,8 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
       {msg && <div style={{ color: '#86efac', marginBottom: 10 }}>{msg}</div>}
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+        {!hidePeriod && (
+          <>
         <Field label="1. Claim month">
           <select value={month} onChange={e => setMonthYear(+e.target.value, year)} style={selectStyle}>
             {MONTHS.map(([n, lab]) => <option key={n} value={n}>{lab}</option>)}
@@ -234,6 +243,8 @@ export default function ClaimRequestCampaign({ user, onPeriodChange }) {
           <input type="number" value={year} onChange={e => setMonthYear(month, +e.target.value)}
             style={{ ...selectStyle, width: 90, minWidth: 90 }} />
         </Field>
+          </>
+        )}
         {['sample', 'actual'].map(m => (
           <button key={m} type="button" onClick={() => setCampaignMode(m)}
             style={{
