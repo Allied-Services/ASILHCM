@@ -63,6 +63,34 @@ class PayrollSheetErrorBoundary extends React.Component {
     }
 }
 
+class FixedValueErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { err: null };
+    }
+    static getDerivedStateFromError(err) {
+        return { err };
+    }
+    componentDidCatch(err, info) {
+        console.error('[FixedValue crash]', err, info);
+    }
+    render() {
+        if (this.state.err) {
+            return (
+                <div className="fv-ops">
+                    <div className="fv-alert error">
+                        Payroll step failed to open. The rest of HCM is still available — use the sidebar or refresh this tab.
+                    </div>
+                    <button type="button" className="btn-secondary" onClick={() => this.setState({ err: null })}>
+                        Try again
+                    </button>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 /** Hard ceiling for JWT bootstrap — never leave the loading spinner past this. */
 const AUTH_BOOTSTRAP_MS = 14000;
@@ -445,7 +473,7 @@ function App() {
           {effectiveTab === 'employee'   && <EmployeeInformation user={user} />}
           {effectiveTab === 'payroll'    && <PayrollSheetErrorBoundary><PayrollSheet user={user} /></PayrollSheetErrorBoundary>}
           {effectiveTab === 'payroll_run' && <PayrollRun user={user} />}
-          {effectiveTab === 'fixed_value' && <FixedValueContracts user={user} />}
+          {effectiveTab === 'fixed_value' && <FixedValueErrorBoundary><FixedValueContracts user={user} /></FixedValueErrorBoundary>}
           {effectiveTab === 'documents'  && <DocumentGenerator />}
           {effectiveTab === 'billing'    && <BillingProcurement user={user} />}
           {effectiveTab === 'invoices'    && <InvoiceSection user={user} />}

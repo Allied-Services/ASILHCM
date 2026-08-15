@@ -13,6 +13,10 @@ const ALL_SITES = '__ALL__';
 const fmt = (n) => (n == null || Number.isNaN(n)) ? 'â€”' : Math.round(Number(n)).toLocaleString();
 const pct = (n) => (n == null || Number.isNaN(n)) ? 'â€”' : `${(Number(n) * 100).toFixed(0)}%`;
 
+function rowSiteCode(r) {
+    return String(r.site || r.site_code || '').trim().toUpperCase();
+}
+
 function soLines(order) {
     let lines = order?.lines;
     if (typeof lines === 'string') {
