@@ -191,6 +191,11 @@ async function saveBillableConfirmations(pool, {
     } else {
         selections = validateLineSelections(so, lines);
     }
+    // Never mark a period reviewed with zero tick rows when the SO has
+    // non-manpower lines — that is how Sihala Consumables vanished after Save.
+    if (!selections.length) {
+        selections = nonManpowerLines(so.lines).map((l) => ({ lineId: Number(l.id), billable: false }));
+    }
 
     const client = await pool.connect();
     try {

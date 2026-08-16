@@ -83,7 +83,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 | Monthly qty default | `1` per service order line (annual months stored in meta) |
 | Absence deduction (invoice) | `(lineRate / roleCount) / 30 × absentDays` → `so_deductions` (with `line_id` linked to the matching manpower SO line) |
 | Manual invoice adjustment | Invoice-step UI → `so_deductions` with `source='manual'`, `type='adjustment'`, free-text `note`, and required `line_id` on that location’s service-order line. **Signed amount:** `+` adds to net taxable, `−` deducts, both **before** provincial ST. Step 5: pick Location → Comment → Line item → amount. Print nests ADD/LESS under that SO line. Does not change payroll. |
-| Invoice shortage attribution | Print nests absences under the matching SO line (`line_id`, else employee designation → line roles via `designationMatch.js`). Orphans only when unmatched. Unit Price stays gross; Amount PKR is net of that line's shortages. |
+| Invoice shortage attribution | Print nests absences under the matching SO line: stored `line_id` if it still matches, else **Excel map** `psoConservancyMap.js` (`Attachments/PSO_Conservancy_Services_by_Location.xlsx` — location + designation → item number), else role fuzzy-match. Fitter/Mechanical is Technical, not M&R. Orphans only when unmatched. |
 | Payroll wages (Conservancy) | Model A: `salary × ((30 − sheet_absent) / 30)`; Absent column = explicit sheet `days_absent` (not WD − present) |
 | Attendance ingest | Excel sheet `"{MonthName} {year}"` or Google Drive folder `DRIVE_ATTENDANCE_FOLDER_ID`; override stores `present_days` + `absent_days` |
 | Single write path | `backend/src/modules/serviceOrders/contractCrud.js` (wizard, CORO seed, NZ re-sync) |

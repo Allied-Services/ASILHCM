@@ -56,9 +56,31 @@ function designationMatchKeys(designation) {
         'sweeping cleaning': ['sweeping cleaning', 'general housekeeping', 'housekeeping', 'janitor'],
         // Live roster often stores "Janitor" while SO roles say "Sweeping / Cleaning Services"
         janitor: ['janitor', 'sweeping cleaning', 'general housekeeping', 'housekeeping'],
-        'mechanical technician': ['mechanical technician', 'fitter', 'm r support'],
-        fitter: ['fitter', 'mechanical technician', 'm r support'],
-        'm r support': ['m r support', 'fitter', 'mechanical technician'],
+        // Fitter / Mechanical ≠ M&R (Excel: Technical line vs Office/Misc)
+        'mechanical technician': ['mechanical technician', 'fitter', 'mechanical fitting'],
+        'mechanical fitting': ['mechanical fitting', 'mechanical technician', 'fitter'],
+        fitter: ['fitter', 'mechanical technician', 'mechanical fitting'],
+        'm r support': ['m r support', 'm r technician'],
+        'm r technician': ['m r technician', 'm r support'],
+        gardener: ['gardener', 'gardening'],
+        gardening: ['gardening', 'gardener'],
+        electrician: ['electrician', 'electrical'],
+        electrical: ['electrical', 'electrician'],
+        'forklift operator': ['forklift operator', 'forklift operation'],
+        'forklift operation': ['forklift operation', 'forklift operator'],
+        'fm supervisor': ['fm supervisor', 'conservancy supervisory'],
+        'conservancy supervisory': ['conservancy supervisory', 'fm supervisor'],
+        'office boy': ['office boy', 'ops office', 'logistics office', 'office service'],
+        'invoicing support': ['invoicing support', 'invoicing room', 'pump room', 'filling pumproom'],
+        driver: ['driver', 'driving'],
+        driving: ['driving', 'driver'],
+        'laboratory assistant': ['laboratory assistant', 'lab', 'laboratory'],
+        'sealing offier': ['sealing offier', 'sealing officer', 'sealing'],
+        'sealing officer': ['sealing officer', 'sealing offier', 'sealing'],
+        'general worker': ['general worker', 'general additional', 'additional general', 'general'],
+        'omc reporting officer': ['omc reporting officer', 'omc physical reporting'],
+        'pump room operator': ['pump room operator', 'pump room', 'pumproom', 'filling pumproom', 'invoicing room'],
+        'pesh imam': ['pesh imam'],
         // Payroll roster titles vs SO role labels (PSO conservancy sheet)
         'fuel oil handling officer': ['fuel oil handling', 'fuel oil handling services'],
         'lube handling officer': ['lube handling', 'lube handling services', 'lubricant handling'],
@@ -89,23 +111,43 @@ function designationsMatch(a, b) {
     return false;
 }
 
+function lineRoles(line) {
+    return Array.isArray(line?.roles)
+        ? line.roles
+        : (typeof line?.roles === 'string' ? JSON.parse(line.roles || '[]') : []);
+}
+
 /**
- * Find the first manpower-dependent SO line whose roles match `designation`.
- * Accepts snake_case (`is_manpower_dependent`) or camelCase (`isManpowerDependent`).
+ * Prefer the Excel item number for this site; otherwise the most specific
+ * manpower line (dedicated Technical/Fuel line over kitchen-sink Office/Misc).
  */
-function findLineForDesignation(lines, designation) {
+function findLineForDesignation(lines, designation, opts = {}) {
     const target = normalizeDesignation(designation);
     if (!target) return null;
-    for (const line of lines || []) {
-        if (!(line.is_manpower_dependent || line.isManpowerDependent)) continue;
-        const roles = Array.isArray(line.roles)
-            ? line.roles
-            : (typeof line.roles === 'string' ? JSON.parse(line.roles || '[]') : []);
-        if (roles.some((r) => designationsMatch(designation, r.designation || r.role))) {
-            return { line, roles };
+    const siteCode = opts.siteCode || opts.site_code || null;
+    if (siteCode) {
+        const { lineNumberForDesignation, findLineByNumber } = require('./psoConservancyMap');
+        const mapped = lineNumberForDesignation(siteCode, designation);
+        if (mapped != null) {
+            const mappedLine = findLineByNumber(lines, mapped);
+            if (mappedLine && (mappedLine.is_manpower_dependent || mappedLine.isManpowerDependent)) {
+                return { line: mappedLine, roles: lineRoles(mappedLine) };
+            }
         }
     }
-    return null;
+
+    const matches = [];
+    for (const line of lines || []) {
+        if (!(line.is_manpower_dependent || line.isManpowerDependent)) continue;
+        const roles = lineRoles(line);
+        if (roles.some((r) => designationsMatch(designation, r.designation || r.role))) {
+            matches.push({ line, roles });
+        }
+    }
+    if (!matches.length) return null;
+    if (matches.length === 1) return matches[0];
+    matches.sort((a, b) => a.roles.length - b.roles.length);
+    return matches[0];
 }
 
 module.exports = {

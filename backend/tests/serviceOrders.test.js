@@ -278,6 +278,53 @@ describe('serviceOrders — designation → SO line match', () => {
         expect(m).not.toBeNull();
         expect(m.line.id).toBe('cp-item-1');
     });
+
+    test('Excel map: Faqirabad Mechanical Technician / Fitter → Technical item 6, not Office/Misc', () => {
+        const faq = require('../../scripts/seeds/pso_sites.json').find(s => s.id === 'FAQIRABAD');
+        const faqLines = faq.lineItems.map(l => ({
+            id: l.id,
+            is_manpower_dependent: !!l.isManpowerDependent,
+            rate: l.rate,
+            roles: l.roles || [],
+            soLineNumber: l.soLineNumber || l.id.replace('faq-item-', ''),
+        }));
+        for (const des of ['Mechanical Technician', 'Fitter', 'Fitter Services', 'Electrician']) {
+            const m = findLineForDesignation(faqLines, des, { siteCode: 'FAQIRABAD' });
+            expect(m).not.toBeNull();
+            expect(m.line.id).toBe('faq-item-6');
+        }
+        const mr = findLineForDesignation(faqLines, 'M & R Technician', { siteCode: 'FAQIRABAD' });
+        expect(mr.line.id).toBe('faq-item-1');
+    });
+
+    test('Excel map: Chakpirana Fitter (Rasab) → Office/Misc item 6', () => {
+        const chak = require('../../scripts/seeds/pso_sites.json').find(s => s.id === 'CHAKPIRANA');
+        const chakLines = chak.lineItems.map(l => ({
+            id: l.id,
+            is_manpower_dependent: !!l.isManpowerDependent,
+            rate: l.rate,
+            roles: l.roles || [],
+            soLineNumber: l.soLineNumber || l.id.replace('cp-item-', ''),
+        }));
+        const m = findLineForDesignation(chakLines, 'Fitter', { siteCode: 'CHAKPIRANA' });
+        expect(m.line.id).toBe('cp-item-6');
+    });
+
+    test('Excel roster names: Gardener, Forklift Operator, Driver, FM Supervisor', () => {
+        const sites = require('../../scripts/seeds/pso_sites.json');
+        const linesOf = (id) => sites.find(s => s.id === id).lineItems.map(l => ({
+            id: l.id,
+            is_manpower_dependent: !!l.isManpowerDependent,
+            roles: l.roles || [],
+            soLineNumber: l.soLineNumber || l.id.replace(/^[a-z]+-item-/, ''),
+        }));
+        expect(findLineForDesignation(linesOf('CHAKPIRANA'), 'Gardener', { siteCode: 'CHAKPIRANA' }).line.id).toBe('cp-item-1');
+        expect(findLineForDesignation(linesOf('FAQIRABAD'), 'Forklift Operator', { siteCode: 'FAQIRABAD' }).line.id).toBe('faq-item-2');
+        expect(findLineForDesignation(linesOf('SIHALA'), 'Driver', { siteCode: 'SIHALA' }).line.id).toBe('sih-item-11');
+        expect(findLineForDesignation(linesOf('SIHALA'), 'Electrician', { siteCode: 'SIHALA' }).line.id).toBe('sih-item-5');
+        expect(findLineForDesignation(linesOf('SIHALA'), 'FM Supervisor', { siteCode: 'SIHALA' }).line.id).toBe('sih-item-1');
+        expect(findLineForDesignation(linesOf('TARUJABBA'), 'Gardener', { siteCode: 'TARUJABBA' }).line.id).toBe('tj-item-1');
+    });
 });
 
 describe('serviceOrders — excel parse', () => {

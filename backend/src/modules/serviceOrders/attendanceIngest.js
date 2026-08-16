@@ -114,7 +114,7 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
             summary.overrides += 1;
             if (absentDays <= 0) continue;
 
-            const match = findLineForDesignation(lines, row.designation);
+            const match = findLineForDesignation(lines, row.designation, { siteCode: so.site_code });
             if (!match) {
                 summary.errors.push({ empCode: row.empCode, reason: 'no_matching_line', designation: row.designation });
                 continue;

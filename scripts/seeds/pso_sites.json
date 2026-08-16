@@ -187,6 +187,22 @@
             "count": 14
           }
         ]
+      },
+      {
+        "id": "cp-item-6",
+        "name": "Office /Misc Services",
+        "unit": "AU",
+        "quantity": 12,
+        "rate": 56991,
+        "totalAmount": 683892,
+        "isManpowerDependent": true,
+        "soLineNumber": "06",
+        "roles": [
+          {
+            "designation": "Fitter services",
+            "count": 1
+          }
+        ]
       }
     ]
   },
@@ -584,6 +600,16 @@
             "count": 3
           }
         ]
+      },
+      {
+        "id": "jug-item-3",
+        "name": "Housekeeping services (Consumables)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 16493,
+        "totalAmount": 197916,
+        "isManpowerDependent": false,
+        "soLineNumber": "03"
       }
     ]
   },

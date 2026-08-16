@@ -113,7 +113,8 @@ function lineMatchesDesignation(line, designation) {
  * 2) employee_designation matched against manpower line roles
  * 3) else orphan (manual / unmatched)
  */
-function attributeDeductions(lines, deductions) {
+function attributeDeductions(lines, deductions, opts = {}) {
+    const siteCode = opts.siteCode || opts.site_code || null;
     const byLineId = new Map();
     for (const l of lines || []) {
         const key = lineKey(l);
@@ -136,7 +137,7 @@ function attributeDeductions(lines, deductions) {
             }
         }
         if (!matched && desig) {
-            const found = findLineForDesignation(lines, desig);
+            const found = findLineForDesignation(lines, desig, { siteCode });
             if (found?.line) matched = found.line;
         }
 
@@ -300,7 +301,9 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
     const receivable = Number(data.netReceivable ?? grand - incomeWht - stWithholding);
     const title = formatTitle(format);
 
-    const { byLine, orphans: orphanDeds } = attributeDeductions(lines, deductions);
+    const { byLine, orphans: orphanDeds } = attributeDeductions(lines, deductions, {
+        siteCode: data.siteCode || data.site_code,
+    });
 
     const lineRows = lines.map((l, idx) => {
         const key = lineKey(l);
