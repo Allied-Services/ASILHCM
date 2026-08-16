@@ -11,32 +11,22 @@ if (!fs.existsSync(indexHtml)) {
   process.exit(1);
 }
 
-// Render Static Sites: a folder dist/portal/ is a "resource" at /portal.
-// Requests to /portal (no slash) then return HTTP 200 with an empty body and
-// skip rewrite rules. Publish a real .html file instead, plus a same-name
-// symlink so /portal can resolve to portal.html (text/html).
+// Do NOT write an extensionless dist/portal file. Render serves that as
+// binary/octet-stream + nosniff, so the browser downloads a file named "portal"
+// and skips rewrite rules because a resource already exists at /portal.
 const routes = ['portal', 'cmms', 'claims-fill', 'claims-approve'];
 for (const route of routes) {
   const htmlFile = path.join(dist, `${route}.html`);
+  const dir = path.join(dist, route);
   const alias = path.join(dist, route);
 
   fs.copyFileSync(indexHtml, htmlFile);
 
-  if (fs.existsSync(alias)) {
-    const st = fs.lstatSync(alias);
-    if (st.isDirectory()) {
-      fs.rmSync(alias, { recursive: true, force: true });
-    } else {
-      fs.unlinkSync(alias);
-    }
+  if (fs.existsSync(alias) && !fs.lstatSync(alias).isDirectory()) {
+    fs.unlinkSync(alias);
   }
 
-  try {
-    fs.symlinkSync(`${route}.html`, alias);
-    console.log(`copy-spa-fallbacks: wrote dist/${route}.html + symlink dist/${route}`);
-  } catch (err) {
-    // Windows without symlink privilege: copy bytes under the extensionless name.
-    fs.copyFileSync(htmlFile, alias);
-    console.log(`copy-spa-fallbacks: wrote dist/${route}.html + file dist/${route} (${err.code || err.message})`);
-  }
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(indexHtml, path.join(dir, 'index.html'));
+  console.log(`copy-spa-fallbacks: wrote dist/${route}.html and dist/${route}/index.html`);
 }
