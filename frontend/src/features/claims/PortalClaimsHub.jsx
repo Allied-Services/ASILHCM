@@ -11,13 +11,31 @@ const MONTHS = [
 const STATUS_LABEL = {
   not_invited: 'Not invited',
   invite_sent: 'Invite sent',
+  waiting_focal: 'Waiting Focal',
+  waiting_employee: 'Waiting Employee',
   waiting_fill: 'Waiting fill',
   waiting_lm: 'Waiting LM',
+  waiting_asil: 'Waiting ASIL',
+  no_claims: 'No claims',
+  rejected: 'Rejected',
   on_sheet: 'On sheet · match',
   other_data: 'OTHER DATA',
   ready_import: 'Approved · not on sheet',
-  closed: 'No claims / rejected',
+  closed: 'Finished',
 };
+
+const MAILER_LABEL = {
+  sent: 'Sent',
+  send_failed: 'Send failed',
+  not_sent: 'Not sent yet',
+};
+
+function formatWhen(v) {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return String(v).slice(0, 16);
+  return d.toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
 
 function defaultPeriod() {
   const n = new Date();
@@ -50,8 +68,8 @@ function hours(n) {
 function rowClass(status, open) {
   const bits = [];
   if (status === 'on_sheet') bits.push('is-ok');
-  if (status === 'other_data') bits.push('is-bad');
-  if (status === 'waiting_lm' || status === 'ready_import') bits.push('is-warn');
+  if (status === 'other_data' || status === 'rejected' || status === 'send_failed') bits.push('is-bad');
+  if (status === 'waiting_lm' || status === 'waiting_asil' || status === 'ready_import') bits.push('is-warn');
   if (open) bits.push('is-open');
   return bits.join(' ');
 }
@@ -63,8 +81,13 @@ export default function PortalClaimsHub({ user }) {
   const [payMonth, setPayMonth] = useState(start.payMonth);
   const [payYear, setPayYear] = useState(start.payYear);
   const [client, setClient] = useState('');
+  const [contract, setContract] = useState('');
+  const [location, setLocation] = useState('');
   const [section, setSection] = useState('response');
   const [filter, setFilter] = useState('all');
+  const [selected, setSelected] = useState(() => new Set());
+  const [confirmActual, setConfirmActual] = useState(false);
+  const [force, setForce] = useState(false);
   const [board, setBoard] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -100,12 +123,15 @@ export default function PortalClaimsHub({ user }) {
         payYear: String(payYear),
       };
       if (client) q.client = client;
+      if (contract) q.contract = contract;
+      if (location) q.location = location;
       const d = await api.portalClaimsResponse(q);
       setBoard(d);
+      setSelected(new Set());
     } catch (e) {
       setErr(e.message);
     }
-  }, [workMonth, workYear, payMonth, payYear, client]);
+  }, [workMonth, workYear, payMonth, payYear, client, contract, location]);
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
 
@@ -124,24 +150,108 @@ export default function PortalClaimsHub({ user }) {
     const set = new Set((board?.people || []).map(p => p.client).filter(Boolean));
     return [...set].sort();
   }, [board]);
+  const contracts = useMemo(() => {
+    const map = new Map();
+    for (const p of board?.people || []) {
+      if (p.contract_id) map.set(p.contract_id, p.contract_name || p.contract_id);
+    }
+    return [...map.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  }, [board]);
+  const locations = useMemo(() => {
+    const set = new Set((board?.people || []).map(p => p.location).filter(Boolean));
+    return [...set].sort();
+  }, [board]);
 
   const counts = board?.counts || {};
   const people = (board?.people || []).filter(p => filter === 'all' || p.status === filter);
   const open = (board?.people || []).find(p => p.employee_id === openId) || null;
+  const visibleIds = people.map(p => p.employee_id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
 
   const chips = [
     ['all', `All ${board?.audience_count || 0}`],
+    ['not_invited', `Not invited ${counts.not_invited || 0}`],
     ['invite_sent', `Invite sent ${counts.invite_sent || 0}`],
-    ['waiting_fill', `Waiting Employee / Focal ${counts.waiting_fill || 0}`],
+    ['waiting_focal', `Waiting Focal ${counts.waiting_focal || 0}`],
+    ['waiting_employee', `Waiting Employee ${counts.waiting_employee || 0}`],
     ['waiting_lm', `Waiting LM ${counts.waiting_lm || 0}`],
+    ['waiting_asil', `Waiting ASIL ${counts.waiting_asil || 0}`],
+    ['no_claims', `No claims ${counts.no_claims || 0}`],
+    ['rejected', `Rejected ${counts.rejected || 0}`],
     ['on_sheet', `On sheet · match ${counts.on_sheet || 0}`],
     ['other_data', `OTHER DATA ${counts.other_data || 0}`],
     ['ready_import', `Approved · not on sheet ${counts.ready_import || 0}`],
-    ['closed', `No claims / rejected ${counts.closed || 0}`],
-    ['not_invited', `Not invited ${counts.not_invited || 0}`],
   ];
 
-  const stillInChain = (counts.invite_sent || 0) + (counts.waiting_fill || 0) + (counts.waiting_lm || 0);
+  const stillInChain = (counts.invite_sent || 0) + (counts.waiting_focal || 0)
+    + (counts.waiting_employee || 0) + (counts.waiting_fill || 0)
+    + (counts.waiting_lm || 0) + (counts.waiting_asil || 0);
+
+  const canSend = !!user && (
+    ['superadmin', 'finance_manager', 'finance_approver', 'operations_supervisor'].includes(user.role)
+    || !!(user.permissions?.claims_portal?.subPerms || []).includes('campaign')
+    || (Array.isArray(user.permissions?.claims_portal) && user.permissions.claims_portal.includes('campaign'))
+  );
+
+  const toggleOne = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const id of visibleIds) next.delete(id);
+      } else {
+        for (const id of visibleIds) next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const runChase = async (action, mode, preview) => {
+    if (!selected.size) {
+      setErr('Tick at least one person, then send or remind.');
+      return;
+    }
+    if (!preview && mode === 'actual' && !confirmActual) {
+      setErr('Tick the confirmation box before sending ACTUAL emails.');
+      return;
+    }
+    const ids = [...selected];
+    const label = mode === 'sample' ? 'SAMPLE' : 'ACTUAL';
+    const verb = action === 'invite' ? 'invite' : action === 'remind_filler' ? 'filler reminder' : 'approver reminder';
+    if (!preview && !window.confirm(`Send ${label} ${verb} for ${ids.length} ticked person(s)?`)) return;
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const d = await api.portalClaimsChase({
+        action,
+        preview,
+        campaignMode: mode,
+        force: force && user?.role === 'superadmin',
+        workMonth, workYear, payMonth, payYear,
+        client, contract, location,
+        employeeIds: ids,
+      });
+      const toList = (d.targets || []).map(t => t.email).filter(Boolean);
+      if (preview) {
+        setMsg(`Preview ${verb}: ${d.send_count || 0} will be mailed → ${toList.join(', ') || 'no addresses'}.${d.skipped?.length ? ` Skipped ${d.skipped.length}.` : ''}`);
+      } else {
+        const ok = (d.sent || []).filter(s => s.ok).length;
+        setMsg(`${label} ${verb}: ${ok} email(s) to ${toList.join(', ') || '—'}.${d.skipped?.length ? ` Skipped ${d.skipped.length}.` : ''}`);
+        await loadBoard();
+      }
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const fillManualFrom = (p) => {
     if (!p) return;
@@ -244,11 +354,25 @@ export default function PortalClaimsHub({ user }) {
         </label>
         <label>
           <span className="lbl">Client</span>
-          <select value={client} onChange={e => setClient(e.target.value)}>
+          <select value={client} onChange={e => { setClient(e.target.value); setContract(''); setLocation(''); }}>
             <option value="">All clients</option>
             {clients.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <span className="hint">Same audience as request emails</span>
+        </label>
+        <label>
+          <span className="lbl">Contract</span>
+          <select value={contract} onChange={e => setContract(e.target.value)}>
+            <option value="">All contracts</option>
+            {contracts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="lbl">Location</span>
+          <select value={location} onChange={e => setLocation(e.target.value)}>
+            <option value="">All locations</option>
+            {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+          </select>
         </label>
         <div>
           <span className="lbl">Audience</span>
@@ -288,17 +412,48 @@ export default function PortalClaimsHub({ user }) {
               Auto-import is blocked. The Payroll Sheet already has OT, medical, or expense. Verify what is there, then add this claim by hand for that person only.
             </div>
           )}
+          {canSend && (
+            <div className="pch-chase">
+              <div className="pch-chase-line">
+                <strong>{selected.size}</strong> ticked
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('invite', 'sample', true)}>Preview invite</button>
+                <button type="button" className="btn-primary" disabled={busy || !selected.size} onClick={() => runChase('invite', 'sample', false)}>SAMPLE invite</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_filler', 'sample', true)}>Preview filler reminder</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_filler', 'sample', false)}>SAMPLE remind filler</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_approver', 'sample', true)}>Preview LM reminder</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_approver', 'sample', false)}>SAMPLE remind LM</button>
+              </div>
+              <div className="pch-chase-line">
+                <label className="pch-check">
+                  <input type="checkbox" checked={confirmActual} onChange={e => setConfirmActual(e.target.checked)} />
+                  I confirm ACTUAL mail to real Focal / Employee / LM addresses
+                </label>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('invite', 'actual', false)}>ACTUAL invite</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('remind_filler', 'actual', false)}>ACTUAL remind filler</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('remind_approver', 'actual', false)}>ACTUAL remind LM</button>
+                {isSuper && (
+                  <label className="pch-check">
+                    <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} />
+                    Superadmin force (re-mail finished people)
+                  </label>
+                )}
+              </div>
+              <p className="pch-muted">Sent = HCM handed the mail to Resend. It does not mean they opened it. Finished people are skipped unless Superadmin force is on.</p>
+            </div>
+          )}
           <div className="pch-table-wrap">
             <table className="pch-table">
               <thead>
                 <tr>
+                  <th>
+                    <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select visible" />
+                  </th>
                   <th>Employee</th>
-                  <th>Status</th>
-                  <th>Mailed to</th>
-                  <th>Portal OT 2x / 3x</th>
-                  <th>Portal med / exp</th>
-                  <th>Sheet OT 2x / 3x</th>
-                  <th>Sheet med / exp</th>
+                  <th>Now</th>
+                  <th>To</th>
+                  <th>Sent</th>
+                  <th>Mailer</th>
+                  <th>Path</th>
                   <th></th>
                 </tr>
               </thead>
@@ -309,18 +464,28 @@ export default function PortalClaimsHub({ user }) {
                 {people.map(p => (
                   <tr key={p.employee_id} className={rowClass(p.status, openId === p.employee_id)}>
                     <td>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(p.employee_id)}
+                        onChange={() => toggleOne(p.employee_id)}
+                        aria-label={`Select ${p.name}`}
+                      />
+                    </td>
+                    <td>
                       {p.name}
                       <div className="pch-muted">{p.employee_id} · {p.location || '—'}</div>
                     </td>
-                    <td>{STATUS_LABEL[p.status] || p.status}</td>
+                    <td>
+                      {p.now_label || STATUS_LABEL[p.status] || p.status}
+                      <div className="pch-muted">{STATUS_LABEL[p.status] || p.status}</div>
+                    </td>
                     <td>
                       {p.mailed_to || '—'}
-                      <div className="pch-muted">{p.path || '—'}</div>
+                      {p.lm && <div className="pch-muted">LM {p.lm}</div>}
                     </td>
-                    <td>{hours(p.portal?.ot2)} / {hours(p.portal?.ot3)}</td>
-                    <td>{money(p.portal?.medical)} / {money(p.portal?.expense)}</td>
-                    <td>{hours(p.sheet?.ot2)} / {hours(p.sheet?.ot3)}</td>
-                    <td>{money(p.sheet?.medical)} / {money(p.sheet?.expense)}</td>
+                    <td>{formatWhen(p.sent_at)}</td>
+                    <td>{MAILER_LABEL[p.mailer] || p.mailer || '—'}</td>
+                    <td>{p.path || '—'}</td>
                     <td>
                       <button type="button" className="btn-secondary" onClick={() => setOpenId(p.employee_id)}>Open</button>
                     </td>
@@ -373,11 +538,17 @@ export default function PortalClaimsHub({ user }) {
                 {open.status === 'ready_import' && (
                   <div className="pch-note is-warn">Approved. Sheet columns are empty. Import is allowed.</div>
                 )}
-                {open.status === 'waiting_lm' && <div className="pch-note is-warn">Waiting on Line Manager. Not on the Payroll Sheet yet.</div>}
+                {open.status === 'waiting_lm' && <div className="pch-note is-warn">Waiting on Line Manager {open.lm || ''}. Not on the Payroll Sheet yet.</div>}
+                {open.status === 'waiting_asil' && <div className="pch-note is-warn">Waiting on ASIL {open.lm || ''} to approve.</div>}
+                {open.status === 'waiting_focal' && <div className="pch-note is-info">Waiting on Focal {open.mailed_to || ''} to fill or finish.</div>}
+                {open.status === 'waiting_employee' && <div className="pch-note is-info">Waiting on the employee {open.mailed_to || ''} to fill.</div>}
                 {open.status === 'waiting_fill' && <div className="pch-note is-info">Waiting on Employee / Focal to submit.</div>}
-                {open.status === 'invite_sent' && <div className="pch-note is-info">Invite sent to {open.mailed_to}. No draft yet.</div>}
-                {open.status === 'not_invited' && <div className="pch-note">In the audience — no email yet. Use Request emails.</div>}
-                {open.status === 'closed' && <div className="pch-note">No claims this month, or rejected. Sheet stays empty.</div>}
+                {open.status === 'invite_sent' && <div className="pch-note is-info">Invite sent to {open.mailed_to} on {formatWhen(open.sent_at)}. No draft yet.</div>}
+                {open.status === 'not_invited' && <div className="pch-note">In the audience — no email yet. Tick and send an invite from this page.</div>}
+                {open.status === 'no_claims' && <div className="pch-note">They said no claims this month. Sheet stays empty.</div>}
+                {open.status === 'rejected' && <div className="pch-note is-bad">Rejected by {open.decided_by || 'approver'} ({open.decided_email || open.lm || '—'}).</div>}
+                {open.status === 'closed' && <div className="pch-note">Finished · nothing to pay.</div>}
+                {open.last_reminder_at && <div className="pch-muted">Last reminder {formatWhen(open.last_reminder_at)}</div>}
               </div>
               <div>
                 <h3>Import rule</h3>

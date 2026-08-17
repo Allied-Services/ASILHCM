@@ -57,10 +57,29 @@ describe('classifyResponseRow', () => {
         expect(classifyResponseRow({ subStatus: null, inviteSent: false, portal: {}, sheet: emptySheet })).toBe('not_invited');
     });
 
-    test('invite sent vs waiting fill vs waiting LM', () => {
+    test('invite sent vs waiting Focal vs waiting LM', () => {
         expect(classifyResponseRow({ subStatus: 'invited', inviteSent: true, portal: {}, sheet: emptySheet })).toBe('invite_sent');
-        expect(classifyResponseRow({ subStatus: 'draft', inviteSent: true, portal: {}, sheet: emptySheet })).toBe('waiting_fill');
-        expect(classifyResponseRow({ subStatus: 'submitted', inviteSent: true, portal, sheet: emptySheet })).toBe('waiting_lm');
+        expect(classifyResponseRow({
+            subStatus: 'draft', inviteSent: true, portal: {}, sheet: emptySheet,
+            routingProfile: 'focal_then_lm',
+        })).toBe('waiting_focal');
+        expect(classifyResponseRow({
+            subStatus: 'submitted', inviteSent: true, portal, sheet: emptySheet,
+            routingProfile: 'focal_then_lm',
+        })).toBe('waiting_lm');
+    });
+
+    test('splits employee fill, ASIL approve, no-claims, and rejected', () => {
+        expect(classifyResponseRow({
+            subStatus: 'draft', inviteSent: true, portal: {}, sheet: emptySheet,
+            routingProfile: 'employee_then_lm',
+        })).toBe('waiting_employee');
+        expect(classifyResponseRow({
+            subStatus: 'submitted', inviteSent: true, portal, sheet: emptySheet,
+            routingProfile: 'employee_then_asil',
+        })).toBe('waiting_asil');
+        expect(classifyResponseRow({ subStatus: 'no_claims', inviteSent: true, portal: {}, sheet: emptySheet })).toBe('no_claims');
+        expect(classifyResponseRow({ subStatus: 'rejected', inviteSent: true, portal, sheet: emptySheet })).toBe('rejected');
     });
 
     test('approved + matching sheet = on_sheet', () => {
@@ -163,6 +182,10 @@ describe('listResponseBoard period match', () => {
         expect(r.ok).toBe(true);
         expect(r.invite_logged).toBe(1);
         expect(r.people[0].status).toBe('waiting_lm');
+        expect(r.people[0].now_label).toMatch(/Waiting LM/);
+        expect(r.people[0].mailed_to).toBe('focal@wafi');
+        expect(r.people[0].lm).toBe('lm@wafi');
+        expect(r.people[0].mailer).toBe('sent');
         expect(r.period_label).toMatch(/7\/2026 work/);
         expect(pool.query.mock.calls[0][1]).toEqual([8, 2026, 8, 2026]);
     });

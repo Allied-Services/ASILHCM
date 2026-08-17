@@ -18,7 +18,7 @@
 
 .pch-period {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 16px;
   padding: 14px 16px;
   margin-bottom: 16px;
@@ -222,6 +222,30 @@
   background: var(--bg-dark);
   color: var(--text);
   box-sizing: border-box;
+}
+
+.pch-chase {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.pch-chase-line {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.pch-check {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .pch-actions {

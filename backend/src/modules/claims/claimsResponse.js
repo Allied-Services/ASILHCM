@@ -67,6 +67,59 @@ function amountsMatch(portal, sheet) {
         && Math.abs(num(p.expense) - s.expense) <= EPS_PKR;
 }
 
+function normalizeRouting(profile) {
+    return String(profile || 'focal_then_lm').toLowerCase();
+}
+
+function isEmployeeFiller(profile) {
+    return normalizeRouting(profile).startsWith('employee');
+}
+
+function decidedByRole(profile) {
+    const p = normalizeRouting(profile);
+    if (p === 'focal_only') return 'Focal';
+    if (p === 'employee_then_asil') return 'ASIL';
+    return 'LM';
+}
+
+function fillerWaitStatus(profile) {
+    return isEmployeeFiller(profile) ? 'waiting_employee' : 'waiting_focal';
+}
+
+function approverWaitStatus(profile) {
+    const p = normalizeRouting(profile);
+    if (p === 'employee_then_asil') return 'waiting_asil';
+    if (p === 'focal_only') return 'waiting_focal';
+    return 'waiting_lm';
+}
+
+function mailerResult(batch) {
+    if (!batch) return { mailer: 'not_sent', sent_at: null };
+    const sentAt = batch.invite_sent_at || null;
+    if (sentAt && batch.invite_delivered === false) return { mailer: 'send_failed', sent_at: sentAt };
+    if (sentAt || batch.invite_delivered) return { mailer: 'sent', sent_at: sentAt };
+    return { mailer: 'not_sent', sent_at: null };
+}
+
+function nowLabel({ status, mailedTo, lm, decidedBy, decidedEmail }) {
+    const to = mailedTo || '—';
+    const approver = lm || decidedEmail || '—';
+    if (status === 'not_invited') return 'Not invited';
+    if (status === 'invite_sent') return `Invite sent · waiting ${to} to start`;
+    if (status === 'waiting_focal') return `Waiting Focal to fill (${to})`;
+    if (status === 'waiting_employee') return `Waiting Employee to fill (${to})`;
+    if (status === 'waiting_lm') return `Waiting LM to approve (${approver})`;
+    if (status === 'waiting_asil') return `Waiting ASIL to approve (${approver})`;
+    if (status === 'no_claims') return 'No claims this month';
+    if (status === 'rejected') return `Rejected by ${decidedBy} (${approver})`;
+    if (status === 'on_sheet' || status === 'other_data' || status === 'ready_import') {
+        return `Approved by ${decidedBy} (${approver})`;
+    }
+    if (status === 'waiting_fill') return `Waiting fill (${to})`;
+    if (status === 'closed') return 'Finished · nothing to pay';
+    return status;
+}
+
 /**
  * One status per audience employee. Sample periods never count as on-sheet.
  */
@@ -76,34 +129,42 @@ function classifyResponseRow({
     portal,
     sheet,
     sample,
+    routingProfile,
 }) {
     const status = String(subStatus || '').toLowerCase();
     const other = sheetHasValues(sheet);
     const hasPortal = portalHasValues(portal);
     const match = amountsMatch(portal, sheet);
+    const profile = normalizeRouting(routingProfile);
 
     if (!status) return inviteSent ? 'invite_sent' : 'not_invited';
-    if (status === 'rejected' || status === 'no_claims') return 'closed';
-    if (status === 'submitted') return 'waiting_lm';
+    if (status === 'rejected') return 'rejected';
+    if (status === 'no_claims') return 'no_claims';
+    if (status === 'submitted') return approverWaitStatus(profile);
     if (status === 'invited') return 'invite_sent';
-    if (status === 'draft' || status === 'in_progress') return 'waiting_fill';
+    if (status === 'draft' || status === 'in_progress') return fillerWaitStatus(profile);
     if (status === 'approved' || status === 'in_payroll') {
-        if (sample) return hasPortal ? 'ready_import' : 'closed';
+        if (sample) return hasPortal ? 'ready_import' : 'no_claims';
         if (hasPortal && match) return 'on_sheet';
         if (hasPortal && other && !match) return 'other_data';
         if (hasPortal && !other) return 'ready_import';
         if (!hasPortal && other) return 'other_data';
-        return 'closed';
+        return 'no_claims';
     }
-    return 'waiting_fill';
+    return fillerWaitStatus(profile);
 }
 
 function emptyCounts() {
     return {
         not_invited: 0,
         invite_sent: 0,
+        waiting_focal: 0,
+        waiting_employee: 0,
         waiting_fill: 0,
         waiting_lm: 0,
+        waiting_asil: 0,
+        no_claims: 0,
+        rejected: 0,
         on_sheet: 0,
         other_data: 0,
         ready_import: 0,
@@ -193,7 +254,7 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
     if (periodIds.length && ids.length) {
         const { rows: subRows } = await pool.query(
             `SELECT s.id, s.employee_id, s.status, s.filler_email, s.approver_email,
-                    s.routing_profile, s.channel, s.batch_id, p.campaign_mode
+                    s.routing_profile, s.channel, s.batch_id, s.period_id, p.campaign_mode
              FROM portal_claim_submissions s
              JOIN portal_claim_periods p ON p.id = s.period_id
              WHERE s.period_id = ANY($1::int[]) AND s.employee_id = ANY($2::text[])`,
@@ -214,7 +275,7 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
 
     const { rows: batchRows } = periodIds.length
         ? await pool.query(
-            `SELECT id, filler_email, invite_sent_at, invite_delivered
+            `SELECT id, filler_email, invite_sent_at, invite_delivered, last_reminder_at, reminder_count
              FROM portal_claim_batches WHERE period_id = ANY($1::int[])`,
             [periodIds]
         )
@@ -251,12 +312,19 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
         const sample = !!(sub && String(sub.campaign_mode || '').toLowerCase() === 'sample');
         const batch = sub && sub.batch_id ? batchById.get(sub.batch_id) : null;
         const inviteSent = !!(batch && (batch.invite_sent_at || batch.invite_delivered));
+        const routingProfile = (sub && sub.routing_profile) || e.routing_profile || 'focal_then_lm';
+        const mailedTo = (sub && sub.filler_email) || e.filler_email || null;
+        const lm = (sub && sub.approver_email) || e.approver_email || null;
+        const decidedBy = decidedByRole(routingProfile);
+        const decidedEmail = decidedBy === 'Focal' ? mailedTo : lm;
+        const mail = mailerResult(batch);
         const status = classifyResponseRow({
             subStatus: sub && sub.status,
             inviteSent,
             portal,
             sheet: sheetRow,
             sample,
+            routingProfile,
         });
         counts[status] = (counts[status] || 0) + 1;
         return {
@@ -268,13 +336,23 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             contract_id: e.contract_id,
             contract_name: e.contract_name,
             path: e.claims_category,
-            routing_profile: e.routing_profile,
-            mailed_to: (sub && sub.filler_email) || e.filler_email || null,
-            lm: (sub && sub.approver_email) || e.approver_email || null,
+            routing_profile: routingProfile,
+            mailed_to: mailedTo,
+            lm,
+            period_id: sub ? sub.period_id : null,
+            batch_id: sub ? sub.batch_id : null,
             submission_id: sub ? sub.id : null,
             submission_status: sub ? sub.status : null,
             sample,
             status,
+            mailer: mail.mailer,
+            sent_at: mail.sent_at,
+            last_reminder_at: batch && batch.last_reminder_at ? batch.last_reminder_at : null,
+            decided_by: ['on_sheet', 'other_data', 'ready_import', 'rejected'].includes(status) ? decidedBy : null,
+            decided_email: ['on_sheet', 'other_data', 'ready_import', 'rejected'].includes(status) ? decidedEmail : null,
+            now_label: nowLabel({
+                status, mailedTo, lm, decidedBy, decidedEmail,
+            }),
             portal: {
                 ot1: portal.ot1,
                 ot2: portal.ot2,
@@ -324,6 +402,9 @@ module.exports = {
     portalHasValues,
     amountsMatch,
     classifyResponseRow,
+    decidedByRole,
+    mailerResult,
+    nowLabel,
     filterAudience,
     pickSubmission,
     writePortalAmountsToSheet,

@@ -43,6 +43,7 @@ const {
     listResponseBoard,
     writePortalAmountsToSheet,
 } = require('./claimsResponse');
+const { planChase } = require('./claimsChase');
 
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '1', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '18', 10);
@@ -1525,6 +1526,134 @@ async function getResponseBoard(pool, query) {
     return listResponseBoard(pool, countEligibleEmployees, query);
 }
 
+function wrapChaseSampleSend(sendAppEmail) {
+    const dest = process.env.CLAIMS_SAMPLE_EMAIL;
+    return async (msg) => {
+        const period = { campaign_mode: 'sample' };
+        return sendAppEmail({
+            ...msg,
+            to: dest,
+            subject: `${sampleSubjectPrefix(period, 'Chase')}${msg.subject || ''}`,
+            html: sampleBodyBanner(period, msg.to, 'Chase') + (msg.html || ''),
+        });
+    };
+}
+
+async function chaseDeskAction(pool, opts, sendAppEmail) {
+    const action = String(opts.action || '');
+    if (!['invite', 'remind_filler', 'remind_approver'].includes(action)) {
+        return { ok: false, status: 400, error: 'action must be invite, remind_filler, or remind_approver' };
+    }
+    const employeeIds = Array.isArray(opts.employeeIds)
+        ? opts.employeeIds.map((x) => String(x)).filter(Boolean)
+        : [];
+    if (!employeeIds.length) return { ok: false, status: 400, error: 'employeeIds required' };
+
+    const mode = String(opts.campaignMode || 'sample').toLowerCase() === 'actual' ? 'actual' : 'sample';
+    const preview = !!opts.preview;
+    if (!preview && mode === 'actual' && process.env.CLAIMS_ALLOW_ACTUAL_SEND !== 'true') {
+        return {
+            ok: false,
+            status: 403,
+            error: 'ACTUAL campaigns are blocked until MD sign-off. Use campaignMode "sample" for testing.',
+        };
+    }
+    if (!preview && mode === 'sample' && !process.env.CLAIMS_SAMPLE_EMAIL) {
+        return { ok: false, status: 500, error: 'CLAIMS_SAMPLE_EMAIL is not configured on this server.' };
+    }
+
+    const board = await getResponseBoard(pool, {
+        workMonth: opts.workMonth,
+        workYear: opts.workYear,
+        payMonth: opts.payMonth,
+        payYear: opts.payYear,
+        client: opts.client || '',
+        contract: opts.contract || '',
+        location: opts.location || '',
+        dept: opts.dept || '',
+    });
+    if (!board.ok) return board;
+
+    const wanted = new Set(employeeIds);
+    const people = (board.people || []).filter((p) => wanted.has(String(p.employee_id)));
+    const plan = planChase({ people, action, force: !!opts.force });
+    const result = {
+        ok: true,
+        preview,
+        action,
+        campaignMode: mode,
+        send_count: plan.send.length,
+        skipped: plan.skipped,
+        targets: plan.targets,
+        sent: [],
+    };
+    if (preview || !plan.send.length) return result;
+
+    const sender = mode === 'sample' ? wrapChaseSampleSend(sendAppEmail) : sendAppEmail;
+
+    if (action === 'invite') {
+        const existing = await findPeriodForUi(pool, opts.workMonth, opts.workYear);
+        const periodMode = existing
+            ? (String(existing.campaign_mode || '').toLowerCase() === 'sample' ? 'sample' : 'actual')
+            : mode;
+        const campaign = await createCampaign(pool, {
+            claimMonth: parseInt(opts.workMonth, 10),
+            claimYear: parseInt(opts.workYear, 10),
+            sendAppEmail: sender,
+            dryRun: false,
+            onlyEmployeeIds: plan.send.map((p) => p.employee_id),
+            campaignMode: periodMode,
+        });
+        result.sent = (campaign.invites || []).map((i) => ({
+            to: i.to || i.fillerEmail || i.mailTo,
+            ok: i.ok !== false,
+            error: i.error || null,
+        }));
+        result.campaign = {
+            fillerCount: campaign.fillerCount,
+            employeeCount: campaign.employeeCount,
+        };
+        return result;
+    }
+
+    if (action === 'remind_filler') {
+        const batchIds = [...new Set(plan.send.map((p) => p.batch_id).filter(Boolean))];
+        for (const batchId of batchIds) {
+            const r = await resendFillerInvite(pool, batchId, sender);
+            if (r.ok) {
+                await pool.query(
+                    `UPDATE portal_claim_batches
+                     SET last_reminder_at = NOW(), reminder_count = COALESCE(reminder_count, 0) + 1
+                     WHERE id = $1`,
+                    [batchId]
+                );
+            }
+            result.sent.push({
+                batch_id: batchId,
+                to: r.fillerEmail,
+                ok: !!r.ok,
+                error: r.error || null,
+            });
+        }
+        return result;
+    }
+
+    const periodIds = [...new Set(plan.send.map((p) => p.period_id).filter(Boolean))];
+    const wantedApprovers = new Set(plan.targets.map((t) => String(t.email || '').toLowerCase()));
+    for (const periodId of periodIds) {
+        const packs = await ensureApproverPacks(pool, periodId, sender, { forceEmail: true });
+        for (const pack of packs) {
+            if (!wantedApprovers.has(String(pack.approverEmail || '').toLowerCase())) continue;
+            result.sent.push({
+                to: pack.approverEmail,
+                ok: true,
+                count: pack.count,
+            });
+        }
+    }
+    return result;
+}
+
 async function listClaimsForAdmin(pool, { month, year, channel, approver, filler, status, client }) {
     const vals = [];
     let where = `WHERE 1=1`;
@@ -2081,6 +2210,7 @@ module.exports = {
     approverDecide,
     listClaimsForAdmin,
     getResponseBoard,
+    chaseDeskAction,
     importIfSheetEmpty,
     writePortalAmountsToSheet,
     exportClaimsPayrollTieout,
