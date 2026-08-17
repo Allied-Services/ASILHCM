@@ -1,0 +1,22 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove July Wafi pay with Unlock → Calculate on staging, then prod.
+Status: AMBER
+
+NOT FINISHED YET
+1. July Wafi live proof still open (Unlock → Calculate → check nets)
+2. S5B shadow month — Excel vs HCM still open
+3. Two pay paths still exist (old path still pays)
+
+NEEDS YOU TODAY
+- No open work PR waiting on you
+- Staging then prod: Unlock July → Calculate → check SPL-208 / SPL-91
+- Pilot Excel export still needed for shadow month
+
+I SUGGEST
+- Do the July Calculate proof today — no new builds
+- Connect morning email on the Automation (still not sending)
+
+FOCUS TODAY
+Live-prove July Wafi numbers. Park everything else.
