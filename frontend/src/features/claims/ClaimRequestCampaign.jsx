@@ -214,7 +214,11 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
     }
   };
 
-  const canSend = !!user && ['superadmin', 'finance_manager', 'finance_approver'].includes(user.role);
+  const canSend = !!user && (
+    ['superadmin', 'finance_manager', 'finance_approver', 'operations_supervisor'].includes(user.role)
+    || !!(user.permissions?.claims_portal?.subPerms || []).includes('campaign')
+    || (Array.isArray(user.permissions?.claims_portal) && user.permissions.claims_portal.includes('campaign'))
+  );
   const selectedFillerCount = new Set(employees.filter(e => selected.has(e.id)).map(e => e.fillerEmail)).size;
 
   return (

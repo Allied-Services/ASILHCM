@@ -4,11 +4,12 @@ const path = require('path');
 const { handleRouteError } = require('../../core/validate');
 const portal = require('./portalService');
 const { withClaimsMonitorCc, getClaimsMonitorCc } = require('./claimsMail');
+const { requireClaimsPortal, CAMPAIGN_ROLES, VIEW_ROLES } = require('./claimsAccess');
 
 function hasManualOverridePerm(user) {
     if (!user) return false;
     if (user.role === 'superadmin') return true;
-    if (['finance_manager', 'finance_approver'].includes(user.role)) return true;
+    if (['finance_manager', 'finance_approver', 'operations_supervisor'].includes(user.role)) return true;
     let perms = user.permissions;
     if (typeof perms === 'string') {
         try { perms = JSON.parse(perms); } catch { perms = null; }
@@ -187,7 +188,7 @@ function registerPortalClaimsRoutes(app, deps) {
     });
 
     // ── ASIL admin ────────────────────────────────────────────────────────────
-    app.get('/api/portal-claims/eligible', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'hr_manager', 'operations'), async (req, res) => {
+    app.get('/api/portal-claims/eligible', requireAuth, requireClaimsPortal(pool, 'view', VIEW_ROLES), async (req, res) => {
         try {
             res.json({ employees: await portal.listEligibleEmployees(pool) });
         } catch (err) {
@@ -195,7 +196,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.post('/api/portal-claims/campaign', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+    app.post('/api/portal-claims/campaign', requireAuth, requireClaimsPortal(pool, 'campaign', CAMPAIGN_ROLES), async (req, res) => {
         try {
             const now = new Date();
             const claimMonth = parseInt(req.body?.claimMonth || req.body?.month || now.getMonth(), 10);
@@ -224,7 +225,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.post('/api/portal-claims/campaign/preview', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+    app.post('/api/portal-claims/campaign/preview', requireAuth, requireClaimsPortal(pool, 'campaign', CAMPAIGN_ROLES), async (req, res) => {
         try {
             const now = new Date();
             const claimMonth = parseInt(req.body?.claimMonth || req.body?.month || now.getMonth(), 10);
@@ -257,7 +258,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.post('/api/portal-claims/notify-approvers', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+    app.post('/api/portal-claims/notify-approvers', requireAuth, requireClaimsPortal(pool, 'campaign', CAMPAIGN_ROLES), async (req, res) => {
         try {
             let periodId = parseInt(req.body?.periodId, 10);
             const month = parseInt(req.body?.month, 10);
@@ -274,7 +275,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.get('/api/portal-claims/admin/list', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'payroll_initiator', 'payroll'), async (req, res) => {
+    app.get('/api/portal-claims/admin/list', requireAuth, requireClaimsPortal(pool, 'view', VIEW_ROLES), async (req, res) => {
         try {
             const rows = await portal.listClaimsForAdmin(pool, req.query);
             res.json({ claims: rows });
@@ -283,7 +284,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.get('/api/portal-claims/admin/response', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'payroll_initiator', 'payroll'), async (req, res) => {
+    app.get('/api/portal-claims/admin/response', requireAuth, requireClaimsPortal(pool, 'view', VIEW_ROLES), async (req, res) => {
         try {
             const result = await portal.getResponseBoard(pool, {
                 workMonth: req.query.workMonth || req.query.month,
@@ -302,7 +303,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.post('/api/portal-claims/admin/import-if-empty', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+    app.post('/api/portal-claims/admin/import-if-empty', requireAuth, requireClaimsPortal(pool, 'claims_manual_override', CAMPAIGN_ROLES), async (req, res) => {
         try {
             const employeeId = String(req.body?.employeeId || '').trim();
             const workMonth = parseInt(req.body?.workMonth, 10);
@@ -318,7 +319,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.get('/api/portal-claims/admin/tieout', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+    app.get('/api/portal-claims/admin/tieout', requireAuth, requireClaimsPortal(pool, 'export', CAMPAIGN_ROLES), async (req, res) => {
         try {
             const month = parseInt(req.query.month, 10);
             const year = parseInt(req.query.year, 10);
@@ -329,7 +330,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.post('/api/portal-claims/admin/resend/:batchId', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+    app.post('/api/portal-claims/admin/resend/:batchId', requireAuth, requireClaimsPortal(pool, 'campaign', CAMPAIGN_ROLES), async (req, res) => {
         try {
             const result = await portal.resendFillerInvite(pool, parseInt(req.params.batchId, 10), sendAppEmail);
             if (!result.ok) return res.status(404).json(result);
@@ -375,7 +376,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.get('/api/portal-claims/eligibility-rules', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+    app.get('/api/portal-claims/eligibility-rules', requireAuth, requireClaimsPortal(pool, 'view', VIEW_ROLES), async (req, res) => {
         try {
             res.json({ rules: await portal.listEligibilityRules(pool) });
         } catch (err) {
@@ -392,7 +393,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.get('/api/portal-claims/eligibility-rules/:id/preview', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver'), async (req, res) => {
+    app.get('/api/portal-claims/eligibility-rules/:id/preview', requireAuth, requireClaimsPortal(pool, 'view', VIEW_ROLES), async (req, res) => {
         try {
             res.json(await portal.previewEligibilityRule(pool, parseInt(req.params.id, 10)));
         } catch (err) {
@@ -400,7 +401,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.get('/api/portal-claims/employee/:employeeId/category', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'operations', 'payroll_initiator'), async (req, res) => {
+    app.get('/api/portal-claims/employee/:employeeId/category', requireAuth, requireClaimsPortal(pool, 'view', VIEW_ROLES), async (req, res) => {
         try {
             const cat = await portal.getClaimsCategoryForEmployee(pool, req.params.employeeId);
             if (!cat) return res.status(404).json({ error: 'Employee not found' });

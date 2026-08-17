@@ -177,10 +177,14 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
     const ids = audience.map((e) => e.id);
 
     const { rows: periods } = await pool.query(
-        `SELECT id, campaign_mode, claim_month, claim_year, settlement_month, settlement_year
+        `SELECT id, campaign_mode, claim_month, claim_year, settlement_month, settlement_year,
+                campaign_month, campaign_year
          FROM portal_claim_periods
-         WHERE claim_month = $1 AND claim_year = $2`,
-        [workMonth, workYear]
+         WHERE (claim_month = $1 AND claim_year = $2)
+            OR (campaign_month = $1 AND campaign_year = $2)
+            OR (settlement_month = $3 AND settlement_year = $4)
+            OR (campaign_month = $3 AND campaign_year = $4)`,
+        [workMonth, workYear, payMonth, payYear]
     );
     const periodIds = periods.map((p) => p.id);
 
@@ -293,6 +297,8 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
 
     people.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
+    const primary = periods.find((p) => String(p.campaign_mode || '').toLowerCase() !== 'sample') || periods[0] || null;
+    const inviteLogged = people.filter((p) => p.status !== 'not_invited').length;
     return {
         ok: true,
         work_month: workMonth,
@@ -300,6 +306,10 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
         pay_month: payMonth,
         pay_year: payYear,
         audience_count: people.length,
+        invite_logged: inviteLogged,
+        period_label: primary
+            ? `This send is ${primary.claim_month}/${primary.claim_year} work · paid ${primary.settlement_month}/${primary.settlement_year} · ${inviteLogged} invite(s) logged`
+            : 'No portal-claims send is logged for this work / pay month pair',
         counts,
         people,
     };

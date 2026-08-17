@@ -269,7 +269,7 @@ export default function PortalClaimsHub({ user }) {
       {section === 'response' && (
         <>
           <div className="pch-note is-info">
-            This is the page you open every morning. Compare portal numbers to the {MONTHS[payMonth - 1][1]} Payroll Sheet. Auto-import only when those four columns are empty.
+            {board?.period_label || 'Compare portal numbers to the Payroll Sheet. Auto-import only when those four columns are empty.'}
           </div>
           <div className="pch-stats">
             <div className="pch-stat"><strong>{board?.audience_count ?? '—'}</strong><span>In audience</span></div>
