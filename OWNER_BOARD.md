@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-01 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-17 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -50,9 +50,8 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## IN PROGRESS
-- Portal Claims Response board (July work vs August sheet, OTHER DATA import block) — branch `feat/portal-claims-response`
+- Portal Claims Response chase desk (who was emailed, who acts now, tick + remind) — branch `feat/portal-claims-chase-desk`
 - BPO / PSO contract matching on staging (separate track — do not block)
-- **PSO July invoice lines** — live Drafts corrected 2026-08-15 (Sihala 32,002; Chakpirana line 6 + Rasab; Juglot 16,493; Faqirabad Akbar on Technical). Print matcher on `fix/pso-invoice-line-matching` (not on prod UI until merge)
 
 ## JUST SHIPPED (2026-08-02)
 - **FV PSO July payroll headcount** — compute was only paying 4 people on `CTR-PSO-NORTH-ZONE` while attendance had 182 overrides on legacy contract_ids. Fixed on `main` (`e0af43e`); live run #117 = **185 HC**, Model A wages verified, net **8,090,438**.

@@ -662,6 +662,7 @@ export const api = {
         body: JSON.stringify({ periodId: periodId || undefined, month, year }),
     }),
     portalClaimsResponse: (q = {}) => apiFetch('/api/portal-claims/admin/response?' + new URLSearchParams(q).toString()),
+    portalClaimsChase: (data) => apiFetch('/api/portal-claims/admin/chase', { method: 'POST', body: JSON.stringify(data) }),
     portalClaimsImportIfEmpty: (data) => apiFetch('/api/portal-claims/admin/import-if-empty', { method: 'POST', body: JSON.stringify(data) }),
     portalClaimsTieout: (month, year) => apiFetch(`/api/portal-claims/admin/tieout?month=${month}&year=${year}`),
     portalClaimsResend: (batchId) => apiFetch(`/api/portal-claims/admin/resend/${batchId}`, { method: 'POST' }),

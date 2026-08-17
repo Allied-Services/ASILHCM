@@ -303,6 +303,31 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
+    app.post('/api/portal-claims/admin/chase', requireAuth, requireClaimsPortal(pool, 'campaign', CAMPAIGN_ROLES), async (req, res) => {
+        try {
+            const force = !!req.body?.force && req.user?.role === 'superadmin';
+            const result = await portal.chaseDeskAction(pool, {
+                action: req.body?.action,
+                preview: !!req.body?.preview,
+                campaignMode: req.body?.campaignMode,
+                force,
+                workMonth: req.body?.workMonth,
+                workYear: req.body?.workYear,
+                payMonth: req.body?.payMonth,
+                payYear: req.body?.payYear,
+                client: req.body?.client || '',
+                contract: req.body?.contract || '',
+                location: req.body?.location || '',
+                dept: req.body?.dept || '',
+                employeeIds: req.body?.employeeIds,
+            }, sendAppEmail);
+            if (!result.ok) return res.status(result.status || 400).json(result);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.chase', err);
+        }
+    });
+
     app.post('/api/portal-claims/admin/import-if-empty', requireAuth, requireClaimsPortal(pool, 'claims_manual_override', CAMPAIGN_ROLES), async (req, res) => {
         try {
             const employeeId = String(req.body?.employeeId || '').trim();
