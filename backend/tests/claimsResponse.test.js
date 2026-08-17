@@ -6,6 +6,7 @@ const {
     amountsMatch,
     classifyResponseRow,
     writePortalAmountsToSheet,
+    listResponseBoard,
 } = require('../src/modules/claims/claimsResponse');
 
 describe('portalAmountsFromItems', () => {
@@ -122,5 +123,47 @@ describe('writePortalAmountsToSheet', () => {
         expect(r.blocked).toBeNull();
         expect(pool.query).toHaveBeenCalledTimes(2);
         expect(pool.query.mock.calls[1][1]).toEqual(['ASIL-W-1042', 8, 2026, 8, 0, 0, 2400]);
+    });
+});
+
+describe('listResponseBoard period match', () => {
+    test('finds an August campaign that stores July work', async () => {
+        const eligible = [{
+            id: 'E1', name: 'Ayesha', client: 'Wafi', location: 'Karachi',
+            filler_email: 'focal@wafi', approver_email: 'lm@wafi',
+            claims_category: 'Focal + LM', routing_profile: 'focal_then_lm',
+        }];
+        const pool = {
+            query: jest.fn()
+                .mockResolvedValueOnce({
+                    rows: [{
+                        id: 9, campaign_mode: 'actual',
+                        claim_month: 7, claim_year: 2026,
+                        settlement_month: 8, settlement_year: 2026,
+                        campaign_month: 8, campaign_year: 2026,
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    rows: [{
+                        id: 1, employee_id: 'E1', status: 'submitted',
+                        filler_email: 'focal@wafi', approver_email: 'lm@wafi',
+                        routing_profile: 'focal_then_lm', channel: 'portal',
+                        batch_id: 3, campaign_mode: 'actual',
+                    }],
+                })
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({
+                    rows: [{ id: 3, filler_email: 'focal@wafi', invite_sent_at: '2026-08-15', invite_delivered: true }],
+                })
+                .mockResolvedValueOnce({ rows: [] }),
+        };
+        const r = await listResponseBoard(pool, async () => ({ eligible }), {
+            workMonth: 8, workYear: 2026, payMonth: 8, payYear: 2026, client: 'Wafi',
+        });
+        expect(r.ok).toBe(true);
+        expect(r.invite_logged).toBe(1);
+        expect(r.people[0].status).toBe('waiting_lm');
+        expect(r.period_label).toMatch(/7\/2026 work/);
+        expect(pool.query.mock.calls[0][1]).toEqual([8, 2026, 8, 2026]);
     });
 });

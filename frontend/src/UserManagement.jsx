@@ -269,6 +269,7 @@ const ROLE_SUB_PERMS = {
     client:    ['view','create','edit'],
     attendance: ['view','mark_attendance','approve_leave','team_setup'],
     maintenance: ['view','create','escalation_config'],
+    claims_portal: ['view','campaign','export','claims_manual_override'],
   },
   operations_team: {
     employee:  ['view','edit'],
