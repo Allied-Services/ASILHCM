@@ -71,11 +71,43 @@ describe('serviceOrders — Tarujabba grand total', () => {
             },
         });
         expect(html).toContain('2,479,745');
-        expect(html).toMatch(/Stamped grand|Grand Net Invoice Amount/i);
-        expect(html).toMatch(/Income (Tax )?WHT/i);
+        expect(html).toMatch(/Grand Net Invoice Amount/i);
         expect(html).toContain('Tarujabba Depot');
         expect(html).toMatch(/Resources \(billed manpower\):[\s\S]*?\b12\b/);
         expect(html).not.toMatch(/Grand Net Invoice Amount[\s\S]*PKR 2,156,300/);
+        expect(html).not.toContain('Stamped grand = net taxable');
+        expect(html).not.toContain('PREPARED BY (ALLIED SERVICES LTD)');
+        expect(html).toContain('Authorized Signature &amp; Seal');
+    });
+
+    test('letterhead format uses uniform @page margins on every page (no first-page spacer)', () => {
+        const html = renderInvoiceHtml({
+            computed: {
+                netTaxable: 100000,
+                provincialSt: 16000,
+                grandTotal: 116000,
+                taxRate: 0.16,
+                siteName: 'Test Site',
+                lineItems: [{ description: 'Services', quantity: 1, rate: 100000, amount: 100000 }],
+            },
+        }, { format: 'invoice_letterhead' });
+        expect(html).toContain('@page { size: A4; margin: 47mm 12mm 19mm 12mm; }');
+        expect(html).not.toContain('letterhead-spacer');
+        expect(html).not.toContain('invoice-logo-address-row');
+        expect(html).toContain('Authorized Signature &amp; Seal');
+        expect(html).not.toContain('Stamped grand = net taxable');
+        expect(html).not.toContain('PREPARED BY');
+    });
+
+    test('non-letterhead format keeps default @page margins', () => {
+        const html = renderInvoiceHtml({
+            computed: {
+                netTaxable: 100000,
+                lineItems: [{ description: 'Services', quantity: 1, rate: 100000, amount: 100000 }],
+            },
+        }, { format: 'invoice' });
+        expect(html).toContain('@page { size: A4; margin: 12mm 12mm 14mm 12mm; }');
+        expect(html).toContain('invoice-logo-address-row');
     });
 });
 

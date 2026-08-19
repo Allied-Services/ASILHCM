@@ -193,13 +193,15 @@ function orphanShortageLabel(d) {
 }
 
 function baseStyles(letterhead) {
+    const pageMargin = letterhead
+        ? '47mm 12mm 19mm 12mm'
+        : '12mm 12mm 14mm 12mm';
     return `
 <style>
-  @page { size: A4; margin: 12mm 12mm 14mm 12mm; }
+  @page { size: A4; margin: ${pageMargin}; }
   * { box-sizing: border-box; }
   body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; margin: 0; padding: 0; background: #fff; }
   .wrap { max-width: 820px; margin: 0 auto; padding: 18px 22px 28px; }
-  .letterhead-spacer { height: 4.5cm; width: 100%; }
   .logo-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 10px; }
   .logo-row.hidden { display: none !important; }
   .addr { text-align: right; font-size: 11px; font-weight: 800; line-height: 1.35; text-transform: uppercase; }
@@ -242,11 +244,9 @@ function baseStyles(letterhead) {
   .stamp { margin-top: 14px; font-size: 11px; font-weight: 700; }
   .sign { margin-top: 36px; padding-top: 12px; border-top: 1px solid #f1f5f9; font-size: 11px; color: #64748b; }
   .sign .line { margin-top: 28px; border-bottom: 1px solid #cbd5e1; width: 180px; }
-  .note { margin-top: 10px; font-size: 10px; color: #94a3b8; }
   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .wrap { padding: 0; }
-    .letterhead-spacer { height: 4.5cm; }
   }
 </style>`;
 }
@@ -296,9 +296,6 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
     const net = Number(data.netTaxable ?? data.subtotal ?? Math.max(0, gross - totalDeductions));
     const pst = Number(data.provincialSt ?? data.salesTax ?? 0);
     const grand = Number(data.grandTotal ?? net + pst);
-    const incomeWht = Number(data.incomeWht ?? data.wht ?? 0);
-    const stWithholding = Number(data.stWithholding ?? 0);
-    const receivable = Number(data.netReceivable ?? grand - incomeWht - stWithholding);
     const title = formatTitle(format);
 
     const { byLine, orphans: orphanDeds } = attributeDeductions(lines, deductions, {
@@ -352,7 +349,7 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
         : '';
 
     const logoBlock = letterhead
-        ? `<div class="letterhead-spacer" id="letterhead-spacer-block"></div>`
+        ? ''
         : `<div class="logo-row" id="invoice-logo-address-row">
             <div>
               <p class="brand">ALLIED <span>SERVICES</span></p>
@@ -424,9 +421,7 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
       <div class="grand"><span>Grand Net Invoice Amount</span><span>PKR ${fmt2(grand)}</span></div>
     </div>
   </div>
-  <div class="note">Stamped grand = net taxable + provincial ST. Income WHT (Rs. ${fmt(incomeWht)}) and ST withholding (Rs. ${fmt(stWithholding)}) are receivable-only (est. net receivable Rs. ${fmt(receivable)}).</div>
   <div class="sign">
-    <div>PREPARED BY (ALLIED SERVICES LTD)</div>
     <div class="line"></div>
     <div style="margin-top:6px">Authorized Signature &amp; Seal</div>
   </div>
