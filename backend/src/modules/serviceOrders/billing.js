@@ -16,8 +16,10 @@ const {
 
 const ST_WITHHOLDING_RATE = 0.20;
 
+const { isInvoiceLocked } = require('../payrollClose/service');
+
 /** FV invoices in these statuses may regenerate line_items/totals (preserve invoice_number). */
-const FV_REGENERATABLE_STATUSES = new Set(['draft', 'raised', 'sent']);
+const FV_REGENERATABLE_STATUSES = new Set(['draft']);
 
 function round2(n) {
     return Math.round(Number(n || 0) * 100) / 100;
@@ -353,6 +355,25 @@ async function generateInvoiceNumber(pool, year, month) {
     return `${prefix}-${String(seq).padStart(4, '0')}`;
 }
 
+async function assertFvPeriodInvoiceEditable(pool, { contractId, month, year }) {
+    const { rows } = await pool.query(
+        `SELECT id, status, invoice_number FROM client_invoices
+         WHERE contract_id = $1 AND period_month = $2 AND period_year = $3`,
+        [contractId, month, year]
+    );
+    for (const inv of rows) {
+        if (isInvoiceLocked(inv.status)) {
+            const err = new Error(
+                `Invoice ${inv.invoice_number || inv.id} is ${inv.status} — changes require unlock code.`
+            );
+            err.status = 409;
+            err.code = 'INVOICE_PERIOD_LOCKED';
+            err.details = { invoiceId: inv.id, status: inv.status };
+            throw err;
+        }
+    }
+}
+
 async function findExistingSoInvoice(pool, { contractId, serviceOrderId, month, year }) {
     const { rows } = await pool.query(
         `SELECT *
@@ -577,6 +598,12 @@ async function updateFvInvoiceNumber(pool, invoiceId, invoiceNumber) {
         err.code = 'INVOICE_NOT_EDITABLE';
         throw err;
     }
+    if (isInvoiceLocked(inv.status) && String(inv.status).toLowerCase() !== 'draft') {
+        const err = new Error('Cannot edit invoice number after finalization');
+        err.status = 409;
+        err.code = 'INVOICE_NOT_EDITABLE';
+        throw err;
+    }
 
     if (String(inv.invoice_number) === next) {
         return inv;
@@ -699,6 +726,7 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
 
 module.exports = {
     ST_WITHHOLDING_RATE,
+    assertFvPeriodInvoiceEditable,
     FV_REGENERATABLE_STATUSES,
     listDeductions,
     addManualDeduction,

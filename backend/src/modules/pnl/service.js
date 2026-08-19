@@ -13,7 +13,7 @@ async function refreshPnlViews(pool) {
         revenue AS (
             SELECT contract_id, period_year, period_month, SUM(grand_total) AS total_revenue
             FROM client_invoices
-            WHERE status NOT IN ('Void', 'Voided')
+            WHERE status IN ('Finalized', 'Raised', 'Sent', 'Paid')
             GROUP BY contract_id, period_year, period_month
         ),
         periods AS (

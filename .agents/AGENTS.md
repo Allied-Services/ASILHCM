@@ -660,6 +660,12 @@ Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency in
 - Frontend build: `npm run build` in `frontend/`.
 - Integration tests `npm run test:int` require a Neon `ci-test` branch via `TEST_DATABASE_URL` and cannot run against the local DB (the runner refuses URLs without the `ci-test` marker).
 
+### 2026-08-19 — FV month close: AP close packs, invoice Finalized, unlock code
+
+Fixed Value payroll lock now atomically creates `payroll_close_packs` + `payroll_payables` (salary, EOBI, SESSI, PF, WHT, gratuity/bonus accrual, etc.) and P&L `cost_allocations`. AP UI: **FV Close Packs** tab in `AccountsPayable.jsx`. Invoice lifecycle adds **Finalized** before Raised; P&L revenue counts Finalized+ only. Reopen payroll/invoices requires `MONTH_CLOSE_UNLOCK_CODE_HASH` (SHA-256). July PSO repair: `backend/scripts/repair_july_pso_close.js` (dry-run; `--apply`). Migration: `20260819120000_fv_month_close.js`.
+
+**Env vars needed:** `MONTH_CLOSE_UNLOCK_CODE_HASH` on Render before using reopen endpoints.
+
 ---
 
 *This file is maintained by the Antigravity Development Consultant. Update it when architectural decisions change.*

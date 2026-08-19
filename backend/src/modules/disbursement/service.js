@@ -21,10 +21,43 @@ function payrollReference(month, year, employeeId) {
 }
 
 /**
- * Bridge a locked/invoiced World B payroll run into payment_batches + payment_ledger
- * (mirrors World A AP confirm artifacts for downstream AP/bank screens).
+ * Bridge a locked/invoiced World B payroll run into payment_batches + payment_ledger.
+ * For FV contracts with a close pack, delegates salary settlement to payrollClose.
  */
 async function disburseRun(pool, runId, opts = {}, actor) {
+    const { isFixedValueContract } = require('../payrollClose/service');
+    const { rows: runCheck } = await pool.query(
+        `SELECT contract_id FROM payroll_runs WHERE id = $1`,
+        [runId]
+    );
+    if (runCheck.length && await isFixedValueContract(pool, runCheck[0].contract_id)) {
+        const { rows: packs } = await pool.query(
+            `SELECT id FROM payroll_close_packs WHERE run_id = $1`,
+            [runId]
+        );
+        if (packs.length) {
+            const { settlePayable } = require('../payrollClose/service');
+            const result = await settlePayable(pool, {
+                packId: packs[0].id,
+                payableType: 'salary',
+                paymentDate: opts.payment_date,
+                referenceNo: opts.reference_no,
+                bankId: opts.bank_id,
+                bankName: opts.bank_name,
+                actor,
+            });
+            if (!result.ok) return result;
+            return {
+                ok: true,
+                batch_id: result.batch_id,
+                employee_count: null,
+                total_amount: null,
+                excluded: [],
+                via_close_pack: true,
+            };
+        }
+    }
+
     const {
         bank_id,
         bank_name,

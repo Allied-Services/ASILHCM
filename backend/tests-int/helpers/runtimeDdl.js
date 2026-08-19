@@ -41,6 +41,50 @@ async function applyRuntimeDdl(pool) {
       (COALESCE(contract_name, ''))
     );
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS payroll_close_packs (
+      id serial PRIMARY KEY,
+      run_id integer NOT NULL UNIQUE,
+      contract_id text NOT NULL,
+      period_month integer NOT NULL,
+      period_year integer NOT NULL,
+      status text NOT NULL DEFAULT 'closed',
+      salary_batch_id text,
+      closed_at timestamptz DEFAULT now(),
+      closed_by text,
+      reopened_at timestamptz,
+      reopened_by text,
+      created_at timestamptz DEFAULT now(),
+      updated_at timestamptz DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS payroll_payables (
+      id serial PRIMARY KEY,
+      pack_id integer NOT NULL REFERENCES payroll_close_packs(id) ON DELETE CASCADE,
+      payable_type text NOT NULL,
+      amount numeric(14,2) NOT NULL DEFAULT 0,
+      status text NOT NULL DEFAULT 'Payable',
+      payment_date date,
+      reference_no text,
+      payment_batch_id text,
+      paid_at timestamptz,
+      paid_by text,
+      created_at timestamptz DEFAULT now(),
+      updated_at timestamptz DEFAULT now(),
+      UNIQUE (pack_id, payable_type)
+    );
+    CREATE TABLE IF NOT EXISTS month_close_revisions (
+      id serial PRIMARY KEY,
+      entity_type text NOT NULL,
+      entity_id text NOT NULL,
+      action text NOT NULL,
+      actor text,
+      snapshot jsonb,
+      created_at timestamptz DEFAULT now()
+    );
+    ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS finalized_at timestamptz;
+    ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS finalized_by text;
+  `);
 }
 
 module.exports = { applyRuntimeDdl };

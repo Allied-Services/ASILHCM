@@ -97,6 +97,8 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 
 **Payroll run guard:** `generateInvoiceFromRun` returns **409 `USE_SO_INVOICE`** for Fixed Value / Conservancy contracts — use `/api/fixed-value/service-orders/:id/invoice/*` instead.
 
+**Month close (FV):** Locking a World B payroll run for an FV contract atomically creates `payroll_close_packs` + `payroll_payables` (salary, EOBI, SESSI, PF, WHT, gratuity/bonus accrual, etc.) and writes `cost_allocations`. AP settles via `GET /api/ap/close-packs` and `POST .../payables/:type/settle`. P&L revenue counts `client_invoices` from **Finalized** onward (not Draft). Post-close edits require `MONTH_CLOSE_UNLOCK_CODE_HASH` via reopen endpoints. July PSO backfill: `node backend/scripts/repair_july_pso_close.js` (dry-run; `--apply` to write).
+
 **Routes (summary):**
 - Contract CRUD: `GET/POST /api/fixed-value/contracts`, `GET/PUT .../contracts/:id`, `POST .../CTR-PSO-NORTH-ZONE/resync-seed` (superadmin, `{confirm:true}`)
 - Per site: attendance upload/drive/apply, invoice compute/persist, deductions (list / add manual adjustment / delete manual only), focal email

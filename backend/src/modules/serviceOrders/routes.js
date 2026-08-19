@@ -48,6 +48,18 @@ const {
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
+const { assertFvPeriodInvoiceEditable } = require('./billing');
+
+async function guardFvPeriodEditable(pool, serviceOrderId, month, year) {
+    const so = await getServiceOrder(pool, serviceOrderId);
+    if (!so?.contract_id) return;
+    await assertFvPeriodInvoiceEditable(pool, {
+        contractId: so.contract_id,
+        month,
+        year,
+    });
+}
+
 function registerServiceOrderRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail, logAudit } = deps;
     const readRoles = requireRole(
@@ -261,6 +273,9 @@ function registerServiceOrderRoutes(app, deps) {
 
     app.post('/api/fixed-value/service-orders/:id/deductions', requireAuth, writeRoles, async (req, res) => {
         try {
+            const month = parseInt(req.body.month, 10);
+            const year = parseInt(req.body.year, 10);
+            if (month && year) await guardFvPeriodEditable(pool, req.params.id, month, year);
             const row = await addManualDeduction(pool, {
                 ...req.body,
                 service_order_id: req.params.id,
@@ -299,6 +314,7 @@ function registerServiceOrderRoutes(app, deps) {
         try {
             const month = parseInt(req.body.month, 10);
             const year = parseInt(req.body.year, 10);
+            await guardFvPeriodEditable(pool, req.params.id, month, year);
             const rows = req.body.rows || [];
             const summary = await applyAttendance(pool, {
                 serviceOrderId: req.params.id,

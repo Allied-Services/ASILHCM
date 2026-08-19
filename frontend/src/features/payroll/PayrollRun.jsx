@@ -112,7 +112,7 @@ const PayrollRun = ({ user }) => {
         try {
             const locked = await api.lockPayrollRun(run.id);
             setRun(locked);
-            setMsg('Run locked — P&L allocations updated');
+            setMsg('Run locked — AP close pack created. Settle salaries and contributions in Accounts Payable → FV Close Packs.');
         } catch (e) { setError(e.message); }
     };
 

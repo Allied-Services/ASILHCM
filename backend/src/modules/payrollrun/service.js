@@ -848,13 +848,31 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
 }
 
 async function lockRun(pool, { runId, lockedBy }) {
-    const { rows: current } = await pool.query(`SELECT status FROM payroll_runs WHERE id = $1`, [runId]);
+    const { rows: current } = await pool.query(
+        `SELECT pr.*, c.service_type FROM payroll_runs pr
+         JOIN contracts c ON c.id = pr.contract_id
+         WHERE pr.id = $1`,
+        [runId]
+    );
     if (!current.length) throw new Error('Run not found');
-    const from = current[0].status;
-    // Accept draft or proposed → locked (legacy draft→locked still allowed for UX)
+    const run = current[0];
+    const from = run.status;
     if (!['draft', 'proposed'].includes(from)) {
         throw new Error('Run not found or already locked/invoiced');
     }
+
+    const { isFixedValueContract, closeFixedValueRun } = require('../payrollClose/service');
+    const fv = await isFixedValueContract(pool, run.contract_id);
+    if (fv) {
+        const closed = await closeFixedValueRun(pool, { runId, lockedBy });
+        if (!closed.ok) {
+            const err = new Error(closed.code || 'Close failed');
+            err.code = closed.code;
+            throw err;
+        }
+        return closed.run;
+    }
+
     const { rows } = await pool.query(
         `UPDATE payroll_runs SET status = 'locked', locked_at = NOW(), locked_by = $2
          WHERE id = $1 RETURNING *`,
