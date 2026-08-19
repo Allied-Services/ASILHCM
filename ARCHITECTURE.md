@@ -100,7 +100,7 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 **Routes (summary):**
 - Contract CRUD: `GET/POST /api/fixed-value/contracts`, `GET/PUT .../contracts/:id`, `POST .../CTR-PSO-NORTH-ZONE/resync-seed` (superadmin, `{confirm:true}`)
 - Per site: attendance upload/drive/apply, invoice compute/persist, deductions (list / add manual adjustment / delete manual only), focal email
-- Contract bulk: `POST .../contracts/:id/attendance/apply-all`, `GET .../attendance/status`, `POST .../invoices/compute-all`, `POST .../invoices/persist-all`
+- Contract bulk: `POST .../contracts/:id/attendance/apply-all`, `GET .../attendance/status`, `POST .../invoices/compute-all`, `POST .../invoices/persist-all`, `GET .../invoices/print-all?month=&year=&format=` (all stamped sites in one HTML doc, each site on a new page)
 - Exports (ExcelJS): `GET .../exports/payroll.xlsx`, `GET .../exports/invoices.xlsx` (payroll workbook includes “Bank file (format TBD)” sheet)
 - World B payroll: `POST /api/payroll-runs/compute` (entire contract); FV UI shows by-site summary
 - Also: registry, print (`/invoices/:id/print?format=`), deprecated seed alias (`POST /seed-pso`)

@@ -837,6 +837,26 @@ export const api = {
         if (w) { w.document.write(html); w.document.close(); }
         return { ok: true };
     },
+    openFixedValueInvoicePrintAll: async (contractId, month, year, format = 'invoice_letterhead') => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const q = new URLSearchParams({
+            month: String(month),
+            year: String(year),
+            format,
+        });
+        const res = await fetch(
+            `${API}/api/fixed-value/contracts/${encodeURIComponent(contractId)}/invoices/print-all?${q}`,
+            { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        );
+        if (!res.ok) throw new Error(`Print all failed (${res.status})`);
+        const html = await res.text();
+        const w = window.open('', '_blank');
+        if (!w) throw new Error('Allow popups to print.');
+        w.document.write(html);
+        w.document.close();
+        setTimeout(() => w.print(), 500);
+        return { ok: true };
+    },
     sendFixedValueFocalEmail: (id, month, year, payload = {}) => apiFetch(`/api/fixed-value/service-orders/${encodeURIComponent(id)}/focals/email`, { method: 'POST', body: JSON.stringify({ month, year, ...payload }) }),
     sendFixedValueVerificationEmails: (contractId, month, year, payload = {}) => apiFetch(
         `/api/fixed-value/contracts/${encodeURIComponent(contractId)}/verification-emails`,

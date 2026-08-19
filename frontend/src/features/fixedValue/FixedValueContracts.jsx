@@ -2,7 +2,7 @@
 import {
     MapPin, Upload, CloudDownload, Calculator, FileText, Shield,
     Mail, Database, RefreshCw, AlertCircle, CheckCircle, Download,
-    ExternalLink, Layers, Play, Plus, Pencil, ClipboardCheck, Trash2,
+    ExternalLink, Layers, Play, Plus, Pencil, ClipboardCheck, Trash2, Printer,
 } from 'lucide-react';
 import { api } from '../../api';
 import FixedValueContractWizard from './FixedValueContractWizard';
@@ -391,6 +391,11 @@ export default function FixedValueContracts({ user }) {
             setLoading(false);
         }
     };
+
+    const printAllInvoices = (format) => runAction(
+        () => api.openFixedValueInvoicePrintAll(contractId, month, year, format),
+        'Opened print dialog for all stamped site invoices',
+    );
 
     /** Progressive bulk: Drive-pull + apply each site with live progress. */
     const handleBulkAttendance = () => runAction(async () => {
@@ -1531,6 +1536,24 @@ export default function FixedValueContracts({ user }) {
 
                     <h4 style={{ margin: 0 }}>Registry <Database size={14} style={{ verticalAlign: -2 }} /></h4>
                     <p className="fv-lead">Edit invoice # then Save — Proforma / LH / Sales Tax prints use the saved number.</p>
+                    <div className="fv-actions" style={{ marginBottom: 10 }}>
+                        <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={loading || !contractId}
+                            onClick={() => printAllInvoices('invoice_letterhead')}
+                        >
+                            <Printer size={14} /> Print All Proforma (LH)
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={loading || !contractId}
+                            onClick={() => printAllInvoices('sales_tax_letterhead')}
+                        >
+                            <Printer size={14} /> Print All Sales Tax (LH)
+                        </button>
+                    </div>
                     <div className="fv-table-wrap">
                         <table className="fv-table">
                             <thead>

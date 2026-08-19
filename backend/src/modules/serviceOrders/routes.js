@@ -16,6 +16,7 @@ const {
     updateFvInvoiceNumber,
     listRegistry,
     printInvoiceHtml,
+    printAllInvoicesHtml,
     pullAttendanceForSite,
     listDriveAttendanceFiles,
     parseConservancyWorkbook,
@@ -517,6 +518,31 @@ function registerServiceOrderRoutes(app, deps) {
             res.json(result);
         } catch (err) {
             handleRouteError(res, 'fixed-value.invoice.persistAll', err);
+        }
+    });
+
+    app.get('/api/fixed-value/contracts/:contractId/invoices/print-all', requireAuth, readRoles, async (req, res) => {
+        try {
+            const month = parseInt(req.query.month, 10);
+            const year = parseInt(req.query.year, 10);
+            const format = req.query.format || 'invoice_letterhead';
+            const allowed = ['invoice', 'invoice_letterhead', 'sales_tax', 'sales_tax_letterhead'];
+            if (!allowed.includes(format)) {
+                return res.status(400).json({ error: 'Invalid format' });
+            }
+            if (!month || !year) {
+                return res.status(400).json({ error: 'month and year are required' });
+            }
+            const html = await printAllInvoicesHtml(pool, {
+                contractId: req.params.contractId,
+                month,
+                year,
+                format,
+            });
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.send(html);
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.invoice.printAll', err);
         }
     });
 

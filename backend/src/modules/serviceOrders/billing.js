@@ -5,7 +5,7 @@ const { provinceSalesTaxRate } = require('../../core/regionTax');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { getServiceOrder } = require('./crud');
 const { siteProvince, roleCount } = require('./sitesMeta');
-const { renderInvoiceHtml, summarizeInvoiceDeductions } = require('./invoiceHtml');
+const { renderInvoiceHtml, renderCombinedInvoiceHtml, summarizeInvoiceDeductions } = require('./invoiceHtml');
 const { parseInvoiceAdjustmentAmount } = require('./parseInvoiceAdjustmentAmount');
 const {
     assertPeriodReviewed,
@@ -604,7 +604,7 @@ async function updateFvInvoiceNumber(pool, invoiceId, invoiceNumber) {
     return rows[0];
 }
 
-async function printInvoiceHtml(pool, invoiceRow, format) {
+async function buildFvInvoicePrintPayload(pool, invoiceRow) {
     const soId = parseInvoiceNotes(invoiceRow.notes).service_order_id;
     const soById = await loadServiceOrdersByIds(pool, soId ? [soId] : []);
     const inv = enrichInvoiceRow(invoiceRow, soById);
@@ -667,7 +667,7 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
     const stWithholding = round2(provincialSt * ST_WITHHOLDING_RATE);
     const netReceivable = round2(grandTotal - incomeWht - stWithholding);
 
-    const payload = {
+    return {
         invoiceNumber: inv.invoice_number,
         clientName: inv.client,
         contractName: inv.contract,
@@ -694,7 +694,36 @@ async function printInvoiceHtml(pool, invoiceRow, format) {
         ntn: notes.ntn,
         strn: notes.strn,
     };
+}
+
+function sortRegistryForPrint(rows) {
+    return [...rows].sort((a, b) => {
+        const nameA = String(a.site_name || a.site_code || '').toLowerCase();
+        const nameB = String(b.site_name || b.site_code || '').toLowerCase();
+        if (nameA !== nameB) return nameA.localeCompare(nameB);
+        const codeA = String(a.site_code || '').toLowerCase();
+        const codeB = String(b.site_code || '').toLowerCase();
+        if (codeA !== codeB) return codeA.localeCompare(codeB);
+        return String(a.invoice_number || '').localeCompare(String(b.invoice_number || ''));
+    });
+}
+
+async function printInvoiceHtml(pool, invoiceRow, format) {
+    const payload = await buildFvInvoicePrintPayload(pool, invoiceRow);
     return renderInvoiceHtml({ computed: payload }, { format });
+}
+
+async function printAllInvoicesHtml(pool, { contractId, month, year, format }) {
+    const rows = await listRegistry(pool, { contractId, month, year });
+    if (!rows.length) {
+        const err = new Error('No invoices found for this period');
+        err.status = 404;
+        throw err;
+    }
+    const sorted = sortRegistryForPrint(rows);
+    const payloads = await Promise.all(sorted.map((r) => buildFvInvoicePrintPayload(pool, r)));
+    const invoices = payloads.map((p) => ({ computed: p }));
+    return renderCombinedInvoiceHtml(invoices, { format });
 }
 
 module.exports = {
@@ -709,6 +738,8 @@ module.exports = {
     updateFvInvoiceNumber,
     listRegistry,
     printInvoiceHtml,
+    printAllInvoicesHtml,
+    buildFvInvoicePrintPayload,
     resolveTaxRate,
     parseInvoiceNotes,
     resourcesFromLines,

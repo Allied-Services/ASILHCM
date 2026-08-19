@@ -242,8 +242,20 @@ function baseStyles(letterhead) {
   .totals .r.strong { color: #0f172a; }
   .totals .grand { display: flex; justify-content: space-between; padding: 8px 0 0; margin-top: 4px; border-top: 2px solid #0f172a; font-size: 14px; font-weight: 900; color: #0f172a; }
   .stamp { margin-top: 14px; font-size: 11px; font-weight: 700; }
-  .sign { margin-top: 36px; padding-top: 12px; border-top: 1px solid #f1f5f9; font-size: 11px; color: #64748b; }
-  .sign .line { margin-top: 28px; border-bottom: 1px solid #cbd5e1; width: 180px; }
+  .invoice-footer {
+    margin-top: 16px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .invoice-footer .sign {
+    margin-top: 14px;
+    padding-top: 8px;
+    border-top: 1px solid #f1f5f9;
+    font-size: 11px;
+    color: #64748b;
+  }
+  .invoice-footer .sign .line { margin-top: 28px; border-bottom: 1px solid #cbd5e1; width: 180px; }
+  .invoice-sheet + .invoice-sheet { break-before: page; page-break-before: always; }
   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .wrap { padding: 0; }
@@ -274,7 +286,7 @@ function numberToWords(n) {
     return `${parts.join(' ')} Rupees Only`;
 }
 
-function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
+function buildInvoiceWrapInner(invoice, { format = 'invoice' } = {}) {
     const letterhead = format === 'invoice_letterhead' || format === 'sales_tax_letterhead';
     const salesTaxLayout = format === 'sales_tax' || format === 'sales_tax_letterhead';
     const data = invoice.computed || invoice;
@@ -362,8 +374,7 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
             </div>
           </div>`;
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title} ${data.invoiceNumber || ''}</title>${baseStyles(letterhead)}</head><body>
-<div class="wrap">
+    return `
   ${logoBlock}
   <div class="title">${title}</div>
   <div class="meta">
@@ -401,35 +412,65 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
     </thead>
     <tbody>${lineRows}${orphanRows}</tbody>
   </table>
-  <div class="summary">
-    <div class="words">
-      <div class="lbl">Net Amount in Words</div>
-      <div class="boxw">${numberToWords(grand)}</div>
-      ${salesTaxLayout ? `<div class="stamp"><strong>STRN:</strong> ${data.strn || '—'} &nbsp;|&nbsp; <strong>NTN:</strong> ${data.ntn || '0520872-6'}</div>` : ''}
+  <div class="invoice-footer">
+    <div class="summary">
+      <div class="words">
+        <div class="lbl">Net Amount in Words</div>
+        <div class="boxw">${numberToWords(grand)}</div>
+        ${salesTaxLayout ? `<div class="stamp"><strong>STRN:</strong> ${data.strn || '—'} &nbsp;|&nbsp; <strong>NTN:</strong> ${data.ntn || '0520872-6'}</div>` : ''}
+      </div>
+      <div class="totals">
+        <div class="r"><span>Gross Total Contract Value</span><span>Rs. ${fmt2(gross)}</span></div>
+        ${shortageAmt
+            ? `<div class="r"><span>LESS: Shortage / Deductions</span><span>-Rs. ${fmt2(shortageAmt)}</span></div>`
+            : (adjustmentAmt === 0 && totalDeductions
+                ? `<div class="r"><span>LESS: Shortage / Deductions</span><span>-Rs. ${fmt2(totalDeductions)}</span></div>`
+                : '')}
+        ${adjustmentAmt > 0 ? `<div class="r"><span>ADD: Invoice Adjustments</span><span>+Rs. ${fmt2(adjustmentAmt)}</span></div>` : ''}
+        ${adjustmentAmt < 0 ? `<div class="r"><span>LESS: Invoice Adjustments</span><span>-Rs. ${fmt2(Math.abs(adjustmentAmt))}</span></div>` : ''}
+        <div class="r strong"><span>Net Taxable Services Value</span><span>Rs. ${fmt2(net)}</span></div>
+        <div class="r"><span>Provincial Sales Tax (${taxPct}%)</span><span>Rs. ${fmt2(pst)}</span></div>
+        <div class="grand"><span>Grand Net Invoice Amount</span><span>PKR ${fmt2(grand)}</span></div>
+      </div>
     </div>
-    <div class="totals">
-      <div class="r"><span>Gross Total Contract Value</span><span>Rs. ${fmt2(gross)}</span></div>
-      ${shortageAmt
-        ? `<div class="r"><span>LESS: Shortage / Deductions</span><span>-Rs. ${fmt2(shortageAmt)}</span></div>`
-        : (adjustmentAmt === 0 && totalDeductions
-            ? `<div class="r"><span>LESS: Shortage / Deductions</span><span>-Rs. ${fmt2(totalDeductions)}</span></div>`
-            : '')}
-      ${adjustmentAmt > 0 ? `<div class="r"><span>ADD: Invoice Adjustments</span><span>+Rs. ${fmt2(adjustmentAmt)}</span></div>` : ''}
-      ${adjustmentAmt < 0 ? `<div class="r"><span>LESS: Invoice Adjustments</span><span>-Rs. ${fmt2(Math.abs(adjustmentAmt))}</span></div>` : ''}
-      <div class="r strong"><span>Net Taxable Services Value</span><span>Rs. ${fmt2(net)}</span></div>
-      <div class="r"><span>Provincial Sales Tax (${taxPct}%)</span><span>Rs. ${fmt2(pst)}</span></div>
-      <div class="grand"><span>Grand Net Invoice Amount</span><span>PKR ${fmt2(grand)}</span></div>
+    <div class="sign">
+      <div class="line"></div>
+      <div style="margin-top:6px">Authorized Signature &amp; Seal</div>
     </div>
-  </div>
-  <div class="sign">
-    <div class="line"></div>
-    <div style="margin-top:6px">Authorized Signature &amp; Seal</div>
-  </div>
+  </div>`;
+}
+
+function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
+    const letterhead = format === 'invoice_letterhead' || format === 'sales_tax_letterhead';
+    const data = invoice.computed || invoice;
+    const title = formatTitle(format);
+    const inner = buildInvoiceWrapInner(invoice, { format });
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title} ${data.invoiceNumber || ''}</title>${baseStyles(letterhead)}</head><body>
+<div class="wrap">${inner}
 </div></body></html>`;
+}
+
+function renderCombinedInvoiceHtml(invoices, { format = 'invoice' } = {}) {
+    const letterhead = format === 'invoice_letterhead' || format === 'sales_tax_letterhead';
+    const title = formatTitle(format);
+    const sheets = (invoices || []).map((inv) => {
+        const inner = buildInvoiceWrapInner(inv, { format });
+        return `<div class="invoice-sheet"><div class="wrap">${inner}
+</div></div>`;
+    }).join('');
+    const periodLabel = invoices?.[0]?.computed?.periodMonth
+        ? readableMonth(invoices[0].computed.periodMonth, invoices[0].computed.periodYear)
+        : '';
+    const docTitle = periodLabel ? `${title} — ${periodLabel}` : title;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${docTitle}</title>${baseStyles(letterhead)}</head><body>
+${sheets}
+</body></html>`;
 }
 
 module.exports = {
     renderInvoiceHtml,
+    renderCombinedInvoiceHtml,
+    buildInvoiceWrapInner,
     fmt,
     fmt2,
     readableMonth,

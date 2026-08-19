@@ -14,7 +14,7 @@ const {
 } = require('../src/modules/serviceOrders/attendanceParse');
 const { matchFileToSite } = require('../src/modules/serviceOrders/driveAttendance');
 const { findLineForDesignation } = require('../src/modules/serviceOrders/attendanceIngest');
-const { renderInvoiceHtml } = require('../src/modules/serviceOrders/invoiceHtml');
+const { renderInvoiceHtml, renderCombinedInvoiceHtml } = require('../src/modules/serviceOrders/invoiceHtml');
 const { composeFocalEmail, monthYearLabel } = require('../src/modules/serviceOrders/service');
 const {
     ST_WITHHOLDING_RATE,
@@ -108,6 +108,44 @@ describe('serviceOrders — Tarujabba grand total', () => {
         }, { format: 'invoice' });
         expect(html).toContain('@page { size: A4; margin: 12mm 12mm 14mm 12mm; }');
         expect(html).toContain('invoice-logo-address-row');
+    });
+
+    test('invoice footer keeps words, totals, and signature in one block', () => {
+        const html = renderInvoiceHtml({
+            computed: {
+                netTaxable: 100000,
+                provincialSt: 16000,
+                grandTotal: 116000,
+                taxRate: 0.16,
+                siteName: 'Test Site',
+                lineItems: [{ description: 'Services', quantity: 1, rate: 100000, amount: 100000 }],
+            },
+        });
+        expect(html).toContain('class="invoice-footer"');
+        expect(html).toMatch(/invoice-footer[\s\S]*Net Amount in Words[\s\S]*Authorized Signature &amp; Seal/);
+        expect(html).toContain('break-inside: avoid');
+        expect(html).toContain('page-break-inside: avoid');
+    });
+
+    test('combined letterhead HTML separates each site on a new page', () => {
+        const base = {
+            netTaxable: 100000,
+            provincialSt: 16000,
+            grandTotal: 116000,
+            taxRate: 0.16,
+            periodMonth: 7,
+            periodYear: 2026,
+            lineItems: [{ description: 'Services', quantity: 1, rate: 100000, amount: 100000 }],
+        };
+        const html = renderCombinedInvoiceHtml([
+            { computed: { ...base, invoiceNumber: 'INV-1', siteName: 'Alpha Depot', siteCode: 'ALPHA' } },
+            { computed: { ...base, invoiceNumber: 'INV-2', siteName: 'Beta Depot', siteCode: 'BETA' } },
+        ], { format: 'invoice_letterhead' });
+        expect(html.match(/class="invoice-sheet"/g)).toHaveLength(2);
+        expect(html).toContain('invoice-sheet + .invoice-sheet { break-before: page; page-break-before: always; }');
+        expect(html).toContain('Alpha Depot');
+        expect(html).toContain('Beta Depot');
+        expect(html).toContain('class="invoice-footer"');
     });
 });
 
