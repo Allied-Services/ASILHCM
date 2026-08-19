@@ -625,6 +625,25 @@ export const api = {
         return data;
     },
     patchPayrollRunRow: (runId, rowId, data) => apiFetch(`/api/payroll-runs/${runId}/rows/${rowId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    reopenPayrollRun: (runId, unlockCode) => apiFetch(`/api/payroll-runs/${runId}/reopen`, { method: 'POST', body: JSON.stringify({ unlock_code: unlockCode }) }),
+    getApClosePacks: (params = {}) => {
+        const q = new URLSearchParams();
+        if (params.year) q.set('year', params.year);
+        if (params.month) q.set('month', params.month);
+        if (params.contractId) q.set('contractId', params.contractId);
+        const qs = q.toString();
+        return apiFetch(`/api/ap/close-packs${qs ? `?${qs}` : ''}`);
+    },
+    getApClosePack: (packId) => apiFetch(`/api/ap/close-packs/${packId}`),
+    settleApPayable: (packId, payableType, payload) => apiFetch(
+        `/api/ap/close-packs/${packId}/payables/${encodeURIComponent(payableType)}/settle`,
+        { method: 'POST', body: JSON.stringify(payload) }
+    ),
+    finalizeClientInvoice: (invoiceId) => apiFetch(`/api/client-invoices/${invoiceId}/finalize`, { method: 'POST' }),
+    reopenClientInvoice: (invoiceId, unlockCode) => apiFetch(
+        `/api/client-invoices/${invoiceId}/reopen`,
+        { method: 'POST', body: JSON.stringify({ unlock_code: unlockCode }) }
+    ),
     getHolidays: () => apiFetch('/api/holidays'),
     saveHoliday: (data) => apiFetch('/api/holidays', { method: 'POST', body: JSON.stringify(data) }),
     deleteHoliday: (id) => apiFetch(`/api/holidays/${id}`, { method: 'DELETE' }),

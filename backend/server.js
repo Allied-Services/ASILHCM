@@ -4902,7 +4902,7 @@ app.post('/api/bills/:id/create-invoice', requireAuth, requireRole('ar_team','fi
 app.patch('/api/client-invoices/:id', requireAuth, requireRole('ar_team','finance_manager','finance_approver','superadmin'), async (req, res) => {
     try {
         const { invoice_number, status, po_number, due_date, notes, xero_invoice_id, xero_url } = req.body;
-        const VALID_STATUSES = ['Draft','Raised','Sent','Paid','Voided'];
+        const VALID_STATUSES = ['Draft','Finalized','Raised','Sent','Paid','Voided'];
         if (status && !VALID_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
 
         const { canManuallySetPaymentStatus, recordPaymentStatusChange } = require('./src/modules/ar/paymentStatusGuard');
@@ -4918,6 +4918,27 @@ app.patch('/api/client-invoices/:id', requireAuth, requireRole('ar_team','financ
 
         const prev = await pool.query('SELECT id, invoice_number, status FROM client_invoices WHERE id=$1', [req.params.id]);
         if (!prev.rows.length) return res.status(404).json({ error: 'Invoice not found' });
+
+        const prevStatus = String(prev.rows[0].status || '');
+        const lockedStatuses = ['Finalized', 'Raised', 'Sent', 'Paid', 'Voided'];
+        const isLocked = lockedStatuses.includes(prevStatus);
+        if (isLocked && (invoice_number || po_number || due_date || notes)) {
+            return res.status(409).json({ error: 'Invoice is finalized — changes require unlock code.', code: 'INVOICE_LOCKED' });
+        }
+        if (status && status !== prevStatus) {
+            const allowed = {
+                Draft: ['Finalized', 'Raised', 'Voided'],
+                Finalized: ['Raised', 'Voided'],
+                Raised: ['Sent', 'Voided'],
+                Sent: ['Paid', 'Voided'],
+                Paid: [],
+                Voided: [],
+            };
+            const nextAllowed = allowed[prevStatus] || [];
+            if (!nextAllowed.includes(status)) {
+                return res.status(409).json({ error: `Cannot transition from ${prevStatus} to ${status}` });
+            }
+        }
 
         const { rows } = await pool.query(`
             UPDATE client_invoices SET

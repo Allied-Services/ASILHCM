@@ -35,6 +35,7 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 
 const STATUS_STYLES = {
     'Draft':   { bg: 'rgba(100,116,139,0.12)', color: '#94a3b8' },
+    'Finalized': { bg: 'rgba(59,130,246,0.12)', color: '#3b82f6' },
     'Raised':  { bg: 'rgba(56,189,248,0.12)',  color: '#38bdf8' },
     'Sent':    { bg: 'rgba(99,102,241,0.12)',   color: '#818cf8' },
     'Paid':    { bg: 'rgba(34,197,94,0.12)',    color: '#22c55e' },
@@ -43,13 +44,15 @@ const STATUS_STYLES = {
 
 // Status flow: what actions are available per status
 const STATUS_FLOW = {
-    'Draft':  ['Raise Invoice', 'Void'],
+    'Draft':  ['Finalize Invoice', 'Raise Invoice', 'Void'],
+    'Finalized': ['Raise Invoice', 'Void'],
     'Raised': ['Mark as Sent', 'Void'],
     'Sent':   ['Mark as Paid', 'Void'],
     'Paid':   [],
     'Voided': [],
 };
 const STATUS_NEXT = {
+    'Finalize Invoice': 'Finalized',
     'Raise Invoice': 'Raised',
     'Mark as Sent':  'Sent',
     'Mark as Paid':  'Paid',
@@ -694,7 +697,7 @@ function InvoicePreviewModal({ inv, onAction, onClose }) {
     const [updating,   setUpdating]   = useState(false);
 
     const actions   = STATUS_FLOW[inv.status] || [];
-    const canXero   = ['Raised','Sent','Paid'].includes(inv.status);
+    const canXero   = ['Finalized','Raised','Sent','Paid'].includes(inv.status);
 
     const sendToXero = async () => {
         setXeroStatus('sending');
@@ -711,8 +714,13 @@ function InvoicePreviewModal({ inv, onAction, onClose }) {
     const doAction = async (action) => {
         setUpdating(true);
         try {
-            await api.updateClientInvoice(inv.id, { status: STATUS_NEXT[action] });
-            onAction(inv.id, STATUS_NEXT[action]);
+            if (action === 'Finalize Invoice') {
+                await api.finalizeClientInvoice(inv.id);
+                onAction(inv.id, 'Finalized');
+            } else {
+                await api.updateClientInvoice(inv.id, { status: STATUS_NEXT[action] });
+                onAction(inv.id, STATUS_NEXT[action]);
+            }
             onClose();
         } catch (e) { alert('Status update failed: ' + e.message); setUpdating(false); }
     };

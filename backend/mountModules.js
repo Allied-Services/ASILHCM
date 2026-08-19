@@ -14,6 +14,7 @@ const { registerComplianceRoutes } = require('./src/modules/compliance/routes');
 const { registerArRoutes } = require('./src/modules/ar/routes');
 const { registerPayrollRunRoutes } = require('./src/modules/payrollrun/routes');
 const { registerDisbursementRoutes } = require('./src/modules/disbursement/routes');
+const { registerPayrollCloseRoutes } = require('./src/modules/payrollClose/routes');
 const { registerBillApprovalRoutes } = require('./src/modules/billApproval/routes');
 const { registerXeroBillImportRoutes } = require('./src/modules/xeroBillImport/routes');
 const { registerLeaveRoutes } = require('./src/modules/leave/routes');
@@ -47,6 +48,7 @@ function mountRestructureModules(app, deps) {
     registerArRoutes(app, deps);
     registerPayrollRunRoutes(app, deps);
     registerDisbursementRoutes(app, deps);
+    registerPayrollCloseRoutes(app, deps);
     registerXeroBillImportRoutes(app, deps);
     registerBillApprovalRoutes(app, deps);
     registerLeaveRoutes(app, deps);

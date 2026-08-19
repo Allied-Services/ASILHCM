@@ -460,10 +460,11 @@ describe('FV replaceLines — re-points so_deductions.line_id', () => {
 });
 
 describe('FV invoice — regenerate status gate', () => {
-    test('Draft / Raised / Sent are regeneratable; Paid / Voided are not', () => {
+    test('Only Draft is regeneratable; Finalized / Paid / Voided are not', () => {
         expect(FV_REGENERATABLE_STATUSES.has('draft')).toBe(true);
-        expect(FV_REGENERATABLE_STATUSES.has('raised')).toBe(true);
-        expect(FV_REGENERATABLE_STATUSES.has('sent')).toBe(true);
+        expect(FV_REGENERATABLE_STATUSES.has('finalized')).toBe(false);
+        expect(FV_REGENERATABLE_STATUSES.has('raised')).toBe(false);
+        expect(FV_REGENERATABLE_STATUSES.has('sent')).toBe(false);
         expect(FV_REGENERATABLE_STATUSES.has('paid')).toBe(false);
         expect(FV_REGENERATABLE_STATUSES.has('voided')).toBe(false);
     });

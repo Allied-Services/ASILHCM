@@ -179,7 +179,7 @@ describe('listContractPnl', () => {
                 if (sql.includes('CREATE OR REPLACE VIEW')) {
                     expect(sql).toContain('WITH costs AS');
                     expect(sql).toContain('UNION');
-                    expect(sql).toContain("NOT IN ('Void', 'Voided')");
+                    expect(sql).toContain("status IN ('Finalized', 'Raised', 'Sent', 'Paid')");
                     return { rows: [] };
                 }
                 expect(params).toEqual([2026, 6]);

@@ -218,6 +218,138 @@ function ConfirmPaymentModal({ title, totalAmount, employeeCount, onConfirm, onC
     );
 }
 
+// ─── FV Close Packs Panel (World B / Fixed Value) ────────────────────────────
+function ClosePacksPanel() {
+    const [packs, setPacks] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [expandedId, setExpandedId] = useState(null);
+    const [detail, setDetail] = useState({});
+    const [settleTarget, setSettleTarget] = useState(null);
+    const [banks, setBanks] = useState([]);
+    const [successMsg, setSuccessMsg] = useState(null);
+
+    const loadPacks = useCallback(async () => {
+        setLoading(true);
+        try {
+            const d = await api.getApClosePacks();
+            setPacks(d.packs || []);
+        } catch (e) { console.error(e); }
+        setLoading(false);
+    }, []);
+
+    useEffect(() => { loadPacks(); }, [loadPacks]);
+    useEffect(() => {
+        api.getBanks?.().then(setBanks).catch(() => {});
+    }, []);
+
+    const expandPack = async (packId) => {
+        if (expandedId === packId) { setExpandedId(null); return; }
+        setExpandedId(packId);
+        if (!detail[packId]) {
+            try {
+                const d = await api.getApClosePack(packId);
+                setDetail(prev => ({ ...prev, [packId]: d }));
+            } catch (e) { console.error(e); }
+        }
+    };
+
+    const handleSettle = async (form) => {
+        const { packId, payableType } = settleTarget;
+        await api.settleApPayable(packId, payableType, form);
+        setSettleTarget(null);
+        setSuccessMsg(`${payableType} marked paid`);
+        const d = await api.getApClosePack(packId);
+        setDetail(prev => ({ ...prev, [packId]: d }));
+        loadPacks();
+    };
+
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    return (
+        <div>
+            {successMsg && (
+                <div style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid #22c55e', borderRadius: '8px', padding: '10px 14px', marginBottom: '1rem', color: '#22c55e', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{successMsg}</span>
+                    <button type="button" onClick={() => setSuccessMsg(null)} style={{ background: 'none', border: 'none', color: '#22c55e', cursor: 'pointer' }}><X size={14} /></button>
+                </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem' }}>
+                    Fixed Value payroll close packs — salaries and statutory contributions awaiting payment.
+                </p>
+                <button type="button" onClick={loadPacks} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: '#94a3b8', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <RefreshCw size={14} /> Refresh
+                </button>
+            </div>
+            {loading ? <p style={{ color: '#64748b' }}>Loading close packs…</p> : packs.length === 0 ? (
+                <p style={{ color: '#64748b' }}>No Fixed Value close packs yet. Lock a payroll run from Payroll Run to create one.</p>
+            ) : packs.map(pack => {
+                const d = detail[pack.id];
+                const isOpen = expandedId === pack.id;
+                return (
+                    <div key={pack.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', marginBottom: '12px', overflow: 'hidden' }}>
+                        <button type="button" onClick={() => expandPack(pack.id)}
+                            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer', color: '#f0f4f8', textAlign: 'left' }}>
+                            <div>
+                                <div style={{ fontWeight: 700 }}>{pack.contract_name} — {MONTH_NAMES[pack.period_month - 1]} {pack.period_year}</div>
+                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{pack.client_name} · {pack.paid_count || 0}/{pack.payable_count || 0} paid · {Rs(pack.total_amount)}</div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', background: pack.status === 'paid' ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)', color: pack.status === 'paid' ? '#22c55e' : '#f59e0b' }}>
+                                    {pack.status}
+                                </span>
+                                {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            </div>
+                        </button>
+                        {isOpen && d && (
+                            <div style={{ padding: '0 18px 14px', borderTop: '1px solid var(--border)' }}>
+                                <table style={{ width: '100%', fontSize: '0.82rem', marginTop: '10px' }}>
+                                    <thead><tr style={{ color: '#64748b', textAlign: 'left' }}>
+                                        <th>Payable</th><th>Amount</th><th>Status</th><th></th>
+                                    </tr></thead>
+                                    <tbody>
+                                        {(d.payables || []).map(py => (
+                                            <tr key={py.id} style={{ borderTop: '1px solid var(--border)' }}>
+                                                <td style={{ padding: '8px 0' }}>{py.label || py.payable_type}</td>
+                                                <td>{Rs(py.amount)}</td>
+                                                <td style={{ color: py.status === 'Paid' ? '#22c55e' : '#f59e0b' }}>{py.status}</td>
+                                                <td style={{ textAlign: 'right' }}>
+                                                    {py.status !== 'Paid' && (
+                                                        <button type="button" onClick={() => setSettleTarget({ packId: pack.id, payableType: py.payable_type, label: py.label, amount: py.amount })}
+                                                            style={{ background: '#22c55e', border: 'none', color: 'white', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem' }}>
+                                                            Record payment
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+            {settleTarget && (
+                <ConfirmPaymentModal
+                    title={`${settleTarget.label || settleTarget.payableType} — ${Rs(settleTarget.amount)}`}
+                    totalAmount={settleTarget.amount}
+                    employeeCount={settleTarget.payableType === 'salary' ? 1 : 0}
+                    requireBank={settleTarget.payableType === 'salary'}
+                    banks={banks}
+                    onConfirm={(data) => handleSettle({
+                        bank_id: data.bank_id,
+                        bank_name: data.bank_name,
+                        payment_date: data.payment_date,
+                        reference_no: data.reference_no,
+                    })}
+                    onClose={() => setSettleTarget(null)}
+                />
+            )}
+        </div>
+    );
+}
+
 // ─── Payroll Queue Panel ──────────────────────────────────────────────────────
 function PayrollQueuePanel() {
     const [queue, setQueue] = useState([]);
@@ -771,9 +903,10 @@ export default function AccountsPayable({ user }) {
             </div>
 
             {/* Tabs */}
-            <div style={{ display: 'flex', gap: '0', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '4px', marginBottom: '2rem', maxWidth: '480px' }}>
+            <div style={{ display: 'flex', gap: '0', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '4px', marginBottom: '2rem', maxWidth: '640px' }}>
                 {[
                     { id: 'payroll', label: '💰 Payroll Queue', icon: Building2 },
+                    { id: 'fv_close', label: '📦 FV Close Packs', icon: DollarSign },
                     { id: 'bills', label: '📄 Bills Queue', icon: FileText },
                 ].filter(t => user?.role !== 'procurement_proposer' || t.id === 'bills').map(t => (
                     <button key={t.id} onClick={() => setTab(t.id)}
@@ -785,6 +918,7 @@ export default function AccountsPayable({ user }) {
 
             {/* Content */}
             {tab === 'payroll' && user?.role !== 'procurement_proposer' && <PayrollQueuePanel />}
+            {tab === 'fv_close' && user?.role !== 'procurement_proposer' && <ClosePacksPanel />}
             {tab === 'bills' && <BillsQueuePanel user={user} />}
         </div>
     );
