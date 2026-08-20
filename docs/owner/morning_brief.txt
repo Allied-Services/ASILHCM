@@ -1,0 +1,20 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month through HCM for the pilot contract.
+Status: AMBER
+
+NOT FINISHED YET
+1. Pilot shadow month still needs Excel vs HCM zero gap
+2. July Unlock → Calculate live proof still open
+3. No production pay through the new engine yet
+
+NEEDS YOU TODAY
+- Payroll Excel export for the pilot shadow month
+- Connect morning email on the Automation (no email tool on this run)
+
+I SUGGEST
+- Do not start new builds — finish July live proof first
+
+FOCUS TODAY
+Get the pilot month numbers to match Excel. Park new ideas.
