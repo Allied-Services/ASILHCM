@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-17 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-21 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -9,8 +9,8 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — July Wafi Calculate was wiping sheet OT when Monthly Hub had OT=0; fix on branch `fix/payroll-sheet-calc-preserves-sheet-ot` (do not Calculate on prod until merged).  
-LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix ships (OT would wipe again).
+STATUS: **AMBER** — Calculate OT wipe fix is on `main` (#48); July Unlock → Calculate live proof still open; pilot Excel vs HCM zero gap still blocked on payroll CSV export.  
+LIVE: prod API healthy (`/health` OK, commit `3c370d4`, migrations ok — checked 2026-08-21).
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -18,7 +18,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## TOP LINE (for agents / morning brief)
-**Why Calculate changed July totals with no hour edits:** Monthly Hub rows with OT hours = 0 were treated as authoritative and overwrote sheet OT2/OT3. Default “Pull approved claims” made that path run. Fix: sheet OT is baseline; hub zeros never clear hours; Calculate defaults to sheet inputs. Remaining Excel net gap (~bonus/tax) is separate.
+**Pilot month is still not closed.** Calculate no longer wipes sheet OT (#48 on main). Remaining: Unlock → Calculate live proof for July, Excel export for S5B shadow month, then MD sign-off before any production pay through the new engine. Remaining Excel net gap (~bonus/tax) is separate from the OT wipe bug.
 
 ---
 
@@ -39,7 +39,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ### Infrastructure / ops
 9. **Staging cold starts** — free tier sleeps; verify after wake before calling staging "broken"
 10. **Local tests on GDrive** — `jest` node_modules corrupt; use temp clone or CI for counts
-11. **Morning brief Automation** — email only; not switched on until you say so
+11. **Morning brief Automation** — weekday runs on; **email delivery still not connected** (briefs land as draft PRs until you connect inbox)
 
 ### Parked until mission gate clears
 12. **Imprest workflow** — bill type exists; no dedicated process
@@ -50,11 +50,15 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## IN PROGRESS
-- Portal Claims Response chase desk (who was emailed, who acts now, tick + remind) — branch `feat/portal-claims-chase-desk`
+- July Unlock → Calculate live proof (staging then prod) — still open
 - BPO / PSO contract matching on staging (separate track — do not block)
 
-## JUST SHIPPED (2026-08-02)
-- **FV PSO July payroll headcount** — compute was only paying 4 people on `CTR-PSO-NORTH-ZONE` while attendance had 182 overrides on legacy contract_ids. Fixed on `main` (`e0af43e`); live run #117 = **185 HC**, Model A wages verified, net **8,090,438**.
+## JUST SHIPPED (recent)
+- **FV month close** — AP payables + invoice Finalized + unlock (#105 on `main`, live `3c370d4`)
+- **FV/PSO letterhead print margins** (#104)
+- **Portal Claims Response chase desk** (#101)
+- **Calculate OT wipe fix** (#48) — sheet OT preserved on re-Calculate
+- **FV PSO July payroll headcount** — live run #117 = **185 HC**, net **8,090,438** (`e0af43e`)
 
 ---
 
