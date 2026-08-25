@@ -125,6 +125,26 @@ function canInjectPayroll(period) {
     return !isSamplePeriod(period);
 }
 
+function opsSupportFooterHtml() {
+    const replyTo = getClaimsReplyTo() || DEFAULT_REPLY_TO;
+    return `<p style="margin:18px 0 0;font-size:13px;color:#475569;line-height:1.5">
+      Questions or corrections? Reply to this email — <strong>${replyTo}</strong> will receive it.
+    </p>`;
+}
+
+function appendOpsSupportFooter(html) {
+    const footer = opsSupportFooterHtml();
+    if (!html || typeof html !== 'string') return footer;
+    if (html.includes('</body>')) {
+        return html.replace('</body>', `${footer}</body>`);
+    }
+    return html + footer;
+}
+
+function wrapClaimsHtmlFooter(html) {
+    return appendOpsSupportFooter(html);
+}
+
 module.exports = {
     getSampleEmail,
     getClaimsMonitorCc,
@@ -144,4 +164,7 @@ module.exports = {
     isSamplePeriod,
     shouldSendRecordEmail,
     canInjectPayroll,
+    opsSupportFooterHtml,
+    appendOpsSupportFooter,
+    wrapClaimsHtmlFooter,
 };

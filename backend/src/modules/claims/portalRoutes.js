@@ -320,7 +320,7 @@ function registerPortalClaimsRoutes(app, deps) {
                 location: req.body?.location || '',
                 dept: req.body?.dept || '',
                 employeeIds: req.body?.employeeIds,
-            }, sendAppEmail);
+            }, sendAppEmail, deps.sendJazzSMS);
             if (!result.ok) return res.status(result.status || 400).json(result);
             res.json(result);
         } catch (err) {
@@ -378,39 +378,6 @@ function registerPortalClaimsRoutes(app, deps) {
             res.json(await portal.sendReminders(pool, sendAppEmail, deps.sendJazzSMS));
         } catch (err) {
             handleRouteError(res, 'portalClaims.reminders', err);
-        }
-    });
-
-    app.post('/api/portal-claims/admin/extend-july-window', requireAuth, requireRole('superadmin'), async (req, res) => {
-        try {
-            const fillDay = parseInt(req.body?.fillDay, 10) || 27;
-            const approveDay = parseInt(req.body?.approveDay, 10) || 27;
-            const extended = await portal.extendJuly2026ClaimsWindow(pool, { fillDay, approveDay });
-            res.json(extended);
-        } catch (err) {
-            handleRouteError(res, 'portalClaims.extendJulyWindow', err);
-        }
-    });
-
-
-    app.post('/api/portal-claims/admin/resync-submission-emails', requireAuth, requireRole('superadmin'), async (req, res) => {
-        try {
-            const periodId = parseInt(req.body?.periodId, 10) || null;
-            const result = await portal.resyncActuaPeriodSubmissionEmails(pool, periodId || null);
-            res.json(result);
-        } catch (err) {
-            handleRouteError(res, 'portalClaims.resyncSubmissionEmails', err);
-        }
-    });
-
-    app.post('/api/portal-claims/admin/extension-notice', requireAuth, requireRole('superadmin'), async (req, res) => {
-        try {
-            const fillDay = parseInt(req.body?.fillDay, 10) || 27;
-            const approveDay = parseInt(req.body?.approveDay, 10) || 27;
-            const result = await portal.sendDeadlineExtensionNotice(pool, sendAppEmail, { fillDay, approveDay });
-            res.json(result);
-        } catch (err) {
-            handleRouteError(res, 'portalClaims.extensionNotice', err);
         }
     });
 

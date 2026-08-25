@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import './PortalClaimsHub.css';
@@ -7,6 +7,17 @@ const MONTHS = [
   [1, 'Jan'], [2, 'Feb'], [3, 'Mar'], [4, 'Apr'], [5, 'May'], [6, 'Jun'],
   [7, 'Jul'], [8, 'Aug'], [9, 'Sep'], [10, 'Oct'], [11, 'Nov'], [12, 'Dec'],
 ];
+
+const DESK_LABEL = {
+  not_invited: 'Not invited',
+  invite_sent: 'Invite sent',
+  pending_focal: 'Pending at Focal',
+  pending_lm: 'Pending at LM',
+  verified: 'Verified',
+  no_claims: 'No claims',
+  rejected: 'Rejected',
+  other_data: 'OTHER DATA',
+};
 
 const STATUS_LABEL = {
   not_invited: 'Not invited',
@@ -90,7 +101,6 @@ export default function PortalClaimsHub({ user }) {
   const [force, setForce] = useState(false);
   const [board, setBoard] = useState(null);
   const [openId, setOpenId] = useState(null);
-  const detailRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
@@ -164,24 +174,26 @@ export default function PortalClaimsHub({ user }) {
   }, [board]);
 
   const counts = board?.counts || {};
-  const people = (board?.people || []).filter(p => filter === 'all' || p.status === filter);
+  const deskCounts = board?.desk_counts || {};
+  const people = (board?.people || []).filter((p) => {
+    if (filter === 'all') return true;
+    if (filter.startsWith('desk:')) return p.desk_status === filter.slice(5);
+    return p.status === filter;
+  });
   const open = (board?.people || []).find(p => p.employee_id === openId) || null;
   const visibleIds = people.map(p => p.employee_id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
 
   const chips = [
     ['all', `All ${board?.audience_count || 0}`],
-    ['not_invited', `Not invited ${counts.not_invited || 0}`],
-    ['invite_sent', `Invite sent ${counts.invite_sent || 0}`],
-    ['waiting_focal', `Waiting Focal ${counts.waiting_focal || 0}`],
-    ['waiting_employee', `Waiting Employee ${counts.waiting_employee || 0}`],
-    ['waiting_lm', `Waiting LM ${counts.waiting_lm || 0}`],
-    ['waiting_asil', `Waiting ASIL ${counts.waiting_asil || 0}`],
-    ['no_claims', `No claims ${counts.no_claims || 0}`],
-    ['rejected', `Rejected ${counts.rejected || 0}`],
-    ['on_sheet', `On sheet · match ${counts.on_sheet || 0}`],
-    ['other_data', `OTHER DATA ${counts.other_data || 0}`],
-    ['ready_import', `Approved · not on sheet ${counts.ready_import || 0}`],
+    ['desk:not_invited', `Not invited ${deskCounts.not_invited || 0}`],
+    ['desk:invite_sent', `Invite sent ${deskCounts.invite_sent || 0}`],
+    ['desk:pending_focal', `Pending Focal ${deskCounts.pending_focal || 0}`],
+    ['desk:pending_lm', `Pending LM ${deskCounts.pending_lm || 0}`],
+    ['desk:verified', `Verified ${deskCounts.verified || 0}`],
+    ['desk:no_claims', `No claims ${deskCounts.no_claims || 0}`],
+    ['desk:rejected', `Rejected ${deskCounts.rejected || 0}`],
+    ['desk:other_data', `OTHER DATA ${deskCounts.other_data || 0}`],
   ];
 
   const stillInChain = (counts.invite_sent || 0) + (counts.waiting_focal || 0)
@@ -215,24 +227,25 @@ export default function PortalClaimsHub({ user }) {
     });
   };
 
-  const runChase = async (action, preview) => {
+  const runChase = async (action, mode, preview) => {
     if (!selected.size) {
       setErr('Tick at least one person, then send or remind.');
       return;
     }
-    if (!preview && !confirmActual) {
+    if (!preview && mode === 'actual' && !confirmActual) {
       setErr('Tick the confirmation box before sending ACTUAL emails.');
       return;
     }
     const ids = [...selected];
-    const verb = action === 'invite' ? 'invite' : action === 'remind_filler' ? 'focal reminder' : 'LM reminder';
-    if (!preview && !window.confirm(`Send ACTUAL ${verb} for ${ids.length} ticked person(s)?`)) return;
+    const label = mode === 'sample' ? 'SAMPLE' : 'ACTUAL';
+    const verb = action === 'invite' ? 'invite' : 'smart reminder';
+    if (!preview && !window.confirm(`Send ${label} ${verb} for ${ids.length} ticked person(s)?`)) return;
     setBusy(true); setErr(''); setMsg('');
     try {
       const d = await api.portalClaimsChase({
         action,
         preview,
-        campaignMode: 'actual',
+        campaignMode: mode,
         force: force && user?.role === 'superadmin',
         workMonth, workYear, payMonth, payYear,
         client, contract, location,
@@ -243,7 +256,7 @@ export default function PortalClaimsHub({ user }) {
         setMsg(`Preview ${verb}: ${d.send_count || 0} will be mailed → ${toList.join(', ') || 'no addresses'}.${d.skipped?.length ? ` Skipped ${d.skipped.length}.` : ''}`);
       } else {
         const ok = (d.sent || []).filter(s => s.ok).length;
-        setMsg(`ACTUAL ${verb}: ${ok} email(s) to ${toList.join(', ') || '—'}.${d.skipped?.length ? ` Skipped ${d.skipped.length}.` : ''}`);
+        setMsg(`${label} ${verb}: ${ok} email(s) to ${toList.join(', ') || '—'}.${d.skipped?.length ? ` Skipped ${d.skipped.length}.` : ''}`);
         await loadBoard();
       }
     } catch (e) {
@@ -251,13 +264,6 @@ export default function PortalClaimsHub({ user }) {
     } finally {
       setBusy(false);
     }
-  };
-
-  const openDetail = (employeeId) => {
-    setOpenId(employeeId);
-    requestAnimationFrame(() => {
-      detailRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-    });
   };
 
   const fillManualFrom = (p) => {
@@ -423,18 +429,18 @@ export default function PortalClaimsHub({ user }) {
             <div className="pch-chase">
               <div className="pch-chase-line">
                 <strong>{selected.size}</strong> ticked
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('invite', true)}>Preview invite</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_filler', true)}>Preview focal reminder</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_approver', true)}>Preview LM reminder</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('invite', 'sample', true)}>Preview invite</button>
+                <button type="button" className="btn-primary" disabled={busy || !selected.size} onClick={() => runChase('invite', 'sample', false)}>SAMPLE invite</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind', 'sample', true)}>Preview reminder</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind', 'sample', false)}>SAMPLE reminder</button>
               </div>
               <div className="pch-chase-line">
                 <label className="pch-check">
                   <input type="checkbox" checked={confirmActual} onChange={e => setConfirmActual(e.target.checked)} />
                   I confirm ACTUAL mail to real Focal / Employee / LM addresses
                 </label>
-                <button type="button" className="btn-primary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('invite', false)}>Send invite</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('remind_filler', false)}>Send focal reminder</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('remind_approver', false)}>Send LM reminder</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('invite', 'actual', false)}>ACTUAL invite</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('remind', 'actual', false)}>ACTUAL reminder</button>
                 {isSuper && (
                   <label className="pch-check">
                     <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} />
@@ -442,7 +448,7 @@ export default function PortalClaimsHub({ user }) {
                   </label>
                 )}
               </div>
-              <p className="pch-muted">Sent = HCM handed the mail to Resend. Reminded shows the last chase email for that focal batch. Finished people are skipped unless Superadmin force is on.</p>
+              <p className="pch-muted">Sent = HCM handed the mail to Resend. Smart reminder routes to Focal or LM automatically. Finished people are skipped unless Superadmin force is on.</p>
             </div>
           )}
           <div className="pch-table-wrap">
@@ -453,18 +459,20 @@ export default function PortalClaimsHub({ user }) {
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select visible" />
                   </th>
                   <th>Employee</th>
+                  <th>Desk</th>
+                  <th>Claim summary</th>
+                  <th>Last activity</th>
                   <th>Now</th>
                   <th>To</th>
                   <th>Sent</th>
                   <th>Reminded</th>
-                  <th>Mailer</th>
                   <th>Path</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {people.length === 0 && (
-                  <tr><td colSpan={9} className="pch-muted">No people for this filter.</td></tr>
+                  <tr><td colSpan={10} className="pch-muted">No people for this filter.</td></tr>
                 )}
                 {people.map(p => (
                   <tr key={p.employee_id} className={rowClass(p.status, openId === p.employee_id)}>
@@ -481,23 +489,29 @@ export default function PortalClaimsHub({ user }) {
                       <div className="pch-muted">{p.employee_id} · {p.location || '—'}</div>
                     </td>
                     <td>
-                      {p.now_label || STATUS_LABEL[p.status] || p.status}
+                      {p.desk_label || DESK_LABEL[p.desk_status] || p.desk_status || '—'}
                       <div className="pch-muted">{STATUS_LABEL[p.status] || p.status}</div>
                     </td>
+                    <td>{p.claim_summary || '—'}</td>
                     <td>
-                      {p.mailed_to || '—'}
-                      {p.lm && <div className="pch-muted">LM {p.lm}</div>}
+                      {p.last_activity_label ? `${p.last_activity_label} · ${formatWhen(p.last_activity_at)}` : '—'}
+                    </td>
+                    <td>
+                      {p.now_label || STATUS_LABEL[p.status] || p.status}
+                    </td>
+                    <td>
+                      {p.focal_email || p.mailed_to || '—'}
+                      {p.approver_email && <div className="pch-muted">LM {p.approver_email}</div>}
                     </td>
                     <td>{formatWhen(p.sent_at)}</td>
                     <td>
                       {p.last_reminder_at
-                        ? `${formatWhen(p.last_reminder_at)}${p.reminder_count ? ` (${p.reminder_count}×)` : ''}`
+                        ? `${formatWhen(p.last_reminder_at)}${p.reminder_count ? ` (${p.reminder_count}×)` : ''}${p.reminder_party ? ` · ${p.reminder_party}` : ''}`
                         : '—'}
                     </td>
-                    <td>{MAILER_LABEL[p.mailer] || p.mailer || '—'}</td>
                     <td>{p.path || '—'}</td>
                     <td>
-                      <button type="button" className="btn-secondary" onClick={() => openDetail(p.employee_id)}>View detail</button>
+                      <button type="button" className="btn-secondary" onClick={() => setOpenId(p.employee_id)}>Open</button>
                     </td>
                   </tr>
                 ))}
@@ -506,7 +520,7 @@ export default function PortalClaimsHub({ user }) {
           </div>
 
           {open && (
-            <div className="pch-detail" ref={detailRef}>
+            <div className="pch-detail">
               <div>
                 <h3>{open.name}</h3>
                 <p className="pch-sub">{open.employee_id} · {open.location || '—'} · {open.path || '—'} · LM {open.lm || '—'}</p>
@@ -639,7 +653,7 @@ export default function PortalClaimsHub({ user }) {
       )}
 
       <details className="pch-admin">
-        <summary>Admin — eligibility, CSV export, superadmin tools</summary>
+        <summary>Admin — eligibility, SAMPLE flush, test pack, CSV</summary>
         <div className="pch-actions">
           <button type="button" className="btn-secondary" onClick={exportTieout}>Export CSV</button>
           <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
@@ -650,17 +664,20 @@ export default function PortalClaimsHub({ user }) {
             } catch (e) { setErr(e.message); }
             finally { setBusy(false); }
           }}>Notify approvers</button>
+          {['superadmin', 'finance_manager', 'finance_approver'].includes(user?.role) && (
+            <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
+              setBusy(true); setErr(''); setMsg('');
+              try {
+                const d = await api.portalClaimsCampaign({
+                  month: workMonth, year: workYear, dryRun: false, campaignMode: 'sample', testPackFour: true,
+                });
+                setMsg(`4-routing test pack: ${d.invites?.filter(i => i.ok).length || 0} email(s).`);
+              } catch (e) { setErr(e.message); }
+              finally { setBusy(false); }
+            }}>4-routing test pack</button>
+          )}
           {isSuper && (
             <>
-              <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
-                setBusy(true); setErr(''); setMsg('');
-                try {
-                  const d = await api.portalClaimsResyncSubmissionEmails({ periodId: 3 });
-                  setMsg(`Resynced filler emails: ${d.updated || 0} updated (${d.scanned || 0} scanned).`);
-                  await loadBoard();
-                } catch (e) { setErr(e.message); }
-                finally { setBusy(false); }
-              }}>Resync roster emails (July ACTUAL)</button>
               <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
                 if (!window.confirm('Clear ONLY the 3 sample test employees’ portal claims?')) return;
                 setBusy(true);

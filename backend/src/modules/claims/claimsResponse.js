@@ -1,5 +1,14 @@
 'use strict';
 
+const {
+    deskStatusFromInternal,
+    deskLabel,
+    emptyDeskCounts,
+    formatClaimSummary,
+    computeLastActivity,
+    resolveReminderMeta,
+} = require('./claimsDesk');
+
 const EPS_HRS = 0.009;
 const EPS_PKR = 0.5;
 
@@ -101,37 +110,23 @@ function mailerResult(batch) {
     return { mailer: 'not_sent', sent_at: null };
 }
 
-function shortReminderDate(iso) {
-    if (!iso) return '';
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleString('en-GB', { day: 'numeric', month: 'short' });
-}
-
-function nowLabel({ status, mailedTo, lm, decidedBy, decidedEmail, lastReminderAt }) {
+function nowLabel({ status, mailedTo, lm, decidedBy, decidedEmail }) {
     const to = mailedTo || '—';
     const approver = lm || decidedEmail || '—';
-    let base;
-    if (status === 'not_invited') base = 'Not invited';
-    else if (status === 'invite_sent') base = `Invite sent · waiting ${to} to start`;
-    else if (status === 'waiting_focal') base = `Waiting Focal to fill (${to})`;
-    else if (status === 'waiting_employee') base = `Waiting Employee to fill (${to})`;
-    else if (status === 'waiting_lm') base = `Waiting LM to approve (${approver})`;
-    else if (status === 'waiting_asil') base = `Waiting ASIL to approve (${approver})`;
-    else if (status === 'no_claims') base = 'No claims this month';
-    else if (status === 'rejected') base = `Rejected by ${decidedBy} (${approver})`;
-    else if (status === 'on_sheet' || status === 'other_data' || status === 'ready_import') {
-        base = `Approved by ${decidedBy} (${approver})`;
-    } else if (status === 'waiting_fill') base = `Waiting fill (${to})`;
-    else if (status === 'closed') base = 'Finished · nothing to pay';
-    else base = status;
-
-    const remindable = ['invite_sent', 'waiting_focal', 'waiting_employee', 'waiting_fill', 'waiting_lm', 'waiting_asil'];
-    if (lastReminderAt && remindable.includes(status)) {
-        const when = shortReminderDate(lastReminderAt);
-        if (when) return `${base} · reminder ${when}`;
+    if (status === 'not_invited') return 'Not invited';
+    if (status === 'invite_sent') return `Invite sent · waiting ${to} to start`;
+    if (status === 'waiting_focal') return `Waiting Focal to fill (${to})`;
+    if (status === 'waiting_employee') return `Waiting Employee to fill (${to})`;
+    if (status === 'waiting_lm') return `Waiting LM to approve (${approver})`;
+    if (status === 'waiting_asil') return `Waiting ASIL to approve (${approver})`;
+    if (status === 'no_claims') return 'No claims this month';
+    if (status === 'rejected') return `Rejected by ${decidedBy} (${approver})`;
+    if (status === 'on_sheet' || status === 'other_data' || status === 'ready_import') {
+        return `Approved by ${decidedBy} (${approver})`;
     }
-    return base;
+    if (status === 'waiting_fill') return `Waiting fill (${to})`;
+    if (status === 'closed') return 'Finished · nothing to pay';
+    return status;
 }
 
 /**
@@ -155,7 +150,10 @@ function classifyResponseRow({
     if (status === 'rejected') return 'rejected';
     if (status === 'no_claims') return 'no_claims';
     if (status === 'submitted') return approverWaitStatus(profile);
-    if (status === 'invited') return 'invite_sent';
+    if (status === 'invited') {
+        if (hasPortal) return fillerWaitStatus(profile);
+        return 'invite_sent';
+    }
     if (status === 'draft' || status === 'in_progress') return fillerWaitStatus(profile);
     if (status === 'approved' || status === 'in_payroll') {
         if (sample) return hasPortal ? 'ready_import' : 'no_claims';
@@ -197,44 +195,11 @@ function filterAudience(eligible, { client, contract, location, dept }) {
     });
 }
 
-function isSampleMode(mode) {
-    return String(mode || '').toLowerCase() === 'sample';
-}
-
-function isPollutedTestEmail(email) {
-    const e = String(email || '').trim().toLowerCase();
-    return !e || e.includes('@test.asil') || e.startsWith('sample.');
-}
-
-function resolveMailedTo({ sub, rosterEmp, batch, routingProfile }) {
-    const profile = normalizeRouting((sub && sub.routing_profile) || rosterEmp.routing_profile || routingProfile);
-    const roster = rosterEmp.filler_email || null;
-    const fromSub = sub && sub.filler_email ? String(sub.filler_email).trim() : null;
-    const fromBatch = batch && batch.filler_email ? String(batch.filler_email).trim() : null;
-    if (isEmployeeFiller(profile)) {
-        return roster || fromSub || fromBatch;
-    }
-    if (isPollutedTestEmail(fromSub)) return roster || fromBatch || fromSub;
-    if (isPollutedTestEmail(fromBatch)) return roster || fromSub || fromBatch;
-    return fromSub || roster || fromBatch;
-}
-
-function pickSubmission(rows, actualPeriodId = null) {
+function pickSubmission(rows) {
     if (!rows || !rows.length) return null;
-    const actual = rows.filter((r) => !isSampleMode(r.campaign_mode));
-    if (!actual.length) return null;
-    let pool = actual;
-    if (actualPeriodId) {
-        const onPeriod = actual.filter((r) => Number(r.period_id) === Number(actualPeriodId));
-        if (onPeriod.length) pool = onPeriod;
-    }
+    const actual = rows.filter((r) => String(r.campaign_mode || '').toLowerCase() !== 'sample');
+    const pool = actual.length ? actual : rows;
     return pool.sort((a, b) => Number(b.id) - Number(a.id))[0];
-}
-
-function pickActualPeriod(periods) {
-    if (!periods || !periods.length) return null;
-    return periods.find((p) => !isSampleMode(p.campaign_mode))
-        || periods.sort((a, b) => Number(b.id) - Number(a.id))[0];
 }
 
 async function writePortalAmountsToSheet(pool, { employeeId, month, year, portal }) {
@@ -301,7 +266,8 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
     if (periodIds.length && ids.length) {
         const { rows: subRows } = await pool.query(
             `SELECT s.id, s.employee_id, s.status, s.filler_email, s.approver_email,
-                    s.routing_profile, s.channel, s.batch_id, s.period_id, p.campaign_mode
+                    s.routing_profile, s.channel, s.batch_id, s.period_id,
+                    s.submitted_at, s.approved_at, p.campaign_mode
              FROM portal_claim_submissions s
              JOIN portal_claim_periods p ON p.id = s.period_id
              WHERE s.period_id = ANY($1::int[]) AND s.employee_id = ANY($2::text[])`,
@@ -322,13 +288,22 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
 
     const { rows: batchRows } = periodIds.length
         ? await pool.query(
-            `SELECT id, period_id, filler_email, invite_sent_at, invite_delivered, last_reminder_at, reminder_count
+            `SELECT id, period_id, filler_email, invite_sent_at, invite_delivered,
+                    invite_opened_at, last_reminder_at, reminder_count
              FROM portal_claim_batches WHERE period_id = ANY($1::int[])`,
             [periodIds]
         )
         : { rows: [] };
 
-    const actualPeriod = pickActualPeriod(periods);
+    const { rows: packRows } = periodIds.length
+        ? await pool.query(
+            `SELECT period_id, approver_email, invite_sent_at, last_reminder_at, reminder_count
+             FROM portal_claim_approver_packs WHERE period_id = ANY($1::int[])`,
+            [periodIds]
+        )
+        : { rows: [] };
+
+    const actualPeriod = periods.find((p) => String(p.campaign_mode || '').toLowerCase() !== 'sample') || periods[0] || null;
     const actualPeriodId = actualPeriod ? actualPeriod.id : null;
 
     const batchById = new Map(batchRows.map((b) => [b.id, b]));
@@ -336,13 +311,16 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
     for (const b of batchRows) {
         if (!b.period_id || !b.filler_email) continue;
         const periodRow = periods.find((p) => Number(p.id) === Number(b.period_id));
-        if (periodRow && isSampleMode(periodRow.campaign_mode)) continue;
+        if (periodRow && String(periodRow.campaign_mode || '').toLowerCase() === 'sample') continue;
         const key = `${b.period_id}:${String(b.filler_email).trim().toLowerCase()}`;
         const existing = batchByFocal.get(key);
         if (!existing || (b.invite_delivered && !existing.invite_delivered)) {
             batchByFocal.set(key, b);
         }
     }
+    const packByKey = new Map(
+        packRows.map((p) => [`${p.period_id}:${String(p.approver_email || '').trim().toLowerCase()}`, p])
+    );
 
     const { rows: sheetRows } = ids.length
         ? await pool.query(
@@ -366,8 +344,9 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
     const sheetByEmp = new Map(sheetRows.map((r) => [r.employee_id, r]));
 
     const counts = emptyCounts();
+    const desk_counts = emptyDeskCounts();
     const people = audience.map((e) => {
-        const sub = pickSubmission(subsByEmp.get(e.id) || [], actualPeriodId);
+        const sub = pickSubmission(subsByEmp.get(e.id) || []);
         let batch = sub && sub.batch_id ? batchById.get(sub.batch_id) : null;
         if (!batch && actualPeriodId && e.filler_email) {
             const focalKey = `${actualPeriodId}:${String(e.filler_email).trim().toLowerCase()}`;
@@ -376,11 +355,16 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
         const portal = portalAmountsFromItems(sub ? (itemsBySub.get(sub.id) || []) : []);
         const sheetRow = sheetByEmp.get(e.id) || {};
         const sheet = sheetAmounts(sheetRow);
-        const sample = !!(sub && isSampleMode(sub.campaign_mode));
+        const sample = !!(sub && String(sub.campaign_mode || '').toLowerCase() === 'sample');
         const routingProfile = (sub && sub.routing_profile) || e.routing_profile || 'focal_then_lm';
         const inviteSent = !!(batch && (batch.invite_delivered || batch.invite_sent_at));
-        const mailedTo = resolveMailedTo({ sub, rosterEmp: e, batch, routingProfile });
+        const mailedTo = (sub && sub.filler_email) || e.filler_email || null;
         const lm = (sub && sub.approver_email) || e.approver_email || null;
+        const focal_email = mailedTo;
+        const approver_email = lm;
+        const approverPack = actualPeriodId && lm
+            ? packByKey.get(`${actualPeriodId}:${String(lm).trim().toLowerCase()}`) || null
+            : null;
         const decidedBy = decidedByRole(routingProfile);
         const decidedEmail = decidedBy === 'Focal' ? mailedTo : lm;
         const mail = mailerResult(batch);
@@ -393,8 +377,19 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             routingProfile,
         });
         counts[status] = (counts[status] || 0) + 1;
-        const lastReminderAt = batch && batch.last_reminder_at ? batch.last_reminder_at : null;
-        const reminderCount = batch && batch.reminder_count != null ? Number(batch.reminder_count) : 0;
+        const desk_status = deskStatusFromInternal(status);
+        const desk_label = deskLabel(desk_status);
+        desk_counts[desk_status] = (desk_counts[desk_status] || 0) + 1;
+        const claim_summary = formatClaimSummary(portal);
+        const activity = computeLastActivity({
+            batch: batch ? { invite_opened_at: batch.invite_opened_at } : null,
+            sub: sub ? { submitted_at: sub.submitted_at, approved_at: sub.approved_at } : null,
+        });
+        const reminderMeta = resolveReminderMeta(
+            { status, mailed_to: mailedTo, lm, approver_email: lm, focal_email: mailedTo },
+            batch,
+            approverPack
+        );
         return {
             employee_id: e.id,
             name: e.name,
@@ -406,21 +401,37 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             path: e.claims_category,
             routing_profile: routingProfile,
             mailed_to: mailedTo,
+            focal_email,
             lm,
+            approver_email,
             period_id: sub ? sub.period_id : (actualPeriodId || null),
             batch_id: sub ? sub.batch_id : (batch ? batch.id : null),
             submission_id: sub ? sub.id : null,
             submission_status: sub ? sub.status : null,
+            submitted_at: sub ? sub.submitted_at : null,
+            approved_at: sub ? sub.approved_at : null,
+            invite_opened_at: batch ? batch.invite_opened_at : null,
+            approver_pack: approverPack ? {
+                invite_sent_at: approverPack.invite_sent_at,
+                last_reminder_at: approverPack.last_reminder_at,
+                reminder_count: approverPack.reminder_count,
+            } : null,
             sample,
             status,
+            desk_status,
+            desk_label,
+            claim_summary,
+            last_activity_at: activity.last_activity_at,
+            last_activity_label: activity.last_activity_label,
             mailer: mail.mailer,
             sent_at: mail.sent_at,
-            last_reminder_at: lastReminderAt,
-            reminder_count: reminderCount,
+            last_reminder_at: reminderMeta.last_reminder_at,
+            reminder_count: reminderMeta.reminder_count,
+            reminder_party: reminderMeta.reminder_party,
             decided_by: ['on_sheet', 'other_data', 'ready_import', 'rejected'].includes(status) ? decidedBy : null,
             decided_email: ['on_sheet', 'other_data', 'ready_import', 'rejected'].includes(status) ? decidedEmail : null,
             now_label: nowLabel({
-                status, mailedTo, lm, decidedBy, decidedEmail, lastReminderAt,
+                status, mailedTo, lm, decidedBy, decidedEmail,
             }),
             portal: {
                 ot1: portal.ot1,
@@ -444,7 +455,7 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
 
     people.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
-    const primary = pickActualPeriod(periods) || periods[0] || null;
+    const primary = periods.find((p) => String(p.campaign_mode || '').toLowerCase() !== 'sample') || periods[0] || null;
     const inviteLogged = people.filter((p) => p.status !== 'not_invited').length;
     return {
         ok: true,
@@ -458,6 +469,7 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             ? `This send is ${primary.claim_month}/${primary.claim_year} work · paid ${primary.settlement_month}/${primary.settlement_year} · ${inviteLogged} invite(s) logged`
             : 'No portal-claims send is logged for this work / pay month pair',
         counts,
+        desk_counts,
         people,
     };
 }
@@ -476,10 +488,6 @@ module.exports = {
     nowLabel,
     filterAudience,
     pickSubmission,
-    pickActualPeriod,
-    resolveMailedTo,
-    isPollutedTestEmail,
-    shortReminderDate,
     writePortalAmountsToSheet,
     listResponseBoard,
 };
