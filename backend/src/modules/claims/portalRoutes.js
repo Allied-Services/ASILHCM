@@ -486,17 +486,52 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.put('/api/claims/policy/:contractId', requireAuth, requireRole('superadmin', 'finance_manager'), async (req, res) => {
+    app.put('/api/claims/policy/:contractId', requireAuth, requireRole('superadmin', 'finance_manager', 'operations'), async (req, res) => {
         try {
             const row = await portal.upsertClaimsPolicy(pool, req.params.contractId, req.body || {});
-            res.json({
-                claims_pay_timing: row.claims_pay_timing,
-                submit_deadline_day: row.submit_deadline_day,
-                approve_deadline_day: row.approve_deadline_day,
-            });
+            res.json(row);
         } catch (err) {
             if (err.status === 400) return res.status(400).json({ error: err.message });
             handleRouteError(res, 'claims.policyPut', err);
+        }
+    });
+
+    app.post('/api/portal-claims/people/bulk-update', requireAuth, requireRole('superadmin', 'finance_manager', 'operations', 'payroll_initiator'), async (req, res) => {
+        try {
+            const body = req.body || {};
+            const employeeIds = Array.isArray(body.employee_ids) ? body.employee_ids.map(String).filter(Boolean) : [];
+            if (!employeeIds.length) {
+                return res.status(400).json({ error: 'employee_ids is required' });
+            }
+            const patch = {};
+            if (body.claim_authority !== undefined) {
+                const v = String(body.claim_authority || '').trim();
+                patch.claim_authority = v ? v.toLowerCase() : null;
+            }
+            if (body.line_manager_email !== undefined) {
+                const v = String(body.line_manager_email || '').trim();
+                patch.line_manager_email = v ? v.toLowerCase() : null;
+            }
+            if (body.line_manager_name !== undefined) {
+                patch.line_manager_name = String(body.line_manager_name || '').trim() || null;
+            }
+            if (body.claims_reviewer_email !== undefined) {
+                const v = String(body.claims_reviewer_email || '').trim();
+                patch.claims_reviewer_email = v ? v.toLowerCase() : null;
+            }
+            const keys = Object.keys(patch);
+            if (!keys.length) {
+                return res.status(400).json({ error: 'No fields to update' });
+            }
+            const sets = keys.map((k, i) => `${k} = $${i + 2}`);
+            const vals = keys.map((k) => patch[k]);
+            const { rowCount } = await pool.query(
+                `UPDATE employees SET ${sets.join(', ')} WHERE id = ANY($1::text[])`,
+                [employeeIds, ...vals]
+            );
+            res.json({ updated: rowCount, employee_ids: employeeIds });
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.peopleBulkUpdate', err);
         }
     });
 

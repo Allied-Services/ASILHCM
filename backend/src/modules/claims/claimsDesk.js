@@ -25,7 +25,9 @@ const CONTROL_LABEL = {
     final_lm_review: 'Final LM review',
     ready_for_payroll: 'Ready for Payroll',
     sent_to_payroll: 'Sent to Payroll',
-    no_claims_closed: 'No Claims — Closed',
+    no_claims_confirmed: 'No Claims — Confirmed',
+    no_claims_auto_closed: 'No Claims — Auto-closed (no response)',
+    no_claims_unverified: 'No Claims — Closed (source unknown)',
     rejected_closed: 'Rejected — Closed',
     needs_review: 'Needs Review — payroll already has different values',
     not_invited: 'Not invited',
@@ -34,7 +36,13 @@ const CONTROL_LABEL = {
 
 const CONTROL_NEEDS_ACTION = new Set(['ready_for_payroll', 'final_lm_review', 'needs_review']);
 const CONTROL_WAITING = new Set(['waiting_focal', 'waiting_lm', 'not_invited', 'invite_sent']);
-const CONTROL_CLOSED = new Set(['sent_to_payroll', 'no_claims_closed', 'rejected_closed']);
+const CONTROL_CLOSED = new Set([
+    'sent_to_payroll',
+    'no_claims_confirmed',
+    'no_claims_auto_closed',
+    'no_claims_unverified',
+    'rejected_closed',
+]);
 
 const ACTION_VIEW_LABEL = {
     needs_action: 'Needs action',
@@ -79,6 +87,16 @@ function emptyDeskCounts() {
     };
 }
 
+function resolveNoClaimsControl({ submissionStatus, internalStatus, noClaimsKind }) {
+    const sub = String(submissionStatus || '').toLowerCase();
+    const internal = String(internalStatus || '').toLowerCase();
+    if (sub !== 'no_claims' && internal !== 'no_claims') return null;
+    const kind = String(noClaimsKind || '').toLowerCase();
+    if (kind === 'confirmed') return 'no_claims_confirmed';
+    if (kind === 'auto_closed') return 'no_claims_auto_closed';
+    return 'no_claims_unverified';
+}
+
 function controlStatusFromRow({
     internalStatus,
     submissionStatus,
@@ -88,6 +106,7 @@ function controlStatusFromRow({
     portalHasValues,
     lmReopenCount,
     payrollPushedAt,
+    noClaimsKind,
 }) {
     const sub = String(submissionStatus || '').toLowerCase();
     const internal = String(internalStatus || '').toLowerCase();
@@ -96,7 +115,12 @@ function controlStatusFromRow({
     if (reopened && sub === 'submitted') return 'final_lm_review';
     if (sub === 'in_payroll' || payrollPushedAt) return 'sent_to_payroll';
     if (internal === 'rejected' || sub === 'rejected') return 'rejected_closed';
-    if (internal === 'no_claims' || sub === 'no_claims') return 'no_claims_closed';
+    const noClaimsControl = resolveNoClaimsControl({
+        submissionStatus,
+        internalStatus,
+        noClaimsKind,
+    });
+    if (noClaimsControl) return noClaimsControl;
     if (internal === 'other_data') return 'needs_review';
 
     if (sub === 'approved' || internal === 'ready_import') {
@@ -143,7 +167,14 @@ function canSelectForPayrollPush(controlStatus) {
     return controlStatus === 'ready_for_payroll';
 }
 
-function formatClaimSummary(portal) {
+function formatClaimSummary(portal, opts = {}) {
+    const subStatus = String(opts.submissionStatus || '').toLowerCase();
+    const kind = String(opts.noClaimsKind || '').toLowerCase();
+    if (subStatus === 'no_claims') {
+        if (kind === 'confirmed') return 'No claims — confirmed by filler';
+        if (kind === 'auto_closed') return 'No claims — auto-closed (no response)';
+        return 'No claims — closed';
+    }
     const p = portal || {};
     const parts = [];
     const ot2 = num(p.ot2Write);
@@ -163,7 +194,14 @@ function computeLastActivity({ batch, sub }) {
         candidates.push({ at: batch.invite_opened_at, label: 'Portal opened' });
     }
     if (sub && sub.submitted_at) {
-        candidates.push({ at: sub.submitted_at, label: 'Submitted' });
+        let label = 'Submitted';
+        if (String(sub.status || '').toLowerCase() === 'no_claims') {
+            const kind = String(sub.no_claims_kind || '').toLowerCase();
+            if (kind === 'confirmed') label = 'No Claims confirmed';
+            else if (kind === 'auto_closed') label = 'Auto-closed (no response)';
+            else label = 'No Claims recorded';
+        }
+        candidates.push({ at: sub.submitted_at, label });
     }
     if (sub && sub.approved_at) {
         candidates.push({ at: sub.approved_at, label: 'Approved' });
@@ -236,6 +274,7 @@ module.exports = {
     deskStatusFromInternal,
     deskLabel,
     emptyDeskCounts,
+    resolveNoClaimsControl,
     controlStatusFromRow,
     controlLabel,
     actionViewFromControl,

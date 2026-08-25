@@ -125,7 +125,7 @@ export default function ClaimsApprovePage() {
       {fillerKeys.map(filler => {
         const list = (data.byFiller[filler] || []).filter(sub => {
           if (filter === 'pending') return sub.status === 'submitted';
-          if (filter === 'decided') return ['approved', 'rejected', 'in_payroll'].includes(sub.status);
+          if (filter === 'decided') return ['approved', 'rejected', 'in_payroll', 'no_claims'].includes(sub.status);
           return true;
         });
         if (!list.length) return null;
@@ -242,6 +242,7 @@ function StatusPill({ status }) {
     submitted: { bg: '#fff7ed', c: '#c2410c', t: 'Awaiting your decision' },
     approved: { bg: '#f0fdf4', c: '#15803d', t: 'Approved' },
     in_payroll: { bg: '#f0fdf4', c: '#15803d', t: 'In payroll' },
+    no_claims: { bg: '#f0fdf4', c: '#15803d', t: 'No Claims confirmed' },
     rejected: { bg: '#fef2f2', c: '#b91c1c', t: 'Rejected' },
   };
   const m = map[status] || { bg: '#f1f5f9', c: '#475569', t: status };

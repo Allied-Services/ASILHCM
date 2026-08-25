@@ -543,6 +543,7 @@ app.get('/api/employees/export', requireAuth, requireRole('superadmin', 'hr_mana
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_email VARCHAR(255)`).catch(() => {});
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_focal_emails TEXT`).catch(() => {});
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS claim_authority TEXT`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS claims_reviewer_email TEXT`).catch(() => {});
         const scope = req.query.scope === 'all' ? 'all' : 'active';
         const { csv, filename, rowCount, columnCount } = await exportMasterRosterCsv(pool, { scope });
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -561,6 +562,7 @@ app.post('/api/employees/import', requireAuth, requireRole('superadmin', 'hr_man
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_email VARCHAR(255)`).catch(() => {});
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_focal_emails TEXT`).catch(() => {});
         await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS claim_authority TEXT`).catch(() => {});
+        await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS claims_reviewer_email TEXT`).catch(() => {});
         const csvText = req.body?.csvText || req.body?.csv || '';
         if (!csvText.trim()) return res.status(400).json({ error: 'csvText required' });
         // MD Step 1: no automated SMS/email on roster ingest
@@ -738,7 +740,7 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
 app.post('/api/employees', requireAuth, async (req, res) => {
     try {
         const d = empToDb(req.body);
-        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'claim_authority', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
+        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'claim_authority', 'claims_reviewer_email', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
         const vals = cols.map(c => d[c]);
         const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
         const updates = cols.slice(1).map((c, i) => `${c}=EXCLUDED.${c}`).join(',');
@@ -756,7 +758,7 @@ app.post('/api/employees', requireAuth, async (req, res) => {
 app.put('/api/employees/:id', requireAuth, async (req, res) => {
     try {
         const d = empToDb({ ...req.body, id: req.params.id });
-        let cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'claim_authority', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
+        let cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'claim_authority', 'claims_reviewer_email', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
         // Old profile saves omit Focal — do not wipe claim_authority unless the client sent it.
         if (!bodyHasClaimAuthority(req.body)) cols = cols.filter(c => c !== 'claim_authority');
         const setClauses = cols.map((c, i) => `${c}=$${i + 1}`).join(',');

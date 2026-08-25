@@ -17,6 +17,25 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 
 ---
 
+## MANDATE (standing — Chief acts alone inside this)
+> Set by owner 2026-08-25. Chief may not edit this block; it may only propose changes.
+
+- **Ship without asking:** bug fixes, screens, reports, endpoints, tests, docs, board work,
+  and auth / session / schema-add work — provided Chief verifies it live and keeps a revert ready.
+- **Always:** branch + PR + CI green (auto-merge) → deploy confirmed → checked on the real site
+  in the browser → one receipt afterwards.
+- **Staging first** when payroll, payments, or World A paths are touched — then prod after proof.
+- **Stop and ask (exact phrase `Go red: …`):** posting or moving cash / disbursement · bulk
+  employee data change / merge / delete · live SMS or email to real people · prod engine-flag
+  flip · anything irreversible.
+- **Never touch:** anything under PARKED. World A pay path until cutover. BPO staging contract
+  work without coordinating merges.
+- **Reporting:** the receipt + the morning email. No plans, no diffs, no reasoning unless the
+  owner asks.
+- **Owner words that carry weight:** `undo` · `Go red: …` · `Override lock: … — [why]` · `plan only`
+
+---
+
 ## TOP LINE (for agents / morning brief)
 **Why Calculate changed July totals with no hour edits:** Monthly Hub rows with OT hours = 0 were treated as authoritative and overwrote sheet OT2/OT3. Default “Pull approved claims” made that path run. Fix: sheet OT is baseline; hub zeros never clear hours; Calculate defaults to sheet inputs. Remaining Excel net gap (~bonus/tax) is separate.
 
@@ -32,7 +51,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 
 ### Owner vision gaps (P1 — after pilot proof)
 5. **Portal payslips** — portal reads old pay table only; new-engine employees would see nothing
-6. **Claims** — four intake paths; not one configurable "who claims / who approves" UI
+6. **Claims** — Monthly Cycle hub shipped (contract pack + people UI); four legacy intake paths still exist until hide pass
 7. **Payslip branding** — emails work if Resend is set; **no logo image** in templates today
 8. **Nothing is automatic** — compute, lock, disburse, email each need a human click
 
@@ -53,6 +72,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-25)
+- **Monthly Cycle hub** — new tab: contract claim pack (OT/Expense/Medical toggles), people assignment, collect/track/payroll on same Portal Claims engine; Wafi unchanged
 - **Portal Claims who entered / who approved** — fill and approve links name the person and time. LM-only says “same person — submit is final.”
 - **Portal Claims fill window** — July work stays open through 27 Aug 11:59 PM. A campaign send had reset the close date back to 17 July; that rewind is blocked.
 - **Employee Information Focal / Line Manager** — view and save the same Focal email and Line Manager name/email Portal Claims uses (`feat/employee-focal-lm`)
@@ -68,7 +88,6 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 - Payroll team **Excel export** for pilot shadow month (S5B) — see `scripts/VARIANCE_INPUT_FORMAT.md`
 - **MD sign-off** on zero-variance report before any production pay through new engine
 - **Go red:** production disbursement, prod engine-flag flip, Render secrets (Resend, Jazz, OpenAI, Xero)
-- Reply **yes / no / change …** on any open ship card
 
 ---
 
@@ -117,7 +136,8 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## HOW TO USE
-- Owner: `/status` any time · `/backlog` to reorder · `/coach` to sharpen · `/chief` to build · `/morning` for today's card
-- Agents: open with the **TOP LINE**; update when mission/status/locks change
+- Owner: state what you want once (plain English) and walk away — Coach sharpens silently, Chief ships
+- `/status` any time · `/backlog` to reorder · `/morning` for today's card · `undo` to revert a ship
+- Agents: claim your own folder (`npm run wt:new -- <slug>`); never build in the owner's folder
 - Never hide STILL OPEN items to make progress look better
 - `OWNER_BOARD.md` is the only living scoreboard

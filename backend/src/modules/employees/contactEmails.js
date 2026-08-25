@@ -124,6 +124,7 @@ function routingFieldsFromBody(e = {}) {
         claim_authority: isUsableEmail(e.claimAuthority ?? e.claim_authority) || null,
         line_manager_name: blankOptionalText(e.lineManagerName ?? e.line_manager_name),
         line_manager_email: isUsableEmail(e.lineManagerEmail ?? e.line_manager_email) || null,
+        claims_reviewer_email: isUsableEmail(e.claimsReviewerEmail ?? e.claims_reviewer_email) || null,
     };
 }
 
@@ -132,6 +133,7 @@ function routingFieldsFromRow(r = {}) {
     const focal = r.claim_authority || null;
     const lmName = r.line_manager_name || null;
     const lmEmail = r.line_manager_email || null;
+    const reviewerEmail = r.claims_reviewer_email || null;
     return {
         claimAuthority: focal,
         claim_authority: focal,
@@ -139,6 +141,8 @@ function routingFieldsFromRow(r = {}) {
         line_manager_name: lmName,
         lineManagerEmail: lmEmail,
         line_manager_email: lmEmail,
+        claimsReviewerEmail: reviewerEmail,
+        claims_reviewer_email: reviewerEmail,
     };
 }
 

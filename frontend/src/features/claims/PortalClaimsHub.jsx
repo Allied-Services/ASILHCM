@@ -46,7 +46,9 @@ const CONTROL_LABEL = {
   final_lm_review: 'Final LM review',
   ready_for_payroll: 'Ready for Payroll',
   sent_to_payroll: 'Sent to Payroll',
-  no_claims_closed: 'No Claims — Closed',
+  no_claims_confirmed: 'No Claims — Confirmed',
+  no_claims_auto_closed: 'No Claims — Auto-closed (no response)',
+  no_claims_unverified: 'No Claims — Closed (source unknown)',
   rejected_closed: 'Rejected — Closed',
   needs_review: 'Needs Review — payroll already has different values',
   not_invited: 'Not invited',
@@ -96,14 +98,32 @@ function hours(n) {
 
 function rowClass(controlStatus, open) {
   const bits = [];
-  if (controlStatus === 'sent_to_payroll') bits.push('is-ok');
-  if (controlStatus === 'needs_review' || controlStatus === 'rejected_closed') bits.push('is-bad');
+  if (controlStatus === 'sent_to_payroll' || controlStatus === 'no_claims_confirmed') bits.push('is-ok');
+  if (controlStatus === 'needs_review' || controlStatus === 'rejected_closed' || controlStatus === 'no_claims_auto_closed') bits.push('is-bad');
   if (controlStatus === 'ready_for_payroll' || controlStatus === 'final_lm_review' || controlStatus === 'waiting_lm') bits.push('is-warn');
   if (open) bits.push('is-open');
   return bits.join(' ');
 }
 
-export default function PortalClaimsHub({ user }) {
+/** Focal/employee filled and submitted — waiting LM or ASIL approval. */
+function isSubmittedByFocal(p) {
+  if (p.submission_status === 'submitted') return true;
+  return p.control_status === 'waiting_lm' || p.control_status === 'final_lm_review';
+}
+
+/** Filler explicitly tapped Confirm No Claims in the portal. */
+function isNoClaimsConfirmed(p) {
+  return p.control_status === 'no_claims_confirmed'
+    || (p.submission_status === 'no_claims' && p.no_claims_kind === 'confirmed');
+}
+
+/** LM (or final filler) approved — ready for payroll push or already on sheet. */
+function isClaimsApproved(p) {
+  if (['approved', 'in_payroll'].includes(p.submission_status)) return true;
+  return ['ready_for_payroll', 'sent_to_payroll'].includes(p.control_status);
+}
+
+export default function PortalClaimsHub({ user, lockSection = null, initialFilter = null, hideSectionNav = false }) {
   const start = defaultPeriod();
   const [workMonth, setWorkMonth] = useState(start.workMonth);
   const [workYear, setWorkYear] = useState(start.workYear);
@@ -112,10 +132,9 @@ export default function PortalClaimsHub({ user }) {
   const [client, setClient] = useState('');
   const [contract, setContract] = useState('');
   const [location, setLocation] = useState('');
-  const [section, setSection] = useState(() => (
-    new URLSearchParams(window.location.search).get('setup_needed') === '1' ? 'request' : 'response'
-  ));
-  const [filter, setFilter] = useState('needs_action');
+  const defaultSection = lockSection || (new URLSearchParams(window.location.search).get('setup_needed') === '1' ? 'request' : 'response');
+  const [section, setSection] = useState(defaultSection);
+  const [filter, setFilter] = useState(initialFilter || 'needs_action');
   const [selected, setSelected] = useState(() => new Set());
   const [pushPreview, setPushPreview] = useState(null);
   const [board, setBoard] = useState(null);
@@ -134,6 +153,15 @@ export default function PortalClaimsHub({ user }) {
   const [editingRule, setEditingRule] = useState(null);
   const [showClaimProcess, setShowClaimProcess] = useState(false);
 
+  useEffect(() => {
+    if (lockSection) setSection(lockSection);
+  }, [lockSection]);
+
+  useEffect(() => {
+    if (initialFilter) setFilter(initialFilter);
+  }, [initialFilter]);
+
+  const activeSection = lockSection || section;
   const isSuper = user?.role === 'superadmin';
 
   useEffect(() => {
@@ -206,11 +234,23 @@ export default function PortalClaimsHub({ user }) {
   const counts = board?.counts || {};
   const actionCounts = board?.action_counts || {};
   const controlCounts = board?.control_counts || {};
+  const pipelineCounts = useMemo(() => {
+    const rows = board?.people || [];
+    return {
+      submitted_by_focal: rows.filter(isSubmittedByFocal).length,
+      claims_approved: rows.filter(isClaimsApproved).length,
+      no_claims_confirmed: rows.filter(isNoClaimsConfirmed).length,
+    };
+  }, [board]);
   const people = (board?.people || []).filter((p) => {
     if (filter === 'all') return true;
     if (filter === 'needs_action' || filter === 'waiting' || filter === 'closed') {
       return p.action_view === filter;
     }
+    if (filter === 'submitted_by_focal') return isSubmittedByFocal(p);
+    if (filter === 'claims_approved') return isClaimsApproved(p);
+    if (filter === 'no_claims_confirmed') return isNoClaimsConfirmed(p);
+    if (filter === 'no_claims_auto_closed') return p.control_status === 'no_claims_auto_closed';
     return p.control_status === filter;
   });
   const open = (board?.people || []).find(p => p.employee_id === openId) || null;
@@ -241,6 +281,10 @@ export default function PortalClaimsHub({ user }) {
   const chips = [
     ['needs_action', `Needs action ${actionCounts.needs_action || 0}`],
     ['waiting', `Waiting ${actionCounts.waiting || 0}`],
+    ['submitted_by_focal', `Claims Submitted by Focals ${pipelineCounts.submitted_by_focal || 0}`],
+    ['claims_approved', `Claims Approved ${pipelineCounts.claims_approved || 0}`],
+    ['no_claims_confirmed', `No Claims Confirmed ${pipelineCounts.no_claims_confirmed || 0}`],
+    ['no_claims_auto_closed', `No Claims Auto-closed ${controlCounts.no_claims_auto_closed || 0}`],
     ['closed', `Closed ${actionCounts.closed || 0}`],
     ['all', `All ${board?.audience_count || 0}`],
   ];
@@ -501,26 +545,34 @@ export default function PortalClaimsHub({ user }) {
         </div>
       </div>
 
+      {!hideSectionNav && !lockSection && (
       <div className="pch-jobs">
-        <button type="button" className={`pch-job${section === 'response' ? ' is-on' : ''}`} onClick={() => setSection('response')}>Track &amp; send to payroll</button>
-        <button type="button" className={`pch-job${section === 'request' ? ' is-on' : ''}`} onClick={() => setSection('request')}>Send invites</button>
-        <button type="button" className={`pch-job${section === 'manual' ? ' is-on' : ''}`} onClick={() => setSection('manual')}>Manual correction</button>
+        <button type="button" className={`pch-job${activeSection === 'response' ? ' is-on' : ''}`} onClick={() => setSection('response')}>Track &amp; send to payroll</button>
+        <button type="button" className={`pch-job${activeSection === 'request' ? ' is-on' : ''}`} onClick={() => setSection('request')}>Send invites</button>
+        <button type="button" className={`pch-job${activeSection === 'manual' ? ' is-on' : ''}`} onClick={() => setSection('manual')}>Manual correction</button>
       </div>
+      )}
 
       {err && <div className="pch-err">{err}</div>}
       {msg && <div className="pch-ok">{msg}</div>}
 
-      {section === 'response' && (
+      {activeSection === 'response' && (
         <>
           <div className="pch-note is-info">
             {board?.period_label || 'Who must act, what is ready for payroll, and what is closed.'}
           </div>
           <div className="pch-stats">
+            <div className="pch-stat is-warn"><strong>{pipelineCounts.submitted_by_focal || 0}</strong><span>Submitted by Focals</span></div>
+            <div className="pch-stat is-ok"><strong>{pipelineCounts.claims_approved || 0}</strong><span>Claims Approved</span></div>
             <div className="pch-stat is-warn"><strong>{controlCounts.ready_for_payroll || 0}</strong><span>Ready for Payroll</span></div>
             <div className="pch-stat is-warn"><strong>{controlCounts.final_lm_review || 0}</strong><span>Final LM review</span></div>
             <div className="pch-stat"><strong>{(controlCounts.waiting_focal || 0) + (controlCounts.waiting_lm || 0) + (controlCounts.invite_sent || 0)}</strong><span>Waiting on others</span></div>
             <div className="pch-stat is-ok"><strong>{controlCounts.sent_to_payroll || 0}</strong><span>Sent to Payroll</span></div>
-            <div className="pch-stat"><strong>{controlCounts.no_claims_closed || 0}</strong><span>No Claims — Closed</span></div>
+            <div className="pch-stat is-ok"><strong>{pipelineCounts.no_claims_confirmed || 0}</strong><span>No Claims Confirmed</span></div>
+            <div className="pch-stat is-bad"><strong>{controlCounts.no_claims_auto_closed || 0}</strong><span>No Claims Auto-closed</span></div>
+            {(controlCounts.no_claims_unverified || 0) > 0 && (
+              <div className="pch-stat"><strong>{controlCounts.no_claims_unverified || 0}</strong><span>No Claims (source unknown)</span></div>
+            )}
             <div className="pch-stat is-bad"><strong>{controlCounts.needs_review || 0}</strong><span>Needs Review</span></div>
           </div>
           <div className="pch-chips">
@@ -657,7 +709,23 @@ export default function PortalClaimsHub({ user }) {
                 {open.control_status === 'waiting_focal' && <div className="pch-note is-info">Waiting on Focal {open.mailed_to || ''} to fill or finish.</div>}
                 {open.control_status === 'invite_sent' && <div className="pch-note is-info">Invite sent to {open.mailed_to} on {formatWhen(open.sent_at)}.</div>}
                 {open.control_status === 'not_invited' && <div className="pch-note">Not invited yet — use Send invites tab.</div>}
-                {open.control_status === 'no_claims_closed' && <div className="pch-note">No claims this month — closed.</div>}
+                {open.control_status === 'no_claims_confirmed' && (
+                  <div className="pch-note is-ok">
+                    Filler confirmed no claims{open.submitted_at ? ` on ${formatWhen(open.submitted_at)}` : ''}.
+                    {open.mailed_to ? ` Confirmed by ${open.mailed_to}.` : ''}
+                  </div>
+                )}
+                {open.control_status === 'no_claims_auto_closed' && (
+                  <div className="pch-note is-bad">
+                    Auto-closed after the fill deadline — filler did not confirm no claims.
+                    {open.submitted_at ? ` Closed on ${formatWhen(open.submitted_at)}.` : ''}
+                  </div>
+                )}
+                {open.control_status === 'no_claims_unverified' && (
+                  <div className="pch-note">
+                    No claims recorded, but the system cannot tell whether the filler confirmed or the row was auto-closed.
+                  </div>
+                )}
                 {open.control_status === 'rejected_closed' && <div className="pch-note is-bad">Rejected — closed{open.lm_reopen_count ? ' (final)' : ''}.</div>}
                 {open.last_reminder_at && <div className="pch-muted">Last reminder {formatWhen(open.last_reminder_at)}</div>}
               </div>
@@ -688,7 +756,7 @@ export default function PortalClaimsHub({ user }) {
         </>
       )}
 
-      {section === 'request' && (
+      {activeSection === 'request' && (
         <ClaimRequestCampaign
           user={user}
           hidePeriod
@@ -698,7 +766,7 @@ export default function PortalClaimsHub({ user }) {
         />
       )}
 
-      {section === 'manual' && (
+      {activeSection === 'manual' && (
         <>
           <h3>Manual add</h3>
           <p className="pch-sub">

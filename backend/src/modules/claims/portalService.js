@@ -60,7 +60,7 @@ const { firstValidPkMobile } = require('../../../lib/sms');
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '1', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '18', 10);
 const APPROVE_CLOSE_DAY = parseInt(process.env.CLAIMS_APPROVE_CLOSE_DAY || '22', 10);
-const { getClaimsPolicy, getDefaultClaimsPolicy } = require('./claimsPolicy');
+const { getClaimsPolicy, getDefaultClaimsPolicy, normalizeEnabledTypes } = require('./claimsPolicy');
 const PRODUCTION_FRONTEND_URL = 'https://asil-hcm-frontend.onrender.com';
 
 /** Resolve at send time — never emit localhost from a laptop .env on ACTUAL mail. */
@@ -756,13 +756,31 @@ async function openFillerSession(pool, token) {
     }
 
     const { rows: submissions } = await pool.query(
-        `SELECT s.*, e.name AS employee_name, e.dept, e.location, e.client
+        `SELECT s.*, e.name AS employee_name, e.dept, e.location, e.client, e.contract_id,
+                e.claim_authority, e.line_manager_email, e.claims_reviewer_email, e.email AS employee_email
          FROM portal_claim_submissions s
          JOIN employees e ON e.id = s.employee_id
          WHERE s.batch_id = $1
          ORDER BY e.name`,
         [batch.id]
     );
+
+    const policyCache = new Map();
+    const policyForContract = async (contractId) => {
+        const key = contractId || '__default__';
+        if (!policyCache.has(key)) {
+            policyCache.set(key, await getClaimsPolicy(pool, contractId));
+        }
+        return policyCache.get(key);
+    };
+    for (const sub of submissions) {
+        const pack = await policyForContract(sub.contract_id);
+        sub.enabled_types = pack.enabled_types;
+        sub.collection_mode = pack.collection_mode;
+    }
+    const defaultPack = submissions.length
+        ? await policyForContract(submissions[0].contract_id)
+        : await getDefaultClaimsPolicy(pool);
 
     const ids = submissions.map(s => s.id);
     let items = [];
@@ -835,6 +853,11 @@ async function openFillerSession(pool, token) {
             total: submissions.length,
             submitted: submissions.filter(s => ['submitted', 'approved', 'rejected', 'no_claims', 'in_payroll'].includes(s.status)).length,
         },
+        contractPack: {
+            enabled_types: defaultPack.enabled_types,
+            collection_mode: defaultPack.collection_mode,
+            reviewer_required: defaultPack.reviewer_required,
+        },
     };
 }
 
@@ -862,7 +885,10 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
         await pool.query(`DELETE FROM portal_claim_items WHERE submission_id = $1`, [sub.id]);
         await pool.query(
             `UPDATE portal_claim_submissions
-             SET status = 'no_claims', submitted_at = NOW(), updated_at = NOW()
+             SET status = 'no_claims',
+                 no_claims_kind = 'confirmed',
+                 submitted_at = NOW(),
+                 updated_at = NOW()
              WHERE id = $1`,
             [sub.id]
         );
@@ -873,6 +899,13 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
             message: 'Thank you. “No Claims” is recorded. Your Line Manager can see this for the period. Nothing will be added to payroll for this employee.',
         };
     }
+
+    const { rows: empPolicyRows } = await pool.query(
+        `SELECT contract_id FROM employees WHERE id = $1`,
+        [employeeId]
+    );
+    const contractPolicy = await getClaimsPolicy(pool, empPolicyRows[0]?.contract_id);
+    const enabledTypes = normalizeEnabledTypes(contractPolicy.enabled_types);
 
     const period = {
         claim_month: batch.claim_month,
@@ -887,6 +920,11 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
     for (const raw of items || []) {
         const type = String(raw.claim_type || '').toUpperCase();
         const rowTag = raw._rowLabel || null;
+
+        if (type && !enabledTypes.includes(type)) {
+            errors.push(`${rowTag || type}: ${type} claims are not enabled for this contract`);
+            continue;
+        }
 
         if (type === 'OT') {
             if (!isMeaningfulOtRow(raw)) continue;
@@ -957,10 +995,11 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
 
     // Intentional submit with nothing to claim → force user to use Confirm No Claims
     if (!normalized.length && !asDraft && !skipSupportCheck) {
+        const typeHint = enabledTypes.join(' / ') || 'claims';
         return {
             ok: false,
             status: 400,
-            error: 'No valid claim lines to submit. Add OT / Expense / Medical with a date and hours/amount for '
+            error: `No valid claim lines to submit. Add ${typeHint} with a date and hours/amount for `
                 + `${claimMonthLabel(period)}, or tap Confirm No Claims.`,
         };
     }
@@ -2459,7 +2498,10 @@ async function autoCloseNoClaims(pool) {
         if (!isAfterFillClose(p)) continue;
         const { rows } = await pool.query(
             `UPDATE portal_claim_submissions s
-             SET status = 'no_claims', submitted_at = COALESCE(submitted_at, NOW()), updated_at = NOW()
+             SET status = 'no_claims',
+                 no_claims_kind = 'auto_closed',
+                 submitted_at = COALESCE(submitted_at, NOW()),
+                 updated_at = NOW()
              FROM portal_claim_batches b
              WHERE s.batch_id = b.id AND s.period_id = $1
                AND s.status IN ('invited','draft')

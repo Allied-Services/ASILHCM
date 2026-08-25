@@ -124,7 +124,7 @@ function mailerResult(batch) {
     return { mailer: 'not_sent', sent_at: null };
 }
 
-function nowLabel({ status, mailedTo, lm, decidedBy, decidedEmail, routingProfile }) {
+function nowLabel({ status, mailedTo, lm, decidedBy, decidedEmail, routingProfile, noClaimsKind }) {
     const to = mailedTo || '—';
     const approver = lm || decidedEmail || '—';
     if (status === 'not_invited') return 'Not invited';
@@ -135,7 +135,12 @@ function nowLabel({ status, mailedTo, lm, decidedBy, decidedEmail, routingProfil
     if (status === 'waiting_lm_fill') return `Waiting LM to add claims — final (${to})`;
     if (status === 'waiting_lm') return `Waiting LM to approve (${approver})`;
     if (status === 'waiting_asil') return `Waiting ASIL to approve (${approver})`;
-    if (status === 'no_claims') return 'No claims this month';
+    if (status === 'no_claims') {
+        const kind = String(noClaimsKind || '').toLowerCase();
+        if (kind === 'confirmed') return `No claims confirmed by ${to}`;
+        if (kind === 'auto_closed') return 'Auto-closed — no response by deadline';
+        return 'No claims recorded — source unknown';
+    }
     if (status === 'rejected') return `Rejected by ${decidedBy} (${approver})`;
     if (status === 'on_sheet' || status === 'other_data' || status === 'ready_import') {
         return `Approved by ${decidedBy} (${approver})`;
@@ -285,6 +290,7 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
                     s.routing_profile, s.channel, s.batch_id, s.period_id,
                     s.submitted_at, s.approved_at, s.rejected_at,
                     s.lm_reopen_count, s.lm_reopen_at, s.payroll_pushed_at, s.payroll_pushed_by,
+                    s.no_claims_kind,
                     p.campaign_mode
              FROM portal_claim_submissions s
              JOIN portal_claim_periods p ON p.id = s.period_id
@@ -409,15 +415,21 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             portalHasValues: portalHasValues(portal),
             lmReopenCount: sub && sub.lm_reopen_count,
             payrollPushedAt: sub && sub.payroll_pushed_at,
+            noClaimsKind: sub && sub.no_claims_kind,
         });
         const control_label = controlLabel(control_status);
         control_counts[control_status] = (control_counts[control_status] || 0) + 1;
         const action_view = actionViewFromControl(control_status);
         action_counts[action_view] = (action_counts[action_view] || 0) + 1;
-        const claim_summary = formatClaimSummary(portal);
+        const claim_summary = formatClaimSummary(portal, {
+            submissionStatus: sub && sub.status,
+            noClaimsKind: sub && sub.no_claims_kind,
+        });
         const activity = computeLastActivity({
             batch: batch ? { invite_opened_at: batch.invite_opened_at } : null,
             sub: sub ? {
+                status: sub.status,
+                no_claims_kind: sub.no_claims_kind,
                 submitted_at: sub.submitted_at,
                 approved_at: sub.approved_at,
                 rejected_at: sub.rejected_at,
@@ -448,6 +460,7 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             batch_id: sub ? sub.batch_id : (batch ? batch.id : null),
             submission_id: sub ? sub.id : null,
             submission_status: sub ? sub.status : null,
+            no_claims_kind: sub ? sub.no_claims_kind : null,
             submitted_at: sub ? sub.submitted_at : null,
             approved_at: sub ? sub.approved_at : null,
             invite_opened_at: batch ? batch.invite_opened_at : null,
@@ -479,6 +492,7 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             decided_email: ['on_sheet', 'other_data', 'ready_import', 'rejected'].includes(status) ? decidedEmail : null,
             now_label: nowLabel({
                 status, mailedTo, lm, decidedBy, decidedEmail, routingProfile,
+                noClaimsKind: sub && sub.no_claims_kind,
             }),
             portal: {
                 ot1: portal.ot1,

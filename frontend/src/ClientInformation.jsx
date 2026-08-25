@@ -144,6 +144,15 @@ function ClaimsPolicyEditor({ contractId }) {
 
     if (!policy) return null;
 
+    const toggleType = (typeId) => {
+        setPolicy((p) => {
+            const cur = new Set(p?.enabled_types || []);
+            if (cur.has(typeId)) cur.delete(typeId);
+            else cur.add(typeId);
+            return { ...p, enabled_types: [...cur] };
+        });
+    };
+
     const save = async () => {
         setSaving(true); setSavedMsg('');
         try {
@@ -156,7 +165,15 @@ function ClaimsPolicyEditor({ contractId }) {
 
     return (
         <div style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '10px', padding: '1rem', marginTop: '1rem' }}>
-            <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#818cf8', marginBottom: '0.75rem' }}>Claims Pay Timing</div>
+            <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#818cf8', marginBottom: '0.75rem' }}>Monthly Cycle / Claims Policy</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                {['OT', 'EXPENSE', 'MEDICAL'].map((t) => (
+                    <label key={t} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem' }}>
+                        <input type="checkbox" checked={(policy.enabled_types || []).includes(t)} onChange={() => toggleType(t)} />
+                        {t === 'OT' ? 'Overtime' : t === 'EXPENSE' ? 'Expense' : 'Medical'}
+                    </label>
+                ))}
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
                 <FRow label="When claims pay">
                     <select value={policy.claims_pay_timing || 'following_month'} onChange={e => setPolicy(p => ({ ...p, claims_pay_timing: e.target.value }))}
@@ -166,10 +183,27 @@ function ClaimsPolicyEditor({ contractId }) {
                     </select>
                 </FRow>
                 <FRow label="Submit deadline (day)">
-                    <FInput type="number" value={policy.submit_deadline_day ?? 17} onChange={e => setPolicy(p => ({ ...p, submit_deadline_day: parseInt(e.target.value, 10) || 17 }))} ph="17" />
+                    <FInput type="number" value={policy.submit_deadline_day ?? 18} onChange={e => setPolicy(p => ({ ...p, submit_deadline_day: parseInt(e.target.value, 10) || 18 }))} ph="18" />
                 </FRow>
                 <FRow label="LM approve by (day)">
                     <FInput type="number" value={policy.approve_deadline_day ?? 22} onChange={e => setPolicy(p => ({ ...p, approve_deadline_day: parseInt(e.target.value, 10) || 22 }))} ph="22" />
+                </FRow>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem' }}>
+                <FRow label="Collection mode">
+                    <select value={policy.collection_mode || 'monthly_form'} onChange={e => setPolicy(p => ({ ...p, collection_mode: e.target.value }))}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }}>
+                        <option value="monthly_form">Monthly form</option>
+                        <option value="machine_file">Machine file</option>
+                        <option value="daily_marks">Daily marks</option>
+                        <option value="mixed">Mixed</option>
+                    </select>
+                </FRow>
+                <FRow label="Reviewer step">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.35rem' }}>
+                        <input type="checkbox" checked={!!policy.reviewer_required} onChange={e => setPolicy(p => ({ ...p, reviewer_required: e.target.checked }))} />
+                        Require separate reviewer
+                    </label>
                 </FRow>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.75rem' }}>
@@ -177,7 +211,7 @@ function ClaimsPolicyEditor({ contractId }) {
                 {savedMsg && <span style={{ fontSize: '0.78rem', color: savedMsg.startsWith('Save failed') ? '#ef4444' : '#22c55e' }}>{savedMsg}</span>}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                Wafi: July claims submitted by 17 July → paid with August salary. August claims → September salary, and so on.
+                Wafi: July claims submitted by 18 July → paid with August salary. Also editable under Monthly Cycle → Setup.
             </div>
         </div>
     );

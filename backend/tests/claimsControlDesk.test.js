@@ -55,7 +55,7 @@ describe('claims control desk', () => {
         expect(controlLabel(s)).toMatch(/Final LM review/);
     });
 
-    test('no_claims_closed is closed', () => {
+    test('no_claims_confirmed when filler confirmed', () => {
         const s = controlStatusFromRow({
             internalStatus: 'no_claims',
             submissionStatus: 'no_claims',
@@ -65,8 +65,27 @@ describe('claims control desk', () => {
             portalHasValues: false,
             lmReopenCount: 0,
             payrollPushedAt: null,
+            noClaimsKind: 'confirmed',
         });
-        expect(s).toBe('no_claims_closed');
+        expect(s).toBe('no_claims_confirmed');
+        expect(controlLabel(s)).toMatch(/Confirmed/);
+        expect(actionViewFromControl(s)).toBe('closed');
+    });
+
+    test('no_claims_auto_closed when deadline passed with no response', () => {
+        const s = controlStatusFromRow({
+            internalStatus: 'no_claims',
+            submissionStatus: 'no_claims',
+            sample: false,
+            sheetHasValues: false,
+            amountsMatch: true,
+            portalHasValues: false,
+            lmReopenCount: 0,
+            payrollPushedAt: null,
+            noClaimsKind: 'auto_closed',
+        });
+        expect(s).toBe('no_claims_auto_closed');
+        expect(controlLabel(s)).toMatch(/Auto-closed/);
         expect(actionViewFromControl(s)).toBe('closed');
     });
 });
