@@ -12,6 +12,7 @@ import {
   nextStep,
   prevStep,
   isMeaningfulOtRow,
+  attachmentsForSupportType,
 } from './claimsFillHelpers.js';
 
 describe('claimsFillHelpers', () => {
@@ -51,6 +52,15 @@ describe('claimsFillHelpers', () => {
 
   it('ignores blank OT rows', () => {
     assert.equal(isMeaningfulOtRow(emptyOt()), false);
+  });
+
+  it('groups support attachments by expense vs medical', () => {
+    const attachments = [
+      { id: 1, filename: 'receipt.pdf', category: 'expense_support' },
+      { id: 2, filename: 'rx.jpg', category: 'medical_support' },
+    ];
+    assert.equal(attachmentsForSupportType(attachments, 'expense').length, 1);
+    assert.equal(attachmentsForSupportType(attachments, 'medical').length, 1);
   });
 });
 
