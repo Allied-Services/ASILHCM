@@ -50,7 +50,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## IN PROGRESS
-- Portal Claims Response chase desk (who was emailed, who acts now, tick + remind) — branch `feat/portal-claims-chase-desk`
+- Portal Claims Response chase desk — branch `feat/portal-claims-aug-chase` (Response board truth, ACTUAL-only chase UI, 27 Aug trial window + reminders). Ready for ship card; **not merged**.
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-02)

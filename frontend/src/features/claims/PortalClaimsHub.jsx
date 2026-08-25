@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import './PortalClaimsHub.css';
@@ -90,6 +90,7 @@ export default function PortalClaimsHub({ user }) {
   const [force, setForce] = useState(false);
   const [board, setBoard] = useState(null);
   const [openId, setOpenId] = useState(null);
+  const detailRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
@@ -214,25 +215,24 @@ export default function PortalClaimsHub({ user }) {
     });
   };
 
-  const runChase = async (action, mode, preview) => {
+  const runChase = async (action, preview) => {
     if (!selected.size) {
       setErr('Tick at least one person, then send or remind.');
       return;
     }
-    if (!preview && mode === 'actual' && !confirmActual) {
+    if (!preview && !confirmActual) {
       setErr('Tick the confirmation box before sending ACTUAL emails.');
       return;
     }
     const ids = [...selected];
-    const label = mode === 'sample' ? 'SAMPLE' : 'ACTUAL';
-    const verb = action === 'invite' ? 'invite' : action === 'remind_filler' ? 'filler reminder' : 'approver reminder';
-    if (!preview && !window.confirm(`Send ${label} ${verb} for ${ids.length} ticked person(s)?`)) return;
+    const verb = action === 'invite' ? 'invite' : action === 'remind_filler' ? 'focal reminder' : 'LM reminder';
+    if (!preview && !window.confirm(`Send ACTUAL ${verb} for ${ids.length} ticked person(s)?`)) return;
     setBusy(true); setErr(''); setMsg('');
     try {
       const d = await api.portalClaimsChase({
         action,
         preview,
-        campaignMode: mode,
+        campaignMode: 'actual',
         force: force && user?.role === 'superadmin',
         workMonth, workYear, payMonth, payYear,
         client, contract, location,
@@ -243,7 +243,7 @@ export default function PortalClaimsHub({ user }) {
         setMsg(`Preview ${verb}: ${d.send_count || 0} will be mailed → ${toList.join(', ') || 'no addresses'}.${d.skipped?.length ? ` Skipped ${d.skipped.length}.` : ''}`);
       } else {
         const ok = (d.sent || []).filter(s => s.ok).length;
-        setMsg(`${label} ${verb}: ${ok} email(s) to ${toList.join(', ') || '—'}.${d.skipped?.length ? ` Skipped ${d.skipped.length}.` : ''}`);
+        setMsg(`ACTUAL ${verb}: ${ok} email(s) to ${toList.join(', ') || '—'}.${d.skipped?.length ? ` Skipped ${d.skipped.length}.` : ''}`);
         await loadBoard();
       }
     } catch (e) {
@@ -251,6 +251,13 @@ export default function PortalClaimsHub({ user }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const openDetail = (employeeId) => {
+    setOpenId(employeeId);
+    requestAnimationFrame(() => {
+      detailRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    });
   };
 
   const fillManualFrom = (p) => {
@@ -416,21 +423,18 @@ export default function PortalClaimsHub({ user }) {
             <div className="pch-chase">
               <div className="pch-chase-line">
                 <strong>{selected.size}</strong> ticked
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('invite', 'sample', true)}>Preview invite</button>
-                <button type="button" className="btn-primary" disabled={busy || !selected.size} onClick={() => runChase('invite', 'sample', false)}>SAMPLE invite</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_filler', 'sample', true)}>Preview filler reminder</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_filler', 'sample', false)}>SAMPLE remind filler</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_approver', 'sample', true)}>Preview LM reminder</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_approver', 'sample', false)}>SAMPLE remind LM</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('invite', true)}>Preview invite</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_filler', true)}>Preview focal reminder</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind_approver', true)}>Preview LM reminder</button>
               </div>
               <div className="pch-chase-line">
                 <label className="pch-check">
                   <input type="checkbox" checked={confirmActual} onChange={e => setConfirmActual(e.target.checked)} />
                   I confirm ACTUAL mail to real Focal / Employee / LM addresses
                 </label>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('invite', 'actual', false)}>ACTUAL invite</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('remind_filler', 'actual', false)}>ACTUAL remind filler</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('remind_approver', 'actual', false)}>ACTUAL remind LM</button>
+                <button type="button" className="btn-primary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('invite', false)}>Send invite</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('remind_filler', false)}>Send focal reminder</button>
+                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('remind_approver', false)}>Send LM reminder</button>
                 {isSuper && (
                   <label className="pch-check">
                     <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} />
@@ -438,7 +442,7 @@ export default function PortalClaimsHub({ user }) {
                   </label>
                 )}
               </div>
-              <p className="pch-muted">Sent = HCM handed the mail to Resend. It does not mean they opened it. Finished people are skipped unless Superadmin force is on.</p>
+              <p className="pch-muted">Sent = HCM handed the mail to Resend. Reminded shows the last chase email for that focal batch. Finished people are skipped unless Superadmin force is on.</p>
             </div>
           )}
           <div className="pch-table-wrap">
@@ -452,6 +456,7 @@ export default function PortalClaimsHub({ user }) {
                   <th>Now</th>
                   <th>To</th>
                   <th>Sent</th>
+                  <th>Reminded</th>
                   <th>Mailer</th>
                   <th>Path</th>
                   <th></th>
@@ -459,7 +464,7 @@ export default function PortalClaimsHub({ user }) {
               </thead>
               <tbody>
                 {people.length === 0 && (
-                  <tr><td colSpan={8} className="pch-muted">No people for this filter.</td></tr>
+                  <tr><td colSpan={9} className="pch-muted">No people for this filter.</td></tr>
                 )}
                 {people.map(p => (
                   <tr key={p.employee_id} className={rowClass(p.status, openId === p.employee_id)}>
@@ -484,10 +489,15 @@ export default function PortalClaimsHub({ user }) {
                       {p.lm && <div className="pch-muted">LM {p.lm}</div>}
                     </td>
                     <td>{formatWhen(p.sent_at)}</td>
+                    <td>
+                      {p.last_reminder_at
+                        ? `${formatWhen(p.last_reminder_at)}${p.reminder_count ? ` (${p.reminder_count}×)` : ''}`
+                        : '—'}
+                    </td>
                     <td>{MAILER_LABEL[p.mailer] || p.mailer || '—'}</td>
                     <td>{p.path || '—'}</td>
                     <td>
-                      <button type="button" className="btn-secondary" onClick={() => setOpenId(p.employee_id)}>Open</button>
+                      <button type="button" className="btn-secondary" onClick={() => openDetail(p.employee_id)}>View detail</button>
                     </td>
                   </tr>
                 ))}
@@ -496,7 +506,7 @@ export default function PortalClaimsHub({ user }) {
           </div>
 
           {open && (
-            <div className="pch-detail">
+            <div className="pch-detail" ref={detailRef}>
               <div>
                 <h3>{open.name}</h3>
                 <p className="pch-sub">{open.employee_id} · {open.location || '—'} · {open.path || '—'} · LM {open.lm || '—'}</p>
@@ -629,7 +639,7 @@ export default function PortalClaimsHub({ user }) {
       )}
 
       <details className="pch-admin">
-        <summary>Admin — eligibility, SAMPLE flush, test pack, CSV</summary>
+        <summary>Admin — eligibility, CSV export, superadmin tools</summary>
         <div className="pch-actions">
           <button type="button" className="btn-secondary" onClick={exportTieout}>Export CSV</button>
           <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
@@ -640,20 +650,17 @@ export default function PortalClaimsHub({ user }) {
             } catch (e) { setErr(e.message); }
             finally { setBusy(false); }
           }}>Notify approvers</button>
-          {['superadmin', 'finance_manager', 'finance_approver'].includes(user?.role) && (
-            <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
-              setBusy(true); setErr(''); setMsg('');
-              try {
-                const d = await api.portalClaimsCampaign({
-                  month: workMonth, year: workYear, dryRun: false, campaignMode: 'sample', testPackFour: true,
-                });
-                setMsg(`4-routing test pack: ${d.invites?.filter(i => i.ok).length || 0} email(s).`);
-              } catch (e) { setErr(e.message); }
-              finally { setBusy(false); }
-            }}>4-routing test pack</button>
-          )}
           {isSuper && (
             <>
+              <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
+                setBusy(true); setErr(''); setMsg('');
+                try {
+                  const d = await api.portalClaimsResyncSubmissionEmails({ periodId: 3 });
+                  setMsg(`Resynced filler emails: ${d.updated || 0} updated (${d.scanned || 0} scanned).`);
+                  await loadBoard();
+                } catch (e) { setErr(e.message); }
+                finally { setBusy(false); }
+              }}>Resync roster emails (July ACTUAL)</button>
               <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
                 if (!window.confirm('Clear ONLY the 3 sample test employees’ portal claims?')) return;
                 setBusy(true);

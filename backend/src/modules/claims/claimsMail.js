@@ -4,6 +4,7 @@ const crypto = require('crypto');
 
 const DEFAULT_MONITOR_CC = 'claims@asil.com.pk';
 const DEFAULT_MONITOR_CC_UNTIL = '2026-11-15';
+const DEFAULT_REPLY_TO = 'ops-support@asil.com.pk';
 
 function getSampleEmail() {
     const v = process.env.CLAIMS_SAMPLE_EMAIL || process.env.CLAIMS_TEST_EMAIL;
@@ -46,6 +47,27 @@ function withClaimsMonitorCc(sendAppEmail) {
         const cc = mergeClaimsMonitorCc(opts);
         return sendAppEmail(cc.length ? { ...opts, cc } : opts);
     };
+}
+
+/** Reply-To for Focal / Employee / LM responses. Empty CLAIMS_REPLY_TO disables. */
+function getClaimsReplyTo() {
+    if (process.env.CLAIMS_REPLY_TO === '') return null;
+    const raw = process.env.CLAIMS_REPLY_TO || DEFAULT_REPLY_TO;
+    const v = String(raw).trim().toLowerCase();
+    return v.includes('@') ? v : DEFAULT_REPLY_TO;
+}
+
+function withClaimsReplyTo(sendAppEmail) {
+    if (typeof sendAppEmail !== 'function') return sendAppEmail;
+    return async function sendWithReplyTo(opts) {
+        const replyTo = getClaimsReplyTo();
+        return sendAppEmail(replyTo ? { ...opts, reply_to: replyTo } : opts);
+    };
+}
+
+/** Monitor CC + Reply-To for all portal-claims outbound mail. */
+function withClaimsPortalMail(sendAppEmail) {
+    return withClaimsReplyTo(withClaimsMonitorCc(sendAppEmail));
 }
 
 function linkSecret() {
@@ -106,10 +128,14 @@ function canInjectPayroll(period) {
 module.exports = {
     getSampleEmail,
     getClaimsMonitorCc,
+    getClaimsReplyTo,
     mergeClaimsMonitorCc,
     withClaimsMonitorCc,
+    withClaimsReplyTo,
+    withClaimsPortalMail,
     DEFAULT_MONITOR_CC,
     DEFAULT_MONITOR_CC_UNTIL,
+    DEFAULT_REPLY_TO,
     stableFillerToken,
     hashToken,
     resolveOutboundEmail,

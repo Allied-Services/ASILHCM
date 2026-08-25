@@ -3,7 +3,7 @@
 const path = require('path');
 const { handleRouteError } = require('../../core/validate');
 const portal = require('./portalService');
-const { withClaimsMonitorCc, getClaimsMonitorCc } = require('./claimsMail');
+const { withClaimsPortalMail, getClaimsMonitorCc } = require('./claimsMail');
 const { requireClaimsPortal, CAMPAIGN_ROLES, VIEW_ROLES } = require('./claimsAccess');
 
 function hasManualOverridePerm(user) {
@@ -24,7 +24,7 @@ function hasManualOverridePerm(user) {
 
 function registerPortalClaimsRoutes(app, deps) {
     const { pool, requireAuth, requireRole } = deps;
-    const sendAppEmail = withClaimsMonitorCc(deps.sendAppEmail);
+    const sendAppEmail = withClaimsPortalMail(deps.sendAppEmail);
 
     // ── Public filler ─────────────────────────────────────────────────────────
     app.get('/api/portal-claims/fill/:token', async (req, res) => {
@@ -375,9 +375,42 @@ function registerPortalClaimsRoutes(app, deps) {
 
     app.post('/api/portal-claims/admin/reminders', requireAuth, requireRole('superadmin', 'finance_manager'), async (req, res) => {
         try {
-            res.json(await portal.sendReminders(pool, sendAppEmail));
+            res.json(await portal.sendReminders(pool, sendAppEmail, deps.sendJazzSMS));
         } catch (err) {
             handleRouteError(res, 'portalClaims.reminders', err);
+        }
+    });
+
+    app.post('/api/portal-claims/admin/extend-july-window', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            const fillDay = parseInt(req.body?.fillDay, 10) || 27;
+            const approveDay = parseInt(req.body?.approveDay, 10) || 27;
+            const extended = await portal.extendJuly2026ClaimsWindow(pool, { fillDay, approveDay });
+            res.json(extended);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.extendJulyWindow', err);
+        }
+    });
+
+
+    app.post('/api/portal-claims/admin/resync-submission-emails', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            const periodId = parseInt(req.body?.periodId, 10) || null;
+            const result = await portal.resyncActuaPeriodSubmissionEmails(pool, periodId || null);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.resyncSubmissionEmails', err);
+        }
+    });
+
+    app.post('/api/portal-claims/admin/extension-notice', requireAuth, requireRole('superadmin'), async (req, res) => {
+        try {
+            const fillDay = parseInt(req.body?.fillDay, 10) || 27;
+            const approveDay = parseInt(req.body?.approveDay, 10) || 27;
+            const result = await portal.sendDeadlineExtensionNotice(pool, sendAppEmail, { fillDay, approveDay });
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.extensionNotice', err);
         }
     });
 
