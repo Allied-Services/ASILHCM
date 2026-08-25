@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { buildClaimPeopleStory } from './claimsPeople.js';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -141,6 +142,7 @@ export default function ClaimsApprovePage() {
               const ot3 = sumOt(items, 3);
               const exp = items.filter(i => i.claim_type === 'EXPENSE').reduce((s, i) => s + Number(i.amount || 0), 0);
               const med = items.filter(i => i.claim_type === 'MEDICAL').reduce((s, i) => s + Number(i.amount || 0), 0);
+              const story = buildClaimPeopleStory(sub);
               return (
                 <div key={sub.id} style={{
                   border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12,
@@ -162,6 +164,16 @@ export default function ClaimsApprovePage() {
                         {sub.employee_id} · {sub.client || '—'} · {sub.location || '—'}
                       </div>
                       <StatusPill status={sub.status} />
+                      <div style={{
+                        marginTop: 10, padding: '10px 12px', borderRadius: 10,
+                        background: '#eff6ff', border: '1px solid #bfdbfe',
+                        color: '#0f172a', fontSize: 13, lineHeight: 1.45,
+                      }}>
+                        <div style={{ fontWeight: 700, marginBottom: 6 }}>{story.headline}</div>
+                        {story.lines.map((row) => (
+                          <div key={row.label}><span style={{ color: '#64748b', fontWeight: 600 }}>{row.label}: </span>{row.value}</div>
+                        ))}
+                      </div>
                       <div style={{
                         marginTop: 10, padding: '10px 12px', borderRadius: 10, background: '#eff6ff',
                         border: '1px solid #bfdbfe', color: '#0f172a', fontSize: 14, fontWeight: 600, lineHeight: 1.5,
