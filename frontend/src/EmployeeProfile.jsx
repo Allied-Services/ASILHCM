@@ -617,9 +617,10 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                     <Card><STitle>Employment</STitle>
                         {[['Employee Code', emp.id], ['ASIL BU', normalizeAsilBu(emp.bu) || emp.bu], ['Client', emp.client], ['Client BU', emp.clientBU], ['Department', emp.dept], ['Designation', emp.designation], ['Location', emp.location + ', ' + (emp.province || '')], ['Date of Joining', emp.doj], ['Last Working Day', emp.lastWorkingDay || '—'], ['Status', activeStatusLabel(emp.active)]].map(([l, v]) => <Row key={l} label={l} value={v || '—'} />)}
                         <div style={{marginTop:'0.6rem',paddingTop:'0.6rem',borderTop:'1px dashed rgba(99,102,241,0.3)'}}>
-                          <div style={{fontSize:'0.68rem',color:'#6366f1',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'4px'}}>Line Manager</div>
-                          <Row label="Manager Name" value={emp.lineManagerName || '—'} />
-                          <Row label="Manager Email" value={emp.lineManagerEmail || '—'} />
+                          <div style={{fontSize:'0.68rem',color:'#6366f1',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'4px'}}>Claims routing</div>
+                          <Row label="Focal email" value={emp.claimAuthority || emp.claim_authority || '—'} />
+                          <Row label="Line Manager name" value={emp.lineManagerName || '—'} />
+                          <Row label="Line Manager email" value={emp.lineManagerEmail || '—'} />
                         </div>
                         {/* ── CONTRACT ASSIGNMENT ── */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.88rem' }}>
@@ -669,9 +670,10 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                         <ERow label="Last Working Day" field="lastWorkingDay" type="date" />
                         <ERow label="Status (Admin Only)" field="active" disabled opts={['Yes','No']} />
                         <div style={{marginTop:'0.6rem',paddingTop:'0.6rem',borderTop:'1px dashed rgba(99,102,241,0.3)'}}>
-                          <div style={{fontSize:'0.68rem',color:'#6366f1',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'4px'}}>Line Manager</div>
-                          <ERow label="Manager Name" field="lineManagerName" />
-                          <ERow label="Manager Email" field="lineManagerEmail" type="email" />
+                          <div style={{fontSize:'0.68rem',color:'#6366f1',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'4px'}}>Claims routing</div>
+                          <ERow label="Focal email" field="claimAuthority" type="email" />
+                          <ERow label="Line Manager name" field="lineManagerName" />
+                          <ERow label="Line Manager email" field="lineManagerEmail" type="email" />
                         </div>
                     </Card>
                     <Card><STitle>Personal</STitle>

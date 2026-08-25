@@ -53,6 +53,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-25)
+- **Employee Information Focal / Line Manager** — view and save the same Focal email and Line Manager name/email Portal Claims uses (`feat/employee-focal-lm`)
 - **Portal Claims routing** — LM only is final; employee invites only Wafi or asil.com.pk; Setup needed emails Sadia (`feat/wafi-claims-routing`)
 - **Rabia 25 Aug Wafi contacts on production** — 303 people updated (phones / email / Focal / LM only; salary and bank untouched). Re-check is clean (0 remaining). Go-red apply.
 - **Portal Claims Control Desk** — action-first dashboard, LM approval without auto-payroll, ASIL bulk push, August one-time LM reopen (`main` PR #113)

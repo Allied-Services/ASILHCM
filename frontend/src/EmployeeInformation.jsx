@@ -42,6 +42,7 @@ const EMPTY_FORM = {
     cnic: '', cnicIssue: '', cnicExpiry: '', placeOfBirth: '', eobiNo: '', religion: 'Islam',
     salary: '', maritalStatus: 'Single',
     primaryContact: '', emergencyContact: '', email: '',
+    claimAuthority: '', lineManagerName: '', lineManagerEmail: '',
     presentAddress: '', permanentAddress: '', dob: '', doj: '', lastWorkingDay: '',
     lastSalary: '',
     spouseName: '', spouseAge: '', spouseCnic: '',
@@ -847,6 +848,10 @@ export default function EmployeeInformation({ user }) {
                                     <FormField form={form} setForm={setForm} label="Last Working Day" field="lastWorkingDay" type="date" opts={{ ph: 'Leave blank if still active' }} />
                                     <FormField form={form} setForm={setForm} label="Contract Start Date" field="contractDate" type="date" />
                                     <FormField form={form} setForm={setForm} label="Active" field="active" opts={{ sel: ['Yes', 'No'] }} />
+                                    <div style={{ gridColumn: '1/-1', borderTop: '1px solid var(--border)', paddingTop: '1rem', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Claims routing</div>
+                                    <FormField form={form} setForm={setForm} label="Focal email (who fills hours)" field="claimAuthority" type="email" opts={{ ph: 'focal@wafi-energy.com — leave blank if none' }} />
+                                    <FormField form={form} setForm={setForm} label="Line Manager name" field="lineManagerName" opts={{ ph: 'Leave blank if none' }} />
+                                    <FormField form={form} setForm={setForm} label="Line Manager email (who approves)" field="lineManagerEmail" type="email" opts={{ ph: 'manager@wafi-energy.com — leave blank if none' }} />
                                 </>}
 
                                 {sec === 'Personal' && <>
