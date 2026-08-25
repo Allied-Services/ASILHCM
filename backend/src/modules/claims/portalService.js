@@ -12,6 +12,7 @@ const {
     toIsoDate,
     parseAmount,
     formatDateDdMonYyyy,
+    formatDateDdMmYyyy,
     isMeaningfulOtRow,
     isMeaningfulMoneyRow,
     MONTH_NAMES,
@@ -59,7 +60,14 @@ const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '1', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '18', 10);
 const APPROVE_CLOSE_DAY = parseInt(process.env.CLAIMS_APPROVE_CLOSE_DAY || '22', 10);
 const { getClaimsPolicy, getDefaultClaimsPolicy } = require('./claimsPolicy');
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://asil-hcm-frontend.onrender.com';
+const PRODUCTION_FRONTEND_URL = 'https://asil-hcm-frontend.onrender.com';
+
+/** Resolve at send time — never emit localhost from a laptop .env on ACTUAL mail. */
+function claimsFrontendUrl() {
+    const raw = String(process.env.FRONTEND_URL || PRODUCTION_FRONTEND_URL).trim().replace(/\/$/, '');
+    if (/localhost|127\.0\.0\.1/i.test(raw)) return PRODUCTION_FRONTEND_URL;
+    return raw || PRODUCTION_FRONTEND_URL;
+}
 /** immediate | daily | day22 — when approvers get email digests */
 const APPROVER_NOTIFY_MODE = String(process.env.CLAIMS_APPROVER_NOTIFY_MODE || 'immediate').toLowerCase();
 const MANUAL_OVERRIDE_NOTIFY = (process.env.CLAIMS_OVERRIDE_NOTIFY_EMAILS
@@ -309,14 +317,14 @@ function validateClaimDateInPeriod(rawDate, period, kind = 'Claim') {
     const errors = [];
     let iso = null;
     if (rawDate == null || String(rawDate).trim() === '') {
-        errors.push(`${kind} date is missing. Please enter the date the work / expense happened (DD-MON-YYYY, e.g. 15-JUN-2026).`);
+        errors.push(`${kind} date is missing. Please enter the date the work happened (DD/MM/YYYY, e.g. 15/07/2026).`);
         return { errors, iso: null };
     }
     iso = toIsoDate(rawDate) || (String(rawDate).match(/^\d{4}-\d{2}-\d{2}/) ? String(rawDate).slice(0, 10) : null);
     if (!iso) {
         errors.push(
             `${kind} date "${rawDate}" could not be read. `
-            + 'Try 15-JUN-2026, 15-06-2026, 15/06/2026, or 15 Jun 2026.'
+            + 'Try DD/MM/YYYY (e.g. 15/07/2026), DD-MM-YYYY, or 15-JUL-2026.'
         );
         return { errors, iso: null };
     }
@@ -549,7 +557,7 @@ async function createCampaign(pool, {
         onlyEmployeeIds,
         campaignMode,
         testPackFour,
-        FRONTEND_URL,
+        FRONTEND_URL: claimsFrontendUrl(),
         FILL_CLOSE_DAY,
         buildFillerInviteHtml,
     });
@@ -711,8 +719,8 @@ async function openFillerSession(pool, token) {
     const review = computeBatchTotals(submissions, items);
     const uniqueApprovers = [...new Set(submissions.map(s => s.approver_email).filter(Boolean))];
     const routingProfile = batch.routing_profile || 'focal_then_lm';
-    const submitDestination = routingProfile === 'focal_only'
-        ? { type: 'final', label: 'You are the final approver' }
+    const submitDestination = (routingProfile === 'focal_only' || routingProfile === 'lm_only')
+        ? { type: 'final', label: routingProfile === 'lm_only' ? 'You are the Line Manager — final approval' : 'You are the final approver' }
         : uniqueApprovers.length === 1
             ? { type: 'lm', label: uniqueApprovers[0] }
             : { type: 'multi', label: `${uniqueApprovers.length} Line Managers` };
@@ -941,20 +949,49 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
     );
     await refreshBatchStatus(pool, batch.id);
 
-    const message = newStatus === 'submitted'
-        ? 'Thank you. Your claim has been submitted to your Line Manager for approval. '
+    let finalStatus = newStatus;
+    if (newStatus === 'submitted' && ['focal_only', 'lm_only'].includes(batch.routing_profile)) {
+        await autoApproveSelfFinal(pool, batch, null);
+        finalStatus = 'approved';
+    }
+
+    const savedLines = normalized.map((item) => ({
+        claim_type: item.claim_type,
+        claim_date: item.claim_date,
+        claim_date_display: formatDateDdMmYyyy(item.claim_date),
+        ot_hours: item.ot_hours,
+        ot_multiplier: item.ot_multiplier,
+        time_from: item.time_from,
+        time_to: item.time_to,
+        amount: item.amount,
+        description: item.description || item.nature || null,
+    }));
+
+    const profile = batch.routing_profile || 'focal_then_lm';
+    let message;
+    if (finalStatus === 'approved' && ['focal_only', 'lm_only'].includes(profile)) {
+        message = savedLines.length
+            ? `Saved and approved (${savedLines.length} line${savedLines.length === 1 ? '' : 's'}). This is final — approved amounts go to payroll with the following month’s salary.`
+            : 'Saved and approved. This is final.';
+    } else if (finalStatus === 'submitted') {
+        message = 'Thank you. Your claim has been submitted to your Line Manager for approval. '
           + 'You will receive an email when they approve or reject it. '
-          + 'Approved amounts are added to payroll and paid with the following month’s salary.'
-        : skipSupportCheck
-            ? 'Excel imported as a draft. Review the rows, then upload required Expense/Medical supports (if any) before Submit to Line Manager.'
+          + 'Approved amounts are added to payroll and paid with the following month’s salary.';
+    } else if (skipSupportCheck) {
+        message = 'Excel imported as a draft. Review the rows, then upload required Expense/Medical supports (if any) before Submit to Line Manager.';
+    } else {
+        message = savedLines.length
+            ? `Draft saved (${savedLines.length} line${savedLines.length === 1 ? '' : 's'}). Your entries are shown below — review, then Submit when ready.`
             : 'Draft saved. When ready, click Submit to Line Manager. If you entered Expense or Medical amounts, upload those support files first.';
+    }
 
     return {
         ok: true,
-        status: newStatus,
+        status: finalStatus,
         itemCount: normalized.length,
+        savedLines,
         message,
-        notifyApprover: newStatus === 'submitted' && APPROVER_NOTIFY_MODE === 'immediate',
+        notifyApprover: finalStatus === 'submitted' && APPROVER_NOTIFY_MODE === 'immediate',
         periodId: batch.period_id,
         approverEmail: sub.approver_email,
     };
@@ -1187,7 +1224,7 @@ async function ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail = 
                      status = 'pending'
                RETURNING *`;
         const { rows: packRows } = await pool.query(upsertSql, [periodId, approverEmail, tokenHash]);
-        const link = `${FRONTEND_URL}/?asil_claims=approve&token=${token}`;
+        const link = `${claimsFrontendUrl()}/?asil_claims=approve&token=${token}`;
         const summary = await buildApproverPendingSummary(pool, periodId, approverEmail);
         const shouldEmail = !!sendAppEmail && (forceEmail || APPROVER_NOTIFY_MODE === 'immediate');
         if (shouldEmail && summary.pendingCount > 0) {
@@ -1875,7 +1912,7 @@ async function reopenAugustRejectedOnce(pool, sendAppEmail, opts = {}) {
     const emailsSent = [];
     for (const [lm, subs] of grouped.entries()) {
         const token = stableApproverToken(period.id, lm);
-        const link = `${FRONTEND_URL}/?asil_claims=approve&token=${token}`;
+        const link = `${claimsFrontendUrl()}/?asil_claims=approve&token=${token}`;
         if (sendAppEmail) {
             const mail = resolveOutboundEmail(period, lm, { roleLabel: 'Approver reopen' });
             await sendAppEmail({
@@ -2350,7 +2387,7 @@ async function sendFillerBatchReminder(pool, batchRow, sendAppEmail, sendJazzSMS
          JOIN employees e ON e.id = s.employee_id WHERE s.batch_id = $1 ORDER BY e.name`,
         [b.id]
     );
-    const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
+    const link = `${claimsFrontendUrl()}/?asil_claims=fill&token=${token}`;
     const period = {
         claim_month: b.claim_month,
         claim_year: b.claim_year,
@@ -2525,7 +2562,7 @@ async function resendFillerInvite(pool, batchId, sendAppEmail) {
          JOIN employees e ON e.id = s.employee_id WHERE s.batch_id = $1 ORDER BY e.name`,
         [batchId]
     );
-    const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
+    const link = `${claimsFrontendUrl()}/?asil_claims=fill&token=${token}`;
     if (sendAppEmail) {
         const period = { claim_month: b.claim_month, claim_year: b.claim_year, campaign_mode: b.campaign_mode };
         const mail = resolveOutboundEmail(period, b.filler_email, { roleLabel: 'Focal resend' });
@@ -2566,7 +2603,9 @@ async function sendSubmitRecordEmail(pool, sendAppEmail, batch, period) {
     );
     const review = computeBatchTotals(subs, items);
     const mail = resolveOutboundEmail(period, batch.filler_email, { roleLabel: 'Focal record' });
-    const dest = batch.routing_profile === 'focal_only' ? 'You are final — no further approval.' : `Submitted to: ${subs[0]?.approver_email || 'Line Manager'}`;
+    const dest = ['focal_only', 'lm_only'].includes(batch.routing_profile)
+        ? 'You are final — no further approval.'
+        : `Submitted to: ${subs[0]?.approver_email || 'Line Manager'}`;
     const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px">
 <div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:24px;border:1px solid #e2e8f0">
 <h2>Claims submission record</h2>
@@ -2582,8 +2621,8 @@ async function sendSubmitRecordEmail(pool, sendAppEmail, batch, period) {
     }).catch(() => {});
 }
 
-async function autoApproveFocalOnly(pool, batch, sendAppEmail) {
-    if (batch.routing_profile !== 'focal_only') return { autoApproved: 0 };
+async function autoApproveSelfFinal(pool, batch, sendAppEmail) {
+    if (!['focal_only', 'lm_only'].includes(batch.routing_profile)) return { autoApproved: 0 };
     const { rows: subs } = await pool.query(
         `SELECT * FROM portal_claim_submissions WHERE batch_id = $1 AND status = 'submitted'`,
         [batch.id]
@@ -2644,7 +2683,7 @@ async function batchSubmitAll(pool, { token, sendAppEmail }) {
     await refreshBatchStatus(pool, batch.id);
     const freshBatch = (await pool.query(`SELECT * FROM portal_claim_batches WHERE id = $1`, [batch.id])).rows[0];
     await sendSubmitRecordEmail(pool, sendAppEmail, freshBatch, period);
-    const auto = await autoApproveFocalOnly(pool, freshBatch, sendAppEmail);
+    const auto = await autoApproveSelfFinal(pool, freshBatch, sendAppEmail);
 
     return { ok: true, submitted: results.filter(r => r.ok).length, results, autoApproved: auto.autoApproved };
 }
@@ -2770,6 +2809,9 @@ module.exports = {
     resolveClaimsCategory,
     resolveClaimsRouting,
     HUZAIFA_FALLBACK,
+    buildFillerInviteHtml,
+    buildApproverInviteHtml,
+    claimsFrontendUrl,
 };
 
 const SAMPLE_TEST_EMPLOYEE_IDS = [

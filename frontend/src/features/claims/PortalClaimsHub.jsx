@@ -1,7 +1,38 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { BookOpen, X } from 'lucide-react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import './PortalClaimsHub.css';
+
+const SADIA_EMAIL = 'sadia.komal@asil.com.pk';
+
+const CLAIM_PROCESS_ROWS = [
+  {
+    situation: 'No Focal, no LM + official @wafi-energy.com or @asil.com.pk email',
+    filler: 'Employee',
+    approver: `Sadia approves (${SADIA_EMAIL})`,
+  },
+  {
+    situation: 'Focal + LM on roster',
+    filler: 'Focal',
+    approver: 'Line Manager (LM)',
+  },
+  {
+    situation: 'No Focal, has LM',
+    filler: 'LM',
+    approver: 'No separate step — LM is final',
+  },
+  {
+    situation: 'Focal only (no LM)',
+    filler: 'Focal',
+    approver: 'No separate step — Focal is final',
+  },
+  {
+    situation: 'No Focal, no LM + personal email (e.g. Gmail)',
+    filler: `Sadia (${SADIA_EMAIL})`,
+    approver: 'No separate step — Sadia fills and it is approved',
+  },
+];
 
 const MONTHS = [
   [1, 'Jan'], [2, 'Feb'], [3, 'Mar'], [4, 'Apr'], [5, 'May'], [6, 'Jun'],
@@ -98,8 +129,18 @@ export default function PortalClaimsHub({ user }) {
   const [ovPreview, setOvPreview] = useState(null);
   const [rulePreview, setRulePreview] = useState(null);
   const [editingRule, setEditingRule] = useState(null);
+  const [showClaimProcess, setShowClaimProcess] = useState(false);
 
   const isSuper = user?.role === 'superadmin';
+
+  useEffect(() => {
+    if (!showClaimProcess) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setShowClaimProcess(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showClaimProcess]);
 
   const setWork = (m, y) => {
     setWorkMonth(m);
@@ -329,11 +370,87 @@ export default function PortalClaimsHub({ user }) {
 
   return (
     <div className="pch">
-      <h2 className="pch-title">Portal Claims</h2>
-      <p className="pch-sub">
-        Work month is when OT / medical / expense happened. Paid on is the Payroll Sheet month.
-        Response lists everyone in the audience — not only people who already submitted.
-      </p>
+      <div className="pch-header">
+        <div className="pch-header-copy">
+          <h2 className="pch-title">Portal Claims</h2>
+          <p className="pch-sub">
+            Work month is when OT / medical / expense happened. Paid on is the Payroll Sheet month.
+            Response lists everyone in the audience — not only people who already submitted.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="pch-process-btn"
+          onClick={() => setShowClaimProcess(true)}
+        >
+          <BookOpen size={16} aria-hidden />
+          See Claim Process
+        </button>
+      </div>
+
+      {showClaimProcess && (
+        <div
+          className="modal-overlay"
+          role="presentation"
+          onClick={(e) => e.target === e.currentTarget && setShowClaimProcess(false)}
+        >
+          <div
+            className="modal-box pch-process-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pch-process-title"
+          >
+            <div className="pch-process-head">
+              <div>
+                <h3 id="pch-process-title">How Portal Claims routing works</h3>
+                <p className="pch-process-lead">
+                  August 2026 Wafi trial — who fills the form and who approves, based on roster data.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="pch-process-x"
+                aria-label="Close"
+                onClick={() => setShowClaimProcess(false)}
+              >
+                <X size={22} />
+              </button>
+            </div>
+            <div className="pch-process-body">
+              <p className="pch-process-note">
+                <strong>Official email</strong> means the employee&apos;s roster email ends with{' '}
+                <code>@wafi-energy.com</code> or <code>@asil.com.pk</code>. Personal Gmail/Yahoo does not count.
+              </p>
+              <div className="pch-table-wrap">
+                <table className="pch-table pch-process-table">
+                  <thead>
+                    <tr>
+                      <th>If the employee has…</th>
+                      <th>Who fills</th>
+                      <th>Who approves</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {CLAIM_PROCESS_ROWS.map((row) => (
+                      <tr key={row.situation}>
+                        <td>{row.situation}</td>
+                        <td>{row.filler}</td>
+                        <td>{row.approver}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="pch-muted pch-process-foot">Last updated August 2026. Ask ops if roster focal/LM emails look wrong.</p>
+            </div>
+            <div className="pch-process-footbar">
+              <button type="button" className="pch-process-close" onClick={() => setShowClaimProcess(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="pch-period">
         <label>

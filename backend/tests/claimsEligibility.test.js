@@ -30,21 +30,75 @@ describe('claimsEligibility routing', () => {
         assert.equal(r.approverEmail, 'focal@wafi.com');
     });
 
-    test('employee + lm when no focal', () => {
+    test('personal email + focal + lm → focal_then_lm (focal fills)', () => {
         const r = resolveClaimsRouting({
-            email: 'emp@wafi.com',
+            email: 'personal@gmail.com',
+            claim_authority: 'focal@wafi.com',
             line_manager_email: 'lm@wafi.com',
         });
-        assert.equal(r.profile, 'employee_then_lm');
-        assert.equal(r.initiator, 'employee');
+        assert.equal(r.profile, 'focal_then_lm');
+        assert.equal(r.fillerEmail, 'focal@wafi.com');
     });
 
-    test('employee + asil when no focal or lm', () => {
+    test('no focal + lm + personal email → lm_only', () => {
         const r = resolveClaimsRouting({
-            email: 'emp@wafi.com',
+            email: 'imamgardezi@gmail.com',
+            line_manager_email: 'sadia.komal@asil.com.pk',
+        });
+        assert.equal(r.profile, 'lm_only');
+        assert.equal(r.fillerEmail, 'sadia.komal@asil.com.pk');
+    });
+
+    test('no focal + lm + official email → lm_only (LM fills final)', () => {
+        const r = resolveClaimsRouting({
+            email: 'emp@wafi-energy.com',
+            line_manager_email: 'lm@wafi.com',
+        });
+        assert.equal(r.profile, 'lm_only');
+        assert.equal(r.fillerEmail, 'lm@wafi.com');
+        assert.equal(r.approverEmail, 'lm@wafi.com');
+        assert.equal(r.initiator, 'lm');
+    });
+
+    test('focal + no lm + official email → focal_only (focal fills final)', () => {
+        const r = resolveClaimsRouting({
+            email: 'emp@wafi-energy.com',
+            claim_authority: 'focal@wafi.com',
+        });
+        assert.equal(r.profile, 'focal_only');
+        assert.equal(r.fillerEmail, 'focal@wafi.com');
+        assert.equal(r.approverEmail, 'focal@wafi.com');
+    });
+
+    test('focal + lm + official email → focal_then_lm (focal fills)', () => {
+        const r = resolveClaimsRouting({
+            email: 'emp@wafi-energy.com',
+            claim_authority: 'focal@wafi.com',
+            line_manager_email: 'lm@wafi.com',
+        });
+        assert.equal(r.profile, 'focal_then_lm');
+        assert.equal(r.fillerEmail, 'focal@wafi.com');
+        assert.equal(r.approverEmail, 'lm@wafi.com');
+        assert.equal(r.initiator, 'focal');
+    });
+
+    test('employee + Sadia when no focal or lm and official email', () => {
+        const r = resolveClaimsRouting({
+            email: 'emp@wafi-energy.com',
         });
         assert.equal(r.profile, 'employee_then_asil');
-        assert.equal(r.approverEmail, 'huzaifa.rafaqat@asil.com.pk');
+        assert.equal(r.approverEmail, 'sadia.komal@asil.com.pk');
+        assert.equal(r.fillerEmail, 'emp@wafi-energy.com');
+    });
+
+    test('no focal, no lm + personal email → Sadia fills final', () => {
+        const r = resolveClaimsRouting({
+            email: 'personal@gmail.com',
+        });
+        assert.equal(r.profile, 'lm_only');
+        assert.equal(r.fillerEmail, 'sadia.komal@asil.com.pk');
+        assert.equal(r.approverEmail, 'sadia.komal@asil.com.pk');
+        assert.equal(r.initiator, 'lm');
     });
 
     test('not eligible category', () => {

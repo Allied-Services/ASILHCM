@@ -1,4 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  computeOtHoursFromRow,
+  formatIsoDateDdMmYyyy,
+  validateOtRowClient,
+} from './claimsTimeParse';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -42,7 +47,17 @@ export default function ClaimsFillPage() {
   const [justSubmitted, setJustSubmitted] = useState(false);
   const [wizardStep, setWizardStep] = useState('ot');
   const [otLineIdx, setOtLineIdx] = useState(0);
+  const [savedLines, setSavedLines] = useState([]);
   const feedbackRef = useRef(null);
+
+  const syncOtHours = (rows) => rows.map((r) => {
+    const hrs = computeOtHoursFromRow(r);
+    return hrs != null && hrs > 0 ? { ...r, ot_hours: String(hrs) } : { ...r, ot_hours: '' };
+  });
+
+  const updateOtRow = (idx, patch) => {
+    setOtRows((rs) => syncOtHours(rs.map((r, j) => (j === idx ? { ...r, ...patch } : r))));
+  };
 
   const load = async () => {
     setError('');
@@ -78,9 +93,18 @@ export default function ClaimsFillPage() {
       claim_type: 'MEDICAL', claim_date: i.claim_date?.slice?.(0, 10) || '',
       amount: i.amount || '', description: i.description || '', patient_name: i.patient_name || '',
     }));
-    setOtRows(ots.length ? ots : [emptyOt()]);
+    setOtRows(ots.length ? syncOtHours(ots) : [emptyOt()]);
     setExpRows(exps);
     setMedRows(meds);
+    setSavedLines(ots.concat(exps).concat(meds).map((r) => ({
+      claim_type: r.claim_type,
+      claim_date_display: formatIsoDateDdMmYyyy(r.claim_date),
+      ot_hours: r.ot_hours,
+      time_from: r.time_from,
+      time_to: r.time_to,
+      amount: r.amount,
+      description: r.nature || r.description,
+    })));
     setWizardStep('ot');
     setOtLineIdx(0);
   }, [selected, data]);
@@ -93,7 +117,18 @@ export default function ClaimsFillPage() {
   const save = async (confirmNoClaims = false, asDraft = false) => {
     setBusy(true); setMsg(''); setError(''); setJustSubmitted(false);
     try {
-      const items = confirmNoClaims ? [] : [...otRows, ...expRows, ...medRows].filter(r => {
+      const claimMonth = data?.period?.claim_month;
+      const claimYear = data?.period?.claim_year;
+      const otPrepared = syncOtHours(otRows);
+      if (!confirmNoClaims && otPrepared.some((r) => String(r.claim_date || r.time_from || r.time_to || r.nature || '').trim())) {
+        const clientErrors = [];
+        otPrepared.forEach((r, i) => {
+          if (!String(r.claim_date || r.time_from || r.time_to || r.nature || '').trim()) return;
+          validateOtRowClient(r, claimMonth, claimYear).forEach((e) => clientErrors.push(`OT line ${i + 1}: ${e}`));
+        });
+        if (clientErrors.length) throw new Error(clientErrors.join('\n'));
+      }
+      const items = confirmNoClaims ? [] : [...otPrepared, ...expRows, ...medRows].filter(r => {
         if (r.claim_type === 'OT') {
           const hours = parseFloat(r.ot_hours);
           return !!(String(r.claim_date || '').trim()
@@ -115,9 +150,11 @@ export default function ClaimsFillPage() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || (Array.isArray(d.errors) ? d.errors.join('\n') : 'Save failed'));
-      const submitted = !asDraft && !confirmNoClaims && (d.status === 'submitted' || /submitted to your Line Manager/i.test(d.message || ''));
+      const submitted = !asDraft && !confirmNoClaims && ['submitted', 'approved'].includes(d.status);
       setJustSubmitted(submitted);
       setMsg(d.message || (confirmNoClaims ? 'No Claims confirmed.' : asDraft ? 'Draft saved.' : 'Submitted.'));
+      if (Array.isArray(d.savedLines) && d.savedLines.length) setSavedLines(d.savedLines);
+      setOtRows(otPrepared);
       await load();
       scrollToFeedback(feedbackRef);
     } catch (e) {
@@ -253,6 +290,21 @@ export default function ClaimsFillPage() {
         </Alert>
       )}
 
+      {savedLines.length > 0 && (
+        <div style={{ ...card, marginBottom: 16, background: '#f0fdf4', border: '1px solid #86efac' }}>
+          <div style={{ fontWeight: 700, color: '#14532d', marginBottom: 8 }}>Saved entries (this employee)</div>
+          <ul style={{ margin: 0, paddingLeft: 18, color: '#166534', fontSize: 14, lineHeight: 1.6 }}>
+            {savedLines.map((line, i) => (
+              <li key={i}>
+                {line.claim_type === 'OT'
+                  ? `OT · ${line.claim_date_display || '—'} · ${line.time_from || '—'} → ${line.time_to || '—'} · ${line.ot_hours || '?'}h`
+                  : `${line.claim_type} · ${line.claim_date_display || '—'} · PKR ${line.amount || '—'}${line.description ? ` · ${line.description}` : ''}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div style={{ ...card, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Option A — Excel (recommended)</div>
         <p style={{ margin: '0 0 10px', color: '#475569', fontSize: 13, lineHeight: 1.5 }}>
@@ -327,11 +379,11 @@ export default function ClaimsFillPage() {
                   const i = otLineIdx;
                   return (
                   <Row key={i}>
-                    <Field label="Date"><input type="date" disabled={locked || fillClosed} value={row.claim_date} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, claim_date: e.target.value } : r))} style={inp} /></Field>
-                    <Field label="OT Start Time"><input disabled={locked || fillClosed} placeholder="e.g. 05:00 PM" value={row.time_from || ''} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, time_from: e.target.value } : r))} style={inp} /></Field>
-                    <Field label="OT End Time"><input disabled={locked || fillClosed} placeholder="e.g. 08:00 PM" value={row.time_to || ''} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, time_to: e.target.value } : r))} style={inp} /></Field>
+                    <Field label="Date (DD/MM/YYYY)"><input type="date" disabled={locked || fillClosed} value={row.claim_date} onChange={e => updateOtRow(i, { claim_date: e.target.value })} style={inp} /></Field>
+                    <Field label="OT Start Time"><input disabled={locked || fillClosed} placeholder="5:00 PM, 5PM, or 1700" value={row.time_from || ''} onChange={e => updateOtRow(i, { time_from: e.target.value })} style={inp} /></Field>
+                    <Field label="OT End Time"><input disabled={locked || fillClosed} placeholder="7:00 PM, 7PM, or 1900" value={row.time_to || ''} onChange={e => updateOtRow(i, { time_to: e.target.value })} style={inp} /></Field>
                     <Field label="OT Hours (auto)"><input disabled placeholder="from Start→End" value={row.ot_hours} readOnly style={{ ...inp, background: '#f8fafc' }} /></Field>
-                    <Field label="Nature of work"><input disabled={locked || fillClosed} value={row.nature} onChange={e => setOtRows(rs => rs.map((r, j) => j === i ? { ...r, nature: e.target.value } : r))} style={inp} /></Field>
+                    <Field label="Nature of work"><input disabled={locked || fillClosed} value={row.nature} onChange={e => updateOtRow(i, { nature: e.target.value })} style={inp} /></Field>
                   </Row>
                   );
                 })()}

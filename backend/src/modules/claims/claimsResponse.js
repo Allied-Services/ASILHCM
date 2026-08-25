@@ -87,17 +87,24 @@ function normalizeRouting(profile) {
 }
 
 function isEmployeeFiller(profile) {
-    return normalizeRouting(profile).startsWith('employee');
+    const p = normalizeRouting(profile);
+    return p === 'employee_then_lm' || p === 'employee_then_focal' || p === 'employee_then_asil';
+}
+
+function isLmFiller(profile) {
+    return normalizeRouting(profile) === 'lm_only';
 }
 
 function decidedByRole(profile) {
     const p = normalizeRouting(profile);
     if (p === 'focal_only') return 'Focal';
+    if (p === 'lm_only') return 'LM';
     if (p === 'employee_then_asil') return 'ASIL';
     return 'LM';
 }
 
 function fillerWaitStatus(profile) {
+    if (isLmFiller(profile)) return 'waiting_focal';
     return isEmployeeFiller(profile) ? 'waiting_employee' : 'waiting_focal';
 }
 
@@ -116,11 +123,12 @@ function mailerResult(batch) {
     return { mailer: 'not_sent', sent_at: null };
 }
 
-function nowLabel({ status, mailedTo, lm, decidedBy, decidedEmail }) {
+function nowLabel({ status, mailedTo, lm, decidedBy, decidedEmail, routingProfile }) {
     const to = mailedTo || '—';
     const approver = lm || decidedEmail || '—';
     if (status === 'not_invited') return 'Not invited';
     if (status === 'invite_sent') return `Invite sent · waiting ${to} to start`;
+    if (status === 'waiting_focal' && routingProfile === 'lm_only') return `Waiting LM to fill (${to})`;
     if (status === 'waiting_focal') return `Waiting Focal to fill (${to})`;
     if (status === 'waiting_employee') return `Waiting Employee to fill (${to})`;
     if (status === 'waiting_lm') return `Waiting LM to approve (${approver})`;
@@ -468,7 +476,7 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             decided_by: ['on_sheet', 'other_data', 'ready_import', 'rejected'].includes(status) ? decidedBy : null,
             decided_email: ['on_sheet', 'other_data', 'ready_import', 'rejected'].includes(status) ? decidedEmail : null,
             now_label: nowLabel({
-                status, mailedTo, lm, decidedBy, decidedEmail,
+                status, mailedTo, lm, decidedBy, decidedEmail, routingProfile,
             }),
             portal: {
                 ot1: portal.ot1,

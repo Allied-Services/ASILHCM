@@ -1,6 +1,7 @@
 'use strict';
 
 const HUZAIFA_FALLBACK = 'huzaifa.rafaqat@asil.com.pk';
+const SADIA_FALLBACK = 'sadia.komal@asil.com.pk';
 
 function isNamedEmail(v) {
     if (v == null) return false;
@@ -82,14 +83,33 @@ function resolveEmployeeFillerEmail(emp) {
     return isNamedEmail(email) ? email : null;
 }
 
+const OFFICIAL_EMAIL_DOMAINS = ['wafi-energy.com', 'asil.com.pk'];
+
+/** Corporate roster email — not personal Gmail/Yahoo used when no official address. */
+function isOfficialEmployeeEmail(emp) {
+    const email = String(emp?.email || '').trim().toLowerCase();
+    if (!isNamedEmail(email)) return false;
+    const domain = email.split('@')[1] || '';
+    return OFFICIAL_EMAIL_DOMAINS.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
+
 /**
+ * Routing rules (owner Aug 2026):
+ * - Focal + LM → Focal fills, LM approves.
+ * - Focal only (no LM) → Focal fills and approves (final).
+ * - No focal + LM → LM fills and approves (final).
+ * - No focal + no LM + official @wafi-energy.com / @asil.com.pk → Employee fills, Sadia approves.
+ * - No focal + no LM + personal email → Sadia fills and approves (final).
+ *
  * @returns {{ profile: string, category: string, fillerEmail: string|null, approverEmail: string|null, initiator: string }}
  */
 function resolveClaimsRouting(emp) {
     const focal = resolveFocalEmail(emp);
     const lm = resolveLmEmail(emp);
     const empEmail = resolveEmployeeFillerEmail(emp);
+    const official = isOfficialEmployeeEmail(emp);
 
+    // Focal + LM (different people) — focal always fills.
     if (focal && lm && focal !== lm) {
         return {
             profile: 'focal_then_lm',
@@ -99,6 +119,8 @@ function resolveClaimsRouting(emp) {
             initiator: 'focal',
         };
     }
+
+    // Focal without separate LM (or focal is LM) — focal fills and final.
     if (focal && (!lm || focal === lm)) {
         return {
             profile: 'focal_only',
@@ -108,21 +130,36 @@ function resolveClaimsRouting(emp) {
             initiator: 'focal',
         };
     }
+
+    // No focal, has LM — LM fills and final.
     if (!focal && lm) {
         return {
-            profile: 'employee_then_lm',
-            category: 'Employee + LM',
-            fillerEmail: empEmail,
+            profile: 'lm_only',
+            category: 'LM only',
+            fillerEmail: lm,
             approverEmail: lm,
+            initiator: 'lm',
+        };
+    }
+
+    // No focal, no LM + official roster email — employee fills, Sadia approves.
+    if (official && empEmail) {
+        return {
+            profile: 'employee_then_asil',
+            category: 'Employee + ASIL',
+            fillerEmail: empEmail,
+            approverEmail: SADIA_FALLBACK,
             initiator: 'employee',
         };
     }
+
+    // No focal, no LM + personal email — Sadia fills and approves (final).
     return {
-        profile: 'employee_then_asil',
-        category: 'Employee + ASIL',
-        fillerEmail: empEmail,
-        approverEmail: HUZAIFA_FALLBACK,
-        initiator: 'employee',
+        profile: 'lm_only',
+        category: 'ASIL only',
+        fillerEmail: SADIA_FALLBACK,
+        approverEmail: SADIA_FALLBACK,
+        initiator: 'lm',
     };
 }
 
@@ -139,9 +176,19 @@ function resolveClaimsCategory(emp, eligibility = { eligible: true }) {
             ...routing,
         };
     }
+    const fillerLabel = routing.initiator === 'lm'
+        ? `LM: ${routing.fillerEmail}`
+        : routing.initiator === 'focal'
+            ? `Focal: ${routing.fillerEmail}`
+            : `Employee: ${routing.fillerEmail}`;
     const tooltip = [
-        routing.initiator === 'focal' ? `Focal: ${routing.fillerEmail}` : `Employee: ${routing.fillerEmail}`,
-        routing.approverEmail ? `Approver: ${routing.approverEmail}` : '',
+        fillerLabel,
+        routing.approverEmail && routing.approverEmail !== routing.fillerEmail
+            ? `Approver: ${routing.approverEmail}` : '',
+        routing.approverEmail === routing.fillerEmail && routing.initiator === 'lm'
+            ? 'LM fills and approves (final)' : '',
+        routing.approverEmail === routing.fillerEmail && routing.initiator === 'focal'
+            ? 'Focal fills and approves (final)' : '',
     ].filter(Boolean).join(' · ');
     return { ...routing, tooltip };
 }
@@ -260,6 +307,7 @@ async function countEligibleEmployees(pool) {
 
 module.exports = {
     HUZAIFA_FALLBACK,
+    SADIA_FALLBACK,
     isNamedEmail,
     loadEligibilityRules,
     evaluateEmployeeEligibility,
@@ -267,6 +315,7 @@ module.exports = {
     resolveClaimsCategory,
     resolveFocalEmail,
     resolveLmEmail,
+    isOfficialEmployeeEmail,
     listRules,
     upsertRule,
     previewRuleMatch,
