@@ -684,6 +684,8 @@ export const api = {
     portalClaimsChase: (data) => apiFetch('/api/portal-claims/admin/chase', { method: 'POST', body: JSON.stringify(data) }),
     portalClaimsResyncSubmissionEmails: (data) => apiFetch('/api/portal-claims/admin/resync-submission-emails', { method: 'POST', body: JSON.stringify(data || {}) }),
     portalClaimsImportIfEmpty: (data) => apiFetch('/api/portal-claims/admin/import-if-empty', { method: 'POST', body: JSON.stringify(data) }),
+    portalClaimsPushPayroll: (data) => apiFetch('/api/portal-claims/admin/push-payroll', { method: 'POST', body: JSON.stringify(data) }),
+    portalClaimsReopenAugustRejected: (data) => apiFetch('/api/portal-claims/admin/reopen-august-rejected', { method: 'POST', body: JSON.stringify(data || {}) }),
     portalClaimsTieout: (month, year) => apiFetch(`/api/portal-claims/admin/tieout?month=${month}&year=${year}`),
     portalClaimsResend: (batchId) => apiFetch(`/api/portal-claims/admin/resend/${batchId}`, { method: 'POST' }),
     portalClaimsManualOverride: (data) => apiFetch('/api/portal-claims/manual-override', { method: 'POST', body: JSON.stringify(data) }),

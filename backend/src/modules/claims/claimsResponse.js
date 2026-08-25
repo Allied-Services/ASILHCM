@@ -7,6 +7,12 @@ const {
     formatClaimSummary,
     computeLastActivity,
     resolveReminderMeta,
+    controlStatusFromRow,
+    controlLabel,
+    actionViewFromControl,
+    emptyControlCounts,
+    emptyActionCounts,
+    canSelectForPayrollPush,
 } = require('./claimsDesk');
 
 const EPS_HRS = 0.009;
@@ -267,7 +273,9 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
         const { rows: subRows } = await pool.query(
             `SELECT s.id, s.employee_id, s.status, s.filler_email, s.approver_email,
                     s.routing_profile, s.channel, s.batch_id, s.period_id,
-                    s.submitted_at, s.approved_at, p.campaign_mode
+                    s.submitted_at, s.approved_at, s.rejected_at,
+                    s.lm_reopen_count, s.lm_reopen_at, s.payroll_pushed_at, s.payroll_pushed_by,
+                    p.campaign_mode
              FROM portal_claim_submissions s
              JOIN portal_claim_periods p ON p.id = s.period_id
              WHERE s.period_id = ANY($1::int[]) AND s.employee_id = ANY($2::text[])`,
@@ -345,6 +353,8 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
 
     const counts = emptyCounts();
     const desk_counts = emptyDeskCounts();
+    const control_counts = emptyControlCounts();
+    const action_counts = emptyActionCounts();
     const people = audience.map((e) => {
         const sub = pickSubmission(subsByEmp.get(e.id) || []);
         let batch = sub && sub.batch_id ? batchById.get(sub.batch_id) : null;
@@ -380,10 +390,30 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
         const desk_status = deskStatusFromInternal(status);
         const desk_label = deskLabel(desk_status);
         desk_counts[desk_status] = (desk_counts[desk_status] || 0) + 1;
+        const control_status = controlStatusFromRow({
+            internalStatus: status,
+            submissionStatus: sub && sub.status,
+            sample,
+            sheetHasValues: sheetHasValues(sheetRow),
+            amountsMatch: amountsMatch(portal, sheetRow),
+            portalHasValues: portalHasValues(portal),
+            lmReopenCount: sub && sub.lm_reopen_count,
+            payrollPushedAt: sub && sub.payroll_pushed_at,
+        });
+        const control_label = controlLabel(control_status);
+        control_counts[control_status] = (control_counts[control_status] || 0) + 1;
+        const action_view = actionViewFromControl(control_status);
+        action_counts[action_view] = (action_counts[action_view] || 0) + 1;
         const claim_summary = formatClaimSummary(portal);
         const activity = computeLastActivity({
             batch: batch ? { invite_opened_at: batch.invite_opened_at } : null,
-            sub: sub ? { submitted_at: sub.submitted_at, approved_at: sub.approved_at } : null,
+            sub: sub ? {
+                submitted_at: sub.submitted_at,
+                approved_at: sub.approved_at,
+                rejected_at: sub.rejected_at,
+                payroll_pushed_at: sub.payroll_pushed_at,
+                lm_reopen_at: sub.lm_reopen_at,
+            } : null,
         });
         const reminderMeta = resolveReminderMeta(
             { status, mailed_to: mailedTo, lm, approver_email: lm, focal_email: mailedTo },
@@ -420,6 +450,13 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             status,
             desk_status,
             desk_label,
+            control_status,
+            control_label,
+            action_view,
+            can_push_payroll: canSelectForPayrollPush(control_status),
+            lm_reopen_count: sub ? num(sub.lm_reopen_count) : 0,
+            payroll_pushed_at: sub ? sub.payroll_pushed_at : null,
+            payroll_pushed_by: sub ? sub.payroll_pushed_by : null,
             claim_summary,
             last_activity_at: activity.last_activity_at,
             last_activity_label: activity.last_activity_label,
@@ -470,6 +507,8 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             : 'No portal-claims send is logged for this work / pay month pair',
         counts,
         desk_counts,
+        control_counts,
+        action_counts,
         people,
     };
 }

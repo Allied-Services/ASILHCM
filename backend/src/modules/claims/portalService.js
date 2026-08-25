@@ -43,6 +43,7 @@ const {
     portalAmountsFromItems,
     listResponseBoard,
     writePortalAmountsToSheet,
+    sheetHasValues,
 } = require('./claimsResponse');
 const { planChase, planSmartReminder } = require('./claimsChase');
 const {
@@ -1312,7 +1313,18 @@ async function openApproverSession(pool, token) {
     for (const s of submissions) {
         const k = s.filler_email || 'unknown';
         if (!byFiller[k]) byFiller[k] = [];
-        byFiller[k].push(s);
+        byFiller[k].push({
+            ...s,
+            is_final_review: Number(s.lm_reopen_count || 0) >= 1 && s.status === 'submitted',
+        });
+    }
+    for (const k of Object.keys(byFiller)) {
+        byFiller[k].sort((a, b) => {
+            if (a.is_final_review !== b.is_final_review) return a.is_final_review ? -1 : 1;
+            if (a.status === 'submitted' && b.status !== 'submitted') return -1;
+            if (b.status === 'submitted' && a.status !== 'submitted') return 1;
+            return String(a.employee_name || '').localeCompare(String(b.employee_name || ''));
+        });
     }
 
     const summaryTotals = computeBatchTotals(
@@ -1357,6 +1369,7 @@ async function openApproverSession(pool, token) {
         completion: {
             total: submissions.length,
             pending: submissions.filter(s => s.status === 'submitted').length,
+            final_review: submissions.filter(s => s.status === 'submitted' && Number(s.lm_reopen_count || 0) >= 1).length,
             approved: submissions.filter(s => ['approved', 'in_payroll'].includes(s.status)).length,
             rejected: submissions.filter(s => s.status === 'rejected').length,
         },
@@ -1380,14 +1393,15 @@ async function approverDecide(pool, { token, submissionId, decision, comment, se
     if (sub.status !== 'submitted') return { ok: false, status: 409, error: `Cannot decide from status ${sub.status}` };
 
     if (decision === 'rejected') {
+        const finalReject = Number(sub.lm_reopen_count || 0) >= 1;
         await pool.query(
             `UPDATE portal_claim_submissions
              SET status = 'rejected', rejected_at = NOW(), approver_comment = $2, updated_at = NOW()
              WHERE id = $1`,
             [submissionId, comment || null]
         );
-        await notifyFillerDecision(pool, sendAppEmail, sub, 'rejected', comment);
-        return { ok: true, decision: 'rejected' };
+        await notifyFillerDecision(pool, sendAppEmail, sub, 'rejected', comment, { finalReject });
+        return { ok: true, decision: 'rejected', final: finalReject };
     }
 
     const { rows: items } = await pool.query(
@@ -1404,44 +1418,41 @@ async function approverDecide(pool, { token, submissionId, decision, comment, se
         [submissionId, comment || null, JSON.stringify(snapshot)]
     );
 
-    // Inject into employee_claims for payroll run spine
-    const inject = await injectApprovedToEmployeeClaims(pool, sub, items, pack);
-    if (inject.wrotePayroll) {
-        await pool.query(
-            `UPDATE portal_claim_submissions SET status = 'in_payroll', updated_at = NOW() WHERE id = $1`,
-            [submissionId]
-        );
-    }
-
     await notifyFillerDecision(pool, sendAppEmail, sub, 'approved', comment);
     return {
         ok: true,
         decision: 'approved',
-        wrotePayroll: !!inject.wrotePayroll,
-        payrollBlocked: inject.blocked || null,
+        wrotePayroll: false,
+        payrollBlocked: null,
+        message: 'Approved — ASIL finance will push to payroll after review.',
     };
 }
 
-async function notifyFillerDecision(pool, sendAppEmail, sub, decision, comment) {
+async function notifyFillerDecision(pool, sendAppEmail, sub, decision, comment, opts = {}) {
     if (!sendAppEmail || !sub.filler_email) return;
     const { rows: pr } = await pool.query(`SELECT campaign_mode FROM portal_claim_periods WHERE id = $1`, [sub.period_id]);
     if (String(pr[0]?.campaign_mode || '').toLowerCase() === 'sample') return;
     const { rows: emp } = await pool.query(`SELECT name FROM employees WHERE id = $1`, [sub.employee_id]);
     const name = emp[0]?.name || sub.employee_id;
     const approved = decision === 'approved';
+    const finalReject = !!opts.finalReject;
     await sendAppEmail({
         to: sub.filler_email,
         subject: approved
             ? `ASIL Claims approved — ${name}`
-            : `ASIL Claims rejected — ${name}`,
+            : finalReject
+                ? `ASIL Claims rejected (final) — ${name}`
+                : `ASIL Claims rejected — ${name}`,
         html: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;background:#f8fafc;color:#0f172a">
 <div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:24px;border:1px solid #e2e8f0">
-  <h2 style="margin:0 0 8px;color:#0f172a">${approved ? 'Claim approved' : 'Claim rejected'}</h2>
+  <h2 style="margin:0 0 8px;color:#0f172a">${approved ? 'Claim approved' : finalReject ? 'Claim rejected (final)' : 'Claim rejected'}</h2>
   <p style="color:#334155">Employee <strong>${name}</strong> (${sub.employee_id}) was <strong>${decision}</strong> by the Line Manager.</p>
   ${comment ? `<p style="color:#475569">Remark: ${String(comment).replace(/</g, '&lt;')}</p>` : ''}
   <p style="color:#475569">${approved
-    ? 'Approved amounts will be included in the following month’s payroll settlement.'
-    : 'You may correct and re-raise next month (or contact ASIL finance if still within the fill window).'}</p>
+    ? 'Your Line Manager approved this claim. ASIL finance will add approved amounts to payroll after their review — you do not need to resubmit.'
+    : finalReject
+        ? 'This was the final Line Manager review after ASIL reopened the claim. No claim will be released for this employee this month.'
+        : 'You may correct and re-raise next month (or contact ASIL finance if still within the fill window).'}</p>
   <p style="font-size:12px;color:#94a3b8;margin-top:16px">ASIL HCM</p>
 </div></body></html>`,
     }).catch(() => {});
@@ -1567,6 +1578,340 @@ async function importIfSheetEmpty(pool, { employeeId, workMonth, workYear }) {
         );
     }
     return { ok: true, wrotePayroll: !!payWrite.wrotePayroll, portal, month, year };
+}
+
+const { formatClaimSummary } = require('./claimsDesk');
+
+function buildAugustReopenEmailHtml({ period, subs, itemsBySub, link, approverEmail }) {
+    const rows = (subs || []).map((sub) => {
+        const items = itemsBySub.get(sub.id) || [];
+        const portal = portalAmountsFromItems(items);
+        const summary = formatClaimSummary(portal);
+        return `<tr>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0">${sub.employee_name || sub.employee_id}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0">${summary}</td>
+        </tr>`;
+    }).join('');
+    return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:24px 12px">
+<tr><td align="center">
+<table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden">
+  <tr><td style="background:#7c2d12;color:#fff;padding:22px 28px">
+    <div style="font-size:13px;opacity:.9;letter-spacing:.04em;text-transform:uppercase">ASIL HCM · Final review</div>
+    <div style="font-size:22px;font-weight:700;margin-top:4px">Claims reopened for one final approval</div>
+  </td></tr>
+  <tr><td style="padding:28px">
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#334155">
+      You previously rejected the claims below for claim month <strong>${period.claim_month}/${period.claim_year}</strong>.
+      As requested, ASIL has reopened them for <strong>one final review</strong>.
+    </p>
+    <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px">
+      Please approve or reject by <strong>27 August 2026</strong>. If you reject again, this will be treated as final and <strong>no claim will be released</strong> for that employee this month.
+    </p>
+    <table width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 18px;font-size:14px">
+      <thead><tr>
+        <th align="left" style="padding:8px 10px;border-bottom:2px solid #cbd5e1">Employee</th>
+        <th align="left" style="padding:8px 10px;border-bottom:2px solid #cbd5e1">Claim summary</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p style="margin:22px 0 18px">
+      <a href="${link}" style="display:inline-block;background:#15803d;color:#fff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">Open approval pack</a>
+    </p>
+    <p style="margin:0;font-size:12px;color:#64748b;word-break:break-all">${link}</p>
+    <p style="margin:18px 0 0;font-size:13px;color:#475569">
+      Questions? Email <a href="mailto:ops-support@asil.com.pk" style="color:#1d4ed8">ops-support@asil.com.pk</a>.
+    </p>
+    <p style="margin:12px 0 0;font-size:12px;color:#94a3b8">Sent to ${approverEmail} · ASIL HCM</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+}
+
+async function pushSelectedToPayroll(pool, opts, actorEmail) {
+    const employeeIds = Array.isArray(opts.employeeIds)
+        ? opts.employeeIds.map((x) => String(x)).filter(Boolean)
+        : [];
+    const workMonth = parseInt(opts.workMonth, 10);
+    const workYear = parseInt(opts.workYear, 10);
+    const dryRun = !!opts.dryRun;
+    if (!employeeIds.length) return { ok: false, status: 400, error: 'employeeIds required' };
+    if (!workMonth || !workYear) return { ok: false, status: 400, error: 'workMonth and workYear required' };
+
+    const results = [];
+    for (const employeeId of employeeIds) {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            const { rows: subs } = await client.query(
+                `SELECT s.*, p.campaign_mode, p.claim_month, p.claim_year, p.settlement_month, p.settlement_year
+                 FROM portal_claim_submissions s
+                 JOIN portal_claim_periods p ON p.id = s.period_id
+                 WHERE s.employee_id = $1 AND p.claim_month = $2 AND p.claim_year = $3
+                   AND COALESCE(p.campaign_mode, 'actual') <> 'sample'
+                 ORDER BY s.id DESC
+                 LIMIT 1`,
+                [employeeId, workMonth, workYear]
+            );
+            const sub = subs[0];
+            if (!sub) {
+                await client.query('ROLLBACK');
+                results.push({ employee_id: employeeId, outcome: 'not_found', ok: false });
+                continue;
+            }
+            if (sub.status === 'in_payroll' || sub.payroll_pushed_at) {
+                await client.query('ROLLBACK');
+                results.push({ employee_id: employeeId, outcome: 'already_sent', ok: true, submission_id: sub.id });
+                continue;
+            }
+            if (sub.status !== 'approved') {
+                await client.query('ROLLBACK');
+                results.push({
+                    employee_id: employeeId,
+                    outcome: 'not_ready',
+                    ok: false,
+                    status: sub.status,
+                    submission_id: sub.id,
+                });
+                continue;
+            }
+            const { rows: items } = await client.query(
+                `SELECT * FROM portal_claim_items WHERE submission_id = $1 AND active = TRUE`,
+                [sub.id]
+            );
+            const portal = portalAmountsFromItems(items);
+            const { rows: empRows } = await client.query(`SELECT contract_id FROM employees WHERE id = $1`, [sub.employee_id]);
+            const policy = await getClaimsPolicy(client, empRows[0]?.contract_id);
+            const month = policy.claims_pay_timing === 'same_month' ? sub.claim_month : sub.settlement_month;
+            const year = policy.claims_pay_timing === 'same_month' ? sub.claim_year : sub.settlement_year;
+            const { rows: sheetRows } = await client.query(
+                `SELECT ot2_hrs, ot3_hrs, opd_claim, reimbursement, locked
+                 FROM payroll_transactions WHERE employee_id = $1 AND month = $2 AND year = $3`,
+                [sub.employee_id, month, year]
+            );
+            const sheetRow = sheetRows[0] || {};
+            if (sheetRow.locked) {
+                await client.query('ROLLBACK');
+                results.push({
+                    employee_id: employeeId,
+                    outcome: 'payroll_locked',
+                    ok: false,
+                    submission_id: sub.id,
+                });
+                continue;
+            }
+            if (sheetHasValues(sheetRow)) {
+                await client.query('ROLLBACK');
+                results.push({
+                    employee_id: employeeId,
+                    outcome: 'needs_review',
+                    ok: false,
+                    code: 'SHEET_HAS_OTHER_DATA',
+                    submission_id: sub.id,
+                    portal,
+                });
+                continue;
+            }
+            if (dryRun) {
+                await client.query('ROLLBACK');
+                results.push({
+                    employee_id: employeeId,
+                    outcome: 'ready',
+                    ok: true,
+                    submission_id: sub.id,
+                    portal,
+                    month,
+                    year,
+                });
+                continue;
+            }
+            const pack = { period_id: sub.period_id, approver_email: sub.approver_email };
+            const inject = await injectApprovedToEmployeeClaims(client, sub, items, pack);
+            if (inject.blocked === 'SHEET_HAS_OTHER_DATA') {
+                await client.query('ROLLBACK');
+                results.push({
+                    employee_id: employeeId,
+                    outcome: 'needs_review',
+                    ok: false,
+                    code: 'SHEET_HAS_OTHER_DATA',
+                    submission_id: sub.id,
+                });
+                continue;
+            }
+            if (inject.blocked === 'PAYROLL_LOCKED') {
+                await client.query('ROLLBACK');
+                results.push({
+                    employee_id: employeeId,
+                    outcome: 'payroll_locked',
+                    ok: false,
+                    submission_id: sub.id,
+                });
+                continue;
+            }
+            await client.query(
+                `UPDATE portal_claim_submissions
+                 SET status = 'in_payroll', payroll_pushed_at = NOW(), payroll_pushed_by = $2, updated_at = NOW()
+                 WHERE id = $1`,
+                [sub.id, actorEmail || 'asil']
+            );
+            await client.query('COMMIT');
+            results.push({
+                employee_id: employeeId,
+                outcome: inject.wrotePayroll ? 'sent' : 'nothing_to_write',
+                ok: true,
+                submission_id: sub.id,
+                wrotePayroll: !!inject.wrotePayroll,
+                month,
+                year,
+            });
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => {});
+            results.push({ employee_id: employeeId, outcome: 'error', ok: false, error: 'push_failed' });
+            console.error('[portalClaims.pushSelectedToPayroll]', employeeId, err);
+        } finally {
+            client.release();
+        }
+    }
+
+    const summary = {
+        requested: employeeIds.length,
+        sent: results.filter((r) => r.outcome === 'sent').length,
+        already_sent: results.filter((r) => r.outcome === 'already_sent').length,
+        needs_review: results.filter((r) => r.outcome === 'needs_review').length,
+        not_ready: results.filter((r) => r.outcome === 'not_ready').length,
+        ready: results.filter((r) => r.outcome === 'ready').length,
+        errors: results.filter((r) => r.outcome === 'error').length,
+    };
+    return { ok: true, dryRun, results, summary };
+}
+
+async function reopenAugustRejectedOnce(pool, sendAppEmail, opts = {}) {
+    const workMonth = parseInt(opts.workMonth || 7, 10);
+    const workYear = parseInt(opts.workYear || 2026, 10);
+    const dryRun = !!opts.dryRun;
+    const force = !!opts.force;
+
+    const { rows: periods } = await pool.query(
+        `SELECT * FROM portal_claim_periods
+         WHERE claim_month = $1 AND claim_year = $2
+           AND COALESCE(campaign_mode, 'actual') <> 'sample'`,
+        [workMonth, workYear]
+    );
+    const period = periods[0];
+    if (!period) return { ok: false, status: 404, error: 'No ACTUAL portal-claims period for this work month' };
+
+    if (period.august_reopen_ran_at && !force) {
+        return {
+            ok: true,
+            skipped: true,
+            reason: 'already_ran',
+            ran_at: period.august_reopen_ran_at,
+            period_id: period.id,
+        };
+    }
+
+    const { rows: rejected } = await pool.query(
+        `SELECT s.*, e.name AS employee_name
+         FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE s.period_id = $1 AND s.status = 'rejected'
+           AND COALESCE(s.lm_reopen_count, 0) = 0
+         ORDER BY e.name`,
+        [period.id]
+    );
+
+    if (!rejected.length) {
+        return { ok: true, reopened: 0, emailsSent: [], period_id: period.id, message: 'No LM-rejected claims to reopen' };
+    }
+
+    const subIds = rejected.map((s) => s.id);
+    const { rows: itemRows } = subIds.length
+        ? await pool.query(
+            `SELECT submission_id, claim_type, ot_hours, ot_multiplier_factor, amount
+             FROM portal_claim_items WHERE submission_id = ANY($1::int[]) AND active = TRUE`,
+            [subIds]
+        )
+        : { rows: [] };
+    const itemsBySub = new Map();
+    for (const i of itemRows) {
+        if (!itemsBySub.has(i.submission_id)) itemsBySub.set(i.submission_id, []);
+        itemsBySub.get(i.submission_id).push(i);
+    }
+
+    if (dryRun) {
+        const byLm = {};
+        for (const sub of rejected) {
+            const lm = String(sub.approver_email || '').trim().toLowerCase();
+            if (!lm) continue;
+            byLm[lm] = (byLm[lm] || 0) + 1;
+        }
+        return {
+            ok: true,
+            dryRun: true,
+            wouldReopen: rejected.length,
+            approverEmails: Object.keys(byLm),
+            byLm,
+            period_id: period.id,
+        };
+    }
+
+    await pool.query(
+        `UPDATE portal_claim_submissions
+         SET status = 'submitted', rejected_at = NULL, lm_reopen_count = 1,
+             lm_reopen_at = NOW(), updated_at = NOW()
+         WHERE id = ANY($1::int[])`,
+        [subIds]
+    );
+
+    const grouped = new Map();
+    for (const sub of rejected) {
+        const lm = String(sub.approver_email || '').trim().toLowerCase();
+        if (!lm) continue;
+        if (!grouped.has(lm)) grouped.set(lm, []);
+        grouped.get(lm).push(sub);
+    }
+
+    const emailsSent = [];
+    for (const [lm, subs] of grouped.entries()) {
+        const token = stableApproverToken(period.id, lm);
+        const link = `${FRONTEND_URL}/?asil_claims=approve&token=${token}`;
+        if (sendAppEmail) {
+            const mail = resolveOutboundEmail(period, lm, { roleLabel: 'Approver reopen' });
+            await sendAppEmail({
+                to: mail.to,
+                subject: `${sampleSubjectPrefix(period, 'Final review')}You rejected these claims — one final review by 27 August`,
+                html: wrapClaimsHtmlFooter(sampleBodyBanner(period, lm, 'Approver final review') + buildAugustReopenEmailHtml({
+                    period,
+                    subs,
+                    itemsBySub,
+                    link,
+                    approverEmail: lm,
+                })),
+            }).catch((err) => {
+                console.error('[portalClaims.reopenAugustRejectedOnce]', lm, err);
+            });
+        }
+        await pool.query(
+            `UPDATE portal_claim_submissions SET lm_reopen_email_at = NOW()
+             WHERE id = ANY($1::int[])`,
+            [subs.map((s) => s.id)]
+        );
+        await ensureApproverPacks(pool, period.id, null, { forceEmail: false }).catch(() => {});
+        emailsSent.push({ approver_email: lm, count: subs.length, link });
+    }
+
+    await pool.query(
+        `UPDATE portal_claim_periods SET august_reopen_ran_at = NOW() WHERE id = $1`,
+        [period.id]
+    );
+
+    return {
+        ok: true,
+        reopened: rejected.length,
+        emailsSent,
+        period_id: period.id,
+    };
 }
 
 async function getResponseBoard(pool, query) {
@@ -2253,11 +2598,6 @@ async function autoApproveFocalOnly(pool, batch, sendAppEmail) {
             `UPDATE portal_claim_submissions SET status = 'approved', approved_at = NOW(), approved_snapshot = $2::jsonb, updated_at = NOW() WHERE id = $1`,
             [sub.id, JSON.stringify(snapshot)]
         );
-        const pack = { period_id: sub.period_id, approver_email: sub.approver_email };
-        const inject = await injectApprovedToEmployeeClaims(pool, sub, items, pack);
-        if (inject.wrotePayroll) {
-            await pool.query(`UPDATE portal_claim_submissions SET status = 'in_payroll', updated_at = NOW() WHERE id = $1`, [sub.id]);
-        }
         count++;
     }
     return { autoApproved: count };
@@ -2396,6 +2736,8 @@ module.exports = {
     getResponseBoard,
     chaseDeskAction,
     importIfSheetEmpty,
+    pushSelectedToPayroll,
+    reopenAugustRejectedOnce,
     writePortalAmountsToSheet,
     exportClaimsPayrollTieout,
     applyManualOverride,

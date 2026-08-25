@@ -50,12 +50,12 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## IN PROGRESS
-- Portal Claims fill-status ops desk + daily chase (Jul/Aug Wafi ACTUAL through 27 Aug) — PR `feat/portal-claims-fill-desk` awaiting merge
+- **Portal Claims Control Desk** — action-first dashboard, LM approval without auto-payroll, ASIL bulk push, August one-time LM reopen (`feat/portal-claims-control-desk`)
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-25)
-- **Portal Claims August chase base** — Response board truth, ACTUAL-only chase, 27 Aug trial window, daily reminder cron (`main` via PR #110)
-- **FV PSO July payroll headcount** — compute was only paying 4 people on `CTR-PSO-NORTH-ZONE` while attendance had 182 overrides on legacy contract_ids. Fixed on `main` (`e0af43e`); live run #117 = **185 HC**, Model A wages verified, net **8,090,438**.
+- **Portal Claims fill-status ops desk** — desk status, smart reminders, daily email+SMS cron, ops-support on all claims mail (`main` PR #112)
+- **Portal Claims August chase base** — Response board truth, ACTUAL-only chase, 27 Aug trial window (`main` PR #110)
 
 ---
 
