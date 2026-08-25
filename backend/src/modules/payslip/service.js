@@ -6,13 +6,11 @@ const { buildProtectedPayslipPdf } = require('./pdfProtect');
 const { mintAccessToken } = require('./tokenStore');
 const { renderEmailCoverHtml, OPS_SUPPORT } = require('./template');
 const { firstValidPkMobile } = require('../../../lib/sms');
-
-function isUsableEmail(raw) {
-    const email = String(raw || '').trim();
-    if (!email || !email.includes('@')) return '';
-    if (/^(n\/?a|none|null|nil|-)$/i.test(email)) return '';
-    return email;
-}
+const {
+    isUsableEmail,
+    resolvePayslipRecipients,
+    hasPayslipEmailChannel,
+} = require('../employees/contactEmails');
 
 function isSentStatus(status) {
     return String(status || '').startsWith('sent');
@@ -144,7 +142,7 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
     const paidSet = await getPaidEmployeeIds(pool, yr, mo);
 
     let empQ = `
-        SELECT e.id, e.name, e.email, e.primary_contact AS phone, e.cnic,
+        SELECT e.id, e.name, e.email, e.claim_authority, e.primary_contact AS phone, e.cnic,
                pt.locked
         FROM payroll_transactions pt
         JOIN employees e ON e.id = pt.employee_id
@@ -162,11 +160,11 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
     );
     const batch = batchRows[0] || null;
 
-    const withEmail = employees.filter(e => isUsableEmail(e.email)).length;
+    const withEmail = employees.filter(e => hasPayslipEmailChannel(e)).length;
     const withPhone = employees.filter(e => firstValidPkMobile(e.phone)).length;
     const withCnic = employees.filter(e => normalizeCnic(e.cnic).length >= 5).length;
     const missingCnic = employees.filter(e => normalizeCnic(e.cnic).length < 5);
-    const missingEmail = employees.filter(e => !isUsableEmail(e.email));
+    const missingEmail = employees.filter(e => !hasPayslipEmailChannel(e));
     const missingPhone = employees.filter(e => !firstValidPkMobile(e.phone));
 
     // Scoped send: only the selected employees must be locked.
@@ -185,7 +183,8 @@ async function getPayslipReadiness(pool, year, month, employeeIds = []) {
             paid: paidSet.has(e.id),
             emailStatus: prior?.email_status || 'none',
             smsStatus: prior?.sms_status || 'none',
-            hasEmail: !!isUsableEmail(e.email),
+            hasEmail: hasPayslipEmailChannel(e),
+            payslipRecipients: resolvePayslipRecipients(e),
             hasPhone: !!firstValidPkMobile(e.phone),
             hasCnic: normalizeCnic(e.cnic).length >= 5,
         };
@@ -371,7 +370,7 @@ async function sendPayslips(pool, deps, opts) {
     const batchId = batchRows[0].id;
 
     let empQ = `
-        SELECT e.id, e.name, e.email, e.primary_contact, e.cnic, e.designation,
+        SELECT e.id, e.name, e.email, e.claim_authority, e.primary_contact, e.cnic, e.designation,
                e.client, e.location, e.bank_name, e.bank_account, e.contract_name, e.salary,
                pt.paid_days, pt.gross, pt.net, pt.ot2_hrs, pt.ot3_hrs, pt.opd_claim, pt.reimbursement,
                pt.arrears, pt.special_allowance, pt.fuel_mobile, pt.bonus_amount, pt.wht, pt.eobi_ee,
@@ -412,15 +411,18 @@ async function sendPayslips(pool, deps, opts) {
     const deliveryMap = await getMonthDeliveryMap(pool, yr, mo);
     const planned = targets.map((row) => {
         const prior = deliveryMap.get(row.id);
-        const destEmail = destEmailOverride || isUsableEmail(row.email);
+        const destEmails = destEmailOverride
+            ? [destEmailOverride]
+            : resolvePayslipRecipients(row);
+        const destEmail = destEmails[0] || '';
         const destPhone = destPhoneOverride || firstValidPkMobile(row.primary_contact);
         const wantEmail = (!onlyMissing || onlyMissing === 'email')
             && (forceResend || !isSentStatus(prior?.email_status))
-            && !!destEmail;
+            && destEmails.length > 0;
         const wantSms = (!onlyMissing || onlyMissing === 'sms')
             && (forceResend || !isSentStatus(prior?.sms_status))
             && !!destPhone;
-        return { row, wantEmail, wantSms, destEmail, destPhone };
+        return { row, wantEmail, wantSms, destEmail, destEmails, destPhone };
     }).filter((p) => p.wantEmail || p.wantSms);
     targets = planned.map((p) => p.row);
     const planById = new Map(planned.map((p) => [p.row.id, p]));
@@ -445,10 +447,13 @@ async function sendPayslips(pool, deps, opts) {
             let emailDetail = plan.wantEmail ? null : (onlyMissing === 'sms' ? 'channel_not_requested' : 'already sent');
             let smsDetail = plan.wantSms ? null : (onlyMissing === 'email' ? 'channel_not_requested' : 'already sent');
             let tokenId = null;
-            const destEmail = plan.destEmail || '';
+            const destEmails = (plan.destEmails && plan.destEmails.length)
+                ? plan.destEmails
+                : (plan.destEmail ? [plan.destEmail] : []);
+            const destEmail = destEmails.join(', ');
             const destPhone = plan.destPhone || '';
 
-            if (plan.wantEmail && destEmail && sendAppEmail) {
+            if (plan.wantEmail && destEmails.length && sendAppEmail) {
                 try {
                     const slipData = buildWorldAPayslipData(emp, pay, eosbType);
                     const cover = renderEmailCoverHtml({
@@ -461,7 +466,7 @@ async function sendPayslips(pool, deps, opts) {
                     const safeName = (emp.name || 'Employee').replace(/[^a-zA-Z0-9 ]/g, '_').trim();
                     const pdfBuf = Buffer.isBuffer(doc.pdf_bytes) ? doc.pdf_bytes : Buffer.from(doc.pdf_bytes);
                     const mailResult = await sendAppEmail({
-                        to: destEmail,
+                        to: destEmails,
                         subject: `TRIAL — Salary Slip — ${monthName} ${yr} | ASIL`,
                         html: cover,
                         attachments: [{
@@ -484,8 +489,8 @@ async function sendPayslips(pool, deps, opts) {
                     emailStatus = 'failed';
                     emailDetail = 'email_failed';
                 }
-            } else if (plan.wantEmail && !destEmail) {
-                emailDetail = 'no valid email on file';
+            } else if (plan.wantEmail && !destEmails.length) {
+                emailDetail = 'no valid employee or focal email on file';
             }
 
             if (plan.wantSms && destPhone && sendJazzSMS) {
@@ -667,5 +672,7 @@ module.exports = {
     payslipPdfLink,
     buildSmsMessage,
     isUsableEmail,
+    resolvePayslipRecipients,
+    hasPayslipEmailChannel,
     OPS_SUPPORT,
 };
