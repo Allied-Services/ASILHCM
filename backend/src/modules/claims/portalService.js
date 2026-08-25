@@ -909,10 +909,13 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
             };
         }
         if (needsMedical && !strictMedical) {
+            const misfiledExpenseOnly = needsMedical && !needsExpense && strictExpense;
             return {
                 ok: false,
                 status: 400,
-                error: 'Medical claims require a Medical supports file (prescriptions/bills) before Submit. Upload it under Supports, then Submit again. Without supports, medical refunds will not be processed.',
+                error: misfiledExpenseOnly
+                    ? 'Medical claims require a Medical supports file before Submit. Your uploads are tagged as Expense supports — use the Medical Reimbursement supports upload on the Supports step (re-upload if needed), then Submit again.'
+                    : 'Medical claims require a Medical supports file (prescriptions/bills) before Submit. Upload it under Supports, then Submit again. Without supports, medical refunds will not be processed.',
             };
         }
     }
@@ -1010,6 +1013,20 @@ async function refreshBatchStatus(pool, batchId) {
     await pool.query(`UPDATE portal_claim_batches SET status = $2 WHERE id = $1`, [batchId, status]);
 }
 
+function resolveSupportCategory(requestedCategory, claimTypes) {
+    const types = new Set((claimTypes || []).map((t) => String(t || '').toUpperCase()));
+    const hasExpense = types.has('EXPENSE');
+    const hasMedical = types.has('MEDICAL');
+    const cat = ['expense_support', 'medical_support', 'excel_workbook', 'other'].includes(requestedCategory)
+        ? requestedCategory
+        : 'other';
+    if (cat !== 'expense_support' && cat !== 'medical_support') return cat;
+    // Single-type submissions: mis-clicks on the wrong upload field are common — store under the needed bucket.
+    if (cat === 'expense_support' && hasMedical && !hasExpense) return 'medical_support';
+    if (cat === 'medical_support' && hasExpense && !hasMedical) return 'expense_support';
+    return cat;
+}
+
 async function addAttachment(pool, { token, employeeId, filename, mimeType, contentBase64, category = 'other' }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
@@ -1031,9 +1048,11 @@ async function addAttachment(pool, { token, employeeId, filename, mimeType, cont
     retainUntil.setFullYear(retainUntil.getFullYear() + 2);
 
     await pool.query(`ALTER TABLE portal_claim_attachments ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'other'`).catch(() => {});
-    const cat = ['expense_support', 'medical_support', 'excel_workbook', 'other'].includes(category)
-        ? category
-        : 'other';
+    const { rows: typeRows } = await pool.query(
+        `SELECT DISTINCT claim_type FROM portal_claim_items WHERE submission_id = $1 AND active = TRUE`,
+        [sub.id]
+    );
+    const cat = resolveSupportCategory(category, typeRows.map((r) => r.claim_type));
 
     const { rows } = await pool.query(
         `INSERT INTO portal_claim_attachments
@@ -1042,7 +1061,7 @@ async function addAttachment(pool, { token, employeeId, filename, mimeType, cont
          RETURNING id, filename, mime_type, byte_size, retain_until, uploaded_at, category`,
         [sub.id, filename, mimeType || 'application/octet-stream', contentBase64, buf.length, retainUntil.toISOString().slice(0, 10), cat]
     );
-    return { ok: true, attachment: rows[0] };
+    return { ok: true, attachment: rows[0], category: cat };
 }
 
 async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
@@ -2764,6 +2783,7 @@ module.exports = {
     openFillerSession,
     saveSubmissionItems,
     addAttachment,
+    resolveSupportCategory,
     importExcelWorkbook,
     getMasterClaimsTemplatePath,
     buildPersonalizedTemplateForToken,

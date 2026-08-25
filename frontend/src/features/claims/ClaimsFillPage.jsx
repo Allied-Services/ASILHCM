@@ -10,6 +10,8 @@ import {
   countMeaningfulRows,
   prepareItemsForSave,
   buildClaimSummary,
+  supportCategoryLabel,
+  attachmentsForSupportType,
   isMeaningfulOtRow,
 } from './claimsFillHelpers.js';
 
@@ -56,8 +58,49 @@ export default function ClaimsFillPage() {
   const [wizardStep, setWizardStep] = useState('ot');
   const feedbackRef = useRef(null);
   const prevSelectedRef = useRef(null);
+  const rowsDirtyRef = useRef(false);
+  const suppressDirtyRef = useRef(false);
+
+  const hydrateRowsFromServer = (session, employeeId) => {
+    if (!session || !employeeId) return;
+    const subRow = session.submissions?.find((s) => s.employee_id === employeeId);
+    const items = (session.items || []).filter((i) => subRow && i.submission_id === subRow.id);
+    const ots = items.filter((i) => i.claim_type === 'OT').map((i) => ({
+      claim_type: 'OT',
+      claim_date: i.claim_date?.slice?.(0, 10) || i.claim_date || '',
+      ot_hours: i.ot_hours || '',
+      ot_multiplier: i.ot_multiplier || 'Double',
+      nature: i.nature || '',
+      time_from: i.time_from || '',
+      time_to: i.time_to || '',
+    }));
+    const exps = items.filter((i) => i.claim_type === 'EXPENSE').map((i) => ({
+      claim_type: 'EXPENSE',
+      claim_date: i.claim_date?.slice?.(0, 10) || i.claim_date || '',
+      amount: i.amount || '',
+      description: i.description || '',
+      expense_type: i.expense_type || '',
+    }));
+    const meds = items.filter((i) => i.claim_type === 'MEDICAL').map((i) => ({
+      claim_type: 'MEDICAL',
+      claim_date: i.claim_date?.slice?.(0, 10) || i.claim_date || '',
+      amount: i.amount || '',
+      description: i.description || '',
+      patient_name: i.patient_name || '',
+    }));
+    suppressDirtyRef.current = true;
+    setOtRows(ots.length ? syncOtHours(ots) : [emptyOt()]);
+    setExpRows(exps);
+    setMedRows(meds);
+    queueMicrotask(() => { suppressDirtyRef.current = false; });
+  };
+
+  const markRowsDirty = () => {
+    if (!suppressDirtyRef.current) rowsDirtyRef.current = true;
+  };
 
   const updateOtRow = (idx, patch) => {
+    markRowsDirty();
     setOtRows((rs) => syncOtHours(rs.map((r, j) => (j === idx ? { ...r, ...patch } : r))));
   };
 
@@ -78,41 +121,25 @@ export default function ClaimsFillPage() {
 
   useEffect(() => {
     if (!data || !selected) return;
-    const items = (data.items || []).filter((i) => {
-      const sub = data.submissions.find((s) => s.employee_id === selected);
-      return sub && i.submission_id === sub.id;
-    });
-    const ots = items.filter((i) => i.claim_type === 'OT').map((i) => ({
-      claim_type: 'OT',
-      claim_date: i.claim_date?.slice?.(0, 10) || i.claim_date || '',
-      ot_hours: i.ot_hours || '',
-      ot_multiplier: i.ot_multiplier || 'Double',
-      nature: i.nature || '',
-      time_from: i.time_from || '',
-      time_to: i.time_to || '',
-    }));
-    const exps = items.filter((i) => i.claim_type === 'EXPENSE').map((i) => ({
-      claim_type: 'EXPENSE',
-      claim_date: i.claim_date?.slice?.(0, 10) || '',
-      amount: i.amount || '',
-      description: i.description || '',
-      expense_type: i.expense_type || '',
-    }));
-    const meds = items.filter((i) => i.claim_type === 'MEDICAL').map((i) => ({
-      claim_type: 'MEDICAL',
-      claim_date: i.claim_date?.slice?.(0, 10) || '',
-      amount: i.amount || '',
-      description: i.description || '',
-      patient_name: i.patient_name || '',
-    }));
-    setOtRows(ots.length ? syncOtHours(ots) : [emptyOt()]);
-    setExpRows(exps);
-    setMedRows(meds);
-    if (prevSelectedRef.current !== selected) {
+    const employeeChanged = prevSelectedRef.current !== selected;
+    if (employeeChanged || !rowsDirtyRef.current) {
+      hydrateRowsFromServer(data, selected);
+    }
+    if (employeeChanged) {
       setWizardStep('ot');
       prevSelectedRef.current = selected;
+      rowsDirtyRef.current = false;
     }
   }, [selected, data]);
+
+  const patchAttachment = (attachment, submissionId) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const att = { ...attachment, submission_id: submissionId };
+      const rest = (prev.attachments || []).filter((a) => a.id !== att.id);
+      return { ...prev, attachments: [...rest, att] };
+    });
+  };
 
   const sub = data?.submissions?.find((s) => s.employee_id === selected);
   const locked = sub && ['approved', 'in_payroll'].includes(sub.status);
@@ -151,16 +178,26 @@ export default function ClaimsFillPage() {
       const submitted = !asDraft && !confirmNoClaims && ['submitted', 'approved'].includes(d.status);
       setJustSubmitted(submitted);
       setMsg(d.message || (confirmNoClaims ? 'No Claims confirmed.' : asDraft ? 'Draft saved.' : 'Submitted.'));
-      setOtRows(otPrepared);
+      rowsDirtyRef.current = false;
       if (submitted) setWizardStep('review');
       await load();
       scrollToFeedback(feedbackRef);
+      return true;
     } catch (e) {
       setError(e.message);
       scrollToFeedback(feedbackRef);
+      return false;
     } finally {
       setBusy(false);
     }
+  };
+
+  const goToReview = async () => {
+    if (canEdit && summary.totals.lineCount > 0) {
+      const ok = await save(false, true);
+      if (!ok) return;
+    }
+    setWizardStep('review');
   };
 
   const uploadSupport = async (file, category) => {
@@ -183,8 +220,9 @@ export default function ClaimsFillPage() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Upload failed');
-      setMsg(`Uploaded ${file.name} (${category === 'expense_support' ? 'Expense supports' : 'Medical supports'})`);
-      await load();
+      const savedAs = d.category || d.attachment?.category || category;
+      setMsg(`Uploaded ${file.name} (${supportCategoryLabel(savedAs)})`);
+      if (d.attachment && sub?.id) patchAttachment(d.attachment, sub.id);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -217,6 +255,7 @@ export default function ClaimsFillPage() {
       const rr = await fetch(`${API}/api/portal-claims/fill/${token}`);
       const d2 = await rr.json();
       if (d2?.submissions) {
+        rowsDirtyRef.current = false;
         setData(d2);
         const firstOk = (d.results || []).find((x) => x.ok)?.employeeId
           || d2.submissions.find((s) => s.status === 'draft')?.employee_id
@@ -234,6 +273,7 @@ export default function ClaimsFillPage() {
 
   const clearAllOt = () => {
     if (!window.confirm('Remove all overtime lines for this employee? You can add them again later.')) return;
+    markRowsDirty();
     setOtRows([]);
   };
 
@@ -360,7 +400,7 @@ export default function ClaimsFillPage() {
                         role="tab"
                         aria-selected={wizardStep === s}
                         className={`claims-step-pill${wizardStep === s ? ' is-current' : ''}${done ? ' is-done' : ''}`}
-                        onClick={() => setWizardStep(s)}
+                        onClick={() => (s === 'review' ? goToReview() : setWizardStep(s))}
                       >
                         {i + 1}. {STEP_LABELS[s]}
                         {count > 0 && s !== 'review' ? ` (${count})` : ''}
@@ -387,7 +427,7 @@ export default function ClaimsFillPage() {
                             <button
                               type="button"
                               className="claims-link-btn"
-                              onClick={() => setOtRows((rs) => rs.filter((_, j) => j !== i))}
+                              onClick={() => { markRowsDirty(); setOtRows((rs) => rs.filter((_, j) => j !== i)); }}
                             >
                               Remove
                             </button>
@@ -414,7 +454,7 @@ export default function ClaimsFillPage() {
                     ))}
                     {canEdit && (
                       <div className="claims-actions">
-                        <button type="button" onClick={() => setOtRows((r) => [...r, emptyOt()])} className="claims-btn-ghost">+ Add another OT line</button>
+                        <button type="button" onClick={() => { markRowsDirty(); setOtRows((r) => [...r, emptyOt()]); }} className="claims-btn-ghost">+ Add another OT line</button>
                         {otRows.length > 0 && (
                           <button type="button" onClick={clearAllOt} className="claims-btn-ghost">Clear all OT lines</button>
                         )}
@@ -432,19 +472,19 @@ export default function ClaimsFillPage() {
                         <div className="claims-row-head">
                           <strong>Expense line {i + 1}</strong>
                           {canEdit && (
-                            <button type="button" className="claims-link-btn" onClick={() => setExpRows((rs) => rs.filter((_, j) => j !== i))}>Remove</button>
+                            <button type="button" className="claims-link-btn" onClick={() => { markRowsDirty(); setExpRows((rs) => rs.filter((_, j) => j !== i)); }}>Remove</button>
                           )}
                         </div>
                         <Row>
-                          <Field label="Date"><input type="date" disabled={!canEdit} value={row.claim_date} onChange={(e) => setExpRows((rs) => rs.map((r, j) => (j === i ? { ...r, claim_date: e.target.value } : r)))} className="claims-inp" /></Field>
-                          <Field label="Amount (PKR)"><input disabled={!canEdit} value={row.amount} onChange={(e) => setExpRows((rs) => rs.map((r, j) => (j === i ? { ...r, amount: e.target.value } : r)))} className="claims-inp" /></Field>
-                          <Field label="Description"><input disabled={!canEdit} value={row.description} onChange={(e) => setExpRows((rs) => rs.map((r, j) => (j === i ? { ...r, description: e.target.value } : r)))} className="claims-inp" /></Field>
+                          <Field label="Date"><input type="date" disabled={!canEdit} value={row.claim_date} onChange={(e) => { markRowsDirty(); setExpRows((rs) => rs.map((r, j) => (j === i ? { ...r, claim_date: e.target.value } : r))); }} className="claims-inp" /></Field>
+                          <Field label="Amount (PKR)"><input disabled={!canEdit} value={row.amount} onChange={(e) => { markRowsDirty(); setExpRows((rs) => rs.map((r, j) => (j === i ? { ...r, amount: e.target.value } : r))); }} className="claims-inp" /></Field>
+                          <Field label="Description"><input disabled={!canEdit} value={row.description} onChange={(e) => { markRowsDirty(); setExpRows((rs) => rs.map((r, j) => (j === i ? { ...r, description: e.target.value } : r))); }} className="claims-inp" /></Field>
                         </Row>
                       </div>
                     ))}
                     {canEdit && (
                       <div className="claims-actions">
-                        <button type="button" onClick={() => setExpRows((r) => [...r, emptyExp()])} className="claims-btn-ghost">+ Add expense line</button>
+                        <button type="button" onClick={() => { markRowsDirty(); setExpRows((r) => [...r, emptyExp()]); }} className="claims-btn-ghost">+ Add expense line</button>
                       </div>
                     )}
                     <StepNavButtons step="expense" setStep={setWizardStep} canEdit={canEdit} />
@@ -459,20 +499,20 @@ export default function ClaimsFillPage() {
                         <div className="claims-row-head">
                           <strong>Medical line {i + 1}</strong>
                           {canEdit && (
-                            <button type="button" className="claims-link-btn" onClick={() => setMedRows((rs) => rs.filter((_, j) => j !== i))}>Remove</button>
+                            <button type="button" className="claims-link-btn" onClick={() => { markRowsDirty(); setMedRows((rs) => rs.filter((_, j) => j !== i)); }}>Remove</button>
                           )}
                         </div>
                         <Row>
-                          <Field label="Date"><input type="date" disabled={!canEdit} value={row.claim_date} onChange={(e) => setMedRows((rs) => rs.map((r, j) => (j === i ? { ...r, claim_date: e.target.value } : r)))} className="claims-inp" /></Field>
-                          <Field label="Amount (PKR)"><input disabled={!canEdit} value={row.amount} onChange={(e) => setMedRows((rs) => rs.map((r, j) => (j === i ? { ...r, amount: e.target.value } : r)))} className="claims-inp" /></Field>
-                          <Field label="Patient"><input disabled={!canEdit} value={row.patient_name} onChange={(e) => setMedRows((rs) => rs.map((r, j) => (j === i ? { ...r, patient_name: e.target.value } : r)))} className="claims-inp" /></Field>
-                          <Field label="Description"><input disabled={!canEdit} value={row.description} onChange={(e) => setMedRows((rs) => rs.map((r, j) => (j === i ? { ...r, description: e.target.value } : r)))} className="claims-inp" /></Field>
+                          <Field label="Date"><input type="date" disabled={!canEdit} value={row.claim_date} onChange={(e) => { markRowsDirty(); setMedRows((rs) => rs.map((r, j) => (j === i ? { ...r, claim_date: e.target.value } : r))); }} className="claims-inp" /></Field>
+                          <Field label="Amount (PKR)"><input disabled={!canEdit} value={row.amount} onChange={(e) => { markRowsDirty(); setMedRows((rs) => rs.map((r, j) => (j === i ? { ...r, amount: e.target.value } : r))); }} className="claims-inp" /></Field>
+                          <Field label="Patient"><input disabled={!canEdit} value={row.patient_name} onChange={(e) => { markRowsDirty(); setMedRows((rs) => rs.map((r, j) => (j === i ? { ...r, patient_name: e.target.value } : r))); }} className="claims-inp" /></Field>
+                          <Field label="Description"><input disabled={!canEdit} value={row.description} onChange={(e) => { markRowsDirty(); setMedRows((rs) => rs.map((r, j) => (j === i ? { ...r, description: e.target.value } : r))); }} className="claims-inp" /></Field>
                         </Row>
                       </div>
                     ))}
                     {canEdit && (
                       <div className="claims-actions">
-                        <button type="button" onClick={() => setMedRows((r) => [...r, emptyMed()])} className="claims-btn-ghost">+ Add medical line</button>
+                        <button type="button" onClick={() => { markRowsDirty(); setMedRows((r) => [...r, emptyMed()]); }} className="claims-btn-ghost">+ Add medical line</button>
                       </div>
                     )}
                     <StepNavButtons step="medical" setStep={setWizardStep} canEdit={canEdit} />
@@ -480,35 +520,42 @@ export default function ClaimsFillPage() {
                 )}
 
                 {wizardStep === 'supports' && (
-                  <Section title="Step 4 — Supports — two separate uploads">
+                  <Section title="Step 4 — Supports — upload matching receipts">
                     <Hint>
-                      If you entered Expense and/or Medical amounts, upload the matching support files before final submit.
-                      Without supports, those refunds will not be processed.
+                      Upload support files only for claim types you entered above.
+                      {summary.hasExpense && summary.hasMedical
+                        ? ' Expense and Medical need two separate uploads.'
+                        : summary.hasMedical
+                          ? ' You entered Medical claims — use the Medical supports upload below.'
+                          : summary.hasExpense
+                            ? ' You entered Expense claims — use the Expense supports upload below.'
+                            : ' No Expense or Medical amounts entered — supports are not required.'}
                     </Hint>
                     {canEdit && (
                       <div className="claims-upload-grid">
-                        <label className="claims-upload-label">
-                          Expense Reimbursement supports
-                          {summary.hasExpense && !summary.hasExpenseSupport ? <span className="claims-required"> (required)</span> : null}
-                          <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" className="claims-file-input"
-                            onChange={(e) => { uploadSupport(e.target.files?.[0], 'expense_support'); e.target.value = ''; }} />
-                        </label>
-                        <label className="claims-upload-label">
-                          Medical Reimbursement supports
-                          {summary.hasMedical && !summary.hasMedicalSupport ? <span className="claims-required"> (required)</span> : null}
-                          <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" className="claims-file-input"
-                            onChange={(e) => { uploadSupport(e.target.files?.[0], 'medical_support'); e.target.value = ''; }} />
-                        </label>
+                        {summary.hasExpense && (
+                          <label className="claims-upload-label">
+                            Expense Reimbursement supports
+                            {!summary.hasExpenseSupport ? <span className="claims-required"> (required)</span> : null}
+                            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" className="claims-file-input"
+                              onChange={(e) => { uploadSupport(e.target.files?.[0], 'expense_support'); e.target.value = ''; }} />
+                          </label>
+                        )}
+                        {summary.hasMedical && (
+                          <label className="claims-upload-label">
+                            Medical Reimbursement supports
+                            {!summary.hasMedicalSupport ? <span className="claims-required"> (required)</span> : null}
+                            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" className="claims-file-input"
+                              onChange={(e) => { uploadSupport(e.target.files?.[0], 'medical_support'); e.target.value = ''; }} />
+                          </label>
+                        )}
+                        {!summary.hasExpense && !summary.hasMedical && (
+                          <p className="claims-muted">No support uploads needed — continue to Review or add Expense/Medical lines first.</p>
+                        )}
                       </div>
                     )}
-                    {summary.attachments.length > 0 && (
-                      <ul className="claims-attach-list">
-                        {summary.attachments.map((a) => (
-                          <li key={a.id}>{a.filename} <span className="claims-muted">({a.category})</span></li>
-                        ))}
-                      </ul>
-                    )}
-                    <StepNavButtons step="supports" setStep={setWizardStep} canEdit={canEdit} nextLabel="Continue to Review" />
+                    <SupportFilesList summary={summary} />
+                    <StepNavButtons step="supports" setStep={setWizardStep} onGoReview={goToReview} canEdit={canEdit} nextLabel="Continue to Review" />
                   </Section>
                 )}
 
@@ -551,7 +598,7 @@ export default function ClaimsFillPage() {
                         Confirm &amp; Submit
                       </button>
                     ) : (
-                      <button type="button" disabled={busy} onClick={() => setWizardStep('review')} className="claims-btn-ghost">
+                      <button type="button" disabled={busy} onClick={() => goToReview()} className="claims-btn-ghost">
                         Go to Review
                       </button>
                     )}
@@ -613,37 +660,58 @@ function ClaimSummaryPanel({ summary, claimLabel, onEditStep, detailed = false, 
         </div>
       ))}
       {detailed && (
-        <div className="claims-summary-group">
-          <div className="claims-summary-group-head">
-            <strong>Support files</strong>
-            <span className="claims-muted">{summary.attachments.length} uploaded</span>
-          </div>
-          {summary.attachments.length === 0 ? (
-            <p className="claims-muted claims-summary-empty">No support files uploaded</p>
-          ) : (
-            <ul className="claims-summary-list">
-              {summary.attachments.map((a) => (
-                <li key={a.id}>{a.filename} <span className="claims-muted">({a.category})</span></li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <SupportFilesList summary={summary} compact />
       )}
     </div>
   );
 }
 
-function StepNavButtons({ step, setStep, canEdit, nextLabel }) {
+function SupportFilesList({ summary, compact = false }) {
+  const expenseAtts = attachmentsForSupportType(summary.attachments, 'expense');
+  const medicalAtts = attachmentsForSupportType(summary.attachments, 'medical');
+  const workbookAtts = attachmentsForSupportType(summary.attachments, 'workbook');
+  const hasAny = expenseAtts.length || medicalAtts.length || workbookAtts.length;
+  if (!hasAny) {
+    return compact ? null : <p className="claims-muted claims-summary-empty">No support files uploaded yet</p>;
+  }
+  const renderGroup = (title, files) => files.length ? (
+    <div className={compact ? 'claims-summary-group' : 'claims-support-group'}>
+      <div className="claims-summary-group-head">
+        <strong>{title}</strong>
+        <span className="claims-muted">{files.length} file(s)</span>
+      </div>
+      <ul className={compact ? 'claims-summary-list' : 'claims-attach-list'}>
+        {files.map((a) => (
+          <li key={a.id}>{a.filename}</li>
+        ))}
+      </ul>
+    </div>
+  ) : null;
+
+  return (
+    <div className="claims-support-groups">
+      {renderGroup('Expense supports', expenseAtts)}
+      {renderGroup('Medical supports', medicalAtts)}
+      {renderGroup('Excel workbook', workbookAtts)}
+    </div>
+  );
+}
+
+function StepNavButtons({ step, setStep, onGoReview, canEdit, nextLabel }) {
   if (!canEdit) return null;
   const isFirst = stepIndex(step) === 0;
   const isLast = step === 'supports';
+  const handleNext = () => {
+    if (step === 'supports' && onGoReview) onGoReview();
+    else setStep(nextStep(step));
+  };
   return (
     <div className="claims-step-nav">
       {!isFirst && (
         <button type="button" className="claims-btn-ghost" onClick={() => setStep(prevStep(step))}>← Back</button>
       )}
       {!isLast && (
-        <button type="button" className="claims-btn-primary" onClick={() => setStep(nextStep(step))}>
+        <button type="button" className="claims-btn-primary" onClick={handleNext}>
           {nextLabel || 'Continue →'}
         </button>
       )}
@@ -760,6 +828,8 @@ const CLAIMS_FILL_CSS = `
 .claims-upload-grid { display: grid; gap: 10px; max-width: 520px; }
 .claims-upload-label { color: #0f172a; font-size: 13px; font-weight: 600; }
 .claims-file-input { display: block; margin-top: 6px; }
+.claims-support-groups { display: grid; gap: 12px; margin-top: 10px; }
+.claims-support-group { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; background: #f8fafc; }
 .claims-required { color: #b91c1c; }
 .claims-attach-list, .claims-how-list { margin: 0; padding-left: 18px; color: #334155; font-size: 13px; line-height: 1.6; }
 .claims-section { margin-top: 8px; }

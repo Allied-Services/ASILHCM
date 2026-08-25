@@ -10,6 +10,7 @@ const {
     normalizeAuthority,
     periodWindow,
     validateOtRow,
+    resolveSupportCategory,
     FILL_CLOSE_DAY,
     APPROVE_CLOSE_DAY,
 } = require('../src/modules/claims/portalService');
@@ -112,5 +113,24 @@ describe('portalClaims helpers', () => {
         assert.match(msg, /31 June 2026/i);
         assert.match(msg, /only 30 days/i);
         assert.match(msg, /correct the file and upload again/i);
+    });
+
+    it('resolveSupportCategory maps mis-clicks when only one claim type exists', () => {
+        assert.equal(
+            resolveSupportCategory('expense_support', ['MEDICAL']),
+            'medical_support'
+        );
+        assert.equal(
+            resolveSupportCategory('medical_support', ['EXPENSE']),
+            'expense_support'
+        );
+        assert.equal(
+            resolveSupportCategory('expense_support', ['EXPENSE', 'MEDICAL']),
+            'expense_support'
+        );
+        assert.equal(
+            resolveSupportCategory('medical_support', ['EXPENSE', 'MEDICAL']),
+            'medical_support'
+        );
     });
 });

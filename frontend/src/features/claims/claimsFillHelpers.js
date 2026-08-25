@@ -65,6 +65,29 @@ export function prepareItemsForSave(otRows, expRows, medRows, confirmNoClaims) {
   });
 }
 
+export const SUPPORT_CATEGORY_LABELS = {
+  expense_support: 'Expense supports',
+  expense: 'Expense supports',
+  medical_support: 'Medical supports',
+  medical: 'Medical supports',
+  excel_workbook: 'Excel workbook',
+  other: 'Other',
+};
+
+export function attachmentsForSupportType(attachments, kind) {
+  const map = {
+    expense: ['expense_support', 'expense'],
+    medical: ['medical_support', 'medical'],
+    workbook: ['excel_workbook'],
+  };
+  const cats = map[kind] || [];
+  return (attachments || []).filter((a) => cats.includes(String(a.category || '').toLowerCase()));
+}
+
+export function supportCategoryLabel(category) {
+  return SUPPORT_CATEGORY_LABELS[String(category || '').toLowerCase()] || String(category || 'other');
+}
+
 export function buildClaimSummary({ otRows, expRows, medRows, attachments = [] }) {
   const otPrepared = syncOtHours(otRows);
   const otLines = otPrepared.filter(isMeaningfulOtRow).map((r, idx) => ({
