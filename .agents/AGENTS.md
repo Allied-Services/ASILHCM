@@ -309,8 +309,13 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-08-25 — Applied Rabia 25 Aug Wafi contacts to production (Red)
+MD phrase: `Go red: apply the 25 Aug Wafi contact CSV to production employees`. `--scope=file --apply --allow-production`: matched 303, applied 303, insert 0, delete 0, apply_errors 0. Second dry-run would_update=0. Proof: Ahmad Hussain Focal set + personal mail; Amjad Shaikh LM `m.aamir@wafi-energy.com` and no Focal. Salary/bank not written.
+
+**Env vars needed:** none.
+
 ### 2026-08-25 — Portal Claims LM only + Sadia setup-needed + Wafi contact file
-Routing: Employee+LM requires `@wafi-energy.com` or `@asil.com.pk`. Gmail + LM with no Focal is **LM only** (submit is final). Setup needed only when Focal, work mailbox, and LM are all missing — campaign emails `sadia.komal@asil.com.pk` with `/?tab=claims_portal&setup_needed=1`. Contact updater `--scope=file` covers Rabia’s 25 Aug 3P+FM sheet. Production employee apply remains a Red gate.
+Routing: Employee+LM requires `@wafi-energy.com` or `@asil.com.pk`. Gmail + LM with no Focal is **LM only** (submit is final). Setup needed only when Focal, work mailbox, and LM are all missing — campaign emails `sadia.komal@asil.com.pk` with `/?tab=claims_portal&setup_needed=1`. Contact updater `--scope=file` covers Rabia’s 25 Aug 3P+FM sheet. Production apply completed 2026-08-25 after Go-red.
 
 **Env vars needed:** none.
 

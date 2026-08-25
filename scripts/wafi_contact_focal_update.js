@@ -31,11 +31,13 @@ function parseArgs(argv) {
         file: null,
         databaseUrl: null,
         scope: 'wafi-3p',
+        allowProduction: false,
     };
     for (let i = 2; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--dry-run') args.dryRun = true;
         else if (a === '--apply') args.dryRun = false;
+        else if (a === '--allow-production') args.allowProduction = true;
         else if (a === '--file' && argv[i + 1]) args.file = argv[++i];
         else if (a === '--csv' && argv[i + 1]) args.file = argv[++i];
         else if (a === '--database-url' && argv[i + 1]) args.databaseUrl = argv[++i];
@@ -61,7 +63,7 @@ function isProdUrl(url) {
 async function main() {
     const args = parseArgs(process.argv);
     if (!args.file) {
-        console.error('Usage: node scripts/wafi_contact_focal_update.js --file <csv|xlsx> [--dry-run|--apply] [--scope wafi-3p|wafi|file] [--database-url URL]');
+        console.error('Usage: node scripts/wafi_contact_focal_update.js --file <csv|xlsx> [--dry-run|--apply] [--allow-production] [--scope wafi-3p|wafi|file] [--database-url URL]');
         process.exit(2);
     }
 
@@ -76,8 +78,8 @@ async function main() {
         || process.env.TEST_DATABASE_URL
         || process.env.DATABASE_URL;
 
-    if (!args.dryRun && isProdUrl(dbUrl) && !process.env.STAGING_DATABASE_URL) {
-        console.error('REFUSED: --apply blocked on production-looking DATABASE_URL. Set STAGING_DATABASE_URL explicitly.');
+    if (!args.dryRun && isProdUrl(dbUrl) && !args.allowProduction) {
+        console.error('REFUSED: --apply blocked on production-looking DATABASE_URL. Re-run with --allow-production after an MD Go-red gate.');
         process.exit(3);
     }
 
@@ -125,13 +127,15 @@ async function main() {
     const auditDir = path.join(__dirname, '..', 'audit', 'cutover');
     fs.mkdirSync(auditDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '_');
-    const jsonPath = path.join(auditDir, `wafi_contact_dryrun_${stamp}.json`);
-    const mdPath = path.join(auditDir, `wafi_contact_dryrun_${stamp}.md`);
+    const prefix = args.dryRun ? 'wafi_contact_dryrun' : 'wafi_contact_apply';
+    const jsonPath = path.join(auditDir, `${prefix}_${stamp}.json`);
+    const mdPath = path.join(auditDir, `${prefix}_${stamp}.md`);
     fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2));
     fs.writeFileSync(mdPath, formatReportMd(report));
 
     console.log(`Report: ${jsonPath}`);
-    console.log(`Summary: matched=${report.summary.matched} would_update=${report.summary.would_update} phone=${report.summary.phone_changes} email=${report.summary.email_changes} routing=${report.summary.routing_changes}`);
+    console.log(`Mode: ${args.dryRun ? 'dry-run' : 'APPLY'} scope=${args.scope}`);
+    console.log(`Summary: matched=${report.summary.matched} would_update=${report.summary.would_update} applied=${report.applied || 0} phone=${report.summary.phone_changes} email=${report.summary.email_changes} routing=${report.summary.routing_changes}`);
     if (report.summary.would_insert !== 0 || report.summary.would_delete !== 0) {
         console.error('GATE FAILED: would_insert and would_delete must be 0');
         process.exit(1);
