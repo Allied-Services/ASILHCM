@@ -1,11 +1,9 @@
 'use strict';
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
 const { computeBatchTotals } = require('../src/modules/claims/claimsCampaign');
 
 describe('claimsCampaign', () => {
-    it('computeBatchTotals groups by approver', () => {
+    test('computeBatchTotals groups by approver', () => {
         const subs = [
             { id: 1, employee_id: 'A', employee_name: 'Alice', status: 'draft', approver_email: 'lm@wafi.com' },
             { id: 2, employee_id: 'B', employee_name: 'Bob', status: 'draft', approver_email: 'lm@wafi.com' },
@@ -17,9 +15,9 @@ describe('claimsCampaign', () => {
             { submission_id: 3, claim_type: 'MEDICAL', amount: 50 },
         ];
         const r = computeBatchTotals(subs, items);
-        assert.equal(r.totals.otHours, 2);
-        assert.equal(r.totals.expense, 100);
-        assert.equal(r.totals.medical, 50);
-        assert.equal(r.byApprover.length, 2);
+        expect(r.totals.otHours).toBe(2);
+        expect(r.totals.expense).toBe(100);
+        expect(r.totals.medical).toBe(50);
+        expect(r.byApprover.length).toBe(2);
     });
 });

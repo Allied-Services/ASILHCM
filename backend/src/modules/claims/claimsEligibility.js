@@ -1,6 +1,9 @@
 'use strict';
 
-const { isWorkEmail } = require('../employees/contactEmails');
+const {
+    isClaimsWorkMailbox,
+    SADIA_SETUP_EMAIL,
+} = require('../employees/contactEmails');
 
 const HUZAIFA_FALLBACK = 'huzaifa.rafaqat@asil.com.pk';
 
@@ -80,9 +83,13 @@ function resolveLmEmail(emp) {
 }
 
 function resolveEmployeeFillerEmail(emp) {
-    // Personal Gmail/Yahoo/etc. is for payslips, never for Portal Claims gathering.
-    const email = isWorkEmail(emp.email);
+    // Wafi or asil.com.pk only. Personal Gmail is for payslips, never for gathering claims.
+    const email = isClaimsWorkMailbox(emp.email);
     return email ? email.toLowerCase() : null;
+}
+
+function isFinalSubmitProfile(profile) {
+    return profile === 'focal_only' || profile === 'lm_only';
 }
 
 /**
@@ -111,7 +118,7 @@ function resolveClaimsRouting(emp) {
             initiator: 'focal',
         };
     }
-    if (!focal && lm) {
+    if (!focal && empEmail && lm) {
         return {
             profile: 'employee_then_lm',
             category: 'Employee + LM',
@@ -120,12 +127,31 @@ function resolveClaimsRouting(emp) {
             initiator: 'employee',
         };
     }
+    if (!focal && !empEmail && lm) {
+        return {
+            profile: 'lm_only',
+            category: 'LM only',
+            fillerEmail: lm,
+            approverEmail: lm,
+            initiator: 'lm',
+        };
+    }
+    if (!focal && empEmail && !lm) {
+        return {
+            profile: 'employee_then_asil',
+            category: 'Employee + ASIL',
+            fillerEmail: empEmail,
+            approverEmail: HUZAIFA_FALLBACK,
+            initiator: 'employee',
+        };
+    }
     return {
-        profile: 'employee_then_asil',
-        category: 'Employee + ASIL',
-        fillerEmail: empEmail,
-        approverEmail: HUZAIFA_FALLBACK,
-        initiator: 'employee',
+        profile: 'setup_needed',
+        category: 'Setup needed',
+        fillerEmail: null,
+        approverEmail: null,
+        initiator: 'ops',
+        notifyEmail: SADIA_SETUP_EMAIL,
     };
 }
 
@@ -134,19 +160,24 @@ function resolveClaimsCategory(emp, eligibility = { eligible: true }) {
         return { category: 'Not eligible', profile: 'not_eligible', tooltip: eligibility.ruleName || 'Excluded by rule' };
     }
     const routing = resolveClaimsRouting(emp);
-    if (!routing.fillerEmail || (routing.initiator === 'employee' && !routing.fillerEmail)) {
+    if (routing.profile === 'setup_needed' || !routing.fillerEmail) {
         return {
             ...routing,
             category: 'Setup needed',
             profile: 'setup_needed',
-            tooltip: routing.initiator === 'employee'
-                ? 'Missing work/official email — personal mailboxes are not used for Portal Claims'
-                : 'Missing employee or focal email on roster',
+            tooltip: 'No Focal, no Wafi/ASIL employee mailbox, and no Line Manager — emailed to Sadia Komal to update',
         };
     }
+    const actor = routing.initiator === 'focal'
+        ? `Focal: ${routing.fillerEmail}`
+        : routing.initiator === 'lm'
+            ? `LM (final): ${routing.fillerEmail}`
+            : `Employee: ${routing.fillerEmail}`;
     const tooltip = [
-        routing.initiator === 'focal' ? `Focal: ${routing.fillerEmail}` : `Employee: ${routing.fillerEmail}`,
-        routing.approverEmail ? `Approver: ${routing.approverEmail}` : '',
+        actor,
+        routing.approverEmail && routing.approverEmail !== routing.fillerEmail
+            ? `Approver: ${routing.approverEmail}`
+            : (isFinalSubmitProfile(routing.profile) ? 'Submit is final' : ''),
     ].filter(Boolean).join(' · ');
     return { ...routing, tooltip };
 }
@@ -246,8 +277,10 @@ async function countEligibleEmployees(pool) {
                 name: e.name,
                 client: e.client,
                 dept: e.dept,
-                reason: 'Setup needed — missing email',
+                contract_name: e.contract_name || '',
+                reason: 'No Focal, no Wafi/ASIL mailbox, and no Line Manager',
                 category: 'setup_needed',
+                notify_email: SADIA_SETUP_EMAIL,
             });
             continue;
         }
@@ -257,7 +290,7 @@ async function countEligibleEmployees(pool) {
             approver_email: routing.approverEmail,
             routing_profile: routing.profile,
             claims_category: cat.category,
-            cohort_type: routing.initiator === 'focal' ? 'focal' : 'employee',
+            cohort_type: routing.initiator === 'employee' ? 'employee' : 'focal',
         });
     }
     return { eligible, skipped, rules };
@@ -265,6 +298,8 @@ async function countEligibleEmployees(pool) {
 
 module.exports = {
     HUZAIFA_FALLBACK,
+    SADIA_SETUP_EMAIL,
+    isFinalSubmitProfile,
     isNamedEmail,
     loadEligibilityRules,
     evaluateEmployeeEligibility,

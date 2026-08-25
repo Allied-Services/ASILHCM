@@ -20,7 +20,7 @@ const {
     runWafiContactUpdate,
     formatReportMd,
     loadTabularFile,
-    isWafi3pRow,
+    scopeFilter,
     mapContactRow,
     buildDryRunReport,
 } = require('../backend/src/modules/employees/wafiContactUpdate');
@@ -61,7 +61,7 @@ function isProdUrl(url) {
 async function main() {
     const args = parseArgs(process.argv);
     if (!args.file) {
-        console.error('Usage: node scripts/wafi_contact_focal_update.js --file <csv|xlsx> [--dry-run|--apply] [--scope wafi-3p|wafi] [--database-url URL]');
+        console.error('Usage: node scripts/wafi_contact_focal_update.js --file <csv|xlsx> [--dry-run|--apply] [--scope wafi-3p|wafi|file] [--database-url URL]');
         process.exit(2);
     }
 
@@ -101,9 +101,7 @@ async function main() {
         }
     } else {
         const { rows } = loadTabularFile(sourcePath);
-        const scoped = args.scope === 'wafi'
-            ? rows
-            : rows.filter(isWafi3pRow);
+        const scoped = rows.filter((row) => scopeFilter(row, args.scope));
         const unmatched_csv = [];
         for (const row of scoped) {
             const m = mapContactRow(row);

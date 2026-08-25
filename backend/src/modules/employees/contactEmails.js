@@ -7,6 +7,8 @@
  * Portal claims: never gather on a personal mailbox — focal, or a work/official address.
  */
 
+const SADIA_SETUP_EMAIL = 'sadia.komal@asil.com.pk';
+
 const PERSONAL_DOMAINS = new Set([
     'gmail.com',
     'googlemail.com',
@@ -61,6 +63,21 @@ function isWorkEmail(raw) {
     return e && !isPersonalEmail(e) ? e : '';
 }
 
+function domainMatches(domain, root) {
+    const d = String(domain || '').toLowerCase();
+    const r = String(root || '').toLowerCase();
+    return d === r || d.endsWith(`.${r}`);
+}
+
+/** Portal Claims employee filler: Wafi work mailbox or asil.com.pk only. */
+function isClaimsWorkMailbox(raw) {
+    const e = isUsableEmail(raw);
+    if (!e) return '';
+    const d = emailDomain(e);
+    if (domainMatches(d, 'wafi-energy.com') || domainMatches(d, 'asil.com.pk')) return e;
+    return '';
+}
+
 function emailsEqual(a, b) {
     const x = isUsableEmail(a).toLowerCase();
     const y = isUsableEmail(b).toLowerCase();
@@ -104,9 +121,9 @@ function resolvePayslipRecipients(emp, destEmailOverride) {
     ]);
 }
 
-/** Employee-initiated claims filler — work/official mailbox only, never Gmail/Yahoo/etc. */
+/** Employee-initiated claims filler — Wafi or asil.com.pk only, never Gmail/Yahoo/etc. */
 function resolveClaimsEmployeeFillerEmail(emp) {
-    return isWorkEmail(emp?.email);
+    return isClaimsWorkMailbox(emp?.email);
 }
 
 function hasPayslipEmailChannel(emp) {
@@ -115,9 +132,11 @@ function hasPayslipEmailChannel(emp) {
 
 module.exports = {
     PERSONAL_DOMAINS,
+    SADIA_SETUP_EMAIL,
     isUsableEmail,
     isPersonalEmail,
     isWorkEmail,
+    isClaimsWorkMailbox,
     emailDomain,
     emailsEqual,
     uniqueEmails,

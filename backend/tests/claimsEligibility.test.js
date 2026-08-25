@@ -30,16 +30,27 @@ describe('claimsEligibility routing', () => {
 
     test('employee + lm when no focal', () => {
         const r = resolveClaimsRouting({
-            email: 'emp@wafi.com',
-            line_manager_email: 'lm@wafi.com',
+            email: 'emp@wafi-energy.com',
+            line_manager_email: 'lm@wafi-energy.com',
         });
         expect(r.profile).toBe('employee_then_lm');
         expect(r.initiator).toBe('employee');
+        expect(r.fillerEmail).toBe('emp@wafi-energy.com');
+    });
+
+    test('asil.com.pk employee mailbox is allowed for Employee + LM', () => {
+        const r = resolveClaimsRouting({
+            email: 'iman.akbar@asil.com.pk',
+            line_manager_email: 'sadia.komal@asil.com.pk',
+        });
+        expect(r.profile).toBe('employee_then_lm');
+        expect(r.fillerEmail).toBe('iman.akbar@asil.com.pk');
+        expect(r.approverEmail).toBe('sadia.komal@asil.com.pk');
     });
 
     test('employee + asil when no focal or lm', () => {
         const r = resolveClaimsRouting({
-            email: 'emp@wafi.com',
+            email: 'emp@wafi-energy.com',
         });
         expect(r.profile).toBe('employee_then_asil');
         expect(r.approverEmail).toBe('huzaifa.rafaqat@asil.com.pk');
@@ -53,9 +64,46 @@ describe('claimsEligibility routing', () => {
     test('personal Gmail is not a Portal Claims filler', () => {
         const r = resolveClaimsRouting({ email: 'emp@gmail.com' });
         expect(r.fillerEmail).toBe(null);
-        expect(r.profile).toBe('employee_then_asil');
+        expect(r.profile).toBe('setup_needed');
         const c = resolveClaimsCategory({ email: 'emp@gmail.com' });
         expect(c.category).toBe('Setup needed');
+        expect(c.notifyEmail).toBe('sadia.komal@asil.com.pk');
+    });
+
+    test('Gmail + LM with no Focal is LM only (final)', () => {
+        const r = resolveClaimsRouting({
+            email: 'emp@gmail.com',
+            line_manager_email: 'M.Aamir@wafi-energy.com',
+        });
+        expect(r.profile).toBe('lm_only');
+        expect(r.category).toBe('LM only');
+        expect(r.fillerEmail).toBe('m.aamir@wafi-energy.com');
+        expect(r.approverEmail).toBe('m.aamir@wafi-energy.com');
+        expect(r.initiator).toBe('lm');
+    });
+
+    test('Amjad Shaikh proof: no email, no Focal, LM Aamir is final', () => {
+        const emp = {
+            id: 'ASILFM/SPL/22/23',
+            name: 'Amjad Shaikh',
+            email: null,
+            claim_authority: null,
+            line_manager_email: 'M.Aamir@wafi-energy.com',
+        };
+        const r = resolveClaimsRouting(emp);
+        expect(r.profile).toBe('lm_only');
+        expect(r.fillerEmail).toBe('m.aamir@wafi-energy.com');
+        const c = resolveClaimsCategory(emp);
+        expect(c.category).toBe('LM only');
+    });
+
+    test('Ahmad Hussain Gmail + Focal is Focal only, not employee invite', () => {
+        const r = resolveClaimsRouting({
+            email: 'aahmadhussain33@gmail.com',
+            claim_authority: 'Akhtar.Ali@wafi-energy.com',
+        });
+        expect(r.profile).toBe('focal_only');
+        expect(r.fillerEmail).toBe('akhtar.ali@wafi-energy.com');
     });
 
     test('personal Gmail with focal still routes to the focal', () => {

@@ -60,7 +60,27 @@ function resolveRoutingValue(raw) {
     return String(raw).trim();
 }
 
+function employeeCode(row) {
+    return String(pickCell(row, 'ASIL Employee Code', 'Employee Code') || '').trim();
+}
+
+function isAsilFmCode(code) {
+    return /^ASILFM\//i.test(String(code || '').trim());
+}
+
+function rowHasContractHint(row) {
+    const contract = pickCell(row, 'Contract Name', 'Contract');
+    const client = pickCell(row, 'CLIENT NAME', 'Client Name', 'Client');
+    return !!(contract || client);
+}
+
 function isWafi3pRow(row) {
+    // Dedicated contact files (25 Aug Rabia sheet) have no contract column.
+    // 3P = ASIL/SPL-* ; ASILFM is Facility Management.
+    if (!rowHasContractHint(row)) {
+        const code = employeeCode(row);
+        return !!code && !isAsilFmCode(code);
+    }
     if (!isWafiRow(row)) return false;
     const contract = (pickCell(row, 'Contract Name', 'Contract') || '').toLowerCase();
     return contract.includes('bpo');
@@ -74,11 +94,14 @@ function isWafi3pEmployee(emp) {
 }
 
 function scopeFilter(row, scope) {
-    if (scope === 'wafi') return isWafiRow(row);
-    return isWafi3pRow(row);
+    const code = employeeCode(row);
+    if (scope === 'file') return !!code;
+    if (scope === 'wafi') return rowHasContractHint(row) ? isWafiRow(row) : !!code;
+    return isWafi3pRow(row) && !!code;
 }
 
 function dbScopeFilter(emp, scope) {
+    if (scope === 'file') return true;
     if (scope === 'wafi') {
         const client = String(emp.client || '').toLowerCase();
         const contract = String(emp.contract_name || '').toLowerCase();
@@ -95,7 +118,15 @@ function mapContactRow(row) {
     const primary = resolvePhoneValue(pickCell(row, 'Primary Contact', 'Phone', 'Mobile', 'Contact'));
     if (primary !== undefined) mapped.primary_contact = primary;
     const emergency = resolvePhoneValue(pickCell(row, 'Emergency Contact', 'Emergency Phone'));
-    if (emergency !== undefined) mapped.emergency_contact = emergency;
+    if (emergency !== undefined) {
+        const primaryNorm = mapped.primary_contact == null ? '' : String(mapped.primary_contact).replace(/\D/g, '');
+        const emergencyNorm = String(emergency || '').replace(/\D/g, '');
+        if (emergency && primaryNorm && emergencyNorm === primaryNorm) {
+            // Two distinct numbers required — skip a copy of Primary.
+        } else {
+            mapped.emergency_contact = emergency;
+        }
+    }
 
     const email = resolveEmail(row);
     if (email !== undefined) mapped.email = email;
@@ -390,6 +421,7 @@ module.exports = {
     CONTACT_FIELDS,
     isWafi3pRow,
     isWafi3pEmployee,
+    scopeFilter,
     mapContactRow,
     compareContactRow,
     loadTabularFile,

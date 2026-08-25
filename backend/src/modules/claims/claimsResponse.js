@@ -93,18 +93,21 @@ function isEmployeeFiller(profile) {
 function decidedByRole(profile) {
     const p = normalizeRouting(profile);
     if (p === 'focal_only') return 'Focal';
+    if (p === 'lm_only') return 'LM';
     if (p === 'employee_then_asil') return 'ASIL';
     return 'LM';
 }
 
 function fillerWaitStatus(profile) {
+    const p = normalizeRouting(profile);
+    if (p === 'lm_only') return 'waiting_lm_fill';
     return isEmployeeFiller(profile) ? 'waiting_employee' : 'waiting_focal';
 }
 
 function approverWaitStatus(profile) {
     const p = normalizeRouting(profile);
     if (p === 'employee_then_asil') return 'waiting_asil';
-    if (p === 'focal_only') return 'waiting_focal';
+    if (p === 'focal_only' || p === 'lm_only') return p === 'lm_only' ? 'waiting_lm_fill' : 'waiting_focal';
     return 'waiting_lm';
 }
 
@@ -123,6 +126,7 @@ function nowLabel({ status, mailedTo, lm, decidedBy, decidedEmail }) {
     if (status === 'invite_sent') return `Invite sent · waiting ${to} to start`;
     if (status === 'waiting_focal') return `Waiting Focal to fill (${to})`;
     if (status === 'waiting_employee') return `Waiting Employee to fill (${to})`;
+    if (status === 'waiting_lm_fill') return `Waiting LM to add claims — final (${to})`;
     if (status === 'waiting_lm') return `Waiting LM to approve (${approver})`;
     if (status === 'waiting_asil') return `Waiting ASIL to approve (${approver})`;
     if (status === 'no_claims') return 'No claims this month';

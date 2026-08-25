@@ -4,6 +4,8 @@ const {
     isUsableEmail,
     isPersonalEmail,
     isWorkEmail,
+    isClaimsWorkMailbox,
+    SADIA_SETUP_EMAIL,
     resolveFocalEmail,
     resolvePayslipRecipients,
     resolveClaimsEmployeeFillerEmail,
@@ -51,6 +53,9 @@ describe('contactEmails', () => {
     test('claims filler never uses a personal mailbox', () => {
         expect(resolveClaimsEmployeeFillerEmail({ email: 'emp@gmail.com' })).toBe('');
         expect(resolveClaimsEmployeeFillerEmail({ email: 'emp@wafi-energy.com' })).toBe('emp@wafi-energy.com');
+        expect(resolveClaimsEmployeeFillerEmail({ email: 'iman.akbar@asil.com.pk' })).toBe('iman.akbar@asil.com.pk');
+        expect(isClaimsWorkMailbox('emp@company.com')).toBe('');
+        expect(SADIA_SETUP_EMAIL).toBe('sadia.komal@asil.com.pk');
         expect(resolveFocalEmail({ claim_authority: 'N/A' })).toBe('');
         expect(resolveFocalEmail({ claim_authority: 'focal@wafi-energy.com' })).toBe('focal@wafi-energy.com');
     });

@@ -50,10 +50,11 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## IN PROGRESS
-- **Portal Claims Control Desk** — action-first dashboard, LM approval without auto-payroll, ASIL bulk push, August one-time LM reopen (`feat/portal-claims-control-desk`)
+- **Wafi claims routing + Rabia 25 Aug contacts** — LM only / Wafi-or-ASIL mailbox / Setup needed → Sadia (`feat/wafi-claims-routing`). Production employee apply is Red until owner says Go red.
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-25)
+- **Portal Claims Control Desk** — action-first dashboard, LM approval without auto-payroll, ASIL bulk push, August one-time LM reopen (`main` PR #113)
 - **Portal Claims fill-status ops desk** — desk status, smart reminders, daily email+SMS cron, ops-support on all claims mail (`main` PR #112)
 - **Portal Claims August chase base** — Response board truth, ACTUAL-only chase, 27 Aug trial window (`main` PR #110)
 

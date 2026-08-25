@@ -16,6 +16,14 @@ describe('wafi 3P contact mapping', () => {
             'CLIENT NAME': 'Wafi Energy Pakistan Pvt Ltd',
             'Contract Name': 'Facility Management',
         })).toBe(false);
+        expect(isWafi3pRow({
+            'ASIL Employee Code': 'ASIL/SPL-174/21',
+            'Primary Contact': '0321-1476170',
+        })).toBe(true);
+        expect(isWafi3pRow({
+            'ASIL Employee Code': 'ASILFM/SPL/22/23',
+            'Primary Contact': '0300-0000000',
+        })).toBe(false);
     });
 
     test('stores personal email and focal; skips dash phones as leave-as-is', () => {
@@ -52,6 +60,16 @@ describe('wafi 3P contact mapping', () => {
         expect(mapped.email).toBe(null);
         expect(mapped.claim_authority).toBe('Akhtar.Ali@wafi-energy.com');
         expect(mapped.line_manager_email).toBe(null);
+    });
+
+    test('skips emergency when it is the same number as primary', () => {
+        const mapped = mapContactRow({
+            'ASIL Employee Code': 'ASIL/SPL-174/21',
+            'Primary Contact': '0321-1476170',
+            'Emergency Contact': '03211476170',
+        });
+        expect(mapped.primary_contact).toBe('0321-1476170');
+        expect(mapped.emergency_contact).toBeUndefined();
     });
 
     test('compareContactRow reports email clear and phone update', () => {

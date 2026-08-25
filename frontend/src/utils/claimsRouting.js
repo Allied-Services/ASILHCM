@@ -1,25 +1,21 @@
 const HUZAIFA = 'huzaifa.rafaqat@asil.com.pk';
 
-const PERSONAL_DOMAINS = new Set([
-  'gmail.com', 'googlemail.com', 'gmail.com.pk',
-  'yahoo.com', 'yahoo.co.uk', 'ymail.com',
-  'hotmail.com', 'outlook.com', 'live.com', 'msn.com',
-  'icloud.com', 'me.com', 'aol.com', 'mail.com',
-  'protonmail.com', 'proton.me', 'pm.me',
-]);
-
 function isEmail(v) {
   if (!v) return false;
   const s = String(v).trim().toLowerCase();
   return s && s !== 'n/a' && s !== 'na' && s.includes('@');
 }
 
-function isPersonalEmail(v) {
+function domainMatches(domain, root) {
+  const d = String(domain || '').toLowerCase();
+  const r = String(root || '').toLowerCase();
+  return d === r || d.endsWith(`.${r}`);
+}
+
+function isClaimsWorkMailbox(v) {
   if (!isEmail(v)) return false;
   const d = String(v).trim().toLowerCase().split('@').pop();
-  if (!d) return false;
-  if (d === 'gmail.com' || d.startsWith('gmail.') || d.endsWith('.gmail.com')) return true;
-  return PERSONAL_DOMAINS.has(d);
+  return domainMatches(d, 'wafi-energy.com') || domainMatches(d, 'asil.com.pk');
 }
 
 function focalEmail(emp) {
@@ -38,8 +34,7 @@ export function resolveClaimsCategoryClient(emp, { eligible = true } = {}) {
   if (!eligible) return { category: 'Not eligible', tone: '#94a3b8' };
   const focal = focalEmail(emp);
   const lm = lmEmail(emp);
-  const empMail = isEmail(emp?.email) && !isPersonalEmail(emp.email)
-    ? emp.email.toLowerCase() : null;
+  const empMail = isClaimsWorkMailbox(emp?.email) ? emp.email.toLowerCase() : null;
 
   if (focal && lm && focal !== lm) {
     return { category: 'Focal + LM', tone: '#38bdf8', tooltip: `Focal: ${focal} · LM: ${lm}` };
@@ -47,8 +42,11 @@ export function resolveClaimsCategoryClient(emp, { eligible = true } = {}) {
   if (focal) {
     return { category: 'Focal only', tone: '#a78bfa', tooltip: `Focal: ${focal}` };
   }
-  if (lm && empMail) {
+  if (!focal && empMail && lm) {
     return { category: 'Employee + LM', tone: '#22c55e', tooltip: `Employee · LM: ${lm}` };
+  }
+  if (!focal && !empMail && lm) {
+    return { category: 'LM only', tone: '#fb923c', tooltip: `LM (final): ${lm}` };
   }
   if (empMail) {
     return { category: 'Employee + ASIL', tone: '#f59e0b', tooltip: `Approver: ${HUZAIFA}` };
@@ -56,7 +54,7 @@ export function resolveClaimsCategoryClient(emp, { eligible = true } = {}) {
   return {
     category: 'Setup needed',
     tone: '#ef4444',
-    tooltip: 'Missing work/official or focal email — personal mailboxes are not used for Portal Claims',
+    tooltip: 'No Focal, no Wafi/ASIL mailbox, and no Line Manager — emailed to Sadia Komal',
   };
 }
 

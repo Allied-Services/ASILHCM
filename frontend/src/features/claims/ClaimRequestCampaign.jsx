@@ -5,14 +5,18 @@ const PROFILE_LABEL = {
   focal_then_lm: 'Focal + LM',
   focal_only: 'Focal only',
   employee_then_lm: 'Employee + LM',
+  lm_only: 'LM only',
   employee_then_asil: 'Employee + ASIL',
+  setup_needed: 'Setup needed',
 };
 
 const PROFILE_EXPLAIN = {
   focal_then_lm: 'Focal fills OT / Expense / Medical for the nominated employees. After submit, the Line Manager reviews and approves.',
   focal_only: 'Focal fills the claims and is also the final approver — no Line Manager on file.',
-  employee_then_lm: 'No focal on the roster. The employee submits their own claims. The Line Manager reviews and approves.',
-  employee_then_asil: 'No focal and no Line Manager. The employee submits their own claims. ASIL Operations (Huzaifa) is the approver.',
+  employee_then_lm: 'No focal. Employee has a Wafi or asil.com.pk mailbox and submits their own claims. The Line Manager reviews and approves.',
+  lm_only: 'No Focal and no Wafi/ASIL employee mailbox. The Line Manager adds the claims and they are treated as final.',
+  employee_then_asil: 'No focal and no Line Manager. The employee (Wafi or asil.com.pk mailbox) submits. ASIL Operations (Huzaifa) is the approver.',
+  setup_needed: 'No Focal, no Wafi/ASIL mailbox, and no Line Manager. Sadia Komal is emailed a list with a link to update the roster.',
 };
 
 const MONTHS = [
@@ -532,7 +536,7 @@ function ExcludedPanel({ skipped }) {
     <div style={{ marginTop: 16 }}>
       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Excluded — fix in Employee Information</div>
       <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 8px' }}>
-        Setup needed ({setup.length}) = missing filler email.
+        Setup needed ({setup.length}) = no Focal, no Wafi/ASIL mailbox, and no Line Manager. Sadia Komal is emailed a link to update these.
         {notEligible.length > 0 && (
           <>
             {' '}Other skipped ({notEligible.length}).
