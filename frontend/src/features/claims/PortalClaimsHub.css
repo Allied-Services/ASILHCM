@@ -282,6 +282,138 @@
 .pch-err { color: #fca5a5; margin-bottom: 10px; }
 .pch-ok { color: #86efac; margin-bottom: 10px; }
 
+.pch-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.pch-header-copy {
+  flex: 1;
+  min-width: 240px;
+}
+
+.pch-header-copy .pch-sub {
+  margin-bottom: 0;
+}
+
+.pch-process-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  background: rgba(99, 102, 241, 0.14);
+  color: #c7d2fe;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pch-process-btn:hover {
+  background: rgba(99, 102, 241, 0.22);
+}
+
+.pch-process-modal {
+  max-width: 920px;
+}
+
+.pch-process-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.pch-process-head h3 {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+}
+
+.pch-process-lead {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  max-width: 640px;
+}
+
+.pch-process-x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-dark);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pch-process-x:hover {
+  color: var(--text);
+}
+
+.pch-process-body {
+  padding: 1.25rem 1.5rem;
+}
+
+.pch-process-note {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.1);
+  color: #bfdbfe;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.pch-process-note code {
+  font-size: 0.85em;
+  color: #e0e7ff;
+}
+
+.pch-process-table th,
+.pch-process-table td {
+  vertical-align: top;
+  line-height: 1.45;
+}
+
+.pch-process-foot {
+  margin: 14px 0 0;
+  font-size: 12px;
+}
+
+.pch-process-footbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 1.5rem 1.25rem;
+}
+
+.pch-process-close {
+  padding: 10px 22px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-dark);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.pch-process-close:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
 @media (max-width: 900px) {
   .pch-period,
   .pch-stats,

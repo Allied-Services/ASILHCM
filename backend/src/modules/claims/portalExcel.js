@@ -308,6 +308,15 @@ function formatMinutes(mins) {
 
 const MON_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
+/** Display dates as DD/MM/YYYY (e.g. 07/07/2026). */
+function formatDateDdMmYyyy(raw) {
+    const iso = toIsoDate(raw) || (String(raw || '').match(/^\d{4}-\d{2}-\d{2}/) ? String(raw).slice(0, 10) : null);
+    if (!iso) return String(raw || '').trim() || '';
+    const [y, m, d] = iso.split('-').map(Number);
+    if (!y || !m || !d) return iso;
+    return `${pad2(d)}/${pad2(m)}/${y}`;
+}
+
 /** Display dates as DD-MON-YYYY (e.g. 07-MAY-2026). */
 function formatDateDdMonYyyy(raw) {
     const iso = toIsoDate(raw) || (String(raw || '').match(/^\d{4}-\d{2}-\d{2}/) ? String(raw).slice(0, 10) : null);
@@ -964,6 +973,7 @@ module.exports = {
     hoursBetween,
     formatMinutes,
     formatDateDdMonYyyy,
+    formatDateDdMmYyyy,
     isMeaningfulOtRow,
     isMeaningfulMoneyRow,
     MONTH_NAMES,

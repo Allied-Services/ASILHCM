@@ -84,6 +84,24 @@ function buildApprovalPendingSms(period, approveDay, pendingCount) {
     return `ASIL: ${n} claim(s) need your approval by ${approveDay} ${monthLabel}. Use your email link. Payroll needs this.`;
 }
 
+function buildSmartReminderSms({ target, period, submitDay, approveDay, pendingCount }) {
+    if (target === 'approver') {
+        return buildApprovalPendingSms(period, approveDay, pendingCount);
+    }
+    return buildSubmitPendingSms(period, submitDay);
+}
+
+/** Short nudge after email invite/reminder — check inbox, act on claims. */
+function buildCheckEmailSms(period, { role } = {}) {
+    const cm = period?.claim_month;
+    const cy = period?.claim_year;
+    const work = cm && cy ? `${cm}/${cy}` : 'this month';
+    if (role === 'approver') {
+        return (`ASIL: Check your email — Wafi claims (${work}) need your LM approval by 27 Aug. Help: ops-support@asil.com.pk`).slice(0, 160);
+    }
+    return (`ASIL: Check your email — submit or confirm No Claims for Wafi ${work} work by 27 Aug. Help: ops-support@asil.com.pk`).slice(0, 160);
+}
+
 module.exports = {
     REMINDER_INTERVAL_MS,
     isDueForReminder,
@@ -94,4 +112,6 @@ module.exports = {
     approverReminderBanner,
     buildSubmitPendingSms,
     buildApprovalPendingSms,
+    buildSmartReminderSms,
+    buildCheckEmailSms,
 };
