@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-17 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-25 · Keep under ~100 lines. Plain English only.
 
 ---
 

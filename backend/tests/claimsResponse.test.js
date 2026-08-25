@@ -7,10 +7,6 @@ const {
     classifyResponseRow,
     writePortalAmountsToSheet,
     listResponseBoard,
-    resolveMailedTo,
-    isPollutedTestEmail,
-    nowLabel,
-    pickSubmission,
 } = require('../src/modules/claims/claimsResponse');
 
 describe('portalAmountsFromItems', () => {
@@ -63,6 +59,10 @@ describe('classifyResponseRow', () => {
 
     test('invite sent vs waiting Focal vs waiting LM', () => {
         expect(classifyResponseRow({ subStatus: 'invited', inviteSent: true, portal: {}, sheet: emptySheet })).toBe('invite_sent');
+        expect(classifyResponseRow({
+            subStatus: 'invited', inviteSent: true, portal, sheet: emptySheet,
+            routingProfile: 'focal_then_lm',
+        })).toBe('waiting_focal');
         expect(classifyResponseRow({
             subStatus: 'draft', inviteSent: true, portal: {}, sheet: emptySheet,
             routingProfile: 'focal_then_lm',
@@ -172,14 +172,23 @@ describe('listResponseBoard period match', () => {
                         filler_email: 'focal@wafi', approver_email: 'lm@wafi',
                         routing_profile: 'focal_then_lm', channel: 'portal',
                         batch_id: 3, period_id: 9, campaign_mode: 'actual',
+                        submitted_at: '2026-08-17T10:00:00Z', approved_at: null,
                     }],
                 })
-                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [{
+                    submission_id: 1, claim_type: 'OT', ot_hours: 8, ot_multiplier_factor: 2, amount: 0,
+                }] })
                 .mockResolvedValueOnce({
                     rows: [{
                         id: 3, period_id: 9, filler_email: 'focal@wafi',
                         invite_sent_at: '2026-08-15', invite_delivered: true,
-                        last_reminder_at: '2026-08-20', reminder_count: 2,
+                        invite_opened_at: '2026-08-16', last_reminder_at: '2026-08-20', reminder_count: 2,
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    rows: [{
+                        period_id: 9, approver_email: 'lm@wafi',
+                        invite_sent_at: '2026-08-17', last_reminder_at: null, reminder_count: 0,
                     }],
                 })
                 .mockResolvedValueOnce({ rows: [] }),
@@ -190,68 +199,13 @@ describe('listResponseBoard period match', () => {
         expect(r.ok).toBe(true);
         expect(r.invite_logged).toBe(1);
         expect(r.people[0].status).toBe('waiting_lm');
-        expect(r.people[0].now_label).toMatch(/Waiting LM/);
-        expect(r.people[0].mailed_to).toBe('focal@wafi');
-        expect(r.people[0].reminder_count).toBe(2);
-        expect(r.people[0].lm).toBe('lm@wafi');
-        expect(r.people[0].mailer).toBe('sent');
+        expect(r.people[0].desk_status).toBe('pending_lm');
+        expect(r.people[0].claim_summary).toMatch(/OT2/);
+        expect(r.people[0].last_activity_label).toBe('Submitted');
+        expect(r.people[0].focal_email).toBe('focal@wafi');
+        expect(r.people[0].approver_email).toBe('lm@wafi');
+        expect(r.desk_counts.pending_lm).toBe(1);
         expect(r.period_label).toMatch(/7\/2026 work/);
         expect(pool.query.mock.calls[0][1]).toEqual([7, 2026, 8, 2026]);
-    });
-
-    test('infers invite sent from focal batch when submission row is missing', async () => {
-        const eligible = [{
-            id: 'E2', name: 'Under Focal', client: 'Wafi', location: 'Karachi',
-            filler_email: 'sufaamir@gmail.com', approver_email: 'lm@wafi',
-            claims_category: 'Focal + LM', routing_profile: 'focal_then_lm',
-        }];
-        const pool = {
-            query: jest.fn()
-                .mockResolvedValueOnce({
-                    rows: [{
-                        id: 9, campaign_mode: 'actual',
-                        claim_month: 7, claim_year: 2026,
-                        settlement_month: 8, settlement_year: 2026,
-                        campaign_month: 8, campaign_year: 2026,
-                    }],
-                })
-                .mockResolvedValueOnce({ rows: [] })
-                .mockResolvedValueOnce({
-                    rows: [{
-                        id: 5, period_id: 9, filler_email: 'sufaamir@gmail.com',
-                        invite_sent_at: '2026-08-15', invite_delivered: true,
-                        last_reminder_at: '2026-08-20', reminder_count: 1,
-                    }],
-                })
-                .mockResolvedValueOnce({ rows: [] }),
-        };
-        const r = await listResponseBoard(pool, async () => ({ eligible }), {
-            workMonth: 7, workYear: 2026, payMonth: 8, payYear: 2026,
-        });
-        expect(r.people[0].status).toBe('invite_sent');
-        expect(r.people[0].mailed_to).toBe('sufaamir@gmail.com');
-        expect(r.people[0].batch_id).toBe(5);
-        expect(r.people[0].now_label).toMatch(/reminder/);
-    });
-});
-
-describe('resolveMailedTo', () => {
-    test('prefers roster email over polluted test.asil submission', () => {
-        const m = resolveMailedTo({
-            sub: { filler_email: 'sample.employee-asil@test.asil', routing_profile: 'employee_then_asil' },
-            rosterEmp: { filler_email: 'muhammadaliahmedsheikh3@gmail.com', routing_profile: 'employee_then_asil' },
-            batch: { filler_email: 'sample.employee-asil@test.asil' },
-            routingProfile: 'employee_then_asil',
-        });
-        expect(m).toBe('muhammadaliahmedsheikh3@gmail.com');
-    });
-
-    test('nowLabel appends reminder date', () => {
-        const label = nowLabel({
-            status: 'invite_sent',
-            mailedTo: 'focal@wafi',
-            lastReminderAt: '2026-08-20T10:00:00.000Z',
-        });
-        expect(label).toMatch(/reminder/);
     });
 });

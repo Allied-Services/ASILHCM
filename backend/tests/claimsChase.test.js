@@ -1,6 +1,6 @@
 'use strict';
 
-const { planChase } = require('../src/modules/claims/claimsChase');
+const { planChase, planSmartReminder } = require('../src/modules/claims/claimsChase');
 
 function person(partial) {
     return {
@@ -58,5 +58,21 @@ describe('planChase', () => {
         expect(blocked.send).toHaveLength(0);
         const forced = planChase({ people, action: 'invite', force: true });
         expect(forced.send).toHaveLength(1);
+    });
+});
+
+describe('planSmartReminder', () => {
+    test('routes filler and approver in one plan', () => {
+        const people = [
+            person({ employee_id: 'A', status: 'waiting_focal', mailed_to: 'focal@wafi', batch_id: 3 }),
+            person({ employee_id: 'B', status: 'waiting_lm', lm: 'lm@wafi', period_id: 9 }),
+            person({ employee_id: 'C', status: 'on_sheet' }),
+        ];
+        const plan = planSmartReminder({ people, force: false });
+        expect(plan.send.map((p) => p.employee_id)).toEqual(['A', 'B']);
+        expect(plan.targets).toHaveLength(2);
+        expect(plan.filler_batches).toHaveLength(1);
+        expect(plan.approver_packs).toHaveLength(1);
+        expect(plan.skipped[0].reason).toBe('already_finished');
     });
 });

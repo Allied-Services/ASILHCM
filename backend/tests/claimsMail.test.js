@@ -6,6 +6,8 @@ const {
     mergeClaimsMonitorCc,
     withClaimsMonitorCc,
     withClaimsPortalMail,
+    appendOpsSupportFooter,
+    wrapClaimsHtmlFooter,
 } = require('../src/modules/claims/claimsMail');
 
 describe('claims monitor CC', () => {
@@ -78,5 +80,18 @@ describe('claims monitor CC', () => {
             cc: ['claims@asil.com.pk'],
             reply_to: 'ops-support@asil.com.pk',
         });
+    });
+
+    it('appendOpsSupportFooter injects before body close', () => {
+        delete process.env.CLAIMS_REPLY_TO;
+        const html = '<html><body><p>Hi</p></body></html>';
+        const out = appendOpsSupportFooter(html);
+        expect(out).toMatch(/ops-support@asil.com.pk/);
+        expect(out.indexOf('ops-support')).toBeLessThan(out.indexOf('</body>'));
+    });
+
+    it('wrapClaimsHtmlFooter delegates to appendOpsSupportFooter', () => {
+        delete process.env.CLAIMS_REPLY_TO;
+        expect(wrapClaimsHtmlFooter('<body></body>')).toMatch(/Reply to this email/);
     });
 });
