@@ -2,8 +2,10 @@
 
 const {
     getClaimsMonitorCc,
+    getClaimsReplyTo,
     mergeClaimsMonitorCc,
     withClaimsMonitorCc,
+    withClaimsPortalMail,
 } = require('../src/modules/claims/claimsMail');
 
 describe('claims monitor CC', () => {
@@ -54,6 +56,27 @@ describe('claims monitor CC', () => {
             subject: 'x',
             html: '<p>x</p>',
             cc: ['claims@asil.com.pk'],
+        });
+    });
+
+    it('defaults Reply-To to ops-support', () => {
+        delete process.env.CLAIMS_REPLY_TO;
+        expect(getClaimsReplyTo()).toBe('ops-support@asil.com.pk');
+    });
+
+    it('wraps sendAppEmail with CC and Reply-To', async () => {
+        delete process.env.CLAIMS_MONITOR_CC;
+        delete process.env.CLAIMS_MONITOR_CC_UNTIL;
+        delete process.env.CLAIMS_REPLY_TO;
+        const send = jest.fn().mockResolvedValue({ ok: true });
+        const wrapped = withClaimsPortalMail(send);
+        await wrapped({ to: 'focal@wafi.example', subject: 'x', html: '<p>x</p>' });
+        expect(send).toHaveBeenCalledWith({
+            to: 'focal@wafi.example',
+            subject: 'x',
+            html: '<p>x</p>',
+            cc: ['claims@asil.com.pk'],
+            reply_to: 'ops-support@asil.com.pk',
         });
     });
 });

@@ -34,12 +34,15 @@ describe('portalClaims helpers', () => {
         assert.equal(APPROVE_CLOSE_DAY, 22);
     });
 
-    it('periodWindowFromClaim anchors deadlines to claim month', () => {
+    it('periodWindowFromClaim anchors fill/approve close to campaign month (following_month)', () => {
         const { periodWindowFromClaim } = require('../src/modules/claims/portalService');
         const w = periodWindowFromClaim(2026, 7);
         assert.equal(w.claimMonth, 7);
         assert.equal(w.settlementMonth, 8);
+        assert.equal(w.campaignMonth, 8);
+        assert.equal(w.fillCloseAt.getUTCMonth(), 7);
         assert.equal(w.fillCloseAt.getUTCDate(), 18);
+        assert.equal(w.approveCloseAt.getUTCMonth(), 7);
         assert.equal(w.approveCloseAt.getUTCDate(), 22);
         assert.equal(w.fillOpenAt.getUTCDate(), 1);
     });

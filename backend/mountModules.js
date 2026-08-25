@@ -117,9 +117,9 @@ async function bootstrapRestructure(deps) {
         'xero.ar.sync': async data => runXeroArSyncJob(pool, getXeroAccessToken, data || {}),
         'portal.claims.reminders': async () => {
             const portalClaims = require('./src/modules/claims/portalService');
+            const { withClaimsPortalMail } = require('./src/modules/claims/claimsMail');
             await portalClaims.autoCloseNoClaims(pool);
-            const { withClaimsMonitorCc } = require('./src/modules/claims/claimsMail');
-            return portalClaims.sendReminders(pool, withClaimsMonitorCc(sendAppEmail));
+            return portalClaims.sendReminders(pool, withClaimsPortalMail(sendAppEmail), sendJazzSMS);
         },
     });
 

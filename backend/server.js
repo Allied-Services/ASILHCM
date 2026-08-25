@@ -70,7 +70,7 @@ function getResend() {
 }
 const EMAIL_FROM = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
 
-async function sendAppEmail({ to, subject, html, cc, bcc, attachments }) {
+async function sendAppEmail({ to, subject, html, cc, bcc, reply_to, attachments }) {
     const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
     const resend = getResend();
     if (!resend || !recipients.length) {
@@ -78,10 +78,12 @@ async function sendAppEmail({ to, subject, html, cc, bcc, attachments }) {
     }
     const ccList = (Array.isArray(cc) ? cc : cc ? [cc] : []).filter(Boolean);
     const bccList = (Array.isArray(bcc) ? bcc : bcc ? [bcc] : []).filter(Boolean);
+    const replyTo = reply_to && String(reply_to).includes('@') ? String(reply_to).trim() : null;
     try {
         const payload = { from: EMAIL_FROM, to: recipients, subject, html };
         if (ccList.length) payload.cc = ccList;
         if (bccList.length) payload.bcc = bccList;
+        if (replyTo) payload.reply_to = replyTo;
         if (attachments?.length) {
             payload.attachments = attachments.map((a) => ({
                 filename: a.filename,
