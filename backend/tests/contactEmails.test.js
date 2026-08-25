@@ -58,5 +58,6 @@ describe('contactEmails', () => {
         expect(SADIA_SETUP_EMAIL).toBe('sadia.komal@asil.com.pk');
         expect(resolveFocalEmail({ claim_authority: 'N/A' })).toBe('');
         expect(resolveFocalEmail({ claim_authority: 'focal@wafi-energy.com' })).toBe('focal@wafi-energy.com');
+        expect(resolveFocalEmail({ claimAuthority: 'focal@wafi-energy.com' })).toBe('focal@wafi-energy.com');
     });
 });

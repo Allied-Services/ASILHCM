@@ -41,6 +41,7 @@ const {
 const { renderPayslipHtml: renderWorldBPayslipHtml } = require('./src/modules/payrollrun/payslip');
 const { buildWorldAPayslipData } = require('./src/modules/payslip/dataBuilder');
 const { renderPayslipHtml: renderWorldAPayslipHtml } = require('./src/modules/payslip/template');
+const { routingFieldsFromBody, routingFieldsFromRow, bodyHasClaimAuthority } = require('./src/modules/employees/contactEmails');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -470,9 +471,8 @@ const empToDb = (e) => ({
     contract_name: e.contractName || null,
     contract_id:   e.contractId   || null,
     region: e.region || null,
-    line_manager_name:  e.lineManagerName  || null,
-    line_manager_email: e.lineManagerEmail || e.supervisorEmail || null,
-    supervisor_email:   e.supervisorEmail || e.lineManagerEmail || null,
+    ...routingFieldsFromBody(e),
+    supervisor_email:   e.supervisorEmail || null,
     client_focal_emails: e.clientFocalEmails || e.client_focal_emails || null,
     // ── Operational fields (2026-07-02) ─────────────────────────────────────
     sessi_no:                e.sessiNo               || null,
@@ -514,9 +514,8 @@ const empFromDb = (r) => ({
     contractName: r.contract_name || null,
     contractId:   r.contract_id   || null,
     region: r.region || null,
-    lineManagerName:  r.line_manager_name  || null,
-    lineManagerEmail: r.line_manager_email || r.supervisor_email || null,
-    supervisorEmail:  r.supervisor_email || r.line_manager_email || null,
+    ...routingFieldsFromRow(r),
+    supervisorEmail:  r.supervisor_email || null,
     clientFocalEmails: r.client_focal_emails || null,
     // ── Operational fields (2026-07-02) ─────────────────────────────────────
     sessiNo:             r.sessi_no               || null,
@@ -739,7 +738,7 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
 app.post('/api/employees', requireAuth, async (req, res) => {
     try {
         const d = empToDb(req.body);
-        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
+        const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'claim_authority', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
         const vals = cols.map(c => d[c]);
         const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
         const updates = cols.slice(1).map((c, i) => `${c}=EXCLUDED.${c}`).join(',');
@@ -757,7 +756,9 @@ app.post('/api/employees', requireAuth, async (req, res) => {
 app.put('/api/employees/:id', requireAuth, async (req, res) => {
     try {
         const d = empToDb({ ...req.body, id: req.params.id });
-        const cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
+        let cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'claim_authority', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
+        // Old profile saves omit Focal — do not wipe claim_authority unless the client sent it.
+        if (!bodyHasClaimAuthority(req.body)) cols = cols.filter(c => c !== 'claim_authority');
         const setClauses = cols.map((c, i) => `${c}=$${i + 1}`).join(',');
         const vals = [...cols.map(c => d[c]), req.params.id];
         const { rows } = await pool.query(

@@ -18,15 +18,21 @@ function isClaimsWorkMailbox(v) {
   return domainMatches(d, 'wafi-energy.com') || domainMatches(d, 'asil.com.pk');
 }
 
+function pick(emp, snake, camel) {
+  const a = emp?.[snake];
+  if (a != null && String(a).trim() !== '') return a;
+  return emp?.[camel];
+}
+
 function focalEmail(emp) {
-  const a = String(emp?.claim_authority || '').trim().toLowerCase();
+  const a = String(pick(emp, 'claim_authority', 'claimAuthority') || '').trim().toLowerCase();
   if (!a || a === 'self' || a === 'n/a') return null;
   return isEmail(a) ? a : null;
 }
 
 function lmEmail(emp) {
-  return isEmail(emp?.line_manager_email) ? emp.line_manager_email.toLowerCase()
-    : isEmail(emp?.supervisor_email) ? emp.supervisor_email.toLowerCase() : null;
+  const lm = pick(emp, 'line_manager_email', 'lineManagerEmail');
+  return isEmail(lm) ? String(lm).toLowerCase() : null;
 }
 
 /** Client-side mirror of backend resolveClaimsCategory (eligibility passed separately). */

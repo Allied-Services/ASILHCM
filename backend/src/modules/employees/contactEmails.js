@@ -99,9 +99,47 @@ function uniqueEmails(list) {
 }
 
 function resolveFocalEmail(emp) {
-    const auth = String(emp?.claim_authority == null ? '' : emp.claim_authority).trim();
+    const auth = String(emp?.claim_authority ?? emp?.claimAuthority ?? '').trim();
     if (!auth || /^self$/i.test(auth) || /^n\/?a$/i.test(auth)) return '';
     return isUsableEmail(auth);
+}
+
+function blankOptionalText(raw) {
+    const s = String(raw == null ? '' : raw).trim();
+    if (!s || /^(n\/?a|none|null|nil|-|—|–)$/i.test(s)) return null;
+    return s;
+}
+
+function bodyHasField(e, camel, snake) {
+    if (!e || typeof e !== 'object') return false;
+    return Object.prototype.hasOwnProperty.call(e, camel)
+        || Object.prototype.hasOwnProperty.call(e, snake);
+}
+
+function bodyHasClaimAuthority(e) {
+    return bodyHasField(e, 'claimAuthority', 'claim_authority');
+}
+function routingFieldsFromBody(e = {}) {
+    return {
+        claim_authority: isUsableEmail(e.claimAuthority ?? e.claim_authority) || null,
+        line_manager_name: blankOptionalText(e.lineManagerName ?? e.line_manager_name),
+        line_manager_email: isUsableEmail(e.lineManagerEmail ?? e.line_manager_email) || null,
+    };
+}
+
+/** Map DB row → employee JSON for Employee Information / Profile. */
+function routingFieldsFromRow(r = {}) {
+    const focal = r.claim_authority || null;
+    const lmName = r.line_manager_name || null;
+    const lmEmail = r.line_manager_email || null;
+    return {
+        claimAuthority: focal,
+        claim_authority: focal,
+        lineManagerName: lmName,
+        line_manager_name: lmName,
+        lineManagerEmail: lmEmail,
+        line_manager_email: lmEmail,
+    };
 }
 
 function resolveEmployeeOwnEmail(emp) {
@@ -145,4 +183,8 @@ module.exports = {
     resolvePayslipRecipients,
     resolveClaimsEmployeeFillerEmail,
     hasPayslipEmailChannel,
+    blankOptionalText,
+    routingFieldsFromBody,
+    routingFieldsFromRow,
+    bodyHasClaimAuthority,
 };
