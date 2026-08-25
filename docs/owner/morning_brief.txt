@@ -1,0 +1,22 @@
+GOOD MORNING
+
+SITE: OK
+Mission: One real payroll month for the pilot contract — HCM matches Excel and pays correctly.
+Status: AMBER
+
+NOT FINISHED YET
+1. Pilot shadow month — still need Excel vs HCM zero-difference proof
+2. July Unlock → Calculate live proof still not done after the OT fix
+3. New pay engine not used for real production pay yet
+
+NEEDS YOU TODAY
+- Send the pilot Excel export (payroll team) so shadow month can finish
+- Connect morning-brief email on the Automation (digests still cannot reach your inbox)
+- Nothing else to approve today — no open work PR waiting on you
+
+I SUGGEST
+- Unlock July on staging, run Calculate, check OT holds, then same on prod when you are ready
+- Keep new feature work parked until pilot proof is done
+
+FOCUS TODAY
+Get the pilot Excel file in and prove July Calculate is safe on live — do not start new builds.
