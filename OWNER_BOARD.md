@@ -73,6 +73,8 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 
 ## JUST SHIPPED (2026-08-25)
 - **Monthly Cycle hub** — new tab: contract claim pack (OT/Expense/Medical toggles), people assignment, collect/track/payroll on same Portal Claims engine; Wafi unchanged
+- **Portal Claims who entered / who approved** — fill and approve links name the person and time. LM-only says “same person — submit is final.”
+- **Portal Claims fill window** — July work stays open through 27 Aug 11:59 PM. A campaign send had reset the close date back to 17 July; that rewind is blocked.
 - **Employee Information Focal / Line Manager** — view and save the same Focal email and Line Manager name/email Portal Claims uses (`feat/employee-focal-lm`)
 - **Portal Claims routing** — LM only is final; employee invites only Wafi or asil.com.pk; Setup needed emails Sadia (`feat/wafi-claims-routing`)
 - **Rabia 25 Aug Wafi contacts on production** — 303 people updated (phones / email / Focal / LM only; salary and bank untouched). Re-check is clean (0 remaining). Go-red apply.

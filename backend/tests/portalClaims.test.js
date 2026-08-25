@@ -48,6 +48,35 @@ describe('portalClaims helpers', () => {
         assert.equal(w.fillOpenAt.getUTCDate(), 1);
     });
 
+    it('July 2026 trial stays open through 27 Aug even if fill_close_at was rewound to July', () => {
+        const { isAfterFillClose } = require('../src/modules/claims/portalService');
+        const period = {
+            claim_month: 7,
+            claim_year: 2026,
+            fill_close_at: '2026-07-17T18:59:59.000Z',
+            campaign_mode: 'actual',
+        };
+        assert.equal(isAfterFillClose(period, Date.parse('2026-08-25T17:00:00Z')), false);
+        assert.equal(isAfterFillClose(period, Date.parse('2026-08-27T18:59:59.000Z')), false);
+        assert.equal(isAfterFillClose(period, Date.parse('2026-08-27T19:00:00Z')), true);
+    });
+
+    it('refreshOpenPeriodFillClose does not rewind a later promised close', async () => {
+        const { refreshOpenPeriodFillClose, periodWindowFromClaim } = require('../src/modules/claims/portalService');
+        let queried = false;
+        const pool = { query: async () => { queried = true; return { rows: [] }; } };
+        const w = periodWindowFromClaim(2026, 7);
+        const period = {
+            id: 3,
+            status: 'open',
+            fill_close_at: '2026-08-27T18:59:59.000Z',
+            approve_close_at: '2026-08-27T18:59:59.000Z',
+        };
+        const out = await refreshOpenPeriodFillClose(pool, period, w);
+        assert.equal(queried, false);
+        assert.equal(out.fill_close_at, period.fill_close_at);
+    });
+
     it('validateOtRow: OT Start/End required; 3× only on gazetted holidays; 2× always OK', () => {
         const period = { claim_month: 7, claim_year: 2026 };
 

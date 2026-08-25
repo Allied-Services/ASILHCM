@@ -14,6 +14,7 @@ import {
   attachmentsForSupportType,
   isMeaningfulOtRow,
 } from './claimsFillHelpers.js';
+import { buildClaimPeopleStory } from './claimsPeople.js';
 
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
 
@@ -156,7 +157,8 @@ export default function ClaimsFillPage() {
   const atts = (data?.attachments || []).filter((a) => sub && a.submission_id === sub.id);
   const pkHolidays = data?.pkHolidays || {};
   const summary = buildClaimSummary({ otRows, expRows, medRows, attachments: atts, pkHolidays });
-  const isSelfFinalApproved = locked && sub?.routing_profile === 'lm_only' && sub?.status === 'approved';
+  const isSelfFinalApproved = locked && ['lm_only', 'focal_only'].includes(sub?.routing_profile) && sub?.status === 'approved';
+  const people = sub ? buildClaimPeopleStory(sub) : null;
   const canEdit = !locked && !fillClosed;
   const canSubmit = !busy && canEdit && summary.supportBlockers.length === 0 && summary.totals.lineCount > 0;
 
@@ -386,11 +388,12 @@ export default function ClaimsFillPage() {
                 <p className="claims-muted claims-emp-meta">
                   {sub.employee_id} · {sub.client || '—'} · {sub.location || '—'}
                 </p>
+                {people && <ClaimPeopleCard story={people} />}
                 {locked && !justSubmitted && (
                   <Alert tone={isSelfFinalApproved ? 'good' : 'warn'}>
                     {isSelfFinalApproved
-                      ? 'Approved — this claim is final for the month and will pay with the following month’s salary. Contact ops-support@asil.com.pk if you need a correction before payroll.'
-                      : 'Locked after approval. Raise further claims next month.'}
+                      ? `${people.headline} It is locked for the following month’s salary. Contact ops-support@asil.com.pk if you need a correction before payroll.`
+                      : `${people.headline} Locked after approval. Raise further claims next month.`}
                   </Alert>
                 )}
 
@@ -602,7 +605,7 @@ export default function ClaimsFillPage() {
                         <p className="claims-body-sm">
                           Status: <strong>{statusLabel(sub.status)}</strong>.
                           {sub.status === 'submitted' && ' Your claim has been sent for approval. To make changes, contact ops-support@asil.com.pk before the deadline.'}
-                          {sub.status === 'approved' && ' This claim is approved and locked.'}
+                          {sub.status === 'approved' && ` ${people.headline} This claim is locked.`}
                         </p>
                       </Alert>
                     )}
@@ -780,6 +783,23 @@ function Shell({ children }) {
   );
 }
 
+function ClaimPeopleCard({ story }) {
+  if (!story) return null;
+  return (
+    <div className="claims-people">
+      <div className="claims-people-title">{story.headline}</div>
+      <dl className="claims-people-list">
+        {story.lines.map((row) => (
+          <div key={row.label} className="claims-people-row">
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function Alert({ children, tone, prominent }) {
   const cls = `claims-alert claims-alert-${tone}${prominent ? ' is-prominent' : ''}`;
   return <div className={cls}>{children}</div>;
@@ -868,5 +888,12 @@ const CLAIMS_FILL_CSS = `
 .claims-alert-bad { background: #fef2f2; border: 2px solid #fca5a5; color: #b91c1c; }
 .claims-alert.is-prominent { padding: 16px 18px; font-size: 15px; box-shadow: 0 4px 16px rgba(22,101,52,0.12); }
 .claims-success-title { font-weight: 800; font-size: 16px; margin-bottom: 6px; }
+.claims-people { margin: 10px 0 12px; padding: 12px 14px; border-radius: 10px; background: #eff6ff; border: 1px solid #bfdbfe; color: #0f172a; }
+.claims-people-title { font-weight: 700; font-size: 14px; line-height: 1.45; margin-bottom: 8px; }
+.claims-people-list { margin: 0; }
+.claims-people-row { display: grid; grid-template-columns: 148px 1fr; gap: 8px; font-size: 13px; line-height: 1.45; margin-top: 4px; }
+.claims-people-row dt { margin: 0; color: #64748b; font-weight: 600; }
+.claims-people-row dd { margin: 0; font-weight: 650; color: #0f172a; }
+@media (max-width: 560px) { .claims-people-row { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .claims-fill-grid { grid-template-columns: 1fr !important; } }
 `;

@@ -252,9 +252,11 @@ function periodWindowFromClaim(claimYear, claimMonth, policy = {}) {
         campaignYear = settlementYear;
     }
 
+    const deadlineMonth = payTiming === 'same_month' ? claimMonth : campaignMonth;
+    const deadlineYear = payTiming === 'same_month' ? claimYear : campaignYear;
     const fillOpen = pktDeadline(claimYear, claimMonth, FILL_OPEN_DAY, 9, 0, 0);
-    const fillClose = pktDeadline(claimYear, claimMonth, submitDay, 23, 59, 59);
-    const approveClose = pktDeadline(claimYear, claimMonth, approveDay, 23, 59, 59);
+    const fillClose = pktDeadline(deadlineYear, deadlineMonth, submitDay, 23, 59, 59);
+    const approveClose = pktDeadline(deadlineYear, deadlineMonth, approveDay, 23, 59, 59);
 
     return {
         claimMonth,
@@ -284,14 +286,31 @@ function periodWindowForClaimMonth(claimYear, claimMonth, policy = {}) {
     return periodWindowFromClaim(claimYear, claimMonth, policy);
 }
 
-function isAfterFillClose(period) {
-    if (isSamplePeriod(period)) return false;
-    return Date.now() > new Date(period.fill_close_at).getTime();
+const JULY_2026_TRIAL_CLOSE = pktDeadline(2026, 8, 27, 23, 59, 59);
+
+function effectiveCloseAt(stored, trialFloor) {
+    const storedMs = stored ? new Date(stored).getTime() : 0;
+    if (!Number.isFinite(storedMs)) return trialFloor || 0;
+    return trialFloor ? Math.max(storedMs, trialFloor) : storedMs;
 }
 
-function isAfterApproveClose(period) {
+function trialCloseFloorMs(period) {
+    if (isSamplePeriod(period) || !isJuly2026TrialPeriod(period)) return 0;
+    return JULY_2026_TRIAL_CLOSE.getTime();
+}
+
+function isAfterFillClose(period, nowMs = Date.now()) {
     if (isSamplePeriod(period)) return false;
-    return Date.now() > new Date(period.approve_close_at).getTime();
+    const closeAt = effectiveCloseAt(period?.fill_close_at, trialCloseFloorMs(period));
+    if (!closeAt) return false;
+    return nowMs > closeAt;
+}
+
+function isAfterApproveClose(period, nowMs = Date.now()) {
+    if (isSamplePeriod(period)) return false;
+    const closeAt = effectiveCloseAt(period?.approve_close_at, trialCloseFloorMs(period));
+    if (!closeAt) return false;
+    return nowMs > closeAt;
 }
 
 function formatPeriodBanner(period) {
@@ -303,6 +322,15 @@ function formatPeriodBanner(period) {
     const approveDay = period?.approve_deadline_day || APPROVE_CLOSE_DAY;
     const claimName = cm && cy ? `${MONTH_NAMES[cm] || cm} ${cy}` : 'this month';
     const settleName = sm && sy ? `${MONTH_NAMES[sm] || sm} ${sy}` : 'the following month';
+    if (isJuly2026TrialPeriod(period) && !isSamplePeriod(period)) {
+        return {
+            claimLabel: claimName,
+            settlementLabel: settleName,
+            submitBy: '27 August 2026, 11:59 PM',
+            approveBy: '27 August 2026, 11:59 PM',
+            payWith: `Approved amounts pay with your ${settleName} salary`,
+        };
+    }
     return {
         claimLabel: claimName,
         settlementLabel: settleName,
@@ -492,14 +520,43 @@ async function getOrCreatePeriod(pool, campaignMonth, campaignYear, policyOverri
 
 async function refreshOpenPeriodFillClose(pool, period, w) {
     if (!period || period.status !== 'open') return period;
+    const currentFill = period.fill_close_at ? new Date(period.fill_close_at).getTime() : 0;
+    const currentApprove = period.approve_close_at ? new Date(period.approve_close_at).getTime() : 0;
+    const nextFill = w.fillCloseAt.getTime();
+    const nextApprove = w.approveCloseAt.getTime();
+    // Never pull a promised window backward (campaign/preview used to rewind 27 Aug → 17 Jul).
+    if (currentFill >= nextFill && currentApprove >= nextApprove) return period;
+    const fillClose = new Date(Math.max(currentFill || 0, nextFill)).toISOString();
+    const approveClose = new Date(Math.max(currentApprove || 0, nextApprove)).toISOString();
     const { rows } = await pool.query(
         `UPDATE portal_claim_periods
-         SET fill_close_at = $2
+         SET fill_close_at = $2,
+             approve_close_at = $3
          WHERE id = $1 AND status = 'open'
          RETURNING *`,
-        [period.id, w.fillCloseAt.toISOString()]
+        [period.id, fillClose, approveClose]
     );
     return rows[0] || period;
+}
+
+async function extendJuly2026ClaimsWindow(pool, { fillDay = 27, approveDay = 27 } = {}) {
+    const fillClose = pktDeadline(2026, 8, fillDay, 23, 59, 59);
+    const approveClose = pktDeadline(2026, 8, approveDay, 23, 59, 59);
+    const { rows } = await pool.query(
+        `UPDATE portal_claim_periods
+         SET fill_close_at = $1,
+             approve_close_at = $2,
+             status = 'open'
+         WHERE claim_month = 7 AND claim_year = 2026
+           AND COALESCE(campaign_mode, 'actual') <> 'sample'
+         RETURNING id, claim_month, claim_year, fill_close_at, approve_close_at, campaign_mode, status`,
+        [fillClose.toISOString(), approveClose.toISOString()]
+    );
+    return { ok: true, periods: rows };
+}
+
+async function sendDeadlineExtensionNotice() {
+    return { ok: false, reason: 'live_send_not_in_this_change' };
 }
 
 async function getOrCreatePeriodForClaimMonth(pool, claimMonth, claimYear, policyOverride = null) {
@@ -748,8 +805,9 @@ async function openFillerSession(pool, token) {
     const fillClosed = isAfterFillClose({ ...batch, campaign_mode: periodRow.campaign_mode || batch.campaign_mode });
     const banner = formatPeriodBanner({
         ...batch,
-        submit_deadline_day: FILL_CLOSE_DAY,
-        approve_deadline_day: APPROVE_CLOSE_DAY,
+        campaign_mode: periodRow.campaign_mode || batch.campaign_mode,
+        submit_deadline_day: isJuly2026TrialPeriod(batch) ? 27 : FILL_CLOSE_DAY,
+        approve_deadline_day: isJuly2026TrialPeriod(batch) ? 27 : APPROVE_CLOSE_DAY,
     });
     const apiBase = process.env.API_PUBLIC_URL || 'https://asilhcm.onrender.com';
     const review = computeBatchTotals(submissions, items);
@@ -774,8 +832,8 @@ async function openFillerSession(pool, token) {
             approve_close_at: batch.approve_close_at,
             fill_closed: fillClosed,
             campaign_mode: periodRow.campaign_mode || 'actual',
-            submit_deadline_day: FILL_CLOSE_DAY,
-            approve_deadline_day: APPROVE_CLOSE_DAY,
+            submit_deadline_day: isJuly2026TrialPeriod(batch) ? 27 : FILL_CLOSE_DAY,
+            approve_deadline_day: isJuly2026TrialPeriod(batch) ? 27 : APPROVE_CLOSE_DAY,
             banner,
         },
         routing: {
@@ -2433,10 +2491,11 @@ async function notifyManualOverride(sendAppEmail, payload) {
 
 async function autoCloseNoClaims(pool) {
     const { rows: periods } = await pool.query(
-        `SELECT * FROM portal_claim_periods WHERE status = 'open' AND fill_close_at < NOW()`
+        `SELECT * FROM portal_claim_periods WHERE status = 'open'`
     );
     let updated = 0;
     for (const p of periods) {
+        if (!isAfterFillClose(p)) continue;
         const { rows } = await pool.query(
             `UPDATE portal_claim_submissions s
              SET status = 'no_claims',
@@ -2871,6 +2930,11 @@ module.exports = {
     periodWindowFromClaim,
     periodWindowForClaimMonth,
     formatPeriodBanner,
+    isAfterFillClose,
+    isAfterApproveClose,
+    refreshOpenPeriodFillClose,
+    extendJuly2026ClaimsWindow,
+    sendDeadlineExtensionNotice,
     validateOtRow,
     getPkDateType,
     listGazettedHolidayDates,
