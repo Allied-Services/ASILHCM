@@ -1,4 +1,4 @@
-import { computeOtHoursFromRow, formatIsoDateDdMmYyyy } from './claimsTimeParse.js';
+import { computeOtHoursFromRow, formatIsoDateDdMmYyyy, otRateHintForDate } from './claimsTimeParse.js';
 
 export const WIZARD_STEPS = ['ot', 'expense', 'medical', 'supports', 'review'];
 
@@ -56,9 +56,13 @@ export function countMeaningfulRows(rows, type) {
   return (rows || []).filter(isMeaningfulMoneyRow).length;
 }
 
-export function prepareItemsForSave(otRows, expRows, medRows, confirmNoClaims) {
+export function prepareItemsForSave(otRows, expRows, medRows, confirmNoClaims, holidayMap = {}) {
   if (confirmNoClaims) return [];
-  const otPrepared = syncOtHours(otRows);
+  const otPrepared = syncOtHours(otRows).map((r) => {
+    const hint = otRateHintForDate(r.claim_date, holidayMap);
+    if (!hint) return r;
+    return { ...r, ot_multiplier: hint.rate === 'Triple' ? 'Triple' : 'Double' };
+  });
   return [...otPrepared, ...(expRows || []), ...(medRows || [])].filter((r) => {
     if (r.claim_type === 'OT') return isMeaningfulOtRow(r);
     return isMeaningfulMoneyRow(r);
@@ -88,15 +92,19 @@ export function supportCategoryLabel(category) {
   return SUPPORT_CATEGORY_LABELS[String(category || '').toLowerCase()] || String(category || 'other');
 }
 
-export function buildClaimSummary({ otRows, expRows, medRows, attachments = [] }) {
+export function buildClaimSummary({ otRows, expRows, medRows, attachments = [], pkHolidays = {} }) {
   const otPrepared = syncOtHours(otRows);
-  const otLines = otPrepared.filter(isMeaningfulOtRow).map((r, idx) => ({
-    key: `ot-${idx}`,
-    type: 'OT',
-    date: formatIsoDateDdMmYyyy(r.claim_date),
-    detail: `${r.time_from || '—'} → ${r.time_to || '—'} · ${r.ot_hours || '?'}h`,
-    extra: r.nature || '',
-  }));
+  const otLines = otPrepared.filter(isMeaningfulOtRow).map((r, idx) => {
+    const hint = otRateHintForDate(r.claim_date, pkHolidays);
+    const rateLabel = r.ot_multiplier || hint?.rateLabel || '2×';
+    return {
+      key: `ot-${idx}`,
+      type: 'OT',
+      date: formatIsoDateDdMmYyyy(r.claim_date),
+      detail: `${r.time_from || '—'} → ${r.time_to || '—'} · ${r.ot_hours || '?'}h · ${rateLabel}`,
+      extra: [hint?.label, r.nature].filter(Boolean).join(' · ') || r.nature || '',
+    };
+  });
   const expenseLines = (expRows || []).filter(isMeaningfulMoneyRow).map((r, idx) => ({
     key: `exp-${idx}`,
     type: 'EXPENSE',

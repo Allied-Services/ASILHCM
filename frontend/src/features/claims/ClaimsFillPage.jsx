@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { validateOtRowClient } from './claimsTimeParse.js';
+import { validateOtRowClient, otRateHintForDate } from './claimsTimeParse.js';
 import {
   WIZARD_STEPS,
   STEP_LABELS,
@@ -146,7 +146,9 @@ export default function ClaimsFillPage() {
   const submittedLocked = sub && ['submitted', 'approved', 'in_payroll', 'no_claims'].includes(sub.status);
   const fillClosed = data?.period?.fill_closed;
   const atts = (data?.attachments || []).filter((a) => sub && a.submission_id === sub.id);
-  const summary = buildClaimSummary({ otRows, expRows, medRows, attachments: atts });
+  const pkHolidays = data?.pkHolidays || {};
+  const summary = buildClaimSummary({ otRows, expRows, medRows, attachments: atts, pkHolidays });
+  const isSelfFinalApproved = locked && sub?.routing_profile === 'lm_only' && sub?.status === 'approved';
   const canEdit = !locked && !fillClosed;
   const canSubmit = !busy && canEdit && summary.supportBlockers.length === 0 && summary.totals.lineCount > 0;
 
@@ -167,7 +169,7 @@ export default function ClaimsFillPage() {
         });
         if (clientErrors.length) throw new Error(clientErrors.join('\n'));
       }
-      const items = prepareItemsForSave(otPrepared, expRows, medRows, confirmNoClaims);
+      const items = prepareItemsForSave(otPrepared, expRows, medRows, confirmNoClaims, pkHolidays);
       const r = await fetch(`${API}/api/portal-claims/fill/${token}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -376,7 +378,13 @@ export default function ClaimsFillPage() {
                 <p className="claims-muted claims-emp-meta">
                   {sub.employee_id} · {sub.client || '—'} · {sub.location || '—'}
                 </p>
-                {locked && <Alert tone="warn">Locked after approval. Raise further claims next month.</Alert>}
+                {locked && !justSubmitted && (
+                  <Alert tone={isSelfFinalApproved ? 'good' : 'warn'}>
+                    {isSelfFinalApproved
+                      ? 'Approved — this claim is final for the month and will pay with the following month’s salary. Contact ops-support@asil.com.pk if you need a correction before payroll.'
+                      : 'Locked after approval. Raise further claims next month.'}
+                  </Alert>
+                )}
 
                 {wizardStep !== 'review' && (
                   <ClaimSummaryPanel
@@ -419,7 +427,9 @@ export default function ClaimsFillPage() {
                     {otRows.length === 0 && (
                       <p className="claims-muted">No overtime lines yet.</p>
                     )}
-                    {otRows.map((row, i) => (
+                    {otRows.map((row, i) => {
+                      const rateHint = otRateHintForDate(row.claim_date, pkHolidays);
+                      return (
                       <div key={`ot-${i}`} className="claims-row-card">
                         <div className="claims-row-head">
                           <strong>OT line {i + 1}</strong>
@@ -450,8 +460,11 @@ export default function ClaimsFillPage() {
                             <input disabled={!canEdit} value={row.nature} onChange={(e) => updateOtRow(i, { nature: e.target.value })} className="claims-inp" />
                           </Field>
                         </Row>
+                        {rateHint && (rateHint.tone === 'sunday' || rateHint.tone === 'holiday') && (
+                          <p className={`claims-ot-rate-hint claims-ot-rate-hint--${rateHint.tone}`}>{rateHint.message}</p>
+                        )}
                       </div>
-                    ))}
+                    );})}
                     {canEdit && (
                       <div className="claims-actions">
                         <button type="button" onClick={() => { markRowsDirty(); setOtRows((r) => [...r, emptyOt()]); }} className="claims-btn-ghost">+ Add another OT line</button>
@@ -830,7 +843,9 @@ const CLAIMS_FILL_CSS = `
 .claims-file-input { display: block; margin-top: 6px; }
 .claims-support-groups { display: grid; gap: 12px; margin-top: 10px; }
 .claims-support-group { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; background: #f8fafc; }
-.claims-required { color: #b91c1c; }
+.claims-ot-rate-hint { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.45; }
+.claims-ot-rate-hint--sunday { background: #eff6ff; border: 1px solid #93c5fd; color: #1e40af; }
+.claims-ot-rate-hint--holiday { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; }
 .claims-attach-list, .claims-how-list { margin: 0; padding-left: 18px; color: #334155; font-size: 13px; line-height: 1.6; }
 .claims-section { margin-top: 8px; }
 .claims-section-title { font-weight: 700; font-size: 14px; margin-bottom: 10px; }

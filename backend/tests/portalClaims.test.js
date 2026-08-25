@@ -133,4 +133,17 @@ describe('portalClaims helpers', () => {
             'medical_support'
         );
     });
+
+    it('validateOtRow upgrades gazetted holiday Double input to Triple', () => {
+        const period = { claim_month: 8, claim_year: 2026 };
+        const aug14 = validateOtRow({
+            claim_date: '2026-08-14',
+            ot_multiplier: 'Double',
+            time_from: '5:00 PM',
+            time_to: '7:00 PM',
+        }, period);
+        assert.equal(aug14.errors.length, 0, aug14.errors.join('; '));
+        assert.equal(aug14.factor, 3);
+        assert.equal(aug14.ot_multiplier, 'Triple');
+    });
 });
