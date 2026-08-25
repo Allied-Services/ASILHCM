@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { validateOtRowClient, otRateHintForDate } from './claimsTimeParse.js';
 import {
-  WIZARD_STEPS,
+  buildWizardSteps,
   STEP_LABELS,
   nextStep,
   prevStep,
@@ -126,7 +126,11 @@ export default function ClaimsFillPage() {
       hydrateRowsFromServer(data, selected);
     }
     if (employeeChanged) {
-      setWizardStep('ot');
+      const steps = buildWizardSteps(
+        data.submissions?.find((s) => s.employee_id === selected)?.enabled_types
+          || data.contractPack?.enabled_types,
+      );
+      setWizardStep(steps[0] || 'review');
       prevSelectedRef.current = selected;
       rowsDirtyRef.current = false;
     }
@@ -142,6 +146,10 @@ export default function ClaimsFillPage() {
   };
 
   const sub = data?.submissions?.find((s) => s.employee_id === selected);
+  const wizardSteps = useMemo(
+    () => buildWizardSteps(sub?.enabled_types || data?.contractPack?.enabled_types),
+    [sub?.enabled_types, data?.contractPack?.enabled_types],
+  );
   const locked = sub && ['approved', 'in_payroll'].includes(sub.status);
   const submittedLocked = sub && ['submitted', 'approved', 'in_payroll', 'no_claims'].includes(sub.status);
   const fillClosed = data?.period?.fill_closed;
@@ -396,7 +404,7 @@ export default function ClaimsFillPage() {
                 )}
 
                 <div className="claims-steps" role="tablist" aria-label="Claim entry steps">
-                  {WIZARD_STEPS.map((s, i) => {
+                  {wizardSteps.map((s, i) => {
                     const count = stepCounts[s];
                     const done = s === 'review'
                       ? summary.totals.lineCount > 0
@@ -473,7 +481,7 @@ export default function ClaimsFillPage() {
                         )}
                       </div>
                     )}
-                    <StepNavButtons step="ot" setStep={setWizardStep} canEdit={canEdit} />
+                    <StepNavButtons step="ot" steps={wizardSteps} setStep={setWizardStep} canEdit={canEdit} />
                   </Section>
                 )}
 
@@ -500,7 +508,7 @@ export default function ClaimsFillPage() {
                         <button type="button" onClick={() => { markRowsDirty(); setExpRows((r) => [...r, emptyExp()]); }} className="claims-btn-ghost">+ Add expense line</button>
                       </div>
                     )}
-                    <StepNavButtons step="expense" setStep={setWizardStep} canEdit={canEdit} />
+                    <StepNavButtons step="expense" steps={wizardSteps} setStep={setWizardStep} canEdit={canEdit} />
                   </Section>
                 )}
 
@@ -528,7 +536,7 @@ export default function ClaimsFillPage() {
                         <button type="button" onClick={() => { markRowsDirty(); setMedRows((r) => [...r, emptyMed()]); }} className="claims-btn-ghost">+ Add medical line</button>
                       </div>
                     )}
-                    <StepNavButtons step="medical" setStep={setWizardStep} canEdit={canEdit} />
+                    <StepNavButtons step="medical" steps={wizardSteps} setStep={setWizardStep} canEdit={canEdit} />
                   </Section>
                 )}
 
@@ -568,7 +576,7 @@ export default function ClaimsFillPage() {
                       </div>
                     )}
                     <SupportFilesList summary={summary} />
-                    <StepNavButtons step="supports" setStep={setWizardStep} onGoReview={goToReview} canEdit={canEdit} nextLabel="Continue to Review" />
+                    <StepNavButtons step="supports" steps={wizardSteps} setStep={setWizardStep} onGoReview={goToReview} canEdit={canEdit} nextLabel="Continue to Review" />
                   </Section>
                 )}
 
@@ -710,20 +718,24 @@ function SupportFilesList({ summary, compact = false }) {
   );
 }
 
-function StepNavButtons({ step, setStep, onGoReview, canEdit, nextLabel }) {
+function StepNavButtons({ step, steps, setStep, onGoReview, canEdit, nextLabel }) {
   if (!canEdit) return null;
-  const isFirst = stepIndex(step) === 0;
-  const isLast = step === 'supports';
+  const wizardSteps = steps || buildWizardSteps();
+  const isFirst = stepIndex(step, wizardSteps) === 0;
+  const reviewIdx = wizardSteps.indexOf('review');
+  const preReview = reviewIdx > 0 ? wizardSteps[reviewIdx - 1] : 'review';
+  const isLast = step === preReview;
   const handleNext = () => {
     if (step === 'supports' && onGoReview) onGoReview();
-    else setStep(nextStep(step));
+    else if (isLast && onGoReview) onGoReview();
+    else setStep(nextStep(step, wizardSteps));
   };
   return (
     <div className="claims-step-nav">
       {!isFirst && (
-        <button type="button" className="claims-btn-ghost" onClick={() => setStep(prevStep(step))}>← Back</button>
+        <button type="button" className="claims-btn-ghost" onClick={() => setStep(prevStep(step, wizardSteps))}>← Back</button>
       )}
-      {!isLast && (
+      {!isLast && step !== 'review' && (
         <button type="button" className="claims-btn-primary" onClick={handleNext}>
           {nextLabel || 'Continue →'}
         </button>
@@ -753,7 +765,7 @@ function statusLabel(s) {
     submitted: 'Submitted — waiting approval',
     approved: 'Approved',
     rejected: 'Rejected',
-    no_claims: 'No claims',
+    no_claims: 'No Claims confirmed',
     in_payroll: 'In payroll',
   };
   return map[s] || s;

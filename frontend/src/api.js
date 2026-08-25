@@ -699,6 +699,7 @@ export const api = {
     portalClaimsEmployeeCategory: (id) => apiFetch(`/api/portal-claims/employee/${encodeURIComponent(id)}/category`),
     getClaimsPolicy: (contractId) => apiFetch(`/api/claims/policy/${encodeURIComponent(contractId)}`),
     updateClaimsPolicy: (contractId, d) => apiFetch(`/api/claims/policy/${encodeURIComponent(contractId)}`, { method: 'PUT', body: JSON.stringify(d) }),
+    portalClaimsPeopleBulkUpdate: (data) => apiFetch('/api/portal-claims/people/bulk-update', { method: 'POST', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
     getReceipts: (q = {}) => apiFetch('/api/ar/receipts?' + new URLSearchParams(q).toString()),
 
   // ── Xero bill import / billable invoicing ────────────────────────────────────

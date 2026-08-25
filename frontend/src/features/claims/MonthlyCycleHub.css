@@ -1,0 +1,203 @@
+/* Monthly Cycle hub — extends Portal Claims layout tokens */
+
+.mch-root {
+  padding: 1.25rem 1.5rem 2rem;
+  max-width: 1400px;
+}
+
+.mch-header {
+  margin-bottom: 1.25rem;
+}
+
+.mch-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.mch-title-row h1 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.mch-title-row p {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.mch-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.mch-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-dark);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.mch-nav-btn.is-on {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--text);
+}
+
+.mch-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.mch-lead {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+  max-width: 720px;
+}
+
+.mch-form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.mch-form-grid-2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.mch-form-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.mch-form-grid label,
+.mch-block label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mch-form-grid select,
+.mch-form-grid input,
+.mch-block select {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-dark);
+  color: var(--text);
+}
+
+.mch-block {
+  margin: 1rem 0;
+  padding: 1rem;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px solid var(--border);
+}
+
+.mch-block h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.mch-check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.5rem;
+}
+
+.mch-check {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.mch-check input {
+  margin-top: 0.2rem;
+}
+
+.mch-check .hint {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.mch-check-inline {
+  margin: 0.75rem 0 1rem;
+}
+
+.mch-muted {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin: 0 0 1rem;
+}
+
+.mch-people-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.mch-people-table-wrap {
+  overflow: auto;
+  max-height: 480px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.mch-people-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.mch-people-table th,
+.mch-people-table td {
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.mch-people-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-dark);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.mch-badge-warn {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  font-size: 0.72rem;
+}
+
+@media (max-width: 900px) {
+  .mch-form-grid-2,
+  .mch-form-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}

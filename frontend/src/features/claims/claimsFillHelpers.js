@@ -10,19 +10,33 @@ export const STEP_LABELS = {
   review: 'Review & Confirm',
 };
 
-export function stepIndex(step) {
-  const i = WIZARD_STEPS.indexOf(step);
+const TYPE_TO_STEP = { OT: 'ot', EXPENSE: 'expense', MEDICAL: 'medical' };
+
+/** Build wizard steps from contract enabled_types (ATTENDANCE excluded until PSO phase). */
+export function buildWizardSteps(enabledTypes = ['OT', 'EXPENSE', 'MEDICAL']) {
+  const types = (enabledTypes || []).map((t) => String(t || '').trim().toUpperCase());
+  const steps = [];
+  if (types.includes('OT')) steps.push('ot');
+  if (types.includes('EXPENSE')) steps.push('expense');
+  if (types.includes('MEDICAL')) steps.push('medical');
+  if (steps.some((s) => s === 'expense' || s === 'medical')) steps.push('supports');
+  steps.push('review');
+  return steps;
+}
+
+export function stepIndex(step, steps = WIZARD_STEPS) {
+  const i = steps.indexOf(step);
   return i >= 0 ? i : 0;
 }
 
-export function nextStep(step) {
-  const i = stepIndex(step);
-  return WIZARD_STEPS[Math.min(i + 1, WIZARD_STEPS.length - 1)];
+export function nextStep(step, steps = WIZARD_STEPS) {
+  const i = stepIndex(step, steps);
+  return steps[Math.min(i + 1, steps.length - 1)];
 }
 
-export function prevStep(step) {
-  const i = stepIndex(step);
-  return WIZARD_STEPS[Math.max(i - 1, 0)];
+export function prevStep(step, steps = WIZARD_STEPS) {
+  const i = stepIndex(step, steps);
+  return steps[Math.max(i - 1, 0)];
 }
 
 export function isMeaningfulOtRow(row) {

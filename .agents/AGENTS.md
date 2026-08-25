@@ -12,6 +12,7 @@ You are the **Principal Autonomous Software Engineer** on an Enterprise HCM & Pa
 - **Primary Objective:** Protect production uptime, database integrity, and payroll calculation accuracy for ~500 active employees.
 - **Live production URLs are always at risk.** Every `git push main` auto-deploys to Render production. Remediation work uses the **`staging` git branch** and Render services documented in `render.yaml` / `docs/STAGING_SETUP.md`. Merge to `main` only after staging verification.
 - **Authoritative Documentation:** Always read `ARCHITECTURE.md` (root) and `.agents/REMEDIATION_PLAN.md` before writing any backend code. Operational guardrails live in this file (`.agents/AGENTS.md`).
+- **One folder per agent:** NEVER build in the owner's folder (`C:\Projects\HCM\BPOFMSystem`) and never switch its branch. It belongs to the owner's Cursor window. Get your own working folder first: `npm run wt:new -- <short-slug>` (creates `C:\Projects\.agents\<slug>` on `agent/<slug>` off `origin/main`), work only there, and run `npm run tidy` once the PR is merged. Two agents in one folder = one silently destroys the other's uncommitted work. `npm run wt` shows who holds what.
 
 ---
 
@@ -308,6 +309,11 @@ A task is NOT complete until:
 ## SECTION 10 — Claude Code Session Changelog
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
+
+### 2026-08-25 — Monthly Cycle hub (contract pack + people assignment)
+New staff tab **Monthly Cycle** (`monthly_cycle`): Setup (per-contract enabled claim types, collection mode, deadlines), People (bulk Claimer/Reviewer/Approver on `employees`), Collect/Track/Payroll (reuses Portal Claims engine). Migration `20260825230000_monthly_cycle_contract_pack.js` extends `contract_claim_policies` + `employees.claims_reviewer_email`. Fill wizard and `saveSubmissionItems` honor `enabled_types`. Wafi seeded `{OT,EXPENSE,MEDICAL}`. Legacy tabs unchanged.
+
+**Env vars needed:** none new. Run `npm run migrate` on deploy target.
 
 ### 2026-08-25 — Applied Rabia 25 Aug Wafi contacts to production (Red)
 MD phrase: `Go red: apply the 25 Aug Wafi contact CSV to production employees`. `--scope=file --apply --allow-production`: matched 303, applied 303, insert 0, delete 0, apply_errors 0. Second dry-run would_update=0. Proof: Ahmad Hussain Focal set + personal mail; Amjad Shaikh LM `m.aamir@wafi-energy.com` and no Focal. Salary/bank not written.
