@@ -2,8 +2,8 @@
 
 const {
     countEligibleEmployees,
-    resolveClaimsCategory,
 } = require('./claimsEligibility');
+const { SADIA_SETUP_EMAIL } = require('../employees/contactEmails');
 const {
     stableFillerToken,
     hashToken,
@@ -21,7 +21,9 @@ function buildShortFillerInviteHtml({
     const empList = (employees || [])
         .map(e => `<li style="margin:4px 0"><strong>${e.id || ''}</strong> — ${e.name || 'Employee'}</li>`)
         .join('');
-    const dest = routingProfile === 'focal_only'
+    const dest = routingProfile === 'lm_only'
+        ? 'You add the claims and they are treated as <strong>final</strong> — no Focal and no employee Wafi/ASIL mailbox on file.'
+        : routingProfile === 'focal_only'
         ? 'You are the <strong>final approver</strong> — no Line Manager on file.'
         : approverSummary
             ? `After you submit, <strong>${approverSummary}</strong> will review and approve.`
@@ -45,6 +47,60 @@ ${empList ? `<ul style="margin:0 0 16px;padding-left:20px;font-size:14px">${empL
 <p style="margin:0 0 18px"><a href="${link}" style="display:inline-block;background:#2563eb;color:#fff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700">Open claims form</a></p>
 <p style="font-size:12px;color:#64748b;word-break:break-all">${link}</p>
 </td></tr></table></td></tr></table></body></html>`;
+}
+
+function setupNeededLink(FRONTEND_URL) {
+    const base = String(FRONTEND_URL || 'https://asil-hcm-frontend.onrender.com').replace(/\/$/, '');
+    return `${base}/?tab=claims_portal&setup_needed=1`;
+}
+
+function buildSetupNeededHtml({ period, people, link }) {
+    const claimLabel = `${period.claim_month}/${period.claim_year}`;
+    const rows = (people || []).map((p) => `<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">${p.name || ''}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">${p.employee_id || p.id || ''}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">${p.client || ''}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">${p.contract_name || ''}</td>
+    </tr>`).join('');
+    return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" style="padding:24px"><tr><td align="center">
+<table role="presentation" width="720" style="max-width:720px;background:#fff;border-radius:14px;padding:28px;border:1px solid #e2e8f0">
+<h2 style="margin:0 0 8px">Portal Claims — setup needed</h2>
+<p style="line-height:1.55;color:#334155">These people have <strong>no Focal</strong>, <strong>no Wafi or asil.com.pk employee mailbox</strong>, and <strong>no Line Manager</strong> for <strong>${claimLabel}</strong>. Claims cannot be gathered until you add Focal, LM, or a work mailbox on the roster.</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0">
+<thead><tr style="text-align:left;color:#64748b">
+<th style="padding:6px 8px">Name</th><th style="padding:6px 8px">Code</th><th style="padding:6px 8px">Client</th><th style="padding:6px 8px">Contract</th>
+</tr></thead>
+<tbody>${rows || '<tr><td colspan="4">None</td></tr>'}</tbody>
+</table>
+<p style="margin:18px 0"><a href="${link}" style="background:#2563eb;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700">Open Portal Claims (Setup needed)</a></p>
+<p style="font-size:12px;color:#64748b">${link}</p>
+</table></td></tr></table></body></html>`;
+}
+
+function buildSetupNeededPayload({ period, people, FRONTEND_URL }) {
+    const link = setupNeededLink(FRONTEND_URL);
+    const mail = safeOutboundEmail(period, SADIA_SETUP_EMAIL, 'Setup needed');
+    const html = sampleBodyBanner(period, SADIA_SETUP_EMAIL, 'Setup needed')
+        + buildSetupNeededHtml({ period, people, link });
+    const subject = `${sampleSubjectPrefix(period, 'Setup needed')}Portal Claims setup needed — ${people.length} employee(s) · ${period.claim_month}/${period.claim_year}`;
+    return {
+        mail,
+        html,
+        subject,
+        link,
+        cc: getClaimsMonitorCc(),
+        fillerEmail: SADIA_SETUP_EMAIL,
+    };
+}
+
+function filterSetupNeeded(skipped, { onlyEmployeeIds } = {}) {
+    let rows = (skipped || []).filter((s) => s.category === 'setup_needed');
+    if (onlyEmployeeIds && onlyEmployeeIds.length) {
+        const set = new Set(onlyEmployeeIds.map((x) => String(x)));
+        rows = rows.filter((s) => set.has(String(s.employee_id)));
+    }
+    return rows;
 }
 
 function buildEmployeeInviteHtml({ period, link, employeeName, employeeId, approverEmail, roleLabel, intendedEmail }) {
@@ -337,6 +393,71 @@ async function createCampaignAugust(pool, {
         }
     }
 
+    const setupPeople = testPackFour
+        ? []
+        : filterSetupNeeded(skipped, { onlyEmployeeIds });
+    let setupNotify = null;
+    if (setupPeople.length) {
+        const setupPayload = buildSetupNeededPayload({ period, people: setupPeople, FRONTEND_URL });
+        if (preview) {
+            recipients.push({
+                fillerEmail: SADIA_SETUP_EMAIL,
+                mailTo: setupPayload.mail.to,
+                sampleRedirect: !!setupPayload.mail.sample,
+                roleLabel: 'Setup needed',
+                cohortType: 'ops',
+                routingProfile: 'setup_needed',
+                approverEmail: null,
+                employeeCount: setupPeople.length,
+                employees: setupPeople.map((s) => ({
+                    id: s.employee_id,
+                    name: s.name,
+                    client: s.client || '',
+                    location: '',
+                    contract_id: '',
+                    contract_name: s.contract_name || '',
+                    dept: s.dept || '',
+                    filler_email: SADIA_SETUP_EMAIL,
+                    approver_email: null,
+                    routing_profile: 'setup_needed',
+                    claims_category: 'Setup needed',
+                    cohort_type: 'ops',
+                })),
+                subject: setupPayload.subject,
+                link: setupPayload.link,
+                html: setupPayload.html,
+                cc: setupPayload.cc,
+                template: 'setup_needed',
+            });
+        } else if (!dryRun && sendAppEmail) {
+            try {
+                await sendAppEmail({
+                    to: setupPayload.mail.to,
+                    subject: setupPayload.subject,
+                    html: setupPayload.html,
+                    cc: setupPayload.cc,
+                });
+                setupNotify = { ok: true, to: setupPayload.mail.to, employeeCount: setupPeople.length, link: setupPayload.link };
+            } catch (err) {
+                setupNotify = { ok: false, to: setupPayload.mail.to, error: err.message, employeeCount: setupPeople.length };
+            }
+        } else {
+            setupNotify = { ok: true, dryRun: !!dryRun, to: setupPayload.mail.to, employeeCount: setupPeople.length, link: setupPayload.link };
+        }
+        if (setupNotify) {
+            invites.push({
+                fillerEmail: SADIA_SETUP_EMAIL,
+                ok: setupNotify.ok !== false,
+                employeeCount: setupPeople.length,
+                roleLabel: 'Setup needed',
+                cohortType: 'ops',
+                routingProfile: 'setup_needed',
+                mailTo: setupPayload.mail.to,
+                link: setupPayload.link,
+            });
+        }
+    }
+
     if (!dryRun && !preview) {
         await pool.query(
             `UPDATE portal_claim_periods SET eligibility_snapshot = $2::jsonb WHERE id = $1`,
@@ -349,6 +470,8 @@ async function createCampaignAugust(pool, {
         invites,
         recipients,
         skipped,
+        setupNeeded: setupPeople,
+        setupNotify,
         fillerCount: byFiller.size,
         employeeCount: filtered.length,
         campaignMode: period.campaign_mode,
@@ -406,6 +529,10 @@ module.exports = {
     buildShortFillerInviteHtml,
     buildEmployeeInviteHtml,
     buildInvitePayload,
+    buildSetupNeededHtml,
+    buildSetupNeededPayload,
+    filterSetupNeeded,
     summarizeRecipients,
     isSamplePeriod,
+    SADIA_SETUP_EMAIL,
 };

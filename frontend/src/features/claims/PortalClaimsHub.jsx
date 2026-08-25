@@ -11,6 +11,7 @@ const MONTHS = [
 const CONTROL_LABEL = {
   waiting_focal: 'Waiting for Focal',
   waiting_lm: 'Waiting for LM',
+  waiting_lm_fill: 'Waiting LM to add claims',
   final_lm_review: 'Final LM review',
   ready_for_payroll: 'Ready for Payroll',
   sent_to_payroll: 'Sent to Payroll',
@@ -80,7 +81,9 @@ export default function PortalClaimsHub({ user }) {
   const [client, setClient] = useState('');
   const [contract, setContract] = useState('');
   const [location, setLocation] = useState('');
-  const [section, setSection] = useState('response');
+  const [section, setSection] = useState(() => (
+    new URLSearchParams(window.location.search).get('setup_needed') === '1' ? 'request' : 'response'
+  ));
   const [filter, setFilter] = useState('needs_action');
   const [selected, setSelected] = useState(() => new Set());
   const [pushPreview, setPushPreview] = useState(null);

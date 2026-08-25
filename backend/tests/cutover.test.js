@@ -84,11 +84,11 @@ describe('portal Wafi approver resolution', () => {
 });
 
 describe('wafi roster refresh parse', () => {
-    test('resolveEmail prefers official over personal', () => {
+    test('resolveEmail prefers personal over official', () => {
         expect(resolveEmail({
             'Official Email Address': 'work@wafi.com',
             'Personal Email Address': 'home@gmail.com',
-        })).toBe('work@wafi.com');
+        })).toBe('home@gmail.com');
         expect(resolveEmail({
             'Official Email Address': 'N/A',
             'Personal Email Address': 'home@gmail.com',
@@ -116,7 +116,7 @@ describe('wafi roster refresh parse', () => {
         expect(m.email).toBe('test@example.com');
         expect(m.line_manager_email).toBe('lm@wafi.com');
         expect(m.claim_authority).toBe('focal@wafi.com');
-        expect(m.supervisor_email).toBeUndefined();
+        expect(m.supervisor_email).toBe(null);
         expect(m.salary).toBe(87416);
     });
 

@@ -9,6 +9,7 @@ const {
     toNumberOrNull,
     toDateOrNull,
 } = require('./masterRoster');
+const { isUsableEmail, emailsEqual } = require('./contactEmails');
 
 const WAFI_CLIENT_MARKERS = ['wafi'];
 const INSURANCE_FIELDS = [
@@ -66,12 +67,28 @@ function pickCell(row, ...keys) {
     return null;
 }
 
+/**
+ * Employee mailbox for payslips (personal OK). Official is used only when it is
+ * not the focal's address — otherwise leave unset so payslips go to focal only
+ * and Portal Claims never treat the focal inbox as the employee's.
+ *
+ * @returns {string|null|undefined} address, null to clear (official == focal),
+ *   undefined when the roster has no employee mailbox columns filled.
+ */
 function resolveEmail(row) {
-    const official = pickCell(row, 'Official Email Address', 'Official Email');
-    if (official && !/^n\/?a$/i.test(official)) return official.toLowerCase();
-    const personal = pickCell(row, 'Personal Email Address', 'Personal Email', 'Email Address', 'Email');
-    if (personal && !/^n\/?a$/i.test(personal)) return personal.toLowerCase();
-    return null;
+    const personal = isUsableEmail(pickCell(row, 'Personal Email Address', 'Personal Email'));
+    if (personal) return personal.toLowerCase();
+    const official = isUsableEmail(pickCell(row, 'Official Email Address', 'Official Email'));
+    if (!official) return undefined;
+    const focal = isUsableEmail(pickCell(
+        row,
+        'Focal/ Supervisor Email',
+        'Focal/ Supervisor *',
+        'Claim Authority',
+        'Supervisor Email'
+    ));
+    if (focal && emailsEqual(official, focal)) return null;
+    return official.toLowerCase();
 }
 
 function isWafiRow(row) {
@@ -128,7 +145,7 @@ function mapCsvRowToDb(row) {
     mapped.claim_authority = focalEmail;
 
     const email = resolveEmail(row);
-    if (email) mapped.email = email;
+    if (email !== undefined) mapped.email = email;
 
     const salaryRaw = cleanCell(pickCell(row, 'Salary', 'Base Salary', 'Gross Salary'));
     if (salaryRaw != null) {

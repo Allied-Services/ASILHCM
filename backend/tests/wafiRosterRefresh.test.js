@@ -9,6 +9,43 @@ describe('wafiRosterRefresh routing fields', () => {
     });
 });
 
+describe('wafi roster email mapping', () => {
+    const { resolveEmail, mapCsvRowToDb } = require('../src/modules/employees/wafiRosterRefresh');
+
+    test('prefers personal email over official', () => {
+        expect(resolveEmail({
+            'Personal Email Address': 'emp@gmail.com',
+            'Official Email Address': 'Akhtar.Ali@wafi-energy.com',
+            'Focal/ Supervisor Email': 'Akhtar.Ali@wafi-energy.com',
+        })).toBe('emp@gmail.com');
+    });
+
+    test('does not store official when it is the focal inbox', () => {
+        expect(resolveEmail({
+            'Personal Email Address': '-',
+            'Official Email Address': 'Akhtar.Ali@wafi-energy.com',
+            'Focal/ Supervisor Email': 'Akhtar.Ali@wafi-energy.com',
+        })).toBe(null);
+        const mapped = mapCsvRowToDb({
+            'ASIL Employee Code': 'ASIL/SPL-1/21',
+            'Personal Email Address': '-',
+            'Official Email Address': 'Akhtar.Ali@wafi-energy.com',
+            'Focal/ Supervisor Email': 'Akhtar.Ali@wafi-energy.com',
+        });
+        expect(mapped.email).toBe(null);
+        expect(mapped.claim_authority).toBe('Akhtar.Ali@wafi-energy.com');
+        expect(mapped.supervisor_email).toBe(null);
+    });
+
+    test('keeps a distinct official work mailbox', () => {
+        expect(resolveEmail({
+            'Personal Email Address': '',
+            'Official Email Address': 'emp@wafi-energy.com',
+            'Focal/ Supervisor Email': 'focal@wafi-energy.com',
+        })).toBe('emp@wafi-energy.com');
+    });
+});
+
 describe('wafi roster delta flags', () => {
     const { compareRow } = require('../src/modules/employees/wafiRosterRefresh');
 

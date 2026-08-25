@@ -163,7 +163,10 @@ function App() {
   const cmmsPath = pathname === '/cmms' || pathname === '/cmms/' || pathname === '/cmms.html';
   const payslipLinkMatch = pathname.match(/^\/p\/([^/]+)\/?$/);
 
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    const t = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('tab');
+    return t || 'dashboard';
+  });
   const [showESS, setShowESS] = useState(false);
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -187,7 +190,14 @@ function App() {
 
     if (urlError) { setAuthError(urlError); setAuthReady(true); window.history.replaceState({}, '', '/'); return undefined; }
 
-    if (urlToken) { localStorage.setItem('asil_hcm_token', urlToken); window.history.replaceState({}, '', '/'); }
+    if (urlToken) {
+      localStorage.setItem('asil_hcm_token', urlToken);
+      const keep = new URLSearchParams();
+      if (params.get('tab')) keep.set('tab', params.get('tab'));
+      if (params.get('setup_needed')) keep.set('setup_needed', params.get('setup_needed'));
+      const qs = keep.toString();
+      window.history.replaceState({}, '', qs ? `/?${qs}` : '/');
+    }
 
     const token = urlToken || localStorage.getItem('asil_hcm_token');
     if (!token) { setAuthReady(true); return undefined; }

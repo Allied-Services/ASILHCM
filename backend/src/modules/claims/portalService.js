@@ -21,6 +21,7 @@ const {
     countEligibleEmployees,
     resolveClaimsCategory,
     resolveClaimsRouting,
+    isFinalSubmitProfile,
     listRules,
     upsertRule,
     previewRuleMatch,
@@ -711,8 +712,8 @@ async function openFillerSession(pool, token) {
     const review = computeBatchTotals(submissions, items);
     const uniqueApprovers = [...new Set(submissions.map(s => s.approver_email).filter(Boolean))];
     const routingProfile = batch.routing_profile || 'focal_then_lm';
-    const submitDestination = routingProfile === 'focal_only'
-        ? { type: 'final', label: 'You are the final approver' }
+    const submitDestination = isFinalSubmitProfile(routingProfile)
+        ? { type: 'final', label: routingProfile === 'lm_only' ? 'You add claims and they are final' : 'You are the final approver' }
         : uniqueApprovers.length === 1
             ? { type: 'lm', label: uniqueApprovers[0] }
             : { type: 'multi', label: `${uniqueApprovers.length} Line Managers` };
@@ -2566,7 +2567,7 @@ async function sendSubmitRecordEmail(pool, sendAppEmail, batch, period) {
     );
     const review = computeBatchTotals(subs, items);
     const mail = resolveOutboundEmail(period, batch.filler_email, { roleLabel: 'Focal record' });
-    const dest = batch.routing_profile === 'focal_only' ? 'You are final — no further approval.' : `Submitted to: ${subs[0]?.approver_email || 'Line Manager'}`;
+    const dest = isFinalSubmitProfile(batch.routing_profile) ? 'You are final — no further approval.' : `Submitted to: ${subs[0]?.approver_email || 'Line Manager'}`;
     const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px">
 <div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:24px;border:1px solid #e2e8f0">
 <h2>Claims submission record</h2>
@@ -2583,7 +2584,7 @@ async function sendSubmitRecordEmail(pool, sendAppEmail, batch, period) {
 }
 
 async function autoApproveFocalOnly(pool, batch, sendAppEmail) {
-    if (batch.routing_profile !== 'focal_only') return { autoApproved: 0 };
+    if (!isFinalSubmitProfile(batch.routing_profile)) return { autoApproved: 0 };
     const { rows: subs } = await pool.query(
         `SELECT * FROM portal_claim_submissions WHERE batch_id = $1 AND status = 'submitted'`,
         [batch.id]

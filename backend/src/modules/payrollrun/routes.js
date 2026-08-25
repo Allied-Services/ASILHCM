@@ -3,6 +3,7 @@
 const { handleRouteError } = require('../../core/validate');
 const { getInvoiceChallanStatus } = require('../compliance/service');
 const { renderPayslipHtml, renderInvoiceHtml } = require('./payslip');
+const { resolvePayslipRecipients } = require('../employees/contactEmails');
 const {
     computeRunForContract,
     getPayrollRuns,
@@ -173,7 +174,8 @@ function registerPayrollRunRoutes(app, deps) {
             let sent = 0;
             let skipped = 0;
             for (const row of prRows) {
-                if (!row.email) { skipped += 1; continue; }
+                const destEmails = resolvePayslipRecipients(row);
+                if (!destEmails.length) { skipped += 1; continue; }
                 const computed = parseJsonField(row.computed, {});
                 const html = renderPayslipHtml({
                     emp: row,
@@ -185,7 +187,7 @@ function registerPayrollRunRoutes(app, deps) {
                 });
                 if (sendAppEmail) {
                     await sendAppEmail({
-                        to: row.email,
+                        to: destEmails,
                         subject: `Salary slip — ${run.period_month}/${run.period_year}`,
                         html,
                     }).catch(() => { skipped += 1; return; });

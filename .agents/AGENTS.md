@@ -309,6 +309,21 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-08-25 — Applied Rabia 25 Aug Wafi contacts to production (Red)
+MD phrase: `Go red: apply the 25 Aug Wafi contact CSV to production employees`. `--scope=file --apply --allow-production`: matched 303, applied 303, insert 0, delete 0, apply_errors 0. Second dry-run would_update=0. Proof: Ahmad Hussain Focal set + personal mail; Amjad Shaikh LM `m.aamir@wafi-energy.com` and no Focal. Salary/bank not written.
+
+**Env vars needed:** none.
+
+### 2026-08-25 — Portal Claims LM only + Sadia setup-needed + Wafi contact file
+Routing: Employee+LM requires `@wafi-energy.com` or `@asil.com.pk`. Gmail + LM with no Focal is **LM only** (submit is final). Setup needed only when Focal, work mailbox, and LM are all missing — campaign emails `sadia.komal@asil.com.pk` with `/?tab=claims_portal&setup_needed=1`. Contact updater `--scope=file` covers Rabia’s 25 Aug 3P+FM sheet. Production apply completed 2026-08-25 after Go-red.
+
+**Env vars needed:** none.
+
+### 2026-08-25 — Wafi 3P contact / focal + payslip & claims mailboxes
+Payslips go to the employee **and** the Focal (`claim_authority`); focal only when the employee has no mailbox. Portal Claims never uses a personal Gmail/Yahoo/etc. as the filler. Contact/Focal/LM updater: `node scripts/wafi_contact_focal_update.js --file "<csv|xlsx>" --dry-run` (default `--scope=wafi-3p` = Wafi BPO). Official-equals-focal is not stored as `employees.email`. Apply only on staging (`STAGING_DATABASE_URL`); do not `--apply` on production from this change.
+
+**Env vars needed:** none.
+
 ### 2026-07-18 — Security fixes in `backend/server.js` (uncommitted, working tree only)
 1. **Fixed 183 error-message leak sites** — every `res.status(N).json({ error: err.message })` (and `e.message` variants) replaced with a generic message + `console.error('[METHOD /path]', err)` server-side logging. Verified via `node --check` + full `npm test` pass (147/147) before and after.
 2. **`POST /api/bills/:id/unlock`** now requires `requireRole('superadmin')` (previously password-only). Also added an `audit_log` INSERT on unlock — note: `audit_log` table existed but nothing wrote to it anywhere in the codebase before this. Frontend `BillingProcurement.jsx` "Unlock" button is still shown to all roles (not yet gated) — non-superadmins will now see a "Forbidden" error instead of a working unlock; UI gating is a follow-up, not yet done.
