@@ -136,12 +136,12 @@ function resolveClaimsCategory(emp, eligibility = { eligible: true }) {
     const routing = resolveClaimsRouting(emp);
     if (!routing.fillerEmail || (routing.initiator === 'employee' && !routing.fillerEmail)) {
         return {
+            ...routing,
             category: 'Setup needed',
             profile: 'setup_needed',
             tooltip: routing.initiator === 'employee'
                 ? 'Missing work/official email — personal mailboxes are not used for Portal Claims'
                 : 'Missing employee or focal email on roster',
-            ...routing,
         };
     }
     const tooltip = [

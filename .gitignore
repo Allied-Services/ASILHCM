@@ -80,3 +80,6 @@ Attachments/
 /*.xlsx
 /*.xls
 
+# Contact/focal dry-run dumps (employee emails and phones)
+audit/cutover/wafi_contact_dryrun_*
+

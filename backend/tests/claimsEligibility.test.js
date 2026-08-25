@@ -1,7 +1,5 @@
 'use strict';
 
-const { describe, test } = require('node:test');
-const assert = require('node:assert/strict');
 const {
     resolveClaimsRouting,
     resolveClaimsCategory,
@@ -16,9 +14,9 @@ describe('claimsEligibility routing', () => {
             line_manager_email: 'lm@wafi.com',
             email: 'emp@wafi.com',
         });
-        assert.equal(r.profile, 'focal_then_lm');
-        assert.equal(r.category, 'Focal + LM');
-        assert.equal(r.initiator, 'focal');
+        expect(r.profile).toBe('focal_then_lm');
+        expect(r.category).toBe('Focal + LM');
+        expect(r.initiator).toBe('focal');
     });
 
     test('focal only when no lm', () => {
@@ -26,8 +24,8 @@ describe('claimsEligibility routing', () => {
             claim_authority: 'focal@wafi.com',
             email: 'emp@wafi.com',
         });
-        assert.equal(r.profile, 'focal_only');
-        assert.equal(r.approverEmail, 'focal@wafi.com');
+        expect(r.profile).toBe('focal_only');
+        expect(r.approverEmail).toBe('focal@wafi.com');
     });
 
     test('employee + lm when no focal', () => {
@@ -35,29 +33,29 @@ describe('claimsEligibility routing', () => {
             email: 'emp@wafi.com',
             line_manager_email: 'lm@wafi.com',
         });
-        assert.equal(r.profile, 'employee_then_lm');
-        assert.equal(r.initiator, 'employee');
+        expect(r.profile).toBe('employee_then_lm');
+        expect(r.initiator).toBe('employee');
     });
 
     test('employee + asil when no focal or lm', () => {
         const r = resolveClaimsRouting({
             email: 'emp@wafi.com',
         });
-        assert.equal(r.profile, 'employee_then_asil');
-        assert.equal(r.approverEmail, 'huzaifa.rafaqat@asil.com.pk');
+        expect(r.profile).toBe('employee_then_asil');
+        expect(r.approverEmail).toBe('huzaifa.rafaqat@asil.com.pk');
     });
 
     test('not eligible category', () => {
         const c = resolveClaimsCategory({ email: 'x@y.com' }, { eligible: false });
-        assert.equal(c.category, 'Not eligible');
+        expect(c.category).toBe('Not eligible');
     });
 
     test('personal Gmail is not a Portal Claims filler', () => {
         const r = resolveClaimsRouting({ email: 'emp@gmail.com' });
-        assert.equal(r.fillerEmail, null);
-        assert.equal(r.profile, 'employee_then_asil');
+        expect(r.fillerEmail).toBe(null);
+        expect(r.profile).toBe('employee_then_asil');
         const c = resolveClaimsCategory({ email: 'emp@gmail.com' });
-        assert.equal(c.category, 'Setup needed');
+        expect(c.category).toBe('Setup needed');
     });
 
     test('personal Gmail with focal still routes to the focal', () => {
@@ -65,8 +63,8 @@ describe('claimsEligibility routing', () => {
             email: 'emp@gmail.com',
             claim_authority: 'focal@wafi-energy.com',
         });
-        assert.equal(r.profile, 'focal_only');
-        assert.equal(r.fillerEmail, 'focal@wafi-energy.com');
+        expect(r.profile).toBe('focal_only');
+        expect(r.fillerEmail).toBe('focal@wafi-energy.com');
     });
 });
 
@@ -78,8 +76,8 @@ describe('claimsEligibility rules', () => {
             dept_exclude: ['Facility Management'],
             eligible: true,
         };
-        assert.equal(ruleMatchesEmployee(rule, { client: 'Wafi Energy', dept: 'IT' }), true);
-        assert.equal(ruleMatchesEmployee(rule, { client: 'Wafi Energy', dept: 'Facility Management' }), false);
+        expect(ruleMatchesEmployee(rule, { client: 'Wafi Energy', dept: 'IT' })).toBe(true);
+        expect(ruleMatchesEmployee(rule, { client: 'Wafi Energy', dept: 'Facility Management' })).toBe(false);
     });
 
     test('no matching rule is eligible — send-screen filters decide the audience', async () => {
@@ -92,8 +90,8 @@ describe('claimsEligibility rules', () => {
         const fm = await evaluateEmployeeEligibility(null, { client: 'Wafi Energy', dept: 'Facility Management' }, [wafiRule]);
         const pso = await evaluateEmployeeEligibility(null, { client: 'PSO', dept: 'Operations' }, [wafiRule]);
         const none = await evaluateEmployeeEligibility(null, { client: 'Wafi Energy', dept: 'IT' }, []);
-        assert.equal(fm.eligible, true);
-        assert.equal(pso.eligible, true);
-        assert.equal(none.eligible, true);
+        expect(fm.eligible).toBe(true);
+        expect(pso.eligible).toBe(true);
+        expect(none.eligible).toBe(true);
     });
 });
