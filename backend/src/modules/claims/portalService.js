@@ -171,6 +171,12 @@ function listGazettedHolidayDates() {
     return Object.keys(PK_PUBLIC_HOLIDAYS).sort();
 }
 
+function pkHolidayMapForClient() {
+    return Object.fromEntries(
+        Object.entries(PK_PUBLIC_HOLIDAYS).map(([dateStr, meta]) => [dateStr, meta.name])
+    );
+}
+
 function pktNow() {
     return new Date(Date.now() + (5 * 60 * 60 * 1000));
 }
@@ -420,13 +426,24 @@ function validateOtRow(row, period = null) {
         if (hours > 12) warnings.push(`High OT: ${hours}h on ${niceDate} — Line Manager should confirm`);
     }
 
+    let finalFactor = factor;
+    let finalMultLabel = multLabel;
+    if (!errors.length && iso && finalFactor === 2) {
+        const dFinal = parseLocalDate(iso);
+        const dtFinal = dFinal ? getPkDateType(dFinal) : null;
+        if (dtFinal?.isGazetted) {
+            finalMultLabel = 'Triple';
+            finalFactor = 3;
+        }
+    }
+
     return {
         errors,
         warnings,
-        factor,
+        factor: finalFactor,
         claim_date: iso,
         ot_hours: Number.isFinite(hours) && hours > 0 ? hours : null,
-        ot_multiplier: factor ? multLabel : null,
+        ot_multiplier: finalFactor ? finalMultLabel : null,
     };
 }
 
@@ -753,6 +770,7 @@ async function openFillerSession(pool, token) {
         submissions,
         items,
         attachments,
+        pkHolidays: pkHolidayMapForClient(),
         templateUrl: `${apiBase}/api/portal-claims/fill/${encodeURIComponent(token)}/template.xlsx`,
         blankTemplateUrl: `${apiBase}/api/portal-claims/template.xlsx`,
         completion: {
@@ -2812,7 +2830,9 @@ module.exports = {
     periodWindowForClaimMonth,
     formatPeriodBanner,
     validateOtRow,
+    getPkDateType,
     listGazettedHolidayDates,
+    pkHolidayMapForClient,
     APPROVER_NOTIFY_MODE,
     MANUAL_OVERRIDE_NOTIFY,
     resetPortalClaimsSample,

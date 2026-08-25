@@ -57,6 +57,54 @@ export function formatIsoDateDdMmYyyy(iso) {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
+/** Live OT rate hint — mirrors backend getPkDateType + validateOtRow defaults. */
+export function otRateHintForDate(isoDate, holidayMap = {}) {
+  if (!isoDate) return null;
+  const m = String(isoDate).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const dateStr = `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (Number.isNaN(d.getTime())) return null;
+  const holidayName = holidayMap[dateStr];
+  if (holidayName) {
+    return {
+      dateStr,
+      label: holidayName,
+      rate: 'Triple',
+      rateLabel: '3× (Triple)',
+      tone: 'holiday',
+      message: `${holidayName} — gazetted public holiday. Triple (3×) OT applies.`,
+    };
+  }
+  if (d.getDay() === 0) {
+    return {
+      dateStr,
+      label: 'Sunday',
+      rate: 'Double',
+      rateLabel: '2× (Double)',
+      tone: 'sunday',
+      message: 'Sunday — Double (2×) OT applies.',
+    };
+  }
+  return {
+    dateStr,
+    label: null,
+    rate: 'Double',
+    rateLabel: '2× (Double)',
+    tone: 'weekday',
+    message: 'Weekday — Double (2×) OT applies after normal duty.',
+  };
+}
+
+export function applyOtRatesFromCalendar(otRows, holidayMap = {}) {
+  return (otRows || []).map((row) => {
+    if (String(row.claim_type || 'OT').toUpperCase() !== 'OT') return row;
+    const hint = otRateHintForDate(row.claim_date, holidayMap);
+    if (!hint) return row;
+    return { ...row, ot_multiplier: hint.rate === 'Triple' ? 'Triple' : 'Double' };
+  });
+}
+
 export function validateOtRowClient(row, claimMonth, claimYear) {
   const errors = [];
   if (!String(row.claim_date || '').trim()) {
