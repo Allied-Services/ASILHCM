@@ -1,5 +1,7 @@
 'use strict';
 
+const { isWorkEmail } = require('../employees/contactEmails');
+
 const HUZAIFA_FALLBACK = 'huzaifa.rafaqat@asil.com.pk';
 
 function isNamedEmail(v) {
@@ -78,8 +80,9 @@ function resolveLmEmail(emp) {
 }
 
 function resolveEmployeeFillerEmail(emp) {
-    const email = (emp.email || '').toLowerCase().trim();
-    return isNamedEmail(email) ? email : null;
+    // Personal Gmail/Yahoo/etc. is for payslips, never for Portal Claims gathering.
+    const email = isWorkEmail(emp.email);
+    return email ? email.toLowerCase() : null;
 }
 
 /**
@@ -135,7 +138,9 @@ function resolveClaimsCategory(emp, eligibility = { eligible: true }) {
         return {
             category: 'Setup needed',
             profile: 'setup_needed',
-            tooltip: 'Missing employee or focal email on roster',
+            tooltip: routing.initiator === 'employee'
+                ? 'Missing work/official email — personal mailboxes are not used for Portal Claims'
+                : 'Missing employee or focal email on roster',
             ...routing,
         };
     }

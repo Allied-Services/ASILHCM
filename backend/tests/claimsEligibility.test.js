@@ -51,6 +51,23 @@ describe('claimsEligibility routing', () => {
         const c = resolveClaimsCategory({ email: 'x@y.com' }, { eligible: false });
         assert.equal(c.category, 'Not eligible');
     });
+
+    test('personal Gmail is not a Portal Claims filler', () => {
+        const r = resolveClaimsRouting({ email: 'emp@gmail.com' });
+        assert.equal(r.fillerEmail, null);
+        assert.equal(r.profile, 'employee_then_asil');
+        const c = resolveClaimsCategory({ email: 'emp@gmail.com' });
+        assert.equal(c.category, 'Setup needed');
+    });
+
+    test('personal Gmail with focal still routes to the focal', () => {
+        const r = resolveClaimsRouting({
+            email: 'emp@gmail.com',
+            claim_authority: 'focal@wafi-energy.com',
+        });
+        assert.equal(r.profile, 'focal_only');
+        assert.equal(r.fillerEmail, 'focal@wafi-energy.com');
+    });
 });
 
 describe('claimsEligibility rules', () => {

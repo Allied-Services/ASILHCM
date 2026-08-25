@@ -321,6 +321,37 @@ describe('getPayslipReadiness per-employee paid', () => {
         expect(r.employees.find((e) => e.id === 'E1').emailStatus).toBe('sent');
         expect(r.employees.find((e) => e.id === 'E2').smsStatus).toBe('sent');
     });
+
+    test('treats a focal mailbox as an email channel when the employee has none', async () => {
+        const pool = {
+            query: jest.fn(async (sql) => {
+                const s = String(sql);
+                if (s.includes('COUNT(*)::int AS total')) {
+                    return { rows: [{ total: 1, locked_count: 1 }] };
+                }
+                if (s.includes('FROM payment_ledger')) {
+                    return { rows: [{ employee_id: 'E1' }] };
+                }
+                if (s.includes('FROM payroll_transactions pt') && s.includes('JOIN employees e')) {
+                    return { rows: [{
+                        id: 'E1', name: 'No Own Mail', email: 'N/A',
+                        claim_authority: 'focal@wafi-energy.com',
+                        phone: '03001111111', cnic: '4210111111111', locked: true,
+                    }] };
+                }
+                if (s.includes('FROM payslip_delivery_batches')) {
+                    return { rows: [] };
+                }
+                return { rows: [] };
+            }),
+        };
+        const r = await getPayslipReadiness(pool, 2026, 7, ['E1']);
+        expect(r.withEmail).toBe(1);
+        expect(r.missingEmail).toEqual([]);
+        expect(r.employees[0].hasEmail).toBe(true);
+        expect(r.employees[0].payslipRecipients).toEqual(['focal@wafi-energy.com']);
+        expect(r.remainingEmail).toEqual([{ id: 'E1', name: 'No Own Mail' }]);
+    });
 });
 
 describe('sendPayslips remaining channel', () => {
@@ -421,5 +452,53 @@ describe('sendPayslips remaining channel', () => {
         expect(sendAppEmail).toHaveBeenCalledTimes(1);
         expect(sendJazzSMS).not.toHaveBeenCalled();
         expect(result.deliveries[0].smsDetail).toBe('channel_not_requested');
+    });
+
+    test('emails the employee and the focal on the same send', async () => {
+        const sendAppEmail = jest.fn(async () => ({ ok: true }));
+        const target = {
+            ...empRow,
+            email: 'emp@gmail.com',
+            claim_authority: 'focal@wafi-energy.com',
+        };
+        const pool = mockPool({
+            lockRows: [{ employee_id: 'E1', locked: true }],
+            paidIds: ['E1'],
+            employees: [{ ...target, phone: '03001234567' }],
+            batch: null,
+            deliveries: [],
+            targets: [target],
+        });
+        const result = await sendPayslips(pool, { sendAppEmail }, {
+            year: 2026, month: 7, confirm: true, employeeIds: ['E1'],
+        });
+        expect(result.ok).toBe(true);
+        expect(sendAppEmail.mock.calls[0][0].to).toEqual([
+            'emp@gmail.com',
+            'focal@wafi-energy.com',
+        ]);
+        expect(result.deliveries[0].email).toBe('emp@gmail.com, focal@wafi-energy.com');
+    });
+
+    test('emails focal only when the employee has no mailbox', async () => {
+        const sendAppEmail = jest.fn(async () => ({ ok: true }));
+        const target = {
+            ...empRow,
+            email: 'N/A',
+            claim_authority: 'focal@wafi-energy.com',
+        };
+        const pool = mockPool({
+            lockRows: [{ employee_id: 'E1', locked: true }],
+            paidIds: ['E1'],
+            employees: [{ ...target, phone: '03001234567' }],
+            batch: null,
+            deliveries: [],
+            targets: [target],
+        });
+        const result = await sendPayslips(pool, { sendAppEmail }, {
+            year: 2026, month: 7, confirm: true, employeeIds: ['E1'],
+        });
+        expect(sendAppEmail.mock.calls[0][0].to).toEqual(['focal@wafi-energy.com']);
+        expect(result.deliveries[0].email).toBe('focal@wafi-energy.com');
     });
 });
