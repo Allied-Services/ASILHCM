@@ -8,31 +8,17 @@ const MONTHS = [
   [7, 'Jul'], [8, 'Aug'], [9, 'Sep'], [10, 'Oct'], [11, 'Nov'], [12, 'Dec'],
 ];
 
-const DESK_LABEL = {
+const CONTROL_LABEL = {
+  waiting_focal: 'Waiting for Focal',
+  waiting_lm: 'Waiting for LM',
+  final_lm_review: 'Final LM review',
+  ready_for_payroll: 'Ready for Payroll',
+  sent_to_payroll: 'Sent to Payroll',
+  no_claims_closed: 'No Claims — Closed',
+  rejected_closed: 'Rejected — Closed',
+  needs_review: 'Needs Review — payroll already has different values',
   not_invited: 'Not invited',
   invite_sent: 'Invite sent',
-  pending_focal: 'Pending at Focal',
-  pending_lm: 'Pending at LM',
-  verified: 'Verified',
-  no_claims: 'No claims',
-  rejected: 'Rejected',
-  other_data: 'OTHER DATA',
-};
-
-const STATUS_LABEL = {
-  not_invited: 'Not invited',
-  invite_sent: 'Invite sent',
-  waiting_focal: 'Waiting Focal',
-  waiting_employee: 'Waiting Employee',
-  waiting_fill: 'Waiting fill',
-  waiting_lm: 'Waiting LM',
-  waiting_asil: 'Waiting ASIL',
-  no_claims: 'No claims',
-  rejected: 'Rejected',
-  on_sheet: 'On sheet · match',
-  other_data: 'OTHER DATA',
-  ready_import: 'Approved · not on sheet',
-  closed: 'Finished',
 };
 
 const MAILER_LABEL = {
@@ -76,11 +62,11 @@ function hours(n) {
   return v ? String(v) : '—';
 }
 
-function rowClass(status, open) {
+function rowClass(controlStatus, open) {
   const bits = [];
-  if (status === 'on_sheet') bits.push('is-ok');
-  if (status === 'other_data' || status === 'rejected' || status === 'send_failed') bits.push('is-bad');
-  if (status === 'waiting_lm' || status === 'waiting_asil' || status === 'ready_import') bits.push('is-warn');
+  if (controlStatus === 'sent_to_payroll') bits.push('is-ok');
+  if (controlStatus === 'needs_review' || controlStatus === 'rejected_closed') bits.push('is-bad');
+  if (controlStatus === 'ready_for_payroll' || controlStatus === 'final_lm_review' || controlStatus === 'waiting_lm') bits.push('is-warn');
   if (open) bits.push('is-open');
   return bits.join(' ');
 }
@@ -95,10 +81,9 @@ export default function PortalClaimsHub({ user }) {
   const [contract, setContract] = useState('');
   const [location, setLocation] = useState('');
   const [section, setSection] = useState('response');
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('needs_action');
   const [selected, setSelected] = useState(() => new Set());
-  const [confirmActual, setConfirmActual] = useState(false);
-  const [force, setForce] = useState(false);
+  const [pushPreview, setPushPreview] = useState(null);
   const [board, setBoard] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -173,38 +158,49 @@ export default function PortalClaimsHub({ user }) {
     return [...set].sort();
   }, [board]);
 
+  // eslint-disable-next-line no-unused-vars
   const counts = board?.counts || {};
-  const deskCounts = board?.desk_counts || {};
+  const actionCounts = board?.action_counts || {};
+  const controlCounts = board?.control_counts || {};
   const people = (board?.people || []).filter((p) => {
     if (filter === 'all') return true;
-    if (filter.startsWith('desk:')) return p.desk_status === filter.slice(5);
-    return p.status === filter;
+    if (filter === 'needs_action' || filter === 'waiting' || filter === 'closed') {
+      return p.action_view === filter;
+    }
+    return p.control_status === filter;
   });
   const open = (board?.people || []).find(p => p.employee_id === openId) || null;
   const visibleIds = people.map(p => p.employee_id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
+  const pushIds = useMemo(() => (
+    [...selected].filter((id) => {
+      const p = (board?.people || []).find((x) => x.employee_id === id);
+      return p?.can_push_payroll;
+    })
+  ), [selected, board]);
+  const pushTotals = useMemo(() => {
+    let ot2 = 0;
+    let ot3 = 0;
+    let exp = 0;
+    let med = 0;
+    for (const id of pushIds) {
+      const p = (board?.people || []).find((x) => x.employee_id === id);
+      if (!p) continue;
+      ot2 += Number(p.portal?.ot2Write || 0);
+      ot3 += Number(p.portal?.ot3 || 0);
+      exp += Number(p.portal?.expense || 0);
+      med += Number(p.portal?.medical || 0);
+    }
+    return { ot2, ot3, exp, med, count: pushIds.length };
+  }, [pushIds, board]);
 
   const chips = [
+    ['needs_action', `Needs action ${actionCounts.needs_action || 0}`],
+    ['waiting', `Waiting ${actionCounts.waiting || 0}`],
+    ['closed', `Closed ${actionCounts.closed || 0}`],
     ['all', `All ${board?.audience_count || 0}`],
-    ['desk:not_invited', `Not invited ${deskCounts.not_invited || 0}`],
-    ['desk:invite_sent', `Invite sent ${deskCounts.invite_sent || 0}`],
-    ['desk:pending_focal', `Pending Focal ${deskCounts.pending_focal || 0}`],
-    ['desk:pending_lm', `Pending LM ${deskCounts.pending_lm || 0}`],
-    ['desk:verified', `Verified ${deskCounts.verified || 0}`],
-    ['desk:no_claims', `No claims ${deskCounts.no_claims || 0}`],
-    ['desk:rejected', `Rejected ${deskCounts.rejected || 0}`],
-    ['desk:other_data', `OTHER DATA ${deskCounts.other_data || 0}`],
   ];
 
-  const stillInChain = (counts.invite_sent || 0) + (counts.waiting_focal || 0)
-    + (counts.waiting_employee || 0) + (counts.waiting_fill || 0)
-    + (counts.waiting_lm || 0) + (counts.waiting_asil || 0);
-
-  const canSend = !!user && (
-    ['superadmin', 'finance_manager', 'finance_approver', 'operations_supervisor'].includes(user.role)
-    || !!(user.permissions?.claims_portal?.subPerms || []).includes('campaign')
-    || (Array.isArray(user.permissions?.claims_portal) && user.permissions.claims_portal.includes('campaign'))
-  );
 
   const toggleOne = (id) => {
     setSelected(prev => {
@@ -227,45 +223,6 @@ export default function PortalClaimsHub({ user }) {
     });
   };
 
-  const runChase = async (action, mode, preview) => {
-    if (!selected.size) {
-      setErr('Tick at least one person, then send or remind.');
-      return;
-    }
-    if (!preview && mode === 'actual' && !confirmActual) {
-      setErr('Tick the confirmation box before sending ACTUAL emails.');
-      return;
-    }
-    const ids = [...selected];
-    const label = mode === 'sample' ? 'SAMPLE' : 'ACTUAL';
-    const verb = action === 'invite' ? 'invite' : 'smart reminder';
-    if (!preview && !window.confirm(`Send ${label} ${verb} for ${ids.length} ticked person(s)?`)) return;
-    setBusy(true); setErr(''); setMsg('');
-    try {
-      const d = await api.portalClaimsChase({
-        action,
-        preview,
-        campaignMode: mode,
-        force: force && user?.role === 'superadmin',
-        workMonth, workYear, payMonth, payYear,
-        client, contract, location,
-        employeeIds: ids,
-      });
-      const toList = (d.targets || []).map(t => t.email).filter(Boolean);
-      if (preview) {
-        setMsg(`Preview ${verb}: ${d.send_count || 0} will be mailed → ${toList.join(', ') || 'no addresses'}.${d.skipped?.length ? ` Skipped ${d.skipped.length}.` : ''}`);
-      } else {
-        const ok = (d.sent || []).filter(s => s.ok).length;
-        setMsg(`${label} ${verb}: ${ok} email(s) to ${toList.join(', ') || '—'}.${d.skipped?.length ? ` Skipped ${d.skipped.length}.` : ''}`);
-        await loadBoard();
-      }
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const fillManualFrom = (p) => {
     if (!p) return;
     setOv(o => ({
@@ -283,17 +240,47 @@ export default function PortalClaimsHub({ user }) {
     setSection('manual');
   };
 
-  const importIfEmpty = async (p) => {
-    if (!p) return;
+  const runPushPayroll = async (dryRun) => {
+    if (!pushIds.length) {
+      setErr('Tick at least one Ready for Payroll row.');
+      return;
+    }
+    if (!dryRun && !window.confirm(`Push ${pushIds.length} approved claim(s) to the ${payMonth}/${payYear} Payroll Sheet?`)) return;
     setBusy(true); setErr(''); setMsg('');
     try {
-      const d = await api.portalClaimsImportIfEmpty({
-        employeeId: p.employee_id, workMonth, workYear,
+      const d = await api.portalClaimsPushPayroll({
+        employeeIds: pushIds,
+        workMonth,
+        workYear,
+        dryRun,
       });
-      setMsg(d.wrotePayroll
-        ? `Imported ${p.name} onto the ${payMonth}/${payYear} Payroll Sheet.`
-        : 'Nothing to write — portal amounts are empty.');
-      await loadBoard();
+      setPushPreview(d);
+      if (dryRun) {
+        setMsg(`Preview: ${d.summary?.ready || 0} ready · ${d.summary?.needs_review || 0} needs review · ${d.summary?.not_ready || 0} not ready.`);
+      } else {
+        setMsg(`Payroll push: ${d.summary?.sent || 0} sent · ${d.summary?.already_sent || 0} already sent · ${d.summary?.needs_review || 0} blocked.`);
+        await loadBoard();
+      }
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runAugustReopen = async (dryRun) => {
+    if (!dryRun && !window.confirm('Reopen all LM-rejected July-work claims once and email each Line Manager? This cannot be undone without superadmin force.')) return;
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const d = await api.portalClaimsReopenAugustRejected({ workMonth, workYear, dryRun });
+      if (d.skipped) {
+        setMsg(`August reopen already ran on ${formatWhen(d.ran_at)} — use superadmin force to repeat.`);
+      } else if (dryRun) {
+        setMsg(`Preview: would reopen ${d.wouldReopen || 0} claim(s) · ${(d.approverEmails || []).length} LM email(s).`);
+      } else {
+        setMsg(`Reopened ${d.reopened || 0} claim(s) · emailed ${(d.emailsSent || []).length} Line Manager(s).`);
+        await loadBoard();
+      }
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -395,9 +382,9 @@ export default function PortalClaimsHub({ user }) {
       </div>
 
       <div className="pch-jobs">
-        <button type="button" className={`pch-job${section === 'response' ? ' is-on' : ''}`} onClick={() => setSection('response')}>1. Response</button>
-        <button type="button" className={`pch-job${section === 'request' ? ' is-on' : ''}`} onClick={() => setSection('request')}>2. Request emails</button>
-        <button type="button" className={`pch-job${section === 'manual' ? ' is-on' : ''}`} onClick={() => setSection('manual')}>3. Manual add</button>
+        <button type="button" className={`pch-job${section === 'response' ? ' is-on' : ''}`} onClick={() => setSection('response')}>Track &amp; send to payroll</button>
+        <button type="button" className={`pch-job${section === 'request' ? ' is-on' : ''}`} onClick={() => setSection('request')}>Send invites</button>
+        <button type="button" className={`pch-job${section === 'manual' ? ' is-on' : ''}`} onClick={() => setSection('manual')}>Manual correction</button>
       </div>
 
       {err && <div className="pch-err">{err}</div>}
@@ -406,13 +393,15 @@ export default function PortalClaimsHub({ user }) {
       {section === 'response' && (
         <>
           <div className="pch-note is-info">
-            {board?.period_label || 'Compare portal numbers to the Payroll Sheet. Auto-import only when those four columns are empty.'}
+            {board?.period_label || 'Who must act, what is ready for payroll, and what is closed.'}
           </div>
           <div className="pch-stats">
-            <div className="pch-stat"><strong>{board?.audience_count ?? '—'}</strong><span>In audience</span></div>
-            <div className="pch-stat is-ok"><strong>{counts.on_sheet || 0}</strong><span>On sheet · match</span></div>
-            <div className="pch-stat is-warn"><strong>{stillInChain}</strong><span>Still in the chain</span></div>
-            <div className="pch-stat is-bad"><strong>{counts.other_data || 0}</strong><span>OTHER DATA — do not auto-import</span></div>
+            <div className="pch-stat is-warn"><strong>{controlCounts.ready_for_payroll || 0}</strong><span>Ready for Payroll</span></div>
+            <div className="pch-stat is-warn"><strong>{controlCounts.final_lm_review || 0}</strong><span>Final LM review</span></div>
+            <div className="pch-stat"><strong>{(controlCounts.waiting_focal || 0) + (controlCounts.waiting_lm || 0) + (controlCounts.invite_sent || 0)}</strong><span>Waiting on others</span></div>
+            <div className="pch-stat is-ok"><strong>{controlCounts.sent_to_payroll || 0}</strong><span>Sent to Payroll</span></div>
+            <div className="pch-stat"><strong>{controlCounts.no_claims_closed || 0}</strong><span>No Claims — Closed</span></div>
+            <div className="pch-stat is-bad"><strong>{controlCounts.needs_review || 0}</strong><span>Needs Review</span></div>
           </div>
           <div className="pch-chips">
             {chips.map(([id, label]) => (
@@ -420,36 +409,35 @@ export default function PortalClaimsHub({ user }) {
             ))}
             <button type="button" className="btn-secondary" onClick={loadBoard}>Refresh</button>
           </div>
-          {filter === 'other_data' && (
-            <div className="pch-note is-bad">
-              Auto-import is blocked. The Payroll Sheet already has OT, medical, or expense. Verify what is there, then add this claim by hand for that person only.
+          {(controlCounts.rejected_closed || 0) > 0 && ['superadmin', 'finance_manager'].includes(user?.role) && (
+            <div className="pch-note is-warn">
+              {controlCounts.rejected_closed} LM-rejected claim(s) are closed.
+              {' '}
+              <button type="button" className="btn-secondary" disabled={busy} onClick={() => runAugustReopen(true)}>Preview August reopen</button>
+              {' '}
+              <button type="button" className="btn-primary" disabled={busy} onClick={() => runAugustReopen(false)}>Run one-time LM reopen + email</button>
             </div>
           )}
-          {canSend && (
-            <div className="pch-chase">
-              <div className="pch-chase-line">
-                <strong>{selected.size}</strong> ticked
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('invite', 'sample', true)}>Preview invite</button>
-                <button type="button" className="btn-primary" disabled={busy || !selected.size} onClick={() => runChase('invite', 'sample', false)}>SAMPLE invite</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind', 'sample', true)}>Preview reminder</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size} onClick={() => runChase('remind', 'sample', false)}>SAMPLE reminder</button>
-              </div>
-              <div className="pch-chase-line">
-                <label className="pch-check">
-                  <input type="checkbox" checked={confirmActual} onChange={e => setConfirmActual(e.target.checked)} />
-                  I confirm ACTUAL mail to real Focal / Employee / LM addresses
-                </label>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('invite', 'actual', false)}>ACTUAL invite</button>
-                <button type="button" className="btn-secondary" disabled={busy || !selected.size || !confirmActual} onClick={() => runChase('remind', 'actual', false)}>ACTUAL reminder</button>
-                {isSuper && (
-                  <label className="pch-check">
-                    <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} />
-                    Superadmin force (re-mail finished people)
-                  </label>
-                )}
-              </div>
-              <p className="pch-muted">Sent = HCM handed the mail to Resend. Smart reminder routes to Focal or LM automatically. Finished people are skipped unless Superadmin force is on.</p>
+          {filter === 'needs_review' && (
+            <div className="pch-note is-bad">
+              Payroll Sheet already has different OT / medical / expense values. Verify manually — auto-push is blocked.
             </div>
+          )}
+          <div className="pch-chase">
+            <div className="pch-chase-line">
+              <strong>{pushTotals.count}</strong> selected for payroll
+              {pushTotals.count > 0 && (
+                <span className="pch-muted">
+                  {' '}· OT2 {pushTotals.ot2.toFixed(1)}h · OT3 {pushTotals.ot3.toFixed(1)}h · Exp {money(pushTotals.exp)} · Med {money(pushTotals.med)}
+                </span>
+              )}
+              <button type="button" className="btn-secondary" disabled={busy || !pushIds.length} onClick={() => runPushPayroll(true)}>Preview push</button>
+              <button type="button" className="btn-primary" disabled={busy || !pushIds.length} onClick={() => runPushPayroll(false)}>Review and push to payroll</button>
+            </div>
+            <p className="pch-muted">Only Ready for Payroll rows can be ticked for push. LM approval alone does not write to the sheet — ASIL confirms here. Sent rows cannot be pushed again.</p>
+          </div>
+          {pushPreview && (
+            <pre className="pch-note">{JSON.stringify(pushPreview.summary, null, 2)}</pre>
           )}
           <div className="pch-table-wrap">
             <table className="pch-table">
@@ -459,27 +447,24 @@ export default function PortalClaimsHub({ user }) {
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select visible" />
                   </th>
                   <th>Employee</th>
-                  <th>Desk</th>
                   <th>Claim summary</th>
+                  <th>Status</th>
                   <th>Last activity</th>
-                  <th>Now</th>
-                  <th>To</th>
-                  <th>Sent</th>
-                  <th>Reminded</th>
-                  <th>Path</th>
+                  <th>Next</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {people.length === 0 && (
-                  <tr><td colSpan={10} className="pch-muted">No people for this filter.</td></tr>
+                  <tr><td colSpan={7} className="pch-muted">No people for this filter.</td></tr>
                 )}
                 {people.map(p => (
-                  <tr key={p.employee_id} className={rowClass(p.status, openId === p.employee_id)}>
+                  <tr key={p.employee_id} className={rowClass(p.control_status, openId === p.employee_id)}>
                     <td>
                       <input
                         type="checkbox"
                         checked={selected.has(p.employee_id)}
+                        disabled={!p.can_push_payroll}
                         onChange={() => toggleOne(p.employee_id)}
                         aria-label={`Select ${p.name}`}
                       />
@@ -488,30 +473,17 @@ export default function PortalClaimsHub({ user }) {
                       {p.name}
                       <div className="pch-muted">{p.employee_id} · {p.location || '—'}</div>
                     </td>
-                    <td>
-                      {p.desk_label || DESK_LABEL[p.desk_status] || p.desk_status || '—'}
-                      <div className="pch-muted">{STATUS_LABEL[p.status] || p.status}</div>
-                    </td>
                     <td>{p.claim_summary || '—'}</td>
+                    <td>
+                      <strong>{p.control_label || CONTROL_LABEL[p.control_status] || p.control_status}</strong>
+                      {p.payroll_pushed_at && <div className="pch-muted">Sent {formatWhen(p.payroll_pushed_at)}</div>}
+                    </td>
                     <td>
                       {p.last_activity_label ? `${p.last_activity_label} · ${formatWhen(p.last_activity_at)}` : '—'}
                     </td>
+                    <td>{p.now_label || '—'}</td>
                     <td>
-                      {p.now_label || STATUS_LABEL[p.status] || p.status}
-                    </td>
-                    <td>
-                      {p.focal_email || p.mailed_to || '—'}
-                      {p.approver_email && <div className="pch-muted">LM {p.approver_email}</div>}
-                    </td>
-                    <td>{formatWhen(p.sent_at)}</td>
-                    <td>
-                      {p.last_reminder_at
-                        ? `${formatWhen(p.last_reminder_at)}${p.reminder_count ? ` (${p.reminder_count}×)` : ''}${p.reminder_party ? ` · ${p.reminder_party}` : ''}`
-                        : '—'}
-                    </td>
-                    <td>{p.path || '—'}</td>
-                    <td>
-                      <button type="button" className="btn-secondary" onClick={() => setOpenId(p.employee_id)}>Open</button>
+                      <button type="button" className="btn-secondary" onClick={() => setOpenId(p.employee_id)}>View</button>
                     </td>
                   </tr>
                 ))}
@@ -553,42 +525,42 @@ export default function PortalClaimsHub({ user }) {
                     </tbody>
                   </table>
                 </div>
-                {open.status === 'on_sheet' && <div className="pch-note is-ok">Match. August sheet equals the approved portal claim.</div>}
-                {open.status === 'other_data' && (
+                {open.control_status === 'sent_to_payroll' && <div className="pch-note is-ok">Sent to Payroll{open.payroll_pushed_at ? ` on ${formatWhen(open.payroll_pushed_at)}` : ''}. No further push.</div>}
+                {open.control_status === 'ready_for_payroll' && <div className="pch-note is-warn">LM approved — tick this row and use Review and push to payroll above.</div>}
+                {open.control_status === 'final_lm_review' && <div className="pch-note is-warn">Reopened once for final LM review. Waiting on {open.lm || 'Line Manager'}.</div>}
+                {open.control_status === 'needs_review' && (
                   <div className="pch-note is-bad">
-                    OTHER DATA — auto-import refused. Sheet already has numbers that are not this portal claim. Verify, then Manual add.
+                    Needs Review — Payroll Sheet already has different values. Use Manual correction after verifying.
                   </div>
                 )}
-                {open.status === 'ready_import' && (
-                  <div className="pch-note is-warn">Approved. Sheet columns are empty. Import is allowed.</div>
-                )}
-                {open.status === 'waiting_lm' && <div className="pch-note is-warn">Waiting on Line Manager {open.lm || ''}. Not on the Payroll Sheet yet.</div>}
-                {open.status === 'waiting_asil' && <div className="pch-note is-warn">Waiting on ASIL {open.lm || ''} to approve.</div>}
-                {open.status === 'waiting_focal' && <div className="pch-note is-info">Waiting on Focal {open.mailed_to || ''} to fill or finish.</div>}
-                {open.status === 'waiting_employee' && <div className="pch-note is-info">Waiting on the employee {open.mailed_to || ''} to fill.</div>}
-                {open.status === 'waiting_fill' && <div className="pch-note is-info">Waiting on Employee / Focal to submit.</div>}
-                {open.status === 'invite_sent' && <div className="pch-note is-info">Invite sent to {open.mailed_to} on {formatWhen(open.sent_at)}. No draft yet.</div>}
-                {open.status === 'not_invited' && <div className="pch-note">In the audience — no email yet. Tick and send an invite from this page.</div>}
-                {open.status === 'no_claims' && <div className="pch-note">They said no claims this month. Sheet stays empty.</div>}
-                {open.status === 'rejected' && <div className="pch-note is-bad">Rejected by {open.decided_by || 'approver'} ({open.decided_email || open.lm || '—'}).</div>}
-                {open.status === 'closed' && <div className="pch-note">Finished · nothing to pay.</div>}
+                {open.control_status === 'waiting_lm' && <div className="pch-note is-warn">Waiting on Line Manager {open.lm || ''}.</div>}
+                {open.control_status === 'waiting_focal' && <div className="pch-note is-info">Waiting on Focal {open.mailed_to || ''} to fill or finish.</div>}
+                {open.control_status === 'invite_sent' && <div className="pch-note is-info">Invite sent to {open.mailed_to} on {formatWhen(open.sent_at)}.</div>}
+                {open.control_status === 'not_invited' && <div className="pch-note">Not invited yet — use Send invites tab.</div>}
+                {open.control_status === 'no_claims_closed' && <div className="pch-note">No claims this month — closed.</div>}
+                {open.control_status === 'rejected_closed' && <div className="pch-note is-bad">Rejected — closed{open.lm_reopen_count ? ' (final)' : ''}.</div>}
                 {open.last_reminder_at && <div className="pch-muted">Last reminder {formatWhen(open.last_reminder_at)}</div>}
               </div>
               <div>
-                <h3>Import rule</h3>
+                <h3>Payroll</h3>
                 <p className="pch-sub">
-                  Auto-import writes the work-month portal OT / medical / expense onto the pay-month sheet only when OT2, OT3, medical, and expense are all zero.
+                  LM approval does not write to the Payroll Sheet. ASIL pushes Ready for Payroll rows from the list above.
                 </p>
                 <div className="pch-actions">
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    disabled={busy || open.sample || open.status !== 'ready_import'}
-                    onClick={() => importIfEmpty(open)}
-                  >
-                    {open.status === 'other_data' || open.sheet_has_values ? 'Import blocked' : 'Import if empty'}
-                  </button>
-                  <button type="button" className="btn-secondary" onClick={() => fillManualFrom(open)}>Manual add</button>
+                  {open.can_push_payroll && (
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={busy}
+                      onClick={async () => {
+                        setSelected(new Set([open.employee_id]));
+                        await runPushPayroll(false);
+                      }}
+                    >
+                      Push this employee to payroll
+                    </button>
+                  )}
+                  <button type="button" className="btn-secondary" onClick={() => fillManualFrom(open)}>Manual correction</button>
                 </div>
               </div>
             </div>

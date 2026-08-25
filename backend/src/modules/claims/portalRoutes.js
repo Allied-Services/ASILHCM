@@ -344,6 +344,47 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
+    app.post('/api/portal-claims/admin/push-payroll', requireAuth, requireClaimsPortal(pool, 'claims_manual_override', CAMPAIGN_ROLES), async (req, res) => {
+        try {
+            const employeeIds = Array.isArray(req.body?.employeeIds) ? req.body.employeeIds : [];
+            const workMonth = parseInt(req.body?.workMonth, 10);
+            const workYear = parseInt(req.body?.workYear, 10);
+            const dryRun = !!req.body?.dryRun;
+            if (!employeeIds.length || !workMonth || !workYear) {
+                return res.status(400).json({ error: 'employeeIds, workMonth, workYear required' });
+            }
+            const result = await portal.pushSelectedToPayroll(pool, {
+                employeeIds,
+                workMonth,
+                workYear,
+                dryRun,
+            }, req.user?.email || req.user?.username || 'user');
+            if (!result.ok) return res.status(result.status || 400).json(result);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.pushPayroll', err);
+        }
+    });
+
+    app.post('/api/portal-claims/admin/reopen-august-rejected', requireAuth, requireRole('superadmin', 'finance_manager'), async (req, res) => {
+        try {
+            const workMonth = parseInt(req.body?.workMonth || 7, 10);
+            const workYear = parseInt(req.body?.workYear || 2026, 10);
+            const dryRun = !!req.body?.dryRun;
+            const force = !!req.body?.force && req.user?.role === 'superadmin';
+            const result = await portal.reopenAugustRejectedOnce(pool, sendAppEmail, {
+                workMonth,
+                workYear,
+                dryRun,
+                force,
+            });
+            if (!result.ok) return res.status(result.status || 400).json(result);
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.reopenAugustRejected', err);
+        }
+    });
+
     app.get('/api/portal-claims/admin/tieout', requireAuth, requireClaimsPortal(pool, 'export', CAMPAIGN_ROLES), async (req, res) => {
         try {
             const month = parseInt(req.query.month, 10);

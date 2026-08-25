@@ -19,6 +19,30 @@ const DESK_FINISHED = new Set(['verified', 'no_claims', 'rejected', 'other_data'
 const FILLER_PENDING_INTERNAL = new Set(['invite_sent', 'waiting_focal', 'waiting_employee', 'waiting_fill']);
 const APPROVER_PENDING_INTERNAL = new Set(['waiting_lm', 'waiting_asil']);
 
+const CONTROL_LABEL = {
+    waiting_focal: 'Waiting for Focal',
+    waiting_lm: 'Waiting for LM',
+    final_lm_review: 'Final LM review',
+    ready_for_payroll: 'Ready for Payroll',
+    sent_to_payroll: 'Sent to Payroll',
+    no_claims_closed: 'No Claims — Closed',
+    rejected_closed: 'Rejected — Closed',
+    needs_review: 'Needs Review — payroll already has different values',
+    not_invited: 'Not invited',
+    invite_sent: 'Invite sent',
+};
+
+const CONTROL_NEEDS_ACTION = new Set(['ready_for_payroll', 'final_lm_review', 'needs_review']);
+const CONTROL_WAITING = new Set(['waiting_focal', 'waiting_lm', 'not_invited', 'invite_sent']);
+const CONTROL_CLOSED = new Set(['sent_to_payroll', 'no_claims_closed', 'rejected_closed']);
+
+const ACTION_VIEW_LABEL = {
+    needs_action: 'Needs action',
+    waiting: 'Waiting',
+    closed: 'Closed',
+    all: 'All',
+};
+
 function num(v) {
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
@@ -55,6 +79,70 @@ function emptyDeskCounts() {
     };
 }
 
+function controlStatusFromRow({
+    internalStatus,
+    submissionStatus,
+    sample,
+    sheetHasValues,
+    amountsMatch,
+    portalHasValues,
+    lmReopenCount,
+    payrollPushedAt,
+}) {
+    const sub = String(submissionStatus || '').toLowerCase();
+    const internal = String(internalStatus || '').toLowerCase();
+    const reopened = num(lmReopenCount) >= 1;
+
+    if (reopened && sub === 'submitted') return 'final_lm_review';
+    if (sub === 'in_payroll' || payrollPushedAt) return 'sent_to_payroll';
+    if (internal === 'rejected' || sub === 'rejected') return 'rejected_closed';
+    if (internal === 'no_claims' || sub === 'no_claims') return 'no_claims_closed';
+    if (internal === 'other_data') return 'needs_review';
+
+    if (sub === 'approved' || internal === 'ready_import') {
+        if (sample) return 'ready_for_payroll';
+        if (internal === 'on_sheet' && amountsMatch) return 'sent_to_payroll';
+        if (sheetHasValues && portalHasValues && !amountsMatch) return 'needs_review';
+        if (sheetHasValues && !portalHasValues) return 'needs_review';
+        return 'ready_for_payroll';
+    }
+
+    if (internal === 'on_sheet') return 'sent_to_payroll';
+    if (internal === 'waiting_focal' || internal === 'waiting_employee' || internal === 'waiting_fill') {
+        return 'waiting_focal';
+    }
+    if (internal === 'waiting_lm' || internal === 'waiting_asil') return 'waiting_lm';
+    if (internal === 'invite_sent') return 'invite_sent';
+    if (internal === 'not_invited') return 'not_invited';
+    return 'waiting_focal';
+}
+
+function controlLabel(controlStatus) {
+    return CONTROL_LABEL[controlStatus] || controlStatus;
+}
+
+function actionViewFromControl(controlStatus) {
+    if (CONTROL_NEEDS_ACTION.has(controlStatus)) return 'needs_action';
+    if (CONTROL_CLOSED.has(controlStatus)) return 'closed';
+    if (CONTROL_WAITING.has(controlStatus)) return 'waiting';
+    return 'waiting';
+}
+
+function emptyControlCounts() {
+    return Object.keys(CONTROL_LABEL).reduce((acc, key) => {
+        acc[key] = 0;
+        return acc;
+    }, {});
+}
+
+function emptyActionCounts() {
+    return { needs_action: 0, waiting: 0, closed: 0 };
+}
+
+function canSelectForPayrollPush(controlStatus) {
+    return controlStatus === 'ready_for_payroll';
+}
+
 function formatClaimSummary(portal) {
     const p = portal || {};
     const parts = [];
@@ -80,6 +168,15 @@ function computeLastActivity({ batch, sub }) {
     if (sub && sub.approved_at) {
         candidates.push({ at: sub.approved_at, label: 'Approved' });
     }
+    if (sub && sub.payroll_pushed_at) {
+        candidates.push({ at: sub.payroll_pushed_at, label: 'Sent to payroll' });
+    }
+    if (sub && sub.rejected_at) {
+        candidates.push({ at: sub.rejected_at, label: 'Rejected' });
+    }
+    if (sub && sub.lm_reopen_at) {
+        candidates.push({ at: sub.lm_reopen_at, label: 'Reopened for LM' });
+    }
     if (!candidates.length) return { last_activity_at: null, last_activity_label: null };
     candidates.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
     const top = candidates[0];
@@ -97,7 +194,7 @@ function chaseRouteForPerson(person) {
         if (!email) return { target: null, email: null, reason: 'no_approver' };
         return { target: 'approver', email, reason: null };
     }
-    if (FILLER_PENDING_INTERNAL.has(internal)) {
+    if (FILLER_PENDING_INTERNAL.has(internal) || internal === 'not_invited' || internal === 'invite_sent') {
         const email = person.mailed_to || person.focal_email || null;
         if (!email) return { target: null, email: null, reason: 'no_focal_email' };
         return { target: 'filler', email, reason: null };
@@ -128,13 +225,23 @@ function resolveReminderMeta(person, batch, approverPack) {
 }
 
 module.exports = {
+    EPS_HRS,
+    EPS_PKR,
     DESK_LABEL,
     DESK_FINISHED,
     FILLER_PENDING_INTERNAL,
     APPROVER_PENDING_INTERNAL,
+    CONTROL_LABEL,
+    ACTION_VIEW_LABEL,
     deskStatusFromInternal,
     deskLabel,
     emptyDeskCounts,
+    controlStatusFromRow,
+    controlLabel,
+    actionViewFromControl,
+    emptyControlCounts,
+    emptyActionCounts,
+    canSelectForPayrollPush,
     formatClaimSummary,
     computeLastActivity,
     chaseRouteForPerson,

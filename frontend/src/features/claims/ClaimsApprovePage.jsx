@@ -36,7 +36,7 @@ export default function ClaimsApprovePage() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Decision failed');
       setMsg(decision === 'approved'
-        ? 'Approved — Claim Authority will be notified; amount goes to next-month payroll.'
+        ? 'Approved — ASIL finance will push to payroll after review.'
         : 'Rejected — Claim Authority will be notified.');
       await load();
     } catch (e) {
@@ -82,6 +82,7 @@ export default function ClaimsApprovePage() {
         </p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
           <Stat label="Pending" value={data.completion.pending} tone="#b45309" />
+          <Stat label="Final review" value={data.completion.final_review || 0} tone="#c2410c" />
           <Stat label="Approved" value={data.completion.approved} tone="#15803d" />
           <Stat label="Rejected" value={data.completion.rejected || 0} tone="#b91c1c" />
           <Stat label="Total" value={data.completion.total} tone="#334155" />
@@ -148,6 +149,15 @@ export default function ClaimsApprovePage() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1, minWidth: 220 }}>
                       <div style={{ fontWeight: 700, fontSize: 16, color: '#0f172a' }}>{sub.employee_name}</div>
+                      {sub.is_final_review && (
+                        <div style={{
+                          display: 'inline-block', marginTop: 6, padding: '4px 10px', borderRadius: 999,
+                          background: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412',
+                          fontSize: 12, fontWeight: 700,
+                        }}>
+                          Final review — second rejection is final
+                        </div>
+                      )}
                       <div style={{ fontSize: 13, color: '#475569', marginTop: 2 }}>
                         {sub.employee_id} · {sub.client || '—'} · {sub.location || '—'}
                       </div>
