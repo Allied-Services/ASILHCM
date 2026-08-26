@@ -2352,6 +2352,145 @@ async function getPayrollSnapshot(pool, employeeId, month, year) {
     return rows[0] || { ot2_hrs: 0, ot3_hrs: 0, opd_claim: 0, reimbursement: 0, locked: false };
 }
 
+function roundHrs(v) {
+    return Math.round((Number(v) || 0) * 100) / 100;
+}
+
+async function applyPortalCorrection(pool, sendAppEmail, {
+    employeeId,
+    workMonth,
+    workYear,
+    ot1Hours = 0,
+    ot2Hours = 0,
+    ot3Hours = 0,
+    expenseAmount = 0,
+    medicalAmount = 0,
+    reason,
+    createdBy,
+    dryRun = false,
+}) {
+    if (!reason || !String(reason).trim()) return { ok: false, status: 400, error: 'Reason is required' };
+    const wm = parseInt(workMonth, 10);
+    const wy = parseInt(workYear, 10);
+    if (!employeeId || !wm || !wy) {
+        return { ok: false, status: 400, error: 'employeeId, workMonth, and workYear are required' };
+    }
+
+    const { rows: empRows } = await pool.query(`SELECT * FROM employees WHERE id = $1`, [employeeId]);
+    if (!empRows.length) return { ok: false, status: 404, error: 'Employee not found' };
+    const emp = empRows[0];
+    const approverEmail = resolveApproverEmail(emp);
+    const period = await getOrCreatePeriodForClaimMonth(pool, wm, wy);
+    const { rows: subRows } = await pool.query(
+        `SELECT * FROM portal_claim_submissions WHERE period_id = $1 AND employee_id = $2`,
+        [period.id, employeeId]
+    );
+    const sub = subRows[0] || null;
+    const o1 = roundHrs(ot1Hours);
+    const o2 = roundHrs(ot2Hours);
+    const o3 = roundHrs(ot3Hours);
+    const exp = Math.round((Number(expenseAmount) || 0) * 100) / 100;
+    const med = Math.round((Number(medicalAmount) || 0) * 100) / 100;
+    const claimDate = `${wy}-${String(wm).padStart(2, '0')}-28`;
+    const correctionNote = `[ASIL correction] ${String(reason).trim()}`;
+
+    if (dryRun) {
+        return {
+            ok: true,
+            dryRun: true,
+            path: 'portal',
+            resubmitToLm: true,
+            approverEmail: approverEmail || null,
+            before: sub ? { status: sub.status, channel: sub.channel } : null,
+            after: {
+                status: 'submitted',
+                ot1Hours: o1,
+                ot2Hours: o2,
+                ot3Hours: o3,
+                expenseAmount: exp,
+                medicalAmount: med,
+            },
+            warning: approverEmail
+                ? `Will email ${approverEmail} for Line Manager re-approval.`
+                : 'No Line Manager on file — correction will wait for ASIL review.',
+        };
+    }
+
+    let submissionId = sub?.id;
+    if (!submissionId) {
+        const { rows: ins } = await pool.query(
+            `INSERT INTO portal_claim_submissions
+             (period_id, employee_id, filler_email, approver_email, status, channel)
+             VALUES ($1,$2,$3,$4,'draft','admin_correction')
+             RETURNING id`,
+            [period.id, employeeId, createdBy || 'asil-correction', approverEmail || null]
+        );
+        submissionId = ins[0].id;
+    }
+
+    await pool.query(`UPDATE portal_claim_items SET active = FALSE WHERE submission_id = $1`, [submissionId]);
+
+    const inserts = [];
+    if (o1 > 0) inserts.push(['OT', o1, 'Single', 1]);
+    if (o2 > 0) inserts.push(['OT', o2, 'Double', 2]);
+    if (o3 > 0) inserts.push(['OT', o3, 'Triple', 3]);
+    if (exp > 0) inserts.push(['EXPENSE', exp, null, null]);
+    if (med > 0) inserts.push(['MEDICAL', med, null, null]);
+
+    for (const [claimType, val, multLabel, factor] of inserts) {
+        if (claimType === 'OT') {
+            await pool.query(
+                `INSERT INTO portal_claim_items
+                 (submission_id, claim_type, claim_date, ot_hours, ot_multiplier, ot_multiplier_factor, active, description)
+                 VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7)`,
+                [submissionId, claimType, claimDate, val, multLabel, factor, correctionNote]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO portal_claim_items
+                 (submission_id, claim_type, claim_date, amount, active, description)
+                 VALUES ($1,$2,$3,$4,TRUE,$5)`,
+                [submissionId, claimType, claimDate, val, correctionNote]
+            );
+        }
+    }
+
+    await pool.query(
+        `UPDATE portal_claim_submissions
+         SET status = 'submitted',
+             approved_at = NULL,
+             rejected_at = NULL,
+             submitted_at = NOW(),
+             channel = 'admin_correction',
+             filler_email = COALESCE(NULLIF($2, ''), filler_email),
+             approver_email = COALESCE(NULLIF($3, ''), approver_email),
+             updated_at = NOW()
+         WHERE id = $1`,
+        [submissionId, createdBy || 'asil-correction', approverEmail || null]
+    );
+
+    let lmNotified = false;
+    if (approverEmail && sendAppEmail) {
+        const packs = await ensureApproverPacks(pool, period.id, sendAppEmail, {
+            forceEmail: true,
+            onlyApproverEmail: approverEmail,
+        });
+        lmNotified = (packs || []).some((p) => p.count > 0);
+    }
+
+    return {
+        ok: true,
+        path: 'portal',
+        resubmitToLm: true,
+        submissionId,
+        approverEmail: approverEmail || null,
+        lmNotified,
+        message: lmNotified
+            ? `Correction saved and sent to ${approverEmail} for re-approval.`
+            : 'Correction saved — waiting for Line Manager approval.',
+    };
+}
+
 async function applyManualOverride(pool, {
     employeeId, month, year,
     ot1Hours = 0, ot2Hours = 0, ot3Hours = 0,
@@ -2918,6 +3057,7 @@ module.exports = {
     writePortalAmountsToSheet,
     exportClaimsPayrollTieout,
     applyManualOverride,
+    applyPortalCorrection,
     notifyManualOverride,
     autoCloseNoClaims,
     sendReminders,

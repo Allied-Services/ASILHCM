@@ -264,6 +264,11 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
             {m.toUpperCase()}
           </button>
         ))}
+        {campaignMode === 'sample' && (
+          <span style={{ fontSize: 12, color: '#fcd34d', paddingBottom: 8, maxWidth: 420, lineHeight: 1.4 }}>
+            SAMPLE mode — emails deliver to the test inbox only. The table shows each employee&apos;s real Focal/LM address; SAMPLE sends redirect to {gates.sampleEmail || 'CLAIMS_SAMPLE_EMAIL'}.
+          </span>
+        )}
         <button type="button" className="btn-primary" disabled={busy} onClick={buildPreview}
           style={{ height: 38 }}>
           {busy ? 'Working…' : preview ? 'Reload roster' : 'Load employees'}
@@ -392,8 +397,12 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
                             <td style={{ ...td, color: '#94a3b8' }}>{e.location || '—'}</td>
                             <td style={td}><PathBadge profile={e.routingProfile} label={e.roleLabel} /></td>
                             <td style={{ ...td, fontSize: 12 }}>
-                              <div>{e.mailTo || e.fillerEmail}</div>
-                              {e.sampleRedirect && <div style={{ fontSize: 11, color: '#fcd34d' }}>SAMPLE redirect</div>}
+                              <div>{e.fillerEmail || e.mailTo || '—'}</div>
+                              {e.sampleRedirect && campaignMode === 'sample' && (
+                                <div style={{ fontSize: 11, color: '#fcd34d' }}>
+                                  SAMPLE sends to {gates.sampleEmail || 'sample inbox'}
+                                </div>
+                              )}
                             </td>
                             <td style={{ ...td, fontSize: 12, color: '#94a3b8' }}>{e.approverEmail || '—'}</td>
                           </tr>

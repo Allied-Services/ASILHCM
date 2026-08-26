@@ -542,6 +542,23 @@ function registerPortalClaimsRoutes(app, deps) {
                 return res.status(403).json({ error: 'Missing permission: claims_manual_override' });
             }
             const body = req.body || {};
+            if (body.resubmitToLm) {
+                const result = await portal.applyPortalCorrection(pool, sendAppEmail, {
+                    employeeId: body.employeeId,
+                    workMonth: parseInt(body.workMonth || body.month, 10),
+                    workYear: parseInt(body.workYear || body.year, 10),
+                    ot1Hours: body.ot1Hours,
+                    ot2Hours: body.ot2Hours,
+                    ot3Hours: body.ot3Hours,
+                    expenseAmount: body.expenseAmount,
+                    medicalAmount: body.medicalAmount,
+                    reason: body.reason,
+                    createdBy: req.user?.email || req.user?.username || 'user',
+                    dryRun: !!body.dryRun,
+                });
+                if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+                return res.json(result);
+            }
             const result = await portal.applyManualOverride(pool, {
                 employeeId: body.employeeId,
                 month: parseInt(body.month, 10),
@@ -594,17 +611,48 @@ function registerPortalClaimsRoutes(app, deps) {
                 const mode = String(row.mode || row['Replace Existing?'] || 'add').toLowerCase();
                 const normalizedMode = mode === 'y' || mode === 'yes' || mode === 'replace' ? 'replace'
                     : mode === 'remove' ? 'remove' : 'add';
+                const resubmitToLm = row.resubmitToLm !== false
+                    && String(row.resubmitToLm || row['Send to LM?'] || 'Y').toLowerCase() !== 'n'
+                    && String(row.resubmitToLm || row['Send to LM?'] || 'Y').toLowerCase() !== 'no';
+                const workMonth = parseInt(row.workMonth || row['Work Month'] || row['Period Month'] || row.month, 10);
+                const workYear = parseInt(row.workYear || row['Work Year'] || row['Period Year'] || row.year, 10);
+                const payMonth = parseInt(row.payMonth || row['Pay Month'] || workMonth, 10);
+                const payYear = parseInt(row.payYear || row['Pay Year'] || workYear, 10);
+                const employeeId = row.employeeId || row.Code || row['ASIL Employee Code'];
+                const ot1Hours = row.ot1Hours ?? row['OT (1X)'] ?? row['OT 1X Hours'] ?? row['OT (1x)'];
+                const ot2Hours = row.ot2Hours ?? row['OT (x2)'] ?? row['OT (X2)'] ?? row['OT 2X Hours'];
+                const ot3Hours = row.ot3Hours ?? row['OT (x3)'] ?? row['OT (X3)'] ?? row['OT 3X Hours'];
+                const expenseAmount = row.expenseAmount ?? row.Exp ?? row['Expense Amount'];
+                const medicalAmount = row.medicalAmount ?? row.OPD ?? row['Medical Amount'];
+                const reason = row.reason || row.Reason || 'CSV manual upload';
+                if (resubmitToLm) {
+                    const r = await portal.applyPortalCorrection(pool, sendAppEmail, {
+                        employeeId,
+                        workMonth,
+                        workYear,
+                        ot1Hours,
+                        ot2Hours,
+                        ot3Hours,
+                        expenseAmount,
+                        medicalAmount,
+                        reason,
+                        createdBy: req.user?.email || 'import',
+                        dryRun,
+                    });
+                    results.push(r);
+                    continue;
+                }
                 const r = await portal.applyManualOverride(pool, {
-                    employeeId: row.employeeId || row['ASIL Employee Code'],
-                    month: parseInt(row.month || row['Period Month'], 10),
-                    year: parseInt(row.year || row['Period Year'], 10),
-                    ot1Hours: row.ot1Hours ?? row['OT 1X Hours'],
-                    ot2Hours: row.ot2Hours ?? row['OT 2X Hours'],
-                    ot3Hours: row.ot3Hours ?? row['OT 3X Hours'],
-                    expenseAmount: row.expenseAmount ?? row['Expense Amount'],
-                    medicalAmount: row.medicalAmount ?? row['Medical Amount'],
+                    employeeId,
+                    month: payMonth,
+                    year: payYear,
+                    ot1Hours,
+                    ot2Hours,
+                    ot3Hours,
+                    expenseAmount,
+                    medicalAmount,
                     mode: normalizedMode,
-                    reason: row.reason || row.Reason,
+                    reason,
                     createdBy: req.user?.email || 'import',
                     dryRun,
                     isSuperadmin: req.user?.role === 'superadmin',
@@ -620,11 +668,11 @@ function registerPortalClaimsRoutes(app, deps) {
     // Public CSV template (no secrets) — avoids Unauthorized when opened in a new tab without JWT
     app.get('/api/portal-claims/manual-override/template', (req, res) => {
         const csv = [
-            'ASIL Employee Code,Period Month,Period Year,OT 1X Hours,OT 2X Hours,OT 3X Hours,Expense Amount,Medical Amount,Reason,Replace Existing?',
-            'ASIL/SPL-001,7,2026,0,4,0,0,0,Client WhatsApp late OT,N',
+            'Code,Emp Name,OT (1X),OT (x2),OT (x3),OPD,Exp,Exp Bills Status,Absents,Work Month,Work Year,Reason,Send to LM?,Replace Existing?',
+            'ASIL/SPL-001,Example Employee,0,4,0,0,0,,0,7,2026,Manual upload correction,Y,N',
         ].join('\n');
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-        res.setHeader('Content-Disposition', 'attachment; filename=ADD_OT_CLAIMS_template.csv');
+        res.setHeader('Content-Disposition', 'attachment; filename=manual_claims_upload_template.csv');
         res.send(csv);
     });
 }
