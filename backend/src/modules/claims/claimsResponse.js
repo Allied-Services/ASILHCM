@@ -23,6 +23,10 @@ function num(v) {
     return Number.isFinite(n) ? n : 0;
 }
 
+function roundHrs(v) {
+    return Math.round(num(v) * 100) / 100;
+}
+
 function portalAmountsFromItems(items) {
     let ot1 = 0;
     let ot2 = 0;
@@ -43,12 +47,12 @@ function portalAmountsFromItems(items) {
         }
     }
     return {
-        ot1,
-        ot2,
-        ot3,
-        ot2Write: ot2 + (ot1 * 0.5),
-        expense,
-        medical,
+        ot1: roundHrs(ot1),
+        ot2: roundHrs(ot2),
+        ot3: roundHrs(ot3),
+        ot2Write: roundHrs(ot2 + (ot1 * 0.5)),
+        expense: Math.round(expense * 100) / 100,
+        medical: Math.round(medical * 100) / 100,
     };
 }
 

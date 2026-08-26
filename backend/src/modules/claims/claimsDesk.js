@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const EPS_HRS = 0.009;
 const EPS_PKR = 0.5;
@@ -181,8 +181,8 @@ function formatClaimSummary(portal, opts = {}) {
     const ot3 = num(p.ot3);
     const med = num(p.medical);
     const exp = num(p.expense);
-    if (ot2 > EPS_HRS) parts.push(`OT2 ${Math.round(ot2 * 10) / 10}h`);
-    if (ot3 > EPS_HRS) parts.push(`OT3 ${Math.round(ot3 * 10) / 10}h`);
+    if (ot2 > EPS_HRS) parts.push(`OT2 ${(Math.round(ot2 * 100) / 100).toFixed(2)}h`);
+    if (ot3 > EPS_HRS) parts.push(`OT3 ${(Math.round(ot3 * 100) / 100).toFixed(2)}h`);
     if (med > EPS_PKR) parts.push(`Med ${Math.round(med).toLocaleString('en-PK')}`);
     if (exp > EPS_PKR) parts.push(`Exp ${Math.round(exp).toLocaleString('en-PK')}`);
     return parts.length ? parts.join(' · ') : '—';

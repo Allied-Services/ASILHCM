@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Settings, Users, Send, Activity, Wallet } from 'lucide-react';
+import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine } from 'lucide-react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import PortalClaimsHub from './PortalClaimsHub';
@@ -11,6 +11,7 @@ const SECTIONS = [
   { key: 'people', label: 'People', icon: Users },
   { key: 'collect', label: 'Collect', icon: Send },
   { key: 'track', label: 'Track', icon: Activity },
+  { key: 'corrections', label: 'Corrections', icon: FilePenLine },
   { key: 'payroll', label: 'Payroll', icon: Wallet },
 ];
 
@@ -351,6 +352,7 @@ function MonthlyCyclePeople() {
 
 export default function MonthlyCycleHub({ user }) {
   const [section, setSection] = useState('track');
+  const [manualSeed, setManualSeed] = useState(null);
 
   return (
     <div className="mch-root">
@@ -385,7 +387,21 @@ export default function MonthlyCycleHub({ user }) {
         </div>
       )}
       {section === 'track' && (
-        <PortalClaimsHub user={user} lockSection="response" hideSectionNav />
+        <PortalClaimsHub
+          user={user}
+          lockSection="response"
+          hideSectionNav
+          onOpenManual={(seed) => { setManualSeed(seed); setSection('corrections'); }}
+        />
+      )}
+      {section === 'corrections' && (
+        <PortalClaimsHub
+          user={user}
+          lockSection="manual"
+          hideSectionNav
+          manualSeed={manualSeed}
+          onManualSeedConsumed={() => setManualSeed(null)}
+        />
       )}
       {section === 'payroll' && (
         <PortalClaimsHub user={user} lockSection="response" hideSectionNav initialFilter="ready_for_payroll" />

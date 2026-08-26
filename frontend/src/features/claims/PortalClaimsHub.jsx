@@ -93,7 +93,8 @@ function money(n) {
 
 function hours(n) {
   const v = Number(n) || 0;
-  return v ? String(v) : '—';
+  if (!v) return '—';
+  return (Math.round(v * 100) / 100).toFixed(2);
 }
 
 function rowClass(controlStatus, open) {
@@ -123,7 +124,15 @@ function isClaimsApproved(p) {
   return ['ready_for_payroll', 'sent_to_payroll'].includes(p.control_status);
 }
 
-export default function PortalClaimsHub({ user, lockSection = null, initialFilter = null, hideSectionNav = false }) {
+export default function PortalClaimsHub({
+  user,
+  lockSection = null,
+  initialFilter = null,
+  hideSectionNav = false,
+  onOpenManual = null,
+  manualSeed = null,
+  onManualSeedConsumed = null,
+}) {
   const start = defaultPeriod();
   const [workMonth, setWorkMonth] = useState(start.workMonth);
   const [workYear, setWorkYear] = useState(start.workYear);
@@ -146,9 +155,10 @@ export default function PortalClaimsHub({ user, lockSection = null, initialFilte
   const [ov, setOv] = useState({
     employeeId: '', month: start.payMonth, year: start.payYear,
     ot1Hours: 0, ot2Hours: 0, ot3Hours: 0, expenseAmount: 0, medicalAmount: 0,
-    mode: 'add', reason: '',
+    mode: 'add', reason: '', resubmitToLm: true,
   });
   const [ovPreview, setOvPreview] = useState(null);
+  const [csvPreview, setCsvPreview] = useState(null);
   const [rulePreview, setRulePreview] = useState(null);
   const [editingRule, setEditingRule] = useState(null);
   const [showClaimProcess, setShowClaimProcess] = useState(false);
@@ -160,6 +170,13 @@ export default function PortalClaimsHub({ user, lockSection = null, initialFilte
   useEffect(() => {
     if (initialFilter) setFilter(initialFilter);
   }, [initialFilter]);
+
+  useEffect(() => {
+    if (!manualSeed) return;
+    setOv(o => ({ ...o, ...manualSeed, resubmitToLm: manualSeed.resubmitToLm !== false }));
+    setOvPreview(null);
+    if (onManualSeedConsumed) onManualSeedConsumed();
+  }, [manualSeed, onManualSeedConsumed]);
 
   const activeSection = lockSection || section;
   const isSuper = user?.role === 'superadmin';
@@ -313,19 +330,63 @@ export default function PortalClaimsHub({ user, lockSection = null, initialFilte
 
   const fillManualFrom = (p) => {
     if (!p) return;
-    setOv(o => ({
-      ...o,
+    const seed = {
       employeeId: p.employee_id,
-      month: payMonth,
-      year: payYear,
       ot1Hours: p.portal?.ot1 || 0,
       ot2Hours: p.portal?.ot2 || 0,
       ot3Hours: p.portal?.ot3 || 0,
       expenseAmount: p.portal?.expense || 0,
       medicalAmount: p.portal?.medical || 0,
       mode: 'add',
-    }));
+      resubmitToLm: true,
+    };
+    if (onOpenManual) {
+      onOpenManual(seed);
+      return;
+    }
+    setOv(o => ({ ...o, ...seed }));
     setSection('manual');
+  };
+
+  const parseCsvRows = (text) => {
+    const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) return [];
+    const headers = lines[0].split(',').map(h => h.trim());
+    return lines.slice(1).map((line) => {
+      const cols = line.split(',').map(c => c.trim());
+      const row = {};
+      headers.forEach((h, i) => { row[h] = cols[i] ?? ''; });
+      return row;
+    });
+  };
+
+  const runCsvImport = async (commit) => {
+    if (!csvPreview?.rows?.length) {
+      setErr('Load a CSV file first.');
+      return;
+    }
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const d = await api.portalClaimsManualImport({
+        rows: csvPreview.rows.map((row) => ({
+          ...row,
+          workMonth: row['Work Month'] || workMonth,
+          workYear: row['Work Year'] || workYear,
+        })),
+        dryRun: !commit,
+      });
+      setCsvPreview(prev => ({ ...prev, result: d }));
+      const ok = (d.results || []).filter(r => r.ok).length;
+      const bad = (d.results || []).filter(r => !r.ok).length;
+      setMsg(commit
+        ? `CSV import: ${ok} applied${bad ? ` · ${bad} failed` : ''}.`
+        : `CSV dry-run: ${ok} ready${bad ? ` · ${bad} blocked` : ''}.`);
+      if (commit) await loadBoard();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const runPushPayroll = async (dryRun) => {
@@ -379,14 +440,23 @@ export default function PortalClaimsHub({ user, lockSection = null, initialFilte
   const runOverride = async (commit) => {
     setBusy(true); setErr(''); setMsg('');
     try {
-      const d = await api.portalClaimsManualOverride({ ...ov, month: payMonth, year: payYear, dryRun: !commit });
+      const payload = {
+        ...ov,
+        workMonth,
+        workYear,
+        month: ov.resubmitToLm ? workMonth : payMonth,
+        year: ov.resubmitToLm ? workYear : payYear,
+        dryRun: !commit,
+      };
+      const d = await api.portalClaimsManualOverride(payload);
       setOvPreview(d);
       if (d.warning) setMsg(d.warning);
+      if (d.message) setMsg(d.message);
       if (commit) {
-        setMsg('Override applied.');
+        setMsg(d.message || (ov.resubmitToLm ? 'Correction sent for LM re-approval.' : 'Override applied.'));
         await loadBoard();
       } else {
-        setMsg('Dry-run preview ready — review before Commit.');
+        setMsg(d.message || d.warning || 'Dry-run preview ready — review before Commit.');
       }
     } catch (e) {
       setErr(e.message);
@@ -768,46 +838,84 @@ export default function PortalClaimsHub({ user, lockSection = null, initialFilte
 
       {activeSection === 'manual' && (
         <>
-          <h3>Manual add</h3>
+          <h3>Manual correction &amp; CSV upload</h3>
           <p className="pch-sub">
-            Only for OTHER DATA rows, or someone who missed the portal. Finance can Add. Superadmin can Replace or Remove. Dry-run first.
+            Default: save to Portal Claims and send to the Line Manager for re-approval (each line must be approved).
+            Uncheck below only for a direct Payroll Sheet override (OTHER DATA / missed portal).
           </p>
           <div className="pch-form">
+            <label className="pch-span">
+              <span>
+                <input
+                  type="checkbox"
+                  checked={!!ov.resubmitToLm}
+                  onChange={e => setOv(o => ({ ...o, resubmitToLm: e.target.checked }))}
+                />
+                {' '}Send to Line Manager for re-approval after correction (recommended)
+              </span>
+            </label>
             <label><span>ASIL Employee Code</span>
               <input value={ov.employeeId} onChange={e => setOv(o => ({ ...o, employeeId: e.target.value }))} placeholder="e.g. ASIL/SPL-001" />
             </label>
             <label><span>OT 1× Hours</span>
-              <input type="number" value={ov.ot1Hours} onChange={e => setOv(o => ({ ...o, ot1Hours: e.target.value }))} />
+              <input type="number" step="0.01" value={ov.ot1Hours} onChange={e => setOv(o => ({ ...o, ot1Hours: e.target.value }))} />
             </label>
             <label><span>OT 2× Hours</span>
-              <input type="number" value={ov.ot2Hours} onChange={e => setOv(o => ({ ...o, ot2Hours: e.target.value }))} />
+              <input type="number" step="0.01" value={ov.ot2Hours} onChange={e => setOv(o => ({ ...o, ot2Hours: e.target.value }))} />
             </label>
             <label><span>OT 3× Hours</span>
-              <input type="number" value={ov.ot3Hours} onChange={e => setOv(o => ({ ...o, ot3Hours: e.target.value }))} />
+              <input type="number" step="0.01" value={ov.ot3Hours} onChange={e => setOv(o => ({ ...o, ot3Hours: e.target.value }))} />
             </label>
             <label><span>Expense Amount (PKR)</span>
-              <input type="number" value={ov.expenseAmount} onChange={e => setOv(o => ({ ...o, expenseAmount: e.target.value }))} />
+              <input type="number" step="0.01" value={ov.expenseAmount} onChange={e => setOv(o => ({ ...o, expenseAmount: e.target.value }))} />
             </label>
-            <label><span>Medical Amount (PKR)</span>
-              <input type="number" value={ov.medicalAmount} onChange={e => setOv(o => ({ ...o, medicalAmount: e.target.value }))} />
+            <label><span>Medical / OPD (PKR)</span>
+              <input type="number" step="0.01" value={ov.medicalAmount} onChange={e => setOv(o => ({ ...o, medicalAmount: e.target.value }))} />
             </label>
-            <label><span>Mode</span>
-              <select value={ov.mode} onChange={e => setOv(o => ({ ...o, mode: e.target.value }))}>
-                <option value="add">Add</option>
-                {isSuper && <option value="replace">Replace (superadmin)</option>}
-                {isSuper && <option value="remove">Remove (superadmin)</option>}
-              </select>
-            </label>
+            {!ov.resubmitToLm && (
+              <label><span>Payroll mode</span>
+                <select value={ov.mode} onChange={e => setOv(o => ({ ...o, mode: e.target.value }))}>
+                  <option value="add">Add</option>
+                  {isSuper && <option value="replace">Replace (superadmin)</option>}
+                  {isSuper && <option value="remove">Remove (superadmin)</option>}
+                </select>
+              </label>
+            )}
             <label className="pch-span"><span>Reason (required)</span>
-              <input value={ov.reason} onChange={e => setOv(o => ({ ...o, reason: e.target.value }))} placeholder="Why this override is needed" />
+              <input value={ov.reason} onChange={e => setOv(o => ({ ...o, reason: e.target.value }))} placeholder="Why this correction is needed" />
             </label>
           </div>
           <div className="pch-actions">
             <button type="button" className="btn-secondary" disabled={busy} onClick={() => runOverride(false)}>Dry-run</button>
             <button type="button" className="btn-primary" disabled={busy} onClick={() => runOverride(true)}>Commit</button>
+            <a className="btn-secondary" href={`${import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com'}/api/portal-claims/manual-override/template`} target="_blank" rel="noreferrer">Download CSV template</a>
           </div>
           {ovPreview && (
-            <pre className="pch-note">{JSON.stringify({ before: ovPreview.before, after: ovPreview.after, warning: ovPreview.warning }, null, 2)}</pre>
+            <pre className="pch-note">{JSON.stringify({ before: ovPreview.before, after: ovPreview.after, warning: ovPreview.warning, message: ovPreview.message }, null, 2)}</pre>
+          )}
+
+          <h3 style={{ marginTop: 24 }}>Bulk CSV upload</h3>
+          <p className="pch-sub">
+            Columns: Code, Emp Name, OT (1X), OT (x2), OT (x3), OPD, Exp, Exp Bills Status, Absents, Work Month, Work Year, Reason, Send to LM?
+            Work month defaults to the filter above when omitted. Send to LM = Y sends each row back for approval.
+          </p>
+          <div className="pch-actions">
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const text = await file.text();
+                setCsvPreview({ name: file.name, rows: parseCsvRows(text), result: null });
+                setMsg(`Loaded ${parseCsvRows(text).length} row(s) from ${file.name}.`);
+              }}
+            />
+            <button type="button" className="btn-secondary" disabled={busy || !csvPreview?.rows?.length} onClick={() => runCsvImport(false)}>Dry-run CSV</button>
+            <button type="button" className="btn-primary" disabled={busy || !csvPreview?.rows?.length} onClick={() => runCsvImport(true)}>Commit CSV</button>
+          </div>
+          {csvPreview?.result && (
+            <pre className="pch-note">{JSON.stringify(csvPreview.result.summary || csvPreview.result, null, 2)}</pre>
           )}
         </>
       )}
