@@ -48,7 +48,7 @@ describe('portalClaims helpers', () => {
         assert.equal(w.fillOpenAt.getUTCDate(), 1);
     });
 
-    it('July 2026 fill is closed now; sample and LM approve stay on the old clock', () => {
+    it('July 2026 fill and LM approve are closed now; sample stays open', () => {
         const { isAfterFillClose, isAfterApproveClose, FILL_CLOSED_MESSAGE } = require('../src/modules/claims/portalService');
         const july = {
             claim_month: 7,
@@ -61,8 +61,8 @@ describe('portalClaims helpers', () => {
         assert.equal(isAfterFillClose(july, Date.parse('2026-08-25T17:00:00Z')), true);
         assert.equal(isAfterFillClose(july, Date.parse('2026-08-27T18:00:00Z')), true);
         assert.equal(isAfterFillClose({ ...july, campaign_mode: 'sample' }, Date.parse('2026-08-27T18:00:00Z')), false);
-        assert.equal(isAfterApproveClose(july, Date.parse('2026-08-27T18:00:00Z')), false);
-        assert.equal(isAfterApproveClose(july, Date.parse('2026-08-27T19:00:00Z')), true);
+        assert.equal(isAfterApproveClose(july, Date.parse('2026-08-27T18:00:00Z')), true);
+        assert.equal(isAfterApproveClose({ ...july, campaign_mode: 'sample' }, Date.parse('2026-08-27T18:00:00Z')), false);
         const august = {
             claim_month: 8,
             claim_year: 2026,
@@ -88,6 +88,29 @@ describe('portalClaims helpers', () => {
         );
         assert.equal(r.ok, false);
         assert.equal(r.reason, 'fill_closed');
+        assert.equal(mailed, false);
+    });
+
+    it('sendApproverPeriodReminder does not mail after July approve close', async () => {
+        const { sendApproverPeriodReminder } = require('../src/modules/claims/portalService');
+        let mailed = false;
+        const r = await sendApproverPeriodReminder(
+            {
+                query: async () => ({
+                    rows: [{
+                        claim_month: 7,
+                        claim_year: 2026,
+                        campaign_mode: 'actual',
+                        approve_close_at: '2026-08-27T18:59:59.000Z',
+                    }],
+                }),
+            },
+            3,
+            'lm@example.com',
+            async () => { mailed = true; },
+        );
+        assert.equal(r.ok, false);
+        assert.equal(r.reason, 'approve_closed');
         assert.equal(mailed, false);
     });
 

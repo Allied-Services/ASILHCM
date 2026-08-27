@@ -70,6 +70,26 @@ export default function ClaimsApprovePage() {
   const settle = data.period.settlement_month
     ? `${data.period.settlement_month}/${data.period.settlement_year}`
     : 'following month';
+  const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const claimLabel = data?.period
+    ? `${monthNames[data.period.claim_month] || data.period.claim_month} ${data.period.claim_year}`
+    : 'this cycle';
+
+  if (data.period.approve_closed) {
+    return (
+      <Shell>
+        <header style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', color: '#15803d', textTransform: 'uppercase' }}>ASIL HCM · Line Manager</div>
+          <h1 style={{ margin: '4px 0 8px', fontSize: '1.55rem', color: '#0f172a', fontWeight: 700 }}>Deadline has expired</h1>
+          <p style={{ margin: 0, color: '#334155', lineHeight: 1.55, maxWidth: 720 }}>
+            The approval window for <strong>{claimLabel}</strong> is closed.
+            You cannot approve or reject claims from this link.
+          </p>
+        </header>
+        <Alert tone="bad">Deadline has expired. Raise claims next month.</Alert>
+      </Shell>
+    );
+  }
 
   return (
     <Shell>
@@ -94,7 +114,6 @@ export default function ClaimsApprovePage() {
         </p>
       </header>
 
-      {data.period.approve_closed && <Alert tone="bad">Approval window closed — contact ASIL if needed.</Alert>}
       {error && <Alert tone="bad">{error}</Alert>}
       {msg && <Alert tone="good">{msg}</Alert>}
 
