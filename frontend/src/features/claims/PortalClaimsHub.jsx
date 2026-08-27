@@ -360,8 +360,8 @@ export default function PortalClaimsHub({
       `Overwrite portal claims for ${csvPreview.rows.length} employee(s) for work month ${workMonth}/${workYear}?\n\n`
       + `This replaces existing ${MONTHS[workMonth - 1]?.[1] || workMonth} claim values. `
       + `${MONTHS[workMonth - 1]?.[1] || workMonth} salary (already paid) is not changed. `
-      + `Amounts are payable with ${MONTHS[payMonth - 1]?.[1] || payMonth} salary after LM approval `
-      + `(or immediately on that sheet if Send to LM = N).`
+      + `Amounts are payable with ${MONTHS[payMonth - 1]?.[1] || payMonth} salary. `
+      + `Send to LM = N replaces portal values only and sends no Focal or LM email.`
     )) return;
     setBusy(true); setErr(''); setMsg('');
     setCsvPreview((prev) => ({ ...prev, localError: '', result: null }));
@@ -905,8 +905,8 @@ export default function PortalClaimsHub({
           <p className="pch-sub">
             Columns: Code, Emp Name, OT (1X), OT (x2), OT (x3), OPD, Exp, Work Month, Work Year, Reason, Send to LM?
             Save as CSV (not .xlsx). Work month defaults to the filter above when omitted.
-            Send to LM = Y replaces the work-month portal claim and asks the LM to re-approve.
-            Send to LM = N writes the <strong>following</strong> Payroll Sheet month (August for July work), never the locked July salary sheet.
+            Send to LM = Y replaces the work-month portal claim and emails the LM to re-approve.
+            Send to LM = N replaces the portal claim only — no Focal or LM email, no July salary change.
           </p>
           <div className="pch-actions">
             <input

@@ -615,40 +615,22 @@ function registerPortalClaimsRoutes(app, deps) {
             const periodIds = new Set();
             for (const row of rows) {
                 const n = portal.normalizeManualImportRow(row, defaults);
-                if (n.resubmitToLm) {
-                    const r = await portal.applyPortalCorrection(pool, sendAppEmail, {
-                        employeeId: n.employeeId,
-                        workMonth: n.workMonth,
-                        workYear: n.workYear,
-                        ot1Hours: n.ot1Hours,
-                        ot2Hours: n.ot2Hours,
-                        ot3Hours: n.ot3Hours,
-                        expenseAmount: n.expenseAmount,
-                        medicalAmount: n.medicalAmount,
-                        reason: n.reason,
-                        createdBy: req.user?.email || 'import',
-                        dryRun,
-                        notifyLm: false,
-                    });
-                    if (r.periodId) periodIds.add(r.periodId);
-                    results.push(r);
-                    continue;
-                }
-                const r = await portal.applyManualOverride(pool, {
+                const r = await portal.applyPortalCorrection(pool, sendAppEmail, {
                     employeeId: n.employeeId,
-                    month: n.payMonth,
-                    year: n.payYear,
+                    workMonth: n.workMonth,
+                    workYear: n.workYear,
                     ot1Hours: n.ot1Hours,
                     ot2Hours: n.ot2Hours,
                     ot3Hours: n.ot3Hours,
                     expenseAmount: n.expenseAmount,
                     medicalAmount: n.medicalAmount,
-                    mode: n.mode,
                     reason: n.reason,
                     createdBy: req.user?.email || 'import',
                     dryRun,
-                    isSuperadmin: req.user?.role === 'superadmin',
+                    notifyLm: false,
+                    resubmitToLm: n.resubmitToLm,
                 });
+                if (n.resubmitToLm && r.periodId) periodIds.add(r.periodId);
                 results.push(r);
             }
             if (!dryRun && periodIds.size) {
