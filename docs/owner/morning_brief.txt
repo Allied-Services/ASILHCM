@@ -1,0 +1,21 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month for the pilot contract (38 people)
+Status: AMBER
+
+NOT FINISHED YET
+1. Pilot Excel vs HCM still not zeroed (waiting on payroll CSV)
+2. No production pay through the new engine yet
+3. Morning email still not connected — this brief is only in Cursor/PR
+
+NEEDS YOU TODAY
+- Send the pilot Excel export for the shadow month
+- Connect morning email on the Automation so this lands in your inbox
+- July claims fill window ends tonight (27 Aug 11:59 PM) if still chasing July
+
+I SUGGEST
+- No new builds today — get the Excel file so shadow month can finish
+
+FOCUS TODAY
+Get the pilot Excel export in so we can prove pay numbers.
