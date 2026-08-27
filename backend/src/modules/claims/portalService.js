@@ -287,6 +287,7 @@ function periodWindowForClaimMonth(claimYear, claimMonth, policy = {}) {
 }
 
 const JULY_2026_TRIAL_CLOSE = pktDeadline(2026, 8, 27, 23, 59, 59);
+const FILL_CLOSED_MESSAGE = 'Deadline has expired.';
 
 function effectiveCloseAt(stored, trialFloor) {
     const storedMs = stored ? new Date(stored).getTime() : 0;
@@ -301,7 +302,9 @@ function trialCloseFloorMs(period) {
 
 function isAfterFillClose(period, nowMs = Date.now()) {
     if (isSamplePeriod(period)) return false;
-    const closeAt = effectiveCloseAt(period?.fill_close_at, trialCloseFloorMs(period));
+    // Owner closed July 2026 submissions on 27 Aug — do not wait for 23:59 or the trial floor.
+    if (isJuly2026TrialPeriod(period)) return true;
+    const closeAt = effectiveCloseAt(period?.fill_close_at, 0);
     if (!closeAt) return false;
     return nowMs > closeAt;
 }
@@ -865,7 +868,7 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
     if (isAfterFillClose(batch)) {
-        return { ok: false, status: 403, error: 'Payroll entry is now closed. Raise claims next month.' };
+        return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
     }
 
     const { rows: subRows } = await pool.query(
@@ -1145,7 +1148,7 @@ function resolveSupportCategory(requestedCategory, claimTypes) {
 async function addAttachment(pool, { token, employeeId, filename, mimeType, contentBase64, category = 'other' }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
-    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: 'Payroll entry is now closed.' };
+    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
 
     const { rows: subRows } = await pool.query(
         `SELECT * FROM portal_claim_submissions WHERE batch_id = $1 AND employee_id = $2`,
@@ -1182,7 +1185,7 @@ async function addAttachment(pool, { token, employeeId, filename, mimeType, cont
 async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
-    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: 'Payroll entry is now closed.' };
+    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
 
     const { rows: subs } = await pool.query(
         `SELECT employee_id FROM portal_claim_submissions WHERE batch_id = $1`,
@@ -2656,6 +2659,9 @@ async function autoCloseNoClaims(pool) {
 
 async function sendFillerBatchReminder(pool, batchRow, sendAppEmail, sendJazzSMS = null, { skipDueCheck = false } = {}) {
     const b = batchRow;
+    if (isAfterFillClose(b)) {
+        return { ok: false, reason: 'fill_closed' };
+    }
     if (!skipDueCheck && !isDueForReminder(b.last_reminder_at, b.invite_sent_at)) {
         return { ok: false, reason: 'not_due' };
     }
@@ -2763,7 +2769,8 @@ async function sendReminders(pool, sendAppEmail, sendJazzSMS = null) {
                 p.fill_close_at, p.approve_close_at, p.campaign_mode
          FROM portal_claim_batches b
          JOIN portal_claim_periods p ON p.id = b.period_id
-         WHERE (p.fill_close_at > NOW() OR (p.claim_month = 7 AND p.claim_year = 2026))
+         WHERE p.fill_close_at > NOW()
+           AND NOT (p.claim_month = 7 AND p.claim_year = 2026)
            AND COALESCE(p.campaign_mode, 'actual') <> 'sample'
            AND b.invite_delivered = TRUE
            AND EXISTS (
@@ -2773,6 +2780,7 @@ async function sendReminders(pool, sendAppEmail, sendJazzSMS = null) {
     );
 
     for (const b of batches) {
+        if (isAfterFillClose(b)) continue;
         if (!isDueForReminder(b.last_reminder_at, b.invite_sent_at)) {
             results.skipped_not_due += 1;
             continue;
@@ -2823,12 +2831,13 @@ async function sendReminders(pool, sendAppEmail, sendJazzSMS = null) {
 
 async function resendFillerInvite(pool, batchId, sendAppEmail) {
     const { rows } = await pool.query(
-        `SELECT b.*, p.claim_month, p.claim_year, p.campaign_mode FROM portal_claim_batches b
+        `SELECT b.*, p.claim_month, p.claim_year, p.campaign_mode, p.fill_close_at FROM portal_claim_batches b
          JOIN portal_claim_periods p ON p.id = b.period_id WHERE b.id = $1`,
         [batchId]
     );
     if (!rows[0]) return { ok: false, error: 'Batch not found' };
     const b = rows[0];
+    if (isAfterFillClose(b)) return { ok: false, error: FILL_CLOSED_MESSAGE };
     const token = stableFillerToken(b.period_id, b.filler_email);
     await pool.query(
         `UPDATE portal_claim_batches
@@ -2921,7 +2930,7 @@ async function autoApproveSelfFinal(pool, batch, sendAppEmail) {
 async function batchSubmitAll(pool, { token, sendAppEmail }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
-    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: 'Payroll entry is now closed.' };
+    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
 
     const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [batch.period_id]);
     const period = periodRows[0];
@@ -3031,7 +3040,7 @@ async function flushPortalClaimsSample(pool, { claimMonth, claimYear, clientPatt
 }
 
 module.exports = {
-    FILL_OPEN_DAY, FILL_CLOSE_DAY, APPROVE_CLOSE_DAY,
+    FILL_OPEN_DAY, FILL_CLOSE_DAY, APPROVE_CLOSE_DAY, FILL_CLOSED_MESSAGE,
     normalizeAuthority,
     resolveFillerEmail,
     resolveApproverEmail,
@@ -3061,6 +3070,7 @@ module.exports = {
     notifyManualOverride,
     autoCloseNoClaims,
     sendReminders,
+    sendFillerBatchReminder,
     resendFillerInvite,
     getAttachmentContent,
     getOrCreatePeriod,
