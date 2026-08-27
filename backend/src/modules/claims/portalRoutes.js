@@ -47,6 +47,7 @@ function registerPortalClaimsRoutes(app, deps) {
                 items,
                 confirmNoClaims: !!confirmNoClaims,
                 asDraft: !!asDraft,
+                sendAppEmail,
             });
             if (!result.ok) {
                 return res.status(result.status || 400).json({

@@ -72,6 +72,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-27)
+- **Portal Claims submit confirmation** — Employee, Focal, or Line Manager who submits now gets an email with OT 2X/3X hours, expense and medical totals, and the list of lines they just entered. Approve/reject is unchanged.
 - **July claims closed** — fill and Line Manager approve links both show “Deadline has expired”. No emails sent.
 
 ## JUST SHIPPED (2026-08-25)
