@@ -48,17 +48,47 @@ describe('portalClaims helpers', () => {
         assert.equal(w.fillOpenAt.getUTCDate(), 1);
     });
 
-    it('July 2026 trial stays open through 27 Aug even if fill_close_at was rewound to July', () => {
-        const { isAfterFillClose } = require('../src/modules/claims/portalService');
-        const period = {
+    it('July 2026 fill is closed now; sample and LM approve stay on the old clock', () => {
+        const { isAfterFillClose, isAfterApproveClose, FILL_CLOSED_MESSAGE } = require('../src/modules/claims/portalService');
+        const july = {
             claim_month: 7,
             claim_year: 2026,
-            fill_close_at: '2026-07-17T18:59:59.000Z',
+            fill_close_at: '2026-08-27T18:59:59.000Z',
+            approve_close_at: '2026-08-27T18:59:59.000Z',
             campaign_mode: 'actual',
         };
-        assert.equal(isAfterFillClose(period, Date.parse('2026-08-25T17:00:00Z')), false);
-        assert.equal(isAfterFillClose(period, Date.parse('2026-08-27T18:59:59.000Z')), false);
-        assert.equal(isAfterFillClose(period, Date.parse('2026-08-27T19:00:00Z')), true);
+        assert.equal(FILL_CLOSED_MESSAGE, 'Deadline has expired.');
+        assert.equal(isAfterFillClose(july, Date.parse('2026-08-25T17:00:00Z')), true);
+        assert.equal(isAfterFillClose(july, Date.parse('2026-08-27T18:00:00Z')), true);
+        assert.equal(isAfterFillClose({ ...july, campaign_mode: 'sample' }, Date.parse('2026-08-27T18:00:00Z')), false);
+        assert.equal(isAfterApproveClose(july, Date.parse('2026-08-27T18:00:00Z')), false);
+        assert.equal(isAfterApproveClose(july, Date.parse('2026-08-27T19:00:00Z')), true);
+        const august = {
+            claim_month: 8,
+            claim_year: 2026,
+            fill_close_at: '2026-09-18T18:59:59.000Z',
+            campaign_mode: 'actual',
+        };
+        assert.equal(isAfterFillClose(august, Date.parse('2026-08-27T12:00:00Z')), false);
+    });
+
+    it('sendFillerBatchReminder does not mail after July fill close', async () => {
+        const { sendFillerBatchReminder } = require('../src/modules/claims/portalService');
+        let mailed = false;
+        const r = await sendFillerBatchReminder(
+            { query: async () => { throw new Error('should not query'); } },
+            {
+                claim_month: 7,
+                claim_year: 2026,
+                campaign_mode: 'actual',
+                last_reminder_at: null,
+                invite_sent_at: '2026-08-01T00:00:00Z',
+            },
+            async () => { mailed = true; },
+        );
+        assert.equal(r.ok, false);
+        assert.equal(r.reason, 'fill_closed');
+        assert.equal(mailed, false);
     });
 
     it('refreshOpenPeriodFillClose does not rewind a later promised close', async () => {

@@ -303,6 +303,24 @@ export default function ClaimsFillPage() {
   const settleLabel = banner?.settlementLabel || (data?.period?.settlement_month ? `${monthNames[data.period.settlement_month]} ${data.period.settlement_year}` : 'following month');
   const templateHref = data.templateUrl || `${API}/api/portal-claims/fill/${encodeURIComponent(token)}/template.xlsx`;
 
+  if (fillClosed) {
+    return (
+      <Shell>
+        <header className="claims-header">
+          <div className="claims-brand">ASIL HCM</div>
+          <h1 className="claims-title">Deadline has expired</h1>
+          <p className="claims-lead">
+            The submit window for <strong>{claimLabel || 'this cycle'}</strong> is closed.
+            You cannot add or change claims from this link.
+          </p>
+        </header>
+        <Alert tone="bad" prominent>
+          Deadline has expired. Raise claims next month.
+        </Alert>
+      </Shell>
+    );
+  }
+
   const stepCounts = {
     ot: countMeaningfulRows(otRows, 'OT'),
     expense: countMeaningfulRows(expRows, 'EXPENSE'),
@@ -337,7 +355,6 @@ export default function ClaimsFillPage() {
       <HowItWorks templateHref={templateHref} />
 
       <div ref={feedbackRef} />
-      {fillClosed && <Alert tone="bad">Entry closed for this cycle. Raise claims next month.</Alert>}
       {error && <Alert tone="bad"><pre className="claims-pre">{error}</pre></Alert>}
       {(justSubmitted || msg) && (
         <Alert tone="good" prominent={justSubmitted}>

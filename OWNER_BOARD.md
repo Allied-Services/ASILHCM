@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-25 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-27 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -70,6 +70,9 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 
 ## IN PROGRESS
 - BPO / PSO contract matching on staging (separate track — do not block)
+
+## JUST SHIPPED (2026-08-27)
+- **July claims submit closed** — anyone opening a July fill link sees “Deadline has expired” and cannot save. Line Manager approve stays open through 27 Aug 11:59 PM. No emails sent.
 
 ## JUST SHIPPED (2026-08-25)
 - **Monthly Cycle hub** — new tab: contract claim pack (OT/Expense/Medical toggles), people assignment, collect/track/payroll on same Portal Claims engine; Wafi unchanged
