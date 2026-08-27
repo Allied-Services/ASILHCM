@@ -113,7 +113,10 @@ function controlStatusFromRow({
     const reopened = num(lmReopenCount) >= 1;
 
     if (reopened && sub === 'submitted') return 'final_lm_review';
-    if (sub === 'in_payroll' || payrollPushedAt) return 'sent_to_payroll';
+    if (sub === 'in_payroll' || payrollPushedAt) {
+        if (portalHasValues && !amountsMatch) return 'ready_for_payroll';
+        return 'sent_to_payroll';
+    }
     if (internal === 'rejected' || sub === 'rejected') return 'rejected_closed';
     const noClaimsControl = resolveNoClaimsControl({
         submissionStatus,
@@ -121,12 +124,12 @@ function controlStatusFromRow({
         noClaimsKind,
     });
     if (noClaimsControl) return noClaimsControl;
-    if (internal === 'other_data') return 'needs_review';
+    if (internal === 'other_data' && !portalHasValues) return 'needs_review';
 
     if (sub === 'approved' || internal === 'ready_import') {
         if (sample) return 'ready_for_payroll';
         if (internal === 'on_sheet' && amountsMatch) return 'sent_to_payroll';
-        if (sheetHasValues && portalHasValues && !amountsMatch) return 'needs_review';
+        if (sheetHasValues && portalHasValues && !amountsMatch) return 'ready_for_payroll';
         if (sheetHasValues && !portalHasValues) return 'needs_review';
         return 'ready_for_payroll';
     }

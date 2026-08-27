@@ -47,6 +47,8 @@ const {
     listResponseBoard,
     writePortalAmountsToSheet,
     sheetHasValues,
+    portalHasValues,
+    amountsMatch,
 } = require('./claimsResponse');
 const { planChase, planSmartReminder } = require('./claimsChase');
 const {
@@ -1647,7 +1649,7 @@ async function notifyFillerDecision(pool, sendAppEmail, sub, decision, comment, 
     }).catch(() => {});
 }
 
-async function injectApprovedToEmployeeClaims(pool, sub, items, pack) {
+async function injectApprovedToEmployeeClaims(pool, sub, items, pack, { replace = false } = {}) {
     const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [sub.period_id]);
     const period = periodRows[0];
     if (!canInjectPayroll(period)) {
@@ -1705,6 +1707,7 @@ async function injectApprovedToEmployeeClaims(pool, sub, items, pack) {
         month,
         year,
         portal,
+        replace,
     });
     return payWrite;
 }
@@ -1849,12 +1852,7 @@ async function pushSelectedToPayroll(pool, opts, actorEmail) {
                 results.push({ employee_id: employeeId, outcome: 'not_found', ok: false });
                 continue;
             }
-            if (sub.status === 'in_payroll' || sub.payroll_pushed_at) {
-                await client.query('ROLLBACK');
-                results.push({ employee_id: employeeId, outcome: 'already_sent', ok: true, submission_id: sub.id });
-                continue;
-            }
-            if (sub.status !== 'approved') {
+            if (sub.status !== 'approved' && sub.status !== 'in_payroll') {
                 await client.query('ROLLBACK');
                 results.push({
                     employee_id: employeeId,
@@ -1890,15 +1888,18 @@ async function pushSelectedToPayroll(pool, opts, actorEmail) {
                 });
                 continue;
             }
-            if (sheetHasValues(sheetRow)) {
+            if (amountsMatch(portal, sheetRow) && (sub.status === 'in_payroll' || sub.payroll_pushed_at || sheetHasValues(sheetRow))) {
+                await client.query('ROLLBACK');
+                results.push({ employee_id: employeeId, outcome: 'already_sent', ok: true, submission_id: sub.id });
+                continue;
+            }
+            if (!portalHasValues(portal)) {
                 await client.query('ROLLBACK');
                 results.push({
                     employee_id: employeeId,
-                    outcome: 'needs_review',
-                    ok: false,
-                    code: 'SHEET_HAS_OTHER_DATA',
+                    outcome: 'nothing_to_write',
+                    ok: true,
                     submission_id: sub.id,
-                    portal,
                 });
                 continue;
             }
@@ -1912,11 +1913,12 @@ async function pushSelectedToPayroll(pool, opts, actorEmail) {
                     portal,
                     month,
                     year,
+                    willReplace: sheetHasValues(sheetRow),
                 });
                 continue;
             }
             const pack = { period_id: sub.period_id, approver_email: sub.approver_email };
-            const inject = await injectApprovedToEmployeeClaims(client, sub, items, pack);
+            const inject = await injectApprovedToEmployeeClaims(client, sub, items, pack, { replace: true });
             if (inject.blocked === 'SHEET_HAS_OTHER_DATA') {
                 await client.query('ROLLBACK');
                 results.push({
@@ -2783,19 +2785,66 @@ async function applyManualOverride(pool, {
         ]
     );
 
-    // Mirror channel on a synthetic submission row for Claims tab visibility
+    // Mirror the same amounts on the work-month portal row so the Response board matches the sheet
     await ensureClaimAuthorityColumn(pool);
     const campMonth = month;
     const campYear = year;
     const period = await getOrCreatePeriod(pool, campMonth, campYear);
-    await pool.query(
+    const { rows: subRows } = await pool.query(
         `INSERT INTO portal_claim_submissions
          (period_id, employee_id, filler_email, approver_email, status, channel, submitted_at, approved_at)
          VALUES ($1,$2,$3,$4,'in_payroll','manual_override',NOW(),NOW())
          ON CONFLICT (period_id, employee_id) DO UPDATE SET
-           status = 'in_payroll', channel = 'manual_override', updated_at = NOW()`,
+           status = 'in_payroll', channel = 'manual_override', updated_at = NOW()
+         RETURNING id`,
         [period.id, resolvedId, createdBy || 'manual', createdBy || 'manual']
-    ).catch(() => {});
+    );
+    const submissionId = subRows[0] && subRows[0].id;
+    if (submissionId) {
+        await pool.query(`UPDATE portal_claim_items SET active = FALSE WHERE submission_id = $1`, [submissionId]);
+        const claimDate = `${period.claim_year || campYear}-${String(period.claim_month || campMonth).padStart(2, '0')}-28`;
+        const note = `[ASIL correction] ${String(reason).trim()}`;
+        if (o1 > 0) {
+            await pool.query(
+                `INSERT INTO portal_claim_items
+                 (submission_id, claim_type, claim_date, ot_hours, ot_multiplier, ot_multiplier_factor, active, description)
+                 VALUES ($1,'OT',$2,$3,'Single',1,TRUE,$4)`,
+                [submissionId, claimDate, o1, note]
+            );
+        }
+        if (o2 > 0) {
+            await pool.query(
+                `INSERT INTO portal_claim_items
+                 (submission_id, claim_type, claim_date, ot_hours, ot_multiplier, ot_multiplier_factor, active, description)
+                 VALUES ($1,'OT',$2,$3,'Double',2,TRUE,$4)`,
+                [submissionId, claimDate, o2, note]
+            );
+        }
+        if (o3 > 0) {
+            await pool.query(
+                `INSERT INTO portal_claim_items
+                 (submission_id, claim_type, claim_date, ot_hours, ot_multiplier, ot_multiplier_factor, active, description)
+                 VALUES ($1,'OT',$2,$3,'Triple',3,TRUE,$4)`,
+                [submissionId, claimDate, o3, note]
+            );
+        }
+        if (exp > 0) {
+            await pool.query(
+                `INSERT INTO portal_claim_items
+                 (submission_id, claim_type, claim_date, amount, active, description)
+                 VALUES ($1,'EXPENSE',$2,$3,TRUE,$4)`,
+                [submissionId, claimDate, exp, note]
+            );
+        }
+        if (med > 0) {
+            await pool.query(
+                `INSERT INTO portal_claim_items
+                 (submission_id, claim_type, claim_date, amount, active, description)
+                 VALUES ($1,'MEDICAL',$2,$3,TRUE,$4)`,
+                [submissionId, claimDate, med, note]
+            );
+        }
+    }
 
     return { ok: true, employeeId: resolvedId, override: logRows[0], before, after, warning, notifyEmails: MANUAL_OVERRIDE_NOTIFY };
 }

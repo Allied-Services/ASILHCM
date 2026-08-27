@@ -37,7 +37,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## TOP LINE (for agents / morning brief)
-**Why Calculate changed July totals with no hour edits:** Monthly Hub rows with OT hours = 0 were treated as authoritative and overwrote sheet OT2/OT3. Default “Pull approved claims” made that path run. Fix: sheet OT is baseline; hub zeros never clear hours; Calculate defaults to sheet inputs. Remaining Excel net gap (~bonus/tax) is separate.
+**August Wafi payroll is waiting on Portal Claims:** after the July OT / expense / medical upload, the Response board hid those numbers (it preferred a later empty row) and Review and Push would not write August. Fix on `agent/aug-claims-show`. Do not lock or disburse. Do not re-Calculate July Wafi on live.
 
 ---
 
@@ -72,6 +72,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-27)
+- **Portal Claims shows the July upload** — Response lists OT / expense / medical; Review and Push writes them onto the August Payroll Sheet (replaces a previous send that did not land). Then Calculate / Update Payroll. July salary not touched. No emails.
 - **11 missed July claims loaded** — the 10 Excel thousand-comma rows plus Asif Arain (`ASIL/SPL-304/21`, 9 OT x2) are now July portal approved, payable with August. No email. July salary untouched. FM codes were already in from the first upload.
 - **Portal Claims CSV safe import** — Excel amounts like 80,823 import as 80823; template example ASIL/SPL-001 is blocked with a visible reason; Send to LM = N still replaces July portal only and sends no email.
 - **Portal Claims submit confirmation** — Employee, Focal, or Line Manager who submits now gets an email with OT 2X/3X hours, expense and medical totals, and the list of lines they just entered. Approve/reject is unchanged.
