@@ -220,14 +220,27 @@ function filterAudience(eligible, { client, contract, location, dept }) {
     });
 }
 
-function pickSubmission(rows) {
+function pickSubmission(rows, opts = {}) {
     if (!rows || !rows.length) return null;
     const actual = rows.filter((r) => String(r.campaign_mode || '').toLowerCase() !== 'sample');
-    const pool = actual.length ? actual : rows;
+    let pool = actual.length ? actual : rows.slice();
+    const workMonth = parseInt(opts.workMonth, 10) || 0;
+    const workYear = parseInt(opts.workYear, 10) || 0;
+    if (workMonth && workYear) {
+        const work = pool.filter((r) => Number(r.claim_month) === workMonth && Number(r.claim_year) === workYear);
+        if (work.length) pool = work;
+    }
+    const itemsBySub = opts.itemsBySub;
+    if (itemsBySub) {
+        const withItems = pool.filter((r) => portalHasValues(portalAmountsFromItems(itemsBySub.get(r.id) || [])));
+        if (withItems.length) pool = withItems;
+    }
+    const live = pool.filter((r) => String(r.status || '').toLowerCase() !== 'no_claims');
+    if (live.length) pool = live;
     return pool.sort((a, b) => Number(b.id) - Number(a.id))[0];
 }
 
-async function writePortalAmountsToSheet(pool, { employeeId, month, year, portal }) {
+async function writePortalAmountsToSheet(pool, { employeeId, month, year, portal, replace = false }) {
     const { rows } = await pool.query(
         `SELECT ot2_hrs, ot3_hrs, opd_claim, reimbursement, locked
          FROM payroll_transactions WHERE employee_id = $1 AND month = $2 AND year = $3`,
@@ -237,7 +250,10 @@ async function writePortalAmountsToSheet(pool, { employeeId, month, year, portal
     if (before.locked) {
         return { wrotePayroll: false, blocked: 'PAYROLL_LOCKED', before, portal };
     }
-    if (sheetHasValues(before)) {
+    if (amountsMatch(portal, before) && sheetHasValues(before)) {
+        return { wrotePayroll: false, blocked: null, alreadyMatched: true, before, portal };
+    }
+    if (sheetHasValues(before) && !replace) {
         return { wrotePayroll: false, blocked: 'SHEET_HAS_OTHER_DATA', before, portal };
     }
     const ot2Write = num(portal && portal.ot2Write);
@@ -295,7 +311,7 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
                     s.submitted_at, s.approved_at, s.rejected_at,
                     s.lm_reopen_count, s.lm_reopen_at, s.payroll_pushed_at, s.payroll_pushed_by,
                     s.no_claims_kind,
-                    p.campaign_mode
+                    p.campaign_mode, p.claim_month, p.claim_year
              FROM portal_claim_submissions s
              JOIN portal_claim_periods p ON p.id = s.period_id
              WHERE s.period_id = ANY($1::int[]) AND s.employee_id = ANY($2::text[])`,
@@ -376,7 +392,11 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
     const control_counts = emptyControlCounts();
     const action_counts = emptyActionCounts();
     const people = audience.map((e) => {
-        const sub = pickSubmission(subsByEmp.get(e.id) || []);
+        const sub = pickSubmission(subsByEmp.get(e.id) || [], {
+            workMonth,
+            workYear,
+            itemsBySub,
+        });
         let batch = sub && sub.batch_id ? batchById.get(sub.batch_id) : null;
         if (!batch && actualPeriodId && e.filler_email) {
             const focalKey = `${actualPeriodId}:${String(e.filler_email).trim().toLowerCase()}`;

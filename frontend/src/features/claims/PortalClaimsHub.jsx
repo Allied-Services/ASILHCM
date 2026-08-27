@@ -685,7 +685,7 @@ export default function PortalClaimsHub({
               <button type="button" className="btn-secondary" disabled={busy || !pushIds.length} onClick={() => runPushPayroll(true)}>Preview push</button>
               <button type="button" className="btn-primary" disabled={busy || !pushIds.length} onClick={() => runPushPayroll(false)}>Review and push to payroll</button>
             </div>
-            <p className="pch-muted">Only Ready for Payroll rows can be ticked for push. LM approval alone does not write to the sheet — ASIL confirms here. Sent rows cannot be pushed again.</p>
+            <p className="pch-muted">Tick Ready for Payroll rows, then Review and push to payroll. That writes July work onto the August Payroll Sheet. Calculate / Update Payroll afterwards to see the same OT, expense, and medical on the sheet. A previous send that did not land the numbers can be pushed again.</p>
           </div>
           {pushPreview && (
             <pre className="pch-note">{JSON.stringify(pushPreview.summary, null, 2)}</pre>
@@ -698,6 +698,10 @@ export default function PortalClaimsHub({
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select visible" />
                   </th>
                   <th>Employee</th>
+                  <th>OT 2x</th>
+                  <th>OT 3x</th>
+                  <th>Expense</th>
+                  <th>Medical</th>
                   <th>Claim summary</th>
                   <th>Status</th>
                   <th>Last activity</th>
@@ -707,7 +711,7 @@ export default function PortalClaimsHub({
               </thead>
               <tbody>
                 {people.length === 0 && (
-                  <tr><td colSpan={7} className="pch-muted">No people for this filter.</td></tr>
+                  <tr><td colSpan={11} className="pch-muted">No people for this filter.</td></tr>
                 )}
                 {people.map(p => (
                   <tr key={p.employee_id} className={rowClass(p.control_status, openId === p.employee_id)}>
@@ -724,6 +728,10 @@ export default function PortalClaimsHub({
                       {p.name}
                       <div className="pch-muted">{p.employee_id} · {p.location || '—'}</div>
                     </td>
+                    <td>{hours(p.portal?.ot2Write || p.portal?.ot2)}</td>
+                    <td>{hours(p.portal?.ot3)}</td>
+                    <td>{money(p.portal?.expense)}</td>
+                    <td>{money(p.portal?.medical)}</td>
                     <td>{p.claim_summary || '—'}</td>
                     <td>
                       <strong>{p.control_label || CONTROL_LABEL[p.control_status] || p.control_status}</strong>

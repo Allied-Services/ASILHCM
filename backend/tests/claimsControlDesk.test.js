@@ -24,6 +24,36 @@ describe('claims control desk', () => {
         expect(canSelectForPayrollPush(s)).toBe(true);
     });
 
+    test('ready_for_payroll when marked sent but sheet does not match the upload', () => {
+        const s = controlStatusFromRow({
+            internalStatus: 'on_sheet',
+            submissionStatus: 'in_payroll',
+            sample: false,
+            sheetHasValues: true,
+            amountsMatch: false,
+            portalHasValues: true,
+            lmReopenCount: 0,
+            payrollPushedAt: '2026-08-25T10:00:00Z',
+        });
+        expect(s).toBe('ready_for_payroll');
+        expect(canSelectForPayrollPush(s)).toBe(true);
+    });
+
+    test('ready_for_payroll when approved upload differs from the sheet', () => {
+        const s = controlStatusFromRow({
+            internalStatus: 'other_data',
+            submissionStatus: 'approved',
+            sample: false,
+            sheetHasValues: true,
+            amountsMatch: false,
+            portalHasValues: true,
+            lmReopenCount: 0,
+            payrollPushedAt: null,
+        });
+        expect(s).toBe('ready_for_payroll');
+        expect(canSelectForPayrollPush(s)).toBe(true);
+    });
+
     test('sent_to_payroll when already pushed', () => {
         const s = controlStatusFromRow({
             internalStatus: 'on_sheet',

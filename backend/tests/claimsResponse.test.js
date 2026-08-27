@@ -7,6 +7,7 @@ const {
     classifyResponseRow,
     writePortalAmountsToSheet,
     listResponseBoard,
+    pickSubmission,
 } = require('../src/modules/claims/claimsResponse');
 
 describe('portalAmountsFromItems', () => {
@@ -133,6 +134,36 @@ describe('writePortalAmountsToSheet', () => {
         expect(pool.query).toHaveBeenCalledTimes(1);
     });
 
+    test('replace overwrites sheet OT / medical / expense', async () => {
+        const pool = {
+            query: jest.fn()
+                .mockResolvedValueOnce({
+                    rows: [{ ot2_hrs: 1, ot3_hrs: 0, opd_claim: 0, reimbursement: 50, locked: false }],
+                })
+                .mockResolvedValueOnce({ rows: [] }),
+        };
+        const r = await writePortalAmountsToSheet(pool, {
+            employeeId: 'ASIL-W-0911', month: 8, year: 2026, portal, replace: true,
+        });
+        expect(r.wrotePayroll).toBe(true);
+        expect(r.blocked).toBeNull();
+        expect(pool.query.mock.calls[1][1]).toEqual(['ASIL-W-0911', 8, 2026, 8, 0, 0, 2400]);
+    });
+
+    test('matching sheet is already applied, not blocked', async () => {
+        const pool = {
+            query: jest.fn().mockResolvedValueOnce({
+                rows: [{ ot2_hrs: 8, ot3_hrs: 0, opd_claim: 0, reimbursement: 2400, locked: false }],
+            }),
+        };
+        const r = await writePortalAmountsToSheet(pool, {
+            employeeId: 'ASIL-W-0911', month: 8, year: 2026, portal,
+        });
+        expect(r.wrotePayroll).toBe(false);
+        expect(r.alreadyMatched).toBe(true);
+        expect(r.blocked).toBeNull();
+    });
+
     test('writes when the four columns are empty', async () => {
         const pool = {
             query: jest.fn()
@@ -146,6 +177,27 @@ describe('writePortalAmountsToSheet', () => {
         expect(r.blocked).toBeNull();
         expect(pool.query).toHaveBeenCalledTimes(2);
         expect(pool.query.mock.calls[1][1]).toEqual(['ASIL-W-1042', 8, 2026, 8, 0, 0, 2400]);
+    });
+});
+
+describe('pickSubmission', () => {
+    test('prefers July work with uploaded items over a newer empty row', () => {
+        const itemsBySub = new Map([
+            [10, [{ claim_type: 'OT', ot_hours: 6, ot_multiplier_factor: 2 }]],
+            [99, []],
+        ]);
+        const picked = pickSubmission([
+            {
+                id: 99, status: 'in_payroll', campaign_mode: 'actual',
+                claim_month: 8, claim_year: 2026, channel: 'manual_override',
+            },
+            {
+                id: 10, status: 'approved', campaign_mode: 'actual',
+                claim_month: 7, claim_year: 2026, channel: 'admin_correction',
+            },
+        ], { workMonth: 7, workYear: 2026, itemsBySub });
+        expect(picked.id).toBe(10);
+        expect(picked.status).toBe('approved');
     });
 });
 
