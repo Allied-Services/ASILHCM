@@ -77,6 +77,110 @@ function portalHasValues(portal) {
         || num(p.medical) > EPS_PKR || num(p.expense) > EPS_PKR;
 }
 
+/** Sheet / engine claim bag. OT1 is folded into OT2 at half (World A has no ot1 column). */
+function portalToClaimAgg(portal) {
+    const p = portal || {};
+    return {
+        ot1: 0,
+        ot2: num(p.ot2Write),
+        ot3: num(p.ot3),
+        opd: num(p.medical),
+        expense: num(p.expense),
+    };
+}
+
+function foldOt1IntoOt2(agg) {
+    const a = agg || {};
+    return {
+        ot1: 0,
+        ot2: num(a.ot2) + (num(a.ot1) * 0.5),
+        ot3: num(a.ot3),
+        opd: num(a.opd),
+        expense: num(a.expense),
+        claimIds: a.claimIds || [],
+    };
+}
+
+function mergeClaimAgg(a, b) {
+    const x = foldOt1IntoOt2(a);
+    const y = foldOt1IntoOt2(b);
+    return {
+        ot1: 0,
+        ot2: Math.max(x.ot2, y.ot2),
+        ot3: Math.max(x.ot3, y.ot3),
+        opd: Math.max(x.opd, y.opd),
+        expense: Math.max(x.expense, y.expense),
+        claimIds: [...(x.claimIds || []), ...(y.claimIds || [])],
+    };
+}
+
+function claimAggHasValues(agg) {
+    const a = agg || {};
+    return num(a.ot1) > EPS_HRS || num(a.ot2) > EPS_HRS || num(a.ot3) > EPS_HRS
+        || num(a.opd) > EPS_PKR || num(a.expense) > EPS_PKR;
+}
+
+/**
+ * Approved Portal Claims that pay in this Payroll Sheet month.
+ * Wafi: July work settles in August — Calculate must read those, not only
+ * employee_claims rows stamped with the pay month.
+ */
+async function loadApprovedPortalClaimsForPayMonth(pool, empIds, year, month) {
+    const out = new Map();
+    if (!empIds || !empIds.length) return out;
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10);
+    if (!y || !m) return out;
+
+    const { rows: subs } = await pool.query(
+        `SELECT s.id, s.employee_id, s.status,
+                p.campaign_mode, p.claim_month, p.claim_year,
+                p.settlement_month, p.settlement_year
+         FROM portal_claim_submissions s
+         JOIN portal_claim_periods p ON p.id = s.period_id
+         WHERE s.employee_id = ANY($1::text[])
+           AND COALESCE(p.campaign_mode, 'actual') <> 'sample'
+           AND LOWER(COALESCE(s.status, '')) IN ('approved', 'in_payroll')
+           AND p.settlement_month = $2 AND p.settlement_year = $3`,
+        [empIds, m, y]
+    );
+    const actual = (subs || []).filter((s) => String(s.campaign_mode || '').toLowerCase() !== 'sample');
+    if (!actual.length) return out;
+
+    const ids = [...new Set(actual.map((s) => s.id))];
+    const { rows: items } = await pool.query(
+        `SELECT * FROM portal_claim_items
+         WHERE submission_id = ANY($1::int[]) AND COALESCE(active, TRUE) = TRUE`,
+        [ids]
+    );
+    const itemsBySub = new Map();
+    for (const it of items) {
+        if (!itemsBySub.has(it.submission_id)) itemsBySub.set(it.submission_id, []);
+        itemsBySub.get(it.submission_id).push(it);
+    }
+
+    const byEmp = new Map();
+    for (const s of actual) {
+        if (!byEmp.has(s.employee_id)) byEmp.set(s.employee_id, []);
+        byEmp.get(s.employee_id).push(s);
+    }
+    for (const [empId, rows] of byEmp) {
+        const settleRows = rows.filter((r) => Number(r.settlement_month) === m && Number(r.settlement_year) === y);
+        const candidate = settleRows.length ? settleRows : rows;
+        const work = candidate[0] || {};
+        const picked = pickSubmission(candidate, {
+            workMonth: work.claim_month,
+            workYear: work.claim_year,
+            itemsBySub,
+        });
+        if (!picked) continue;
+        const portal = portalAmountsFromItems(itemsBySub.get(picked.id) || []);
+        if (!portalHasValues(portal)) continue;
+        out.set(empId, portal);
+    }
+    return out;
+}
+
 function amountsMatch(portal, sheet) {
     const p = portal || {};
     const s = sheetAmounts(sheet);
@@ -577,4 +681,9 @@ module.exports = {
     pickSubmission,
     writePortalAmountsToSheet,
     listResponseBoard,
+    portalToClaimAgg,
+    foldOt1IntoOt2,
+    mergeClaimAgg,
+    claimAggHasValues,
+    loadApprovedPortalClaimsForPayMonth,
 };

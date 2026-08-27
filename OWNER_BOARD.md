@@ -9,8 +9,7 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — July Wafi Calculate was wiping sheet OT when Monthly Hub had OT=0; fix on branch `fix/payroll-sheet-calc-preserves-sheet-ot` (do not Calculate on prod until merged).  
-LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix ships (OT would wipe again).
+STATUS: **YELLOW** — August Wafi Calculate with Merge approved Portal Claims did not pull July Portal Claims (it only read August `employee_claims`). Fix on `agent/aug-calc-merge`. Do not lock or disburse. Do not re-Calculate July Wafi on live.
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -37,7 +36,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## TOP LINE (for agents / morning brief)
-**August Wafi payroll is waiting on Portal Claims:** after the July OT / expense / medical upload, the Response board hid those numbers (it preferred a later empty row) and Review and Push would not write August. Fix on `agent/aug-claims-show`. Do not lock or disburse. Do not re-Calculate July Wafi on live.
+**August Wafi sheet is still empty of July claims.** Portal Claims has 133 approved July people; Calculate’s merge checkbox looked at August `employee_claims` (almost empty). Fix on `agent/aug-calc-merge`: merge July Portal Claims that settle in August. Then Calculate with the checkbox on. Do not lock or disburse. Do not re-Calculate July Wafi on live.
 
 ---
 
