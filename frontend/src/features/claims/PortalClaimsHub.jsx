@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, X } from 'lucide-react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
+import { parseManualClaimsCsv } from './manualClaimsCsv';
 import './PortalClaimsHub.css';
 
 const SADIA_EMAIL = 'sadia.komal@asil.com.pk';
@@ -348,24 +349,22 @@ export default function PortalClaimsHub({
     setSection('manual');
   };
 
-  const parseCsvRows = (text) => {
-    const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    if (lines.length < 2) return [];
-    const headers = lines[0].split(',').map(h => h.trim());
-    return lines.slice(1).map((line) => {
-      const cols = line.split(',').map(c => c.trim());
-      const row = {};
-      headers.forEach((h, i) => { row[h] = cols[i] ?? ''; });
-      return row;
-    });
-  };
-
   const runCsvImport = async (commit) => {
     if (!csvPreview?.rows?.length) {
-      setErr('Load a CSV file first.');
+      const reason = csvPreview?.parseError || 'Load a CSV file with a Code column and at least one data row first.';
+      setErr(reason);
+      setCsvPreview((prev) => ({ ...(prev || {}), localError: reason }));
       return;
     }
+    if (commit && !window.confirm(
+      `Overwrite portal claims for ${csvPreview.rows.length} employee(s) for work month ${workMonth}/${workYear}?\n\n`
+      + `This replaces existing ${MONTHS[workMonth - 1]?.[1] || workMonth} claim values. `
+      + `${MONTHS[workMonth - 1]?.[1] || workMonth} salary (already paid) is not changed. `
+      + `Amounts are payable with ${MONTHS[payMonth - 1]?.[1] || payMonth} salary after LM approval `
+      + `(or immediately on that sheet if Send to LM = N).`
+    )) return;
     setBusy(true); setErr(''); setMsg('');
+    setCsvPreview((prev) => ({ ...prev, localError: '', result: null }));
     try {
       const d = await api.portalClaimsManualImport({
         rows: csvPreview.rows.map((row) => ({
@@ -373,17 +372,22 @@ export default function PortalClaimsHub({
           workMonth: row['Work Month'] || workMonth,
           workYear: row['Work Year'] || workYear,
         })),
+        workMonth,
+        workYear,
         dryRun: !commit,
       });
-      setCsvPreview(prev => ({ ...prev, result: d }));
-      const ok = (d.results || []).filter(r => r.ok).length;
-      const bad = (d.results || []).filter(r => !r.ok).length;
-      setMsg(commit
+      setCsvPreview((prev) => ({ ...prev, result: d, localError: '' }));
+      const ok = d.summary?.ready ?? (d.results || []).filter(r => r.ok).length;
+      const bad = d.summary?.failed ?? (d.results || []).filter(r => !r.ok).length;
+      const note = commit
         ? `CSV import: ${ok} applied${bad ? ` · ${bad} failed` : ''}.`
-        : `CSV dry-run: ${ok} ready${bad ? ` · ${bad} blocked` : ''}.`);
+        : `CSV dry-run: ${ok} ready${bad ? ` · ${bad} blocked` : ''}.`;
+      setMsg(note);
+      if (bad) setErr(`${bad} row(s) failed — see the list under Commit CSV.`);
       if (commit) await loadBoard();
     } catch (e) {
       setErr(e.message);
+      setCsvPreview((prev) => ({ ...prev, localError: e.message }));
     } finally {
       setBusy(false);
     }
@@ -840,8 +844,11 @@ export default function PortalClaimsHub({
         <>
           <h3>Manual correction &amp; CSV upload</h3>
           <p className="pch-sub">
-            Default: save to Portal Claims and send to the Line Manager for re-approval (each line must be approved).
-            Uncheck below only for a direct Payroll Sheet override (OTHER DATA / missed portal).
+            Work month above is the <strong>claim month</strong> you are correcting
+            (July work, payable with August salary). This replaces Portal Claims for that work month.
+            It does <strong>not</strong> change the already-paid July salary sheet.
+            Default: send each line back to the Line Manager. Uncheck only for a direct
+            {' '}{MONTHS[payMonth - 1]?.[1] || 'next-month'} Payroll Sheet write.
           </p>
           <div className="pch-form">
             <label className="pch-span">
@@ -896,26 +903,68 @@ export default function PortalClaimsHub({
 
           <h3 style={{ marginTop: 24 }}>Bulk CSV upload</h3>
           <p className="pch-sub">
-            Columns: Code, Emp Name, OT (1X), OT (x2), OT (x3), OPD, Exp, Exp Bills Status, Absents, Work Month, Work Year, Reason, Send to LM?
-            Work month defaults to the filter above when omitted. Send to LM = Y sends each row back for approval.
+            Columns: Code, Emp Name, OT (1X), OT (x2), OT (x3), OPD, Exp, Work Month, Work Year, Reason, Send to LM?
+            Save as CSV (not .xlsx). Work month defaults to the filter above when omitted.
+            Send to LM = Y replaces the work-month portal claim and asks the LM to re-approve.
+            Send to LM = N writes the <strong>following</strong> Payroll Sheet month (August for July work), never the locked July salary sheet.
           </p>
           <div className="pch-actions">
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,text/csv,.txt"
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
                 const text = await file.text();
-                setCsvPreview({ name: file.name, rows: parseCsvRows(text), result: null });
-                setMsg(`Loaded ${parseCsvRows(text).length} row(s) from ${file.name}.`);
+                const parsed = parseManualClaimsCsv(text);
+                setCsvPreview({
+                  name: file.name,
+                  rows: parsed.rows,
+                  result: null,
+                  parseError: parsed.error,
+                  localError: parsed.error || '',
+                });
+                if (parsed.error) {
+                  setErr(parsed.error);
+                  setMsg('');
+                } else {
+                  setErr('');
+                  setMsg(`Loaded ${parsed.rows.length} row(s) from ${file.name}. Dry-run first, then Commit CSV.`);
+                }
               }}
             />
-            <button type="button" className="btn-secondary" disabled={busy || !csvPreview?.rows?.length} onClick={() => runCsvImport(false)}>Dry-run CSV</button>
-            <button type="button" className="btn-primary" disabled={busy || !csvPreview?.rows?.length} onClick={() => runCsvImport(true)}>Commit CSV</button>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={() => runCsvImport(false)}>Dry-run CSV</button>
+            <button type="button" className="btn-primary" disabled={busy} onClick={() => runCsvImport(true)}>Commit CSV</button>
           </div>
+          {csvPreview?.name && (
+            <div className={csvPreview.parseError || csvPreview.localError ? 'pch-note is-bad' : 'pch-note is-ok'}>
+              {csvPreview.parseError || csvPreview.localError
+                ? csvPreview.parseError || csvPreview.localError
+                : `${csvPreview.rows.length} row(s) ready from ${csvPreview.name}.`}
+              {busy ? ' Working — do not close this tab…' : ''}
+            </div>
+          )}
           {csvPreview?.result && (
-            <pre className="pch-note">{JSON.stringify(csvPreview.result.summary || csvPreview.result, null, 2)}</pre>
+            <div className="pch-table-wrap">
+              <table className="pch-table">
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Result</th>
+                    <th>Detail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(csvPreview.result.results || []).map((r, i) => (
+                    <tr key={`${r.employeeId || i}`} className={r.ok ? 'is-ok' : 'is-bad'}>
+                      <td>{r.employeeId || csvPreview.rows[i]?.Code || '—'}</td>
+                      <td>{r.ok ? (r.dryRun ? 'Ready' : 'Applied') : 'Failed'}</td>
+                      <td>{r.error || r.warning || r.message || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}

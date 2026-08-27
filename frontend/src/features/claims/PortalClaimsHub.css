@@ -414,6 +414,12 @@
   border-color: rgba(99, 102, 241, 0.5);
 }
 
+.pch .btn-primary:disabled,
+.pch .btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 @media (max-width: 900px) {
   .pch-period,
   .pch-stats,
