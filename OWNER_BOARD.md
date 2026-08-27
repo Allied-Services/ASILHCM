@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-25 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-26 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -9,8 +9,8 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — July Wafi Calculate was wiping sheet OT when Monthly Hub had OT=0; fix on branch `fix/payroll-sheet-calc-preserves-sheet-ot` (do not Calculate on prod until merged).  
-LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix ships (OT would wipe again).
+STATUS: **AMBER** — site OK; Calculate OT wipe fix (#48) is on live; pilot Excel vs HCM still open; morning email still not connected.  
+LIVE: prod API healthy (`33effac`, migrations ok) — Monthly Cycle hub + claims who-approved live.
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -37,7 +37,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## TOP LINE (for agents / morning brief)
-**Why Calculate changed July totals with no hour edits:** Monthly Hub rows with OT hours = 0 were treated as authoritative and overwrote sheet OT2/OT3. Default “Pull approved claims” made that path run. Fix: sheet OT is baseline; hub zeros never clear hours; Calculate defaults to sheet inputs. Remaining Excel net gap (~bonus/tax) is separate.
+**Morning 26 Aug:** Site OK. Mission AMBER. No open work PR needs the owner today (#111 is draft + conflicting). Still blocked: pilot Excel export (S5B), morning email delivery, MD sign-off before any new-engine production pay.
 
 ---
 
@@ -58,7 +58,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ### Infrastructure / ops
 9. **Staging cold starts** — free tier sleeps; verify after wake before calling staging "broken"
 10. **Local tests on GDrive** — `jest` node_modules corrupt; use temp clone or CI for counts
-11. **Morning brief Automation** — email only; not switched on until you say so
+11. **Morning brief Automation** — weekday runs fire; **email delivery still disconnected** (no send tool / no RESEND in agent env)
 
 ### Parked until mission gate clears
 12. **Imprest workflow** — bill type exists; no dedicated process

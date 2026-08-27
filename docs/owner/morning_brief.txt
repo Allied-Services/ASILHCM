@@ -1,0 +1,26 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month for the pilot contract (38 people).
+Status: AMBER
+
+NOT FINISHED YET
+1. Pilot Excel vs HCM still not zero — waiting on payroll Excel export
+2. New pay engine not used for real production pay yet
+3. Morning email still not connected (this brief could not be emailed)
+
+NEEDS YOU TODAY
+- Send the pilot Excel export so shadow month can finish
+- Connect morning-brief email on the Automation (https://cursor.com/automations/5e5c7662-8dce-11f1-a7d1-d6b4613131ce)
+
+I SUGGEST
+- No new builds today — stay on pilot proof
+
+FOCUS TODAY
+Finish the pilot payroll proof. Park new ideas.
+
+---
+HTML card: docs/owner/morning_latest.html
+Live health: OK · commit 33effac · migrations ok
+Agent: https://cursor.com/agents/bc-11604573-aded-458b-8d6d-89d17472f988
+Email: NOT SENT — no email delivery tool on this Automation
