@@ -2370,9 +2370,44 @@ async function getPayrollSnapshot(pool, employeeId, month, year) {
 }
 
 const TEMPLATE_EXAMPLE_CODE = 'ASIL/SPL-001';
+const EMPLOYEE_CODE_ALIASES = {
+    'ASILFM/SPL/304/21': 'ASIL/SPL-304/21',
+    'ASILFM//SPL/304/21': 'ASIL/SPL-304/21',
+};
 
 function isTemplateExampleCode(code) {
     return String(code || '').trim().toUpperCase() === TEMPLATE_EXAMPLE_CODE;
+}
+
+function compactEmployeeCode(code) {
+    return String(code || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function normalizeEmployeeCode(raw) {
+    const code = String(raw || '')
+        .replace(/^\uFEFF/, '')
+        .replace(/[\u0000-\u001F\u007F]/g, '')
+        .replace(/[\u2010-\u2015\u2212]/g, '-')
+        .replace(/[\u2044\u2215\uFF0F]/g, '/')
+        .replace(/\/{2,}/g, '/')
+        .trim();
+    if (!code) return '';
+    const alias = EMPLOYEE_CODE_ALIASES[code] || EMPLOYEE_CODE_ALIASES[code.toUpperCase()];
+    return alias || code;
+}
+
+function saneClaimMonth(value, fallback) {
+    const n = parseInt(value, 10);
+    if (n >= 1 && n <= 12) return n;
+    const f = parseInt(fallback, 10);
+    return (f >= 1 && f <= 12) ? f : NaN;
+}
+
+function saneClaimYear(value, fallback) {
+    const n = parseInt(value, 10);
+    if (n >= 2020 && n <= 2100) return n;
+    const f = parseInt(fallback, 10);
+    return (f >= 2020 && f <= 2100) ? f : NaN;
 }
 
 /** Excel "80,823" / "9,672" → 80823 / 9672. Blank → 0. */
@@ -2409,18 +2444,24 @@ function importCell(row, ...keys) {
 }
 
 function normalizeManualImportRow(row, defaults = {}) {
-    const workMonth = parseInt(importCell(row, 'workMonth', 'Work Month', 'Period Month', 'month') || defaults.workMonth, 10);
-    const workYear = parseInt(importCell(row, 'workYear', 'Work Year', 'Period Year', 'year') || defaults.workYear, 10);
+    const workMonth = saneClaimMonth(
+        importCell(row, 'workMonth', 'Work Month', 'Period Month', 'month'),
+        defaults.workMonth
+    );
+    const workYear = saneClaimYear(
+        importCell(row, 'workYear', 'Work Year', 'Period Year', 'year'),
+        defaults.workYear
+    );
     const settle = followingClaimSettlement(workMonth, workYear);
-    const payMonth = parseInt(importCell(row, 'payMonth', 'Pay Month') || settle.month, 10);
-    const payYear = parseInt(importCell(row, 'payYear', 'Pay Year') || settle.year, 10);
+    const payMonth = saneClaimMonth(importCell(row, 'payMonth', 'Pay Month'), settle.month);
+    const payYear = saneClaimYear(importCell(row, 'payYear', 'Pay Year'), settle.year);
     const sendRaw = String(importCell(row, 'resubmitToLm', 'Send to LM?') || 'Y').toLowerCase();
     const resubmitToLm = row.resubmitToLm !== false && sendRaw !== 'n' && sendRaw !== 'no';
     const modeRaw = String(importCell(row, 'mode', 'Replace Existing?') || 'add').toLowerCase();
     const mode = modeRaw === 'y' || modeRaw === 'yes' || modeRaw === 'replace' ? 'replace'
         : modeRaw === 'remove' ? 'remove' : 'add';
     return {
-        employeeId: String(importCell(row, 'employeeId', 'Code', 'ASIL Employee Code', 'Employee ID') || '').trim(),
+        employeeId: normalizeEmployeeCode(importCell(row, 'employeeId', 'Code', 'ASIL Employee Code', 'Employee ID')),
         workMonth,
         workYear,
         payMonth,
@@ -2447,11 +2488,16 @@ function summarizeManualImport(results) {
 }
 
 async function findEmployeeByCode(pool, employeeId) {
-    const code = String(employeeId || '').trim();
+    const code = normalizeEmployeeCode(employeeId);
     if (!code) return null;
+    const compact = compactEmployeeCode(code);
     const { rows } = await pool.query(
-        `SELECT * FROM employees WHERE id = $1 OR lower(id) = lower($1) LIMIT 1`,
-        [code]
+        `SELECT * FROM employees
+         WHERE id = $1
+            OR lower(id) = lower($1)
+            OR regexp_replace(lower(id), '[^a-z0-9]', '', 'g') = $2
+         LIMIT 1`,
+        [code, compact]
     );
     return rows[0] || null;
 }
@@ -2472,8 +2518,8 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     resubmitToLm = true,
 }) {
     if (!reason || !String(reason).trim()) return { ok: false, status: 400, error: 'Reason is required', employeeId };
-    const wm = parseInt(workMonth, 10);
-    const wy = parseInt(workYear, 10);
+    const wm = saneClaimMonth(workMonth);
+    const wy = saneClaimYear(workYear);
     if (!employeeId || !wm || !wy) {
         return { ok: false, status: 400, error: 'employeeId, workMonth, and workYear are required', employeeId };
     }
@@ -3246,6 +3292,7 @@ module.exports = {
     applyManualOverride,
     applyPortalCorrection,
     normalizeManualImportRow,
+    normalizeEmployeeCode,
     followingClaimSettlement,
     summarizeManualImport,
     parseClaimsNumber,

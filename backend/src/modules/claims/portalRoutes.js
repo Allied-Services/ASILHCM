@@ -615,21 +615,32 @@ function registerPortalClaimsRoutes(app, deps) {
             const periodIds = new Set();
             for (const row of rows) {
                 const n = portal.normalizeManualImportRow(row, defaults);
-                const r = await portal.applyPortalCorrection(pool, sendAppEmail, {
-                    employeeId: n.employeeId,
-                    workMonth: n.workMonth,
-                    workYear: n.workYear,
-                    ot1Hours: n.ot1Hours,
-                    ot2Hours: n.ot2Hours,
-                    ot3Hours: n.ot3Hours,
-                    expenseAmount: n.expenseAmount,
-                    medicalAmount: n.medicalAmount,
-                    reason: n.reason,
-                    createdBy: req.user?.email || 'import',
-                    dryRun,
-                    notifyLm: false,
-                    resubmitToLm: n.resubmitToLm,
-                });
+                let r;
+                try {
+                    r = await portal.applyPortalCorrection(pool, sendAppEmail, {
+                        employeeId: n.employeeId,
+                        workMonth: n.workMonth,
+                        workYear: n.workYear,
+                        ot1Hours: n.ot1Hours,
+                        ot2Hours: n.ot2Hours,
+                        ot3Hours: n.ot3Hours,
+                        expenseAmount: n.expenseAmount,
+                        medicalAmount: n.medicalAmount,
+                        reason: n.reason,
+                        createdBy: req.user?.email || 'import',
+                        dryRun,
+                        notifyLm: false,
+                        resubmitToLm: n.resubmitToLm,
+                    });
+                } catch (rowErr) {
+                    console.error('[portalClaims.manualImport.row]', n.employeeId, rowErr);
+                    r = {
+                        ok: false,
+                        status: 500,
+                        employeeId: n.employeeId,
+                        error: 'This row failed. The others were still processed.',
+                    };
+                }
                 if (n.resubmitToLm && r.periodId) periodIds.add(r.periodId);
                 results.push(r);
             }
