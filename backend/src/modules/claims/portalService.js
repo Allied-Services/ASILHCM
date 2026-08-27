@@ -2454,6 +2454,7 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     createdBy,
     dryRun = false,
     notifyLm = true,
+    resubmitToLm = true,
 }) {
     if (!reason || !String(reason).trim()) return { ok: false, status: 400, error: 'Reason is required', employeeId };
     const wm = parseInt(workMonth, 10);
@@ -2482,11 +2483,17 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     const previousStatus = sub?.status || null;
     const settleLabel = `${period.settlement_month}/${period.settlement_year}`;
     const alreadyOnPayroll = previousStatus === 'in_payroll';
+    const nextStatus = resubmitToLm ? 'submitted' : 'approved';
     const payrollWarning = alreadyOnPayroll
-        ? ` ${wm}/${wy} claim was already sent to the ${settleLabel} Payroll Sheet — after LM re-approval, push again, or use Send to LM = N to write that sheet now.`
-        : previousStatus === 'approved'
+        ? ` ${wm}/${wy} claim was already sent to the ${settleLabel} Payroll Sheet — portal values will be replaced; push again if the sheet must match.`
+        : (resubmitToLm && previousStatus === 'approved')
             ? ` Existing approved ${wm}/${wy} claim will be replaced and sent back to the Line Manager.`
             : '';
+    const dryWarning = resubmitToLm
+        ? (approverEmail
+            ? `Will replace the ${wm}/${wy} portal claim (payable ${settleLabel}) and email ${approverEmail} for Line Manager re-approval.`
+            : `Will replace the ${wm}/${wy} portal claim (payable ${settleLabel}). No Line Manager on file — correction will wait for ASIL review.`)
+        : `Will replace the ${wm}/${wy} portal claim (payable ${settleLabel}). No Focal or LM email.`;
 
     if (dryRun) {
         return {
@@ -2498,21 +2505,18 @@ async function applyPortalCorrection(pool, sendAppEmail, {
             previousStatus,
             settlementMonth: period.settlement_month,
             settlementYear: period.settlement_year,
-            resubmitToLm: true,
+            resubmitToLm: !!resubmitToLm,
             approverEmail: approverEmail || null,
             before: sub ? { status: sub.status, channel: sub.channel } : null,
             after: {
-                status: 'submitted',
+                status: nextStatus,
                 ot1Hours: o1,
                 ot2Hours: o2,
                 ot3Hours: o3,
                 expenseAmount: exp,
                 medicalAmount: med,
             },
-            warning: (approverEmail
-                ? `Will replace the ${wm}/${wy} portal claim (payable ${settleLabel}) and email ${approverEmail} for Line Manager re-approval.`
-                : `Will replace the ${wm}/${wy} portal claim (payable ${settleLabel}). No Line Manager on file — correction will wait for ASIL review.`)
-                + payrollWarning,
+            warning: dryWarning + payrollWarning,
         };
     }
 
@@ -2555,22 +2559,37 @@ async function applyPortalCorrection(pool, sendAppEmail, {
         }
     }
 
-    await pool.query(
-        `UPDATE portal_claim_submissions
-         SET status = 'submitted',
-             approved_at = NULL,
-             rejected_at = NULL,
-             submitted_at = NOW(),
-             channel = 'admin_correction',
-             filler_email = COALESCE(NULLIF($2, ''), filler_email),
-             approver_email = COALESCE(NULLIF($3, ''), approver_email),
-             updated_at = NOW()
-         WHERE id = $1`,
-        [submissionId, createdBy || 'asil-correction', approverEmail || null]
-    );
+    if (resubmitToLm) {
+        await pool.query(
+            `UPDATE portal_claim_submissions
+             SET status = 'submitted',
+                 approved_at = NULL,
+                 rejected_at = NULL,
+                 submitted_at = NOW(),
+                 channel = 'admin_correction',
+                 filler_email = COALESCE(NULLIF($2, ''), filler_email),
+                 approver_email = COALESCE(NULLIF($3, ''), approver_email),
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [submissionId, createdBy || 'asil-correction', approverEmail || null]
+        );
+    } else {
+        await pool.query(
+            `UPDATE portal_claim_submissions
+             SET status = 'approved',
+                 approved_at = NOW(),
+                 rejected_at = NULL,
+                 submitted_at = COALESCE(submitted_at, NOW()),
+                 channel = 'admin_correction',
+                 filler_email = COALESCE(NULLIF($2, ''), filler_email),
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [submissionId, createdBy || 'asil-correction']
+        );
+    }
 
     let lmNotified = false;
-    if (notifyLm && approverEmail && sendAppEmail) {
+    if (resubmitToLm && notifyLm && approverEmail && sendAppEmail) {
         const packs = await ensureApproverPacks(pool, period.id, sendAppEmail, {
             forceEmail: true,
             onlyApproverEmail: approverEmail,
@@ -2586,14 +2605,16 @@ async function applyPortalCorrection(pool, sendAppEmail, {
         previousStatus,
         settlementMonth: period.settlement_month,
         settlementYear: period.settlement_year,
-        resubmitToLm: true,
+        resubmitToLm: !!resubmitToLm,
         submissionId,
-        approverEmail: approverEmail || null,
+        approverEmail: resubmitToLm ? (approverEmail || null) : null,
         lmNotified,
         warning: payrollWarning.trim() || null,
-        message: lmNotified
-            ? `${wm}/${wy} claim replaced and sent to ${approverEmail} for re-approval (payable ${settleLabel}).`
-            : `${wm}/${wy} claim replaced — waiting for Line Manager approval (payable ${settleLabel}).`,
+        message: resubmitToLm
+            ? (lmNotified
+                ? `${wm}/${wy} claim replaced and sent to ${approverEmail} for re-approval (payable ${settleLabel}).`
+                : `${wm}/${wy} claim replaced — waiting for Line Manager approval (payable ${settleLabel}).`)
+            : `${wm}/${wy} portal claim replaced (payable ${settleLabel}). No Focal or LM email.`,
     };
 }
 

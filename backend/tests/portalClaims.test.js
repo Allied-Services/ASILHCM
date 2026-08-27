@@ -253,6 +253,54 @@ describe('portalClaims helpers', () => {
         assert.equal(n.payMonth, 8);
     });
 
+    it('applyPortalCorrection Send to LM = N replaces portal amounts and never emails', async () => {
+        const { applyPortalCorrection } = require('../src/modules/claims/portalService');
+        const sql = [];
+        let mailed = 0;
+        const pool = {
+            query: async (text, vals) => {
+                sql.push(String(text).replace(/\s+/g, ' ').trim());
+                if (/FROM employees/i.test(text)) {
+                    return { rows: [{ id: 'ASIL/SPL-400/21', name: 'Mohsin', claim_authority: null, line_manager_email: 'lm@wafi-energy.com', email: 'x@wafi-energy.com' }] };
+                }
+                if (/FROM portal_claim_periods/i.test(text) || /INSERT INTO portal_claim_periods/i.test(text)) {
+                    return { rows: [{ id: 9, claim_month: 7, claim_year: 2026, settlement_month: 8, settlement_year: 2026, status: 'open' }] };
+                }
+                if (/FROM portal_claim_submissions/i.test(text)) {
+                    return { rows: [{ id: 44, status: 'submitted', channel: 'portal' }] };
+                }
+                if (/INSERT INTO portal_claim_submissions/i.test(text)) {
+                    return { rows: [{ id: 44 }] };
+                }
+                return { rows: [], rowCount: 1 };
+            },
+        };
+        const sendAppEmail = async () => { mailed += 1; };
+        const r = await applyPortalCorrection(pool, sendAppEmail, {
+            employeeId: 'ASIL/SPL-400/21',
+            workMonth: 7,
+            workYear: 2026,
+            ot1Hours: 0,
+            ot2Hours: 0,
+            ot3Hours: 0,
+            expenseAmount: 0,
+            medicalAmount: 500,
+            reason: 'Manual upload correction',
+            createdBy: 'test',
+            dryRun: false,
+            notifyLm: true,
+            resubmitToLm: false,
+        });
+        assert.equal(r.ok, true);
+        assert.equal(r.resubmitToLm, false);
+        assert.equal(r.lmNotified, false);
+        assert.equal(r.approverEmail, null);
+        assert.equal(mailed, 0);
+        assert.ok(sql.some((s) => /SET status = 'approved'/i.test(s)));
+        assert.ok(!sql.some((s) => /SET status = 'submitted'/i.test(s)));
+        assert.match(r.message, /No Focal or LM email/i);
+    });
+
     it('validateOtRow upgrades gazetted holiday Double input to Triple', () => {
         const period = { claim_month: 8, claim_year: 2026 };
         const aug14 = validateOtRow({
