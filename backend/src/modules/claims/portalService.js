@@ -311,7 +311,9 @@ function isAfterFillClose(period, nowMs = Date.now()) {
 
 function isAfterApproveClose(period, nowMs = Date.now()) {
     if (isSamplePeriod(period)) return false;
-    const closeAt = effectiveCloseAt(period?.approve_close_at, trialCloseFloorMs(period));
+    // Owner closed all July 2026 claim options on 27 Aug — fill and LM approve.
+    if (isJuly2026TrialPeriod(period)) return true;
+    const closeAt = effectiveCloseAt(period?.approve_close_at, 0);
     if (!closeAt) return false;
     return nowMs > closeAt;
 }
@@ -1555,8 +1557,8 @@ async function openApproverSession(pool, token) {
 async function approverDecide(pool, { token, submissionId, decision, comment, sendAppEmail }) {
     const pack = await getApproverPackByToken(pool, token);
     if (!pack) return { ok: false, status: 404, error: 'Invalid link' };
-    if (isAfterApproveClose(pack) && decision === 'approved') {
-        return { ok: false, status: 403, error: `Approval window closed (day ${APPROVE_CLOSE_DAY} of claim month). Contact ASIL operations.` };
+    if (isAfterApproveClose(pack)) {
+        return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
     }
 
     const { rows } = await pool.query(
@@ -2718,6 +2720,10 @@ async function sendFillerBatchReminder(pool, batchRow, sendAppEmail, sendJazzSMS
 }
 
 async function sendApproverPeriodReminder(pool, periodId, approverEmail, sendAppEmail, sendJazzSMS = null, { skipDueCheck = false } = {}) {
+    const { rows: closeRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [periodId]);
+    if (closeRows[0] && isAfterApproveClose(closeRows[0])) {
+        return { ok: false, reason: 'approve_closed', count: 0 };
+    }
     if (!skipDueCheck) {
         const { rows: packRows } = await pool.query(
             `SELECT invite_sent_at, last_reminder_at FROM portal_claim_approver_packs
@@ -2804,7 +2810,8 @@ async function sendReminders(pool, sendAppEmail, sendJazzSMS = null) {
          LEFT JOIN portal_claim_approver_packs a
            ON a.period_id = s.period_id AND LOWER(a.approver_email) = LOWER(s.approver_email)
          WHERE s.status = 'submitted'
-           AND (p.approve_close_at > NOW() OR (p.claim_month = 7 AND p.claim_year = 2026))
+           AND p.approve_close_at > NOW()
+           AND NOT (p.claim_month = 7 AND p.claim_year = 2026)
            AND COALESCE(p.campaign_mode, 'actual') <> 'sample'
            AND s.approver_email IS NOT NULL AND TRIM(s.approver_email) <> ''`
     );
@@ -2814,6 +2821,7 @@ async function sendReminders(pool, sendAppEmail, sendJazzSMS = null) {
         const key = `${row.period_id}:${String(row.approver_email).toLowerCase()}`;
         if (seenApprovers.has(key)) continue;
         seenApprovers.add(key);
+        if (isAfterApproveClose(row)) continue;
         if (!isDueForReminder(row.pack_last_reminder, row.pack_sent_at)) {
             results.skipped_not_due += 1;
             continue;
@@ -3071,6 +3079,7 @@ module.exports = {
     autoCloseNoClaims,
     sendReminders,
     sendFillerBatchReminder,
+    sendApproverPeriodReminder,
     resendFillerInvite,
     getAttachmentContent,
     getOrCreatePeriod,
