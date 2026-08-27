@@ -23,6 +23,12 @@ const {
     resolvePayrollSheetInputs,
     resolvePayrollSheetPaidDays,
 } = require('./resolveInputs');
+const {
+    loadApprovedPortalClaimsForPayMonth,
+    portalToClaimAgg,
+    mergeClaimAgg,
+    claimAggHasValues,
+} = require('../claims/claimsResponse');
 const cutover = require('../../core/cutover');
 
 const DEFAULT_POLICY = {
@@ -281,6 +287,20 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
     const ovByEmp = new Map(monthlyOvs.map((r) => [r.employee_id, r]));
     const holidayDateSet = new Set(holidays.map((h) => String(h.holiday_date).slice(0, 10)));
 
+    // sourceMode:
+    //  - sheet_inputs: recompute from current Payroll Sheet columns (idempotent)
+    //  - canonical: sheet baseline + merge attendance / employee_claims / Portal Claims
+    //    that settle in this pay month (July work → August sheet for Wafi)
+    const sourceMode = opts.sourceMode === 'canonical' ? 'canonical' : 'sheet_inputs';
+    let portalByEmp = new Map();
+    if (sourceMode === 'canonical') {
+        try {
+            portalByEmp = await loadApprovedPortalClaimsForPayMonth(pool, empIds, y, m);
+        } catch (err) {
+            console.error('[payrollSheet.calculate] portal claims', err);
+        }
+    }
+
     const warnings = [];
     let bonusMap = new Map();
     try {
@@ -333,11 +353,11 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         const attPaidDays = derivePaidDays(att, workingDays, policy.attendance_input_mode);
         const attOt = deriveOtHours(att, holidayDateSet);
         const empClaims = claimsByEmp.get(emp.id) || [];
-        const claimAgg = aggregateClaimInputs(empClaims);
-        // sourceMode:
-        //  - sheet_inputs: recompute from current Payroll Sheet columns (idempotent)
-        //  - canonical: sheet baseline + merge attendance/claims/hub OT upward (never wipe sheet with hub zeros)
-        const sourceMode = opts.sourceMode === 'canonical' ? 'canonical' : 'sheet_inputs';
+        let claimAgg = aggregateClaimInputs(empClaims);
+        const portal = portalByEmp.get(emp.id);
+        if (portal) {
+            claimAgg = mergeClaimAgg(claimAgg, portalToClaimAgg(portal));
+        }
 
         const {
             paidDays,
@@ -354,7 +374,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             attOt,
             monthlyOv,
             claimAgg,
-            hasClaims: empClaims.length > 0,
+            hasClaims: claimAggHasValues(claimAgg),
             sourceMode,
         });
 
@@ -510,6 +530,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         month: m,
         updated: payloads.length,
         dryRun: !!opts.dryRun,
+        claimsMerged: portalByEmp.size,
         warnings,
         rows: payloads.map((p) => ({
             employee_id: p.employee_id,

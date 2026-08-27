@@ -8,6 +8,10 @@ const {
     writePortalAmountsToSheet,
     listResponseBoard,
     pickSubmission,
+    portalToClaimAgg,
+    mergeClaimAgg,
+    claimAggHasValues,
+    loadApprovedPortalClaimsForPayMonth,
 } = require('../src/modules/claims/claimsResponse');
 
 describe('portalAmountsFromItems', () => {
@@ -259,5 +263,72 @@ describe('listResponseBoard period match', () => {
         expect(r.desk_counts.pending_lm).toBe(1);
         expect(r.period_label).toMatch(/7\/2026 work/);
         expect(pool.query.mock.calls[0][1]).toEqual([7, 2026, 8, 2026]);
+    });
+});
+
+describe('portal claims → August Calculate merge', () => {
+    test('portalToClaimAgg folds 1x hours into OT2', () => {
+        const agg = portalToClaimAgg(portalAmountsFromItems([
+            { claim_type: 'OT', ot_hours: 4, ot_multiplier_factor: 1 },
+            { claim_type: 'OT', ot_hours: 8, ot_multiplier_factor: 2 },
+            { claim_type: 'EXPENSE', amount: 2400 },
+            { claim_type: 'MEDICAL', amount: 1800 },
+        ]));
+        expect(agg.ot1).toBe(0);
+        expect(agg.ot2).toBe(10);
+        expect(agg.expense).toBe(2400);
+        expect(agg.opd).toBe(1800);
+        expect(claimAggHasValues(agg)).toBe(true);
+    });
+
+    test('mergeClaimAgg keeps the higher portal / sheet values', () => {
+        const merged = mergeClaimAgg(
+            { ot2: 2, ot3: 0, opd: 50, expense: 100 },
+            { ot2: 10, ot3: 3, opd: 0, expense: 2400 },
+        );
+        expect(merged.ot2).toBe(10);
+        expect(merged.ot3).toBe(3);
+        expect(merged.opd).toBe(50);
+        expect(merged.expense).toBe(2400);
+    });
+
+    test('August pay month loads July work that settles in August', async () => {
+        const pool = {
+            query: jest.fn()
+                .mockResolvedValueOnce({
+                    rows: [{
+                        id: 88, employee_id: 'ASIL/SPL-208/21', status: 'in_payroll',
+                        campaign_mode: 'actual', claim_month: 7, claim_year: 2026,
+                        settlement_month: 8, settlement_year: 2026,
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    rows: [
+                        { submission_id: 88, claim_type: 'OT', ot_hours: 9, ot_multiplier_factor: 2, active: true },
+                        { submission_id: 88, claim_type: 'EXPENSE', amount: 80823, active: true },
+                    ],
+                }),
+        };
+        const byEmp = await loadApprovedPortalClaimsForPayMonth(pool, ['ASIL/SPL-208/21'], 2026, 8);
+        expect(pool.query.mock.calls[0][1]).toEqual([['ASIL/SPL-208/21'], 8, 2026]);
+        const portal = byEmp.get('ASIL/SPL-208/21');
+        expect(portal.ot2Write).toBe(9);
+        expect(portal.expense).toBe(80823);
+        expect(portalToClaimAgg(portal).ot2).toBe(9);
+    });
+
+    test('sample campaigns and empty rows are ignored', async () => {
+        const pool = {
+            query: jest.fn()
+                .mockResolvedValueOnce({
+                    rows: [{
+                        id: 1, employee_id: 'E1', status: 'approved',
+                        campaign_mode: 'sample', claim_month: 7, claim_year: 2026,
+                        settlement_month: 8, settlement_year: 2026,
+                    }],
+                }),
+        };
+        const byEmp = await loadApprovedPortalClaimsForPayMonth(pool, ['E1'], 2026, 8);
+        expect(byEmp.size).toBe(0);
     });
 });

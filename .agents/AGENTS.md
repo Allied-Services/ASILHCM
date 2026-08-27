@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-08-27 — August Calculate merges July Portal Claims
+Payroll Sheet **Merge approved Portal Claims** (`sourceMode=canonical`) now loads approved `portal_claim_*` rows whose settlement month is the sheet month (July work → August pay). Previously Calculate only read `employee_claims` for August, so 133 approved July Wafi claims never appeared. OT 1x still folds into OT 2x. Default Calculate (checkbox off) is unchanged. Production dry-run: 133 of 305 Wafi August rows would receive claims; August sheet today is still all zeros. No live write.
+
+**Env vars needed:** none new.
+
 ### 2026-08-25 — Monthly Cycle hub (contract pack + people assignment)
 New staff tab **Monthly Cycle** (`monthly_cycle`): Setup (per-contract enabled claim types, collection mode, deadlines), People (bulk Claimer/Reviewer/Approver on `employees`), Collect/Track/Payroll (reuses Portal Claims engine). Migration `20260825230000_monthly_cycle_contract_pack.js` extends `contract_claim_policies` + `employees.claims_reviewer_email`. Fill wizard and `saveSubmissionItems` honor `enabled_types`. Wafi seeded `{OT,EXPENSE,MEDICAL}`. Legacy tabs unchanged.
 

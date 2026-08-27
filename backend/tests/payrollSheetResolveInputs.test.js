@@ -47,6 +47,20 @@ describe('resolvePayrollSheetInputs — sheet OT must survive hub zeros', () => 
         expect(r.expense).toBe(500);
     });
 
+    test('canonical: empty August sheet fills from July portal-shaped claimAgg', () => {
+        const r = resolvePayrollSheetInputs({
+            sheet: { ot2_hrs: 0, ot3_hrs: 0, opd_claim: 0, reimbursement: 0 },
+            attOt: {},
+            monthlyOv: null,
+            claimAgg: { ot1: 0, ot2: 9, ot3: 0, opd: 18211, expense: 2200 },
+            hasClaims: true,
+            sourceMode: 'canonical',
+        });
+        expect(r.ot2).toBe(9);
+        expect(r.opd).toBe(18211);
+        expect(r.expense).toBe(2200);
+    });
+
     test('sheet_inputs: ignores hub/claims and uses sheet only', () => {
         const r = resolvePayrollSheetInputs({
             sheet: { ot2_hrs: 9, ot3_hrs: 6, reimbursement: 20000 },

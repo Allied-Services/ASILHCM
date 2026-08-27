@@ -998,6 +998,11 @@ export default function PayrollSheet({ user }) {
             const a208 = result.anchors && Object.entries(result.anchors).find(([id]) => /SPL-208/i.test(id));
             const a91 = result.anchors && Object.entries(result.anchors).find(([id]) => /SPL-91/i.test(id));
             setCalcMsg(`Calculated ${result.updated || 0} employees on server.`
+                + (pullClaimsOnCalc
+                    ? (result.claimsMerged
+                        ? ` Merged ${result.claimsMerged} approved Portal Claims into this month.`
+                        : ' Merge was on, but no approved Portal Claims settle in this pay month.')
+                    : '')
                 + (a208 ? ` SPL-208 net ${Math.round(a208[1].net).toLocaleString()}` : '')
                 + (a91 ? ` · SPL-91 net ${Math.round(a91[1].net).toLocaleString()} tax ${Math.round(a91[1].wht).toLocaleString()}` : ''));
             // Reload authoritative GET (includes locked flags)
@@ -1693,10 +1698,10 @@ export default function PayrollSheet({ user }) {
                     {isSaving && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={13} />Saving…</span>}
                     <label
                         style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: 200 }}
-                        title="Off (default): recalculate from hours already on this sheet. On: also merge approved claims OT/OPD/expense."
+                        title="Off (default): recalculate from hours already on this sheet. On: merge approved Portal Claims that pay this month (July work → August pay)."
                     >
                         <input type="checkbox" checked={pullClaimsOnCalc} onChange={e => setPullClaimsOnCalc(e.target.checked)} disabled={isCalculating || isLocked} />
-                        Also pull approved claims
+                        Merge approved Portal Claims
                     </label>
                     <button
                         type="button"
