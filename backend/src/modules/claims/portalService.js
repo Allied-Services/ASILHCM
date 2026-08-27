@@ -36,6 +36,7 @@ const {
     canInjectPayroll,
     isSamplePeriod,
     wrapClaimsHtmlFooter,
+    buildSubmitRecordMail,
 } = require('./claimsMail');
 const {
     createCampaignAugust,
@@ -866,7 +867,10 @@ async function openFillerSession(pool, token) {
     };
 }
 
-async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoClaims, skipSupportCheck = false, asDraft = false }) {
+async function saveSubmissionItems(pool, {
+    token, employeeId, items, confirmNoClaims, skipSupportCheck = false, asDraft = false,
+    sendAppEmail = null, skipRecordEmail = false,
+}) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
     if (isAfterFillClose(batch)) {
@@ -901,6 +905,7 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
         return {
             ok: true,
             status: 'no_claims',
+            submissionId: sub.id,
             message: 'Thank you. “No Claims” is recorded. Your Line Manager can see this for the period. Nothing will be added to payroll for this employee.',
         };
     }
@@ -1073,6 +1078,11 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
     );
     await refreshBatchStatus(pool, batch.id);
 
+    if (newStatus === 'submitted' && sendAppEmail && !skipRecordEmail) {
+        const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [batch.period_id]);
+        await sendSubmitRecordEmail(pool, sendAppEmail, batch, periodRows[0], { submissionIds: [sub.id] });
+    }
+
     let finalStatus = newStatus;
     if (newStatus === 'submitted' && ['focal_only', 'lm_only'].includes(batch.routing_profile)) {
         await autoApproveSelfFinal(pool, batch, null);
@@ -1095,11 +1105,12 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
     let message;
     if (finalStatus === 'approved' && ['focal_only', 'lm_only'].includes(profile)) {
         message = savedLines.length
-            ? `Saved and approved (${savedLines.length} line${savedLines.length === 1 ? '' : 's'}). This is final — approved amounts go to payroll with the following month’s salary.`
+            ? `Saved and approved (${savedLines.length} line${savedLines.length === 1 ? '' : 's'}). A confirmation email of what you submitted is on its way. This is final — approved amounts go to payroll with the following month’s salary.`
             : 'Saved and approved. This is final.';
     } else if (finalStatus === 'submitted') {
         message = 'Thank you. Your claim has been submitted to your Line Manager for approval. '
-          + 'You will receive an email when they approve or reject it. '
+          + 'A confirmation email of what you submitted is on its way. '
+          + 'You will receive another email when they approve or reject it. '
           + 'Approved amounts are added to payroll and paid with the following month’s salary.';
     } else if (skipSupportCheck) {
         message = 'Excel imported as a draft. Review the rows, then upload required Expense/Medical supports (if any) before Submit to Line Manager.';
@@ -1112,6 +1123,7 @@ async function saveSubmissionItems(pool, { token, employeeId, items, confirmNoCl
     return {
         ok: true,
         status: finalStatus,
+        submissionId: sub.id,
         itemCount: normalized.length,
         savedLines,
         message,
@@ -2884,34 +2896,47 @@ async function getAttachmentContent(pool, attachmentId) {
     return rows[0] || null;
 }
 
-async function sendSubmitRecordEmail(pool, sendAppEmail, batch, period) {
-    if (!sendAppEmail || !shouldSendRecordEmail(period)) return;
-    const { rows: subs } = await pool.query(
-        `SELECT s.*, e.name AS employee_name FROM portal_claim_submissions s
-         JOIN employees e ON e.id = s.employee_id WHERE s.batch_id = $1 AND s.status = 'submitted'`,
-        [batch.id]
-    );
-    if (!subs.length) return;
-    const ids = subs.map(s => s.id);
+async function sendSubmitRecordEmail(pool, sendAppEmail, batch, period, opts = {}) {
+    if (!sendAppEmail || !shouldSendRecordEmail(period) || !period) return { sent: false };
+    if (!batch || !batch.filler_email || !String(batch.filler_email).includes('@')) return { sent: false };
+
+    const wantedIds = Array.isArray(opts.submissionIds)
+        ? opts.submissionIds.filter((id) => Number.isFinite(Number(id))).map(Number)
+        : [];
+    let subs;
+    if (wantedIds.length) {
+        const { rows } = await pool.query(
+            `SELECT s.*, e.name AS employee_name FROM portal_claim_submissions s
+             JOIN employees e ON e.id = s.employee_id WHERE s.id = ANY($1::int[])
+             ORDER BY e.name`,
+            [wantedIds]
+        );
+        subs = rows;
+    } else {
+        const { rows } = await pool.query(
+            `SELECT s.*, e.name AS employee_name FROM portal_claim_submissions s
+             JOIN employees e ON e.id = s.employee_id
+             WHERE s.batch_id = $1 AND s.status = 'submitted'
+             ORDER BY e.name`,
+            [batch.id]
+        );
+        subs = rows;
+    }
+    if (!subs.length) return { sent: false };
+    const ids = subs.map((s) => s.id);
     const { rows: items } = await pool.query(
-        `SELECT * FROM portal_claim_items WHERE submission_id = ANY($1::int[]) AND active = TRUE`, [ids]
+        `SELECT * FROM portal_claim_items WHERE submission_id = ANY($1::int[]) AND active = TRUE`,
+        [ids]
     );
-    const review = computeBatchTotals(subs, items);
-    const mail = resolveOutboundEmail(period, batch.filler_email, { roleLabel: 'Focal record' });
-    const dest = isFinalSubmitProfile(batch.routing_profile) ? 'You are final — no further approval.' : `Submitted to: ${subs[0]?.approver_email || 'Line Manager'}`;
-    const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px">
-<div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:24px;border:1px solid #e2e8f0">
-<h2>Claims submission record</h2>
-<p>Claim month <strong>${period.claim_month}/${period.claim_year}</strong></p>
-<p>OT hours: <strong>${review.totals.otHours}</strong> · Expense: <strong>PKR ${review.totals.expense}</strong> · Medical: <strong>PKR ${review.totals.medical}</strong></p>
-<p>${dest}</p>
-<p style="font-size:12px;color:#94a3b8">ASIL HCM — keep this for your records</p>
-</div></body></html>`;
+    if (!items.length) return { sent: false };
+
+    const mail = buildSubmitRecordMail({ period, batch, submissions: subs, items });
     await sendAppEmail({
         to: mail.to,
-        subject: `${sampleSubjectPrefix(period, 'record')}ASIL Claims submitted — ${period.claim_month}/${period.claim_year}`,
-        html: sampleBodyBanner(period, batch.filler_email, 'Focal record') + html,
+        subject: mail.subject,
+        html: mail.html,
     }).catch(() => {});
+    return { sent: true, to: mail.to };
 }
 
 async function autoApproveSelfFinal(pool, batch, sendAppEmail) {
@@ -2966,6 +2991,8 @@ async function batchSubmitAll(pool, { token, sendAppEmail }) {
                 time_to: i.time_to,
             })),
             asDraft: false,
+            sendAppEmail,
+            skipRecordEmail: true,
         });
         results.push({ employeeId: sub.employee_id, ...r });
         if (r.ok && r.notifyApprover && r.periodId && sendAppEmail) {
@@ -2975,7 +3002,8 @@ async function batchSubmitAll(pool, { token, sendAppEmail }) {
 
     await refreshBatchStatus(pool, batch.id);
     const freshBatch = (await pool.query(`SELECT * FROM portal_claim_batches WHERE id = $1`, [batch.id])).rows[0];
-    await sendSubmitRecordEmail(pool, sendAppEmail, freshBatch, period);
+    const submittedIds = results.filter((r) => r.ok && r.submissionId && r.itemCount > 0).map((r) => r.submissionId);
+    await sendSubmitRecordEmail(pool, sendAppEmail, freshBatch, period, { submissionIds: submittedIds });
     const auto = await autoApproveSelfFinal(pool, freshBatch, sendAppEmail);
 
     return { ok: true, submitted: results.filter(r => r.ok).length, results, autoApproved: auto.autoApproved };

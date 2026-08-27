@@ -27,7 +27,7 @@ For each magic link in the test pack:
 | 3 | Enter OT / expense / medical (or upload Excel) | Draft saved |
 | 4 | Upload batch expense + medical zips (if amounts > 0) | Batch attachments stored once per pack |
 | 5 | **Review & confirm** (step 2) | Totals per employee + per LM group; destination banner |
-| 6 | **Confirm & submit all** | Status → submitted; approver pack created (except focal-only auto-final) |
+| 6 | **Confirm & submit all** | Status → submitted; filler gets a confirmation email (OT 2X/3X + expense + medical totals and the line list); approver pack created (except focal-only auto-final) |
 | 7 | Open approver link (from email or Notify approvers) | Summary cards: OT / expense / medical / count |
 | 8 | Approve each employee | SAMPLE: no `employee_claims` rows created |
 
