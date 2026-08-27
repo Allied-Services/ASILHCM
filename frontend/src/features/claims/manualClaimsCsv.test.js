@@ -54,6 +54,17 @@ describe('parseManualClaimsCsv', () => {
     assert.equal(isTemplateExampleCode('ASIL/SPL-400/21'), false);
   });
 
+  it('keeps Work Month/Year on rows with quoted Excel thousands', () => {
+    const csv = `${HEADER},Replace Existing?\nASIL/SPL-417/21,Syed Haris Ali,,,,,"80,823",,0,7,2026,Manual upload correction,N,Y`;
+    const parsed = parseManualClaimsCsv(csv);
+    assert.equal(parsed.error, null);
+    assert.equal(parsed.rows[0].Code, 'ASIL/SPL-417/21');
+    assert.equal(parsed.rows[0].Exp, '80,823');
+    assert.equal(parsed.rows[0]['Work Month'], '7');
+    assert.equal(parsed.rows[0]['Work Year'], '2026');
+    assert.equal(parseClaimsNumber(parsed.rows[0].Exp), 80823);
+  });
+
   it('rejects a file with no Code column', () => {
     const parsed = parseManualClaimsCsv('Name,Hours\nAli,4');
     assert.equal(parsed.rows.length, 0);

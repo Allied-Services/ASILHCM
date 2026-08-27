@@ -69,10 +69,11 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## IN PROGRESS
-- Portal Claims CSV: comma amounts (`80,823` → 80823) + block template example `ASIL/SPL-001` (branch `agent/claims-csv-amounts`)
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-27)
+- **11 missed July claims loaded** — the 10 Excel thousand-comma rows plus Asif Arain (`ASIL/SPL-304/21`, 9 OT x2) are now July portal approved, payable with August. No email. July salary untouched. FM codes were already in from the first upload.
+- **Portal Claims CSV safe import** — Excel amounts like 80,823 import as 80823; template example ASIL/SPL-001 is blocked with a visible reason; Send to LM = N still replaces July portal only and sends no email.
 - **Portal Claims submit confirmation** — Employee, Focal, or Line Manager who submits now gets an email with OT 2X/3X hours, expense and medical totals, and the list of lines they just entered. Approve/reject is unchanged.
 - **July claims closed** — fill and Line Manager approve links both show “Deadline has expired”. No emails sent.
 

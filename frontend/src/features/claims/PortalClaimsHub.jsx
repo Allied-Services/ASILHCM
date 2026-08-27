@@ -377,9 +377,9 @@ export default function PortalClaimsHub({
         dryRun: !commit,
       });
       const rows = d.results || [];
-      const firstFail = rows.find((r) => !r.ok);
-      const failNote = firstFail
-        ? `${firstFail.employeeId || 'Row'}: ${firstFail.error || 'Failed'}`
+      const fails = rows.filter((r) => !r.ok);
+      const failNote = fails.length
+        ? fails.map((r) => `${r.employeeId || 'Row'}: ${r.error || 'Failed'}`).join(' · ')
         : '';
       setCsvPreview((prev) => ({ ...prev, result: d, localError: failNote }));
       const ok = d.summary?.ready ?? rows.filter(r => r.ok).length;

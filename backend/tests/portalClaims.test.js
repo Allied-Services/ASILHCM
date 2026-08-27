@@ -280,6 +280,29 @@ describe('portalClaims helpers', () => {
         assert.equal(n.payMonth, 8);
     });
 
+    it('normalizeEmployeeCode maps Asif Arain sheet typo to the live roster id', () => {
+        const { normalizeEmployeeCode } = require('../src/modules/claims/portalService');
+        assert.equal(normalizeEmployeeCode('ASILFM//SPL/304/21'), 'ASIL/SPL-304/21');
+        assert.equal(normalizeEmployeeCode('ASILFM/SPL/304/21'), 'ASIL/SPL-304/21');
+        assert.equal(normalizeEmployeeCode('ASILFM/SPL/22/16'), 'ASILFM/SPL/22/16');
+    });
+
+    it('normalizeManualImportRow ignores a shifted year of 7 and uses the filter default', () => {
+        const { normalizeManualImportRow } = require('../src/modules/claims/portalService');
+        const n = normalizeManualImportRow({
+            Code: 'ASIL/SPL-417/21',
+            'Work Month': '0',
+            'Work Year': '7',
+            Exp: '80,823',
+            'Send to LM?': 'N',
+        }, { workMonth: 7, workYear: 2026 });
+        assert.equal(n.employeeId, 'ASIL/SPL-417/21');
+        assert.equal(n.workMonth, 7);
+        assert.equal(n.workYear, 2026);
+        assert.equal(n.expenseAmount, 80823);
+        assert.equal(n.resubmitToLm, false);
+    });
+
     it('applyPortalCorrection Send to LM = N replaces portal amounts and never emails', async () => {
         const { applyPortalCorrection } = require('../src/modules/claims/portalService');
         const sql = [];
