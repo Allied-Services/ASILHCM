@@ -2,7 +2,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseManualClaimsCsv } from './manualClaimsCsv.js';
+import { isTemplateExampleCode, parseClaimsNumber, parseManualClaimsCsv } from './manualClaimsCsv.js';
 
 const HEADER = 'Code,Emp Name,OT (1X),OT (x2),OT (x3),OPD,Exp,Exp Bills Status,Absents,Work Month,Work Year,Reason,Send to LM?';
 
@@ -45,6 +45,13 @@ describe('parseManualClaimsCsv', () => {
     const parsed = parseManualClaimsCsv(`${HEADER}\n`);
     assert.equal(parsed.rows.length, 0);
     assert.match(parsed.error, /no data rows/i);
+  });
+
+  it('reads Excel thousand-separated amounts as numbers', () => {
+    assert.equal(parseClaimsNumber('80,823'), 80823);
+    assert.equal(parseClaimsNumber('9,672'), 9672);
+    assert.equal(isTemplateExampleCode('ASIL/SPL-001'), true);
+    assert.equal(isTemplateExampleCode('ASIL/SPL-400/21'), false);
   });
 
   it('rejects a file with no Code column', () => {

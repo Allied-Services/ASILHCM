@@ -2369,8 +2369,23 @@ async function getPayrollSnapshot(pool, employeeId, month, year) {
     return rows[0] || { ot2_hrs: 0, ot3_hrs: 0, opd_claim: 0, reimbursement: 0, locked: false };
 }
 
+const TEMPLATE_EXAMPLE_CODE = 'ASIL/SPL-001';
+
+function isTemplateExampleCode(code) {
+    return String(code || '').trim().toUpperCase() === TEMPLATE_EXAMPLE_CODE;
+}
+
+/** Excel "80,823" / "9,672" → 80823 / 9672. Blank → 0. */
+function parseClaimsNumber(value) {
+    if (value === '' || value == null) return 0;
+    const cleaned = String(value).replace(/,/g, '').replace(/["'\s]/g, '').trim();
+    if (!cleaned) return 0;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : 0;
+}
+
 function roundHrs(v) {
-    return Math.round((Number(v) || 0) * 100) / 100;
+    return Math.round(parseClaimsNumber(v) * 100) / 100;
 }
 
 function followingClaimSettlement(workMonth, workYear) {
@@ -2410,11 +2425,11 @@ function normalizeManualImportRow(row, defaults = {}) {
         workYear,
         payMonth,
         payYear,
-        ot1Hours: importCell(row, 'ot1Hours', 'OT (1X)', 'OT 1X Hours', 'OT (1x)'),
-        ot2Hours: importCell(row, 'ot2Hours', 'OT (x2)', 'OT (X2)', 'OT 2X Hours'),
-        ot3Hours: importCell(row, 'ot3Hours', 'OT (x3)', 'OT (X3)', 'OT 3X Hours'),
-        expenseAmount: importCell(row, 'expenseAmount', 'Exp', 'Expense Amount'),
-        medicalAmount: importCell(row, 'medicalAmount', 'OPD', 'Medical Amount'),
+        ot1Hours: parseClaimsNumber(importCell(row, 'ot1Hours', 'OT (1X)', 'OT 1X Hours', 'OT (1x)')),
+        ot2Hours: parseClaimsNumber(importCell(row, 'ot2Hours', 'OT (x2)', 'OT (X2)', 'OT 2X Hours')),
+        ot3Hours: parseClaimsNumber(importCell(row, 'ot3Hours', 'OT (x3)', 'OT (X3)', 'OT 3X Hours')),
+        expenseAmount: parseClaimsNumber(importCell(row, 'expenseAmount', 'Exp', 'Expense Amount')),
+        medicalAmount: parseClaimsNumber(importCell(row, 'medicalAmount', 'OPD', 'Medical Amount')),
         reason: String(importCell(row, 'reason', 'Reason') || 'CSV manual upload').trim(),
         resubmitToLm,
         mode,
@@ -2462,6 +2477,14 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     if (!employeeId || !wm || !wy) {
         return { ok: false, status: 400, error: 'employeeId, workMonth, and workYear are required', employeeId };
     }
+    if (isTemplateExampleCode(employeeId)) {
+        return {
+            ok: false,
+            status: 400,
+            employeeId: String(employeeId).trim(),
+            error: 'ASIL/SPL-001 is the template example, not a real employee. Use the real ASIL code from the roster.',
+        };
+    }
 
     const emp = await findEmployeeByCode(pool, employeeId);
     if (!emp) return { ok: false, status: 404, error: `Employee not found: ${String(employeeId).trim()}`, employeeId };
@@ -2476,8 +2499,8 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     const o1 = roundHrs(ot1Hours);
     const o2 = roundHrs(ot2Hours);
     const o3 = roundHrs(ot3Hours);
-    const exp = Math.round((Number(expenseAmount) || 0) * 100) / 100;
-    const med = Math.round((Number(medicalAmount) || 0) * 100) / 100;
+    const exp = Math.round(parseClaimsNumber(expenseAmount) * 100) / 100;
+    const med = Math.round(parseClaimsNumber(medicalAmount) * 100) / 100;
     const claimDate = `${wy}-${String(wm).padStart(2, '0')}-28`;
     const correctionNote = `[ASIL correction] ${String(reason).trim()}`;
     const previousStatus = sub?.status || null;
@@ -3225,6 +3248,7 @@ module.exports = {
     normalizeManualImportRow,
     followingClaimSettlement,
     summarizeManualImport,
+    parseClaimsNumber,
     notifyManualOverride,
     autoCloseNoClaims,
     sendReminders,

@@ -69,6 +69,7 @@ LIVE: prod API healthy; **do not re-Calculate July Wafi on live** until this fix
 ---
 
 ## IN PROGRESS
+- Portal Claims CSV: comma amounts (`80,823` → 80823) + block template example `ASIL/SPL-001` (branch `agent/claims-csv-amounts`)
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-27)

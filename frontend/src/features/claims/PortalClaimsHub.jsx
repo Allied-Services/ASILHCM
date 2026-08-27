@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, X } from 'lucide-react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
-import { parseManualClaimsCsv } from './manualClaimsCsv';
+import { isTemplateExampleCode, parseManualClaimsCsv } from './manualClaimsCsv';
 import './PortalClaimsHub.css';
 
 const SADIA_EMAIL = 'sadia.komal@asil.com.pk';
@@ -376,14 +376,19 @@ export default function PortalClaimsHub({
         workYear,
         dryRun: !commit,
       });
-      setCsvPreview((prev) => ({ ...prev, result: d, localError: '' }));
-      const ok = d.summary?.ready ?? (d.results || []).filter(r => r.ok).length;
-      const bad = d.summary?.failed ?? (d.results || []).filter(r => !r.ok).length;
+      const rows = d.results || [];
+      const firstFail = rows.find((r) => !r.ok);
+      const failNote = firstFail
+        ? `${firstFail.employeeId || 'Row'}: ${firstFail.error || 'Failed'}`
+        : '';
+      setCsvPreview((prev) => ({ ...prev, result: d, localError: failNote }));
+      const ok = d.summary?.ready ?? rows.filter(r => r.ok).length;
+      const bad = d.summary?.failed ?? rows.filter(r => !r.ok).length;
       const note = commit
         ? `CSV import: ${ok} applied${bad ? ` · ${bad} failed` : ''}.`
         : `CSV dry-run: ${ok} ready${bad ? ` · ${bad} blocked` : ''}.`;
       setMsg(note);
-      if (bad) setErr(`${bad} row(s) failed — see the list under Commit CSV.`);
+      if (bad) setErr(failNote || `${bad} row(s) failed — see the list under Commit CSV.`);
       if (commit) await loadBoard();
     } catch (e) {
       setErr(e.message);
@@ -917,15 +922,19 @@ export default function PortalClaimsHub({
                 if (!file) return;
                 const text = await file.text();
                 const parsed = parseManualClaimsCsv(text);
+                const example = (parsed.rows || []).find((r) => isTemplateExampleCode(r.Code || r['ASIL Employee Code']));
+                const exampleErr = example
+                  ? 'ASIL/SPL-001 is the template example, not a real employee. Use the 133-row July file with real ASIL codes.'
+                  : '';
                 setCsvPreview({
                   name: file.name,
                   rows: parsed.rows,
                   result: null,
                   parseError: parsed.error,
-                  localError: parsed.error || '',
+                  localError: parsed.error || exampleErr,
                 });
-                if (parsed.error) {
-                  setErr(parsed.error);
+                if (parsed.error || exampleErr) {
+                  setErr(parsed.error || exampleErr);
                   setMsg('');
                 } else {
                   setErr('');
@@ -955,7 +964,10 @@ export default function PortalClaimsHub({
                   </tr>
                 </thead>
                 <tbody>
-                  {(csvPreview.result.results || []).map((r, i) => (
+                  {[...(csvPreview.result.results || [])]
+                    .map((r, i) => ({ r, i }))
+                    .sort((a, b) => Number(!!a.r.ok) - Number(!!b.r.ok))
+                    .map(({ r, i }) => (
                     <tr key={`${r.employeeId || i}`} className={r.ok ? 'is-ok' : 'is-bad'}>
                       <td>{r.employeeId || csvPreview.rows[i]?.Code || '—'}</td>
                       <td>{r.ok ? (r.dryRun ? 'Ready' : 'Applied') : 'Failed'}</td>

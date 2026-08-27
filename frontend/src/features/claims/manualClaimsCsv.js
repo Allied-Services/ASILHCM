@@ -68,6 +68,21 @@ function parseCsvRecords(text) {
 
 const CODE_HEADER = /^(code|asil employee code|employeeid|employee id|employee_id)$/i;
 
+export const TEMPLATE_EXAMPLE_CODE = 'ASIL/SPL-001';
+
+export function isTemplateExampleCode(code) {
+  return String(code || '').trim().toUpperCase() === TEMPLATE_EXAMPLE_CODE;
+}
+
+/** Excel "80,823" / "9,672" → 80823 / 9672. Blank → 0. */
+export function parseClaimsNumber(value) {
+  if (value === '' || value == null) return 0;
+  const cleaned = String(value).replace(/,/g, '').replace(/["'\s]/g, '').trim();
+  if (!cleaned) return 0;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function parseManualClaimsCsv(text) {
   const raw = String(text || '');
   if (!raw.replace(/\u0000/g, '').trim()) {

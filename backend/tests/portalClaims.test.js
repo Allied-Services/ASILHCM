@@ -216,6 +216,33 @@ describe('portalClaims helpers', () => {
         );
     });
 
+    it('parseClaimsNumber keeps Excel thousand separators as real money', () => {
+        const { parseClaimsNumber } = require('../src/modules/claims/portalService');
+        assert.equal(parseClaimsNumber('80,823'), 80823);
+        assert.equal(parseClaimsNumber('9,672'), 9672);
+        assert.equal(parseClaimsNumber('"90,112"'), 90112);
+        assert.equal(parseClaimsNumber('500'), 500);
+        assert.equal(parseClaimsNumber(''), 0);
+        assert.equal(parseClaimsNumber('22.5'), 22.5);
+    });
+
+    it('applyPortalCorrection rejects the template example code', async () => {
+        const { applyPortalCorrection } = require('../src/modules/claims/portalService');
+        let queried = 0;
+        const pool = { query: async () => { queried += 1; return { rows: [] }; } };
+        const r = await applyPortalCorrection(pool, async () => {}, {
+            employeeId: 'ASIL/SPL-001',
+            workMonth: 7,
+            workYear: 2026,
+            medicalAmount: 500,
+            reason: 'Manual upload correction',
+            resubmitToLm: false,
+        });
+        assert.equal(r.ok, false);
+        assert.match(r.error, /template example/i);
+        assert.equal(queried, 0);
+    });
+
     it('normalizeManualImportRow defaults pay month to the following settlement month', () => {
         const { normalizeManualImportRow, followingClaimSettlement } = require('../src/modules/claims/portalService');
         const settle = followingClaimSettlement(7, 2026);
@@ -234,8 +261,8 @@ describe('portalClaims helpers', () => {
         assert.equal(n.payMonth, 8);
         assert.equal(n.payYear, 2026);
         assert.equal(n.resubmitToLm, true);
-        assert.equal(n.ot2Hours, '4');
-        assert.equal(n.medicalAmount, '500');
+        assert.equal(n.ot2Hours, 4);
+        assert.equal(n.medicalAmount, 500);
     });
 
     it('normalizeManualImportRow reads quoted Excel headers and Send to LM = N', () => {
