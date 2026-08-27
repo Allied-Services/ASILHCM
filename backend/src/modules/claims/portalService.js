@@ -2373,6 +2373,74 @@ function roundHrs(v) {
     return Math.round((Number(v) || 0) * 100) / 100;
 }
 
+function followingClaimSettlement(workMonth, workYear) {
+    const wm = parseInt(workMonth, 10);
+    const wy = parseInt(workYear, 10);
+    if (!wm || !wy) return { month: NaN, year: NaN };
+    const next = new Date(wy, wm, 1);
+    return { month: next.getMonth() + 1, year: next.getFullYear() };
+}
+
+function importCell(row, ...keys) {
+    if (!row || typeof row !== 'object') return '';
+    const norm = (k) => String(k || '').replace(/^\uFEFF/, '').trim().replace(/^["']+|["']+$/g, '').trim().toLowerCase();
+    const map = {};
+    for (const [k, v] of Object.entries(row)) map[norm(k)] = v;
+    for (const key of keys) {
+        const hit = map[norm(key)];
+        if (hit !== undefined && hit !== null && String(hit).trim() !== '') return hit;
+    }
+    return '';
+}
+
+function normalizeManualImportRow(row, defaults = {}) {
+    const workMonth = parseInt(importCell(row, 'workMonth', 'Work Month', 'Period Month', 'month') || defaults.workMonth, 10);
+    const workYear = parseInt(importCell(row, 'workYear', 'Work Year', 'Period Year', 'year') || defaults.workYear, 10);
+    const settle = followingClaimSettlement(workMonth, workYear);
+    const payMonth = parseInt(importCell(row, 'payMonth', 'Pay Month') || settle.month, 10);
+    const payYear = parseInt(importCell(row, 'payYear', 'Pay Year') || settle.year, 10);
+    const sendRaw = String(importCell(row, 'resubmitToLm', 'Send to LM?') || 'Y').toLowerCase();
+    const resubmitToLm = row.resubmitToLm !== false && sendRaw !== 'n' && sendRaw !== 'no';
+    const modeRaw = String(importCell(row, 'mode', 'Replace Existing?') || 'add').toLowerCase();
+    const mode = modeRaw === 'y' || modeRaw === 'yes' || modeRaw === 'replace' ? 'replace'
+        : modeRaw === 'remove' ? 'remove' : 'add';
+    return {
+        employeeId: String(importCell(row, 'employeeId', 'Code', 'ASIL Employee Code', 'Employee ID') || '').trim(),
+        workMonth,
+        workYear,
+        payMonth,
+        payYear,
+        ot1Hours: importCell(row, 'ot1Hours', 'OT (1X)', 'OT 1X Hours', 'OT (1x)'),
+        ot2Hours: importCell(row, 'ot2Hours', 'OT (x2)', 'OT (X2)', 'OT 2X Hours'),
+        ot3Hours: importCell(row, 'ot3Hours', 'OT (x3)', 'OT (X3)', 'OT 3X Hours'),
+        expenseAmount: importCell(row, 'expenseAmount', 'Exp', 'Expense Amount'),
+        medicalAmount: importCell(row, 'medicalAmount', 'OPD', 'Medical Amount'),
+        reason: String(importCell(row, 'reason', 'Reason') || 'CSV manual upload').trim(),
+        resubmitToLm,
+        mode,
+    };
+}
+
+function summarizeManualImport(results) {
+    const list = Array.isArray(results) ? results : [];
+    return {
+        applied: list.filter((r) => r.ok && !r.dryRun).length,
+        ready: list.filter((r) => r.ok).length,
+        failed: list.filter((r) => !r.ok).length,
+        alreadyOnPayroll: list.filter((r) => r.previousStatus === 'in_payroll').length,
+    };
+}
+
+async function findEmployeeByCode(pool, employeeId) {
+    const code = String(employeeId || '').trim();
+    if (!code) return null;
+    const { rows } = await pool.query(
+        `SELECT * FROM employees WHERE id = $1 OR lower(id) = lower($1) LIMIT 1`,
+        [code]
+    );
+    return rows[0] || null;
+}
+
 async function applyPortalCorrection(pool, sendAppEmail, {
     employeeId,
     workMonth,
@@ -2385,22 +2453,23 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     reason,
     createdBy,
     dryRun = false,
+    notifyLm = true,
 }) {
-    if (!reason || !String(reason).trim()) return { ok: false, status: 400, error: 'Reason is required' };
+    if (!reason || !String(reason).trim()) return { ok: false, status: 400, error: 'Reason is required', employeeId };
     const wm = parseInt(workMonth, 10);
     const wy = parseInt(workYear, 10);
     if (!employeeId || !wm || !wy) {
-        return { ok: false, status: 400, error: 'employeeId, workMonth, and workYear are required' };
+        return { ok: false, status: 400, error: 'employeeId, workMonth, and workYear are required', employeeId };
     }
 
-    const { rows: empRows } = await pool.query(`SELECT * FROM employees WHERE id = $1`, [employeeId]);
-    if (!empRows.length) return { ok: false, status: 404, error: 'Employee not found' };
-    const emp = empRows[0];
+    const emp = await findEmployeeByCode(pool, employeeId);
+    if (!emp) return { ok: false, status: 404, error: `Employee not found: ${String(employeeId).trim()}`, employeeId };
+    const resolvedId = emp.id;
     const approverEmail = resolveApproverEmail(emp);
     const period = await getOrCreatePeriodForClaimMonth(pool, wm, wy);
     const { rows: subRows } = await pool.query(
         `SELECT * FROM portal_claim_submissions WHERE period_id = $1 AND employee_id = $2`,
-        [period.id, employeeId]
+        [period.id, resolvedId]
     );
     const sub = subRows[0] || null;
     const o1 = roundHrs(ot1Hours);
@@ -2410,12 +2479,25 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     const med = Math.round((Number(medicalAmount) || 0) * 100) / 100;
     const claimDate = `${wy}-${String(wm).padStart(2, '0')}-28`;
     const correctionNote = `[ASIL correction] ${String(reason).trim()}`;
+    const previousStatus = sub?.status || null;
+    const settleLabel = `${period.settlement_month}/${period.settlement_year}`;
+    const alreadyOnPayroll = previousStatus === 'in_payroll';
+    const payrollWarning = alreadyOnPayroll
+        ? ` ${wm}/${wy} claim was already sent to the ${settleLabel} Payroll Sheet — after LM re-approval, push again, or use Send to LM = N to write that sheet now.`
+        : previousStatus === 'approved'
+            ? ` Existing approved ${wm}/${wy} claim will be replaced and sent back to the Line Manager.`
+            : '';
 
     if (dryRun) {
         return {
             ok: true,
             dryRun: true,
             path: 'portal',
+            employeeId: resolvedId,
+            periodId: period.id,
+            previousStatus,
+            settlementMonth: period.settlement_month,
+            settlementYear: period.settlement_year,
             resubmitToLm: true,
             approverEmail: approverEmail || null,
             before: sub ? { status: sub.status, channel: sub.channel } : null,
@@ -2427,9 +2509,10 @@ async function applyPortalCorrection(pool, sendAppEmail, {
                 expenseAmount: exp,
                 medicalAmount: med,
             },
-            warning: approverEmail
-                ? `Will email ${approverEmail} for Line Manager re-approval.`
-                : 'No Line Manager on file — correction will wait for ASIL review.',
+            warning: (approverEmail
+                ? `Will replace the ${wm}/${wy} portal claim (payable ${settleLabel}) and email ${approverEmail} for Line Manager re-approval.`
+                : `Will replace the ${wm}/${wy} portal claim (payable ${settleLabel}). No Line Manager on file — correction will wait for ASIL review.`)
+                + payrollWarning,
         };
     }
 
@@ -2440,7 +2523,7 @@ async function applyPortalCorrection(pool, sendAppEmail, {
              (period_id, employee_id, filler_email, approver_email, status, channel)
              VALUES ($1,$2,$3,$4,'draft','admin_correction')
              RETURNING id`,
-            [period.id, employeeId, createdBy || 'asil-correction', approverEmail || null]
+            [period.id, resolvedId, createdBy || 'asil-correction', approverEmail || null]
         );
         submissionId = ins[0].id;
     }
@@ -2487,7 +2570,7 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     );
 
     let lmNotified = false;
-    if (approverEmail && sendAppEmail) {
+    if (notifyLm && approverEmail && sendAppEmail) {
         const packs = await ensureApproverPacks(pool, period.id, sendAppEmail, {
             forceEmail: true,
             onlyApproverEmail: approverEmail,
@@ -2498,13 +2581,19 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     return {
         ok: true,
         path: 'portal',
+        employeeId: resolvedId,
+        periodId: period.id,
+        previousStatus,
+        settlementMonth: period.settlement_month,
+        settlementYear: period.settlement_year,
         resubmitToLm: true,
         submissionId,
         approverEmail: approverEmail || null,
         lmNotified,
+        warning: payrollWarning.trim() || null,
         message: lmNotified
-            ? `Correction saved and sent to ${approverEmail} for re-approval.`
-            : 'Correction saved — waiting for Line Manager approval.',
+            ? `${wm}/${wy} claim replaced and sent to ${approverEmail} for re-approval (payable ${settleLabel}).`
+            : `${wm}/${wy} claim replaced — waiting for Line Manager approval (payable ${settleLabel}).`,
     };
 }
 
@@ -2514,15 +2603,24 @@ async function applyManualOverride(pool, {
     expenseAmount = 0, medicalAmount = 0,
     mode, reason, createdBy, dryRun = false, isSuperadmin = false,
 }) {
-    if (!reason || !String(reason).trim()) return { ok: false, status: 400, error: 'Reason is required' };
-    if (!['add', 'replace', 'remove'].includes(mode)) return { ok: false, status: 400, error: 'mode must be add|replace|remove' };
+    if (!reason || !String(reason).trim()) return { ok: false, status: 400, error: 'Reason is required', employeeId };
+    if (!['add', 'replace', 'remove'].includes(mode)) return { ok: false, status: 400, error: 'mode must be add|replace|remove', employeeId };
     if ((mode === 'replace' || mode === 'remove') && !isSuperadmin) {
-        return { ok: false, status: 403, error: 'Only superadmin can replace or remove claims' };
+        return { ok: false, status: 403, error: 'Only superadmin can replace or remove claims', employeeId };
     }
 
-    const before = await getPayrollSnapshot(pool, employeeId, month, year);
+    const emp = await findEmployeeByCode(pool, employeeId);
+    if (!emp) return { ok: false, status: 404, error: `Employee not found: ${String(employeeId || '').trim()}`, employeeId };
+    const resolvedId = emp.id;
+
+    const before = await getPayrollSnapshot(pool, resolvedId, month, year);
     if (before.locked && !isSuperadmin) {
-        return { ok: false, status: 403, error: 'Payroll month is locked' };
+        return {
+            ok: false,
+            status: 403,
+            employeeId: resolvedId,
+            error: `Payroll ${month}/${year} is locked (already disbursed). Keep Send to LM = Y to overwrite the work-month portal claim, or set Pay Month to the following unpaid sheet.`,
+        };
     }
 
     // Warn if portal approved exists
@@ -2531,7 +2629,7 @@ async function applyManualOverride(pool, {
          JOIN portal_claim_periods p ON p.id = s.period_id
          WHERE s.employee_id = $1 AND p.settlement_month = $2 AND p.settlement_year = $3
            AND s.status IN ('approved','in_payroll')`,
-        [employeeId, month, year]
+        [resolvedId, month, year]
     );
 
     let after = { ...before };
@@ -2566,8 +2664,8 @@ async function applyManualOverride(pool, {
 
     if (dryRun) {
         return {
-            ok: true, dryRun: true, before, after, warning,
-            preview: { employeeId, month, year, mode, ot1Hours: o1, ot2Hours: o2, ot3Hours: o3, expenseAmount: exp, medicalAmount: med },
+            ok: true, dryRun: true, employeeId: resolvedId, before, after, warning,
+            preview: { employeeId: resolvedId, month, year, mode, ot1Hours: o1, ot2Hours: o2, ot3Hours: o3, expenseAmount: exp, medicalAmount: med },
         };
     }
 
@@ -2580,7 +2678,7 @@ async function applyManualOverride(pool, {
            opd_claim = EXCLUDED.opd_claim,
            reimbursement = EXCLUDED.reimbursement,
            updated_at = NOW()`,
-        [employeeId, month, year, after.ot2_hrs, after.ot3_hrs, after.opd_claim, after.reimbursement]
+        [resolvedId, month, year, after.ot2_hrs, after.ot3_hrs, after.opd_claim, after.reimbursement]
     );
 
     const { rows: logRows } = await pool.query(
@@ -2590,7 +2688,7 @@ async function applyManualOverride(pool, {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,FALSE,TRUE)
          RETURNING *`,
         [
-            employeeId, month, year, o1, o2, o3, exp, med, mode, reason.trim(), createdBy || null,
+            resolvedId, month, year, o1, o2, o3, exp, med, mode, reason.trim(), createdBy || null,
             JSON.stringify(before), JSON.stringify(after),
         ]
     );
@@ -2606,10 +2704,10 @@ async function applyManualOverride(pool, {
          VALUES ($1,$2,$3,$4,'in_payroll','manual_override',NOW(),NOW())
          ON CONFLICT (period_id, employee_id) DO UPDATE SET
            status = 'in_payroll', channel = 'manual_override', updated_at = NOW()`,
-        [period.id, employeeId, createdBy || 'manual', createdBy || 'manual']
+        [period.id, resolvedId, createdBy || 'manual', createdBy || 'manual']
     ).catch(() => {});
 
-    return { ok: true, override: logRows[0], before, after, warning, notifyEmails: MANUAL_OVERRIDE_NOTIFY };
+    return { ok: true, employeeId: resolvedId, override: logRows[0], before, after, warning, notifyEmails: MANUAL_OVERRIDE_NOTIFY };
 }
 
 async function notifyManualOverride(sendAppEmail, payload) {
@@ -3103,6 +3201,9 @@ module.exports = {
     exportClaimsPayrollTieout,
     applyManualOverride,
     applyPortalCorrection,
+    normalizeManualImportRow,
+    followingClaimSettlement,
+    summarizeManualImport,
     notifyManualOverride,
     autoCloseNoClaims,
     sendReminders,

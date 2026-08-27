@@ -216,6 +216,43 @@ describe('portalClaims helpers', () => {
         );
     });
 
+    it('normalizeManualImportRow defaults pay month to the following settlement month', () => {
+        const { normalizeManualImportRow, followingClaimSettlement } = require('../src/modules/claims/portalService');
+        const settle = followingClaimSettlement(7, 2026);
+        assert.equal(settle.month, 8);
+        assert.equal(settle.year, 2026);
+        const n = normalizeManualImportRow({
+            Code: 'ASIL/SPL-91/21',
+            'OT (x2)': '4',
+            OPD: '500',
+            Reason: 'July correction',
+            'Send to LM?': 'Y',
+        }, { workMonth: 7, workYear: 2026 });
+        assert.equal(n.employeeId, 'ASIL/SPL-91/21');
+        assert.equal(n.workMonth, 7);
+        assert.equal(n.workYear, 2026);
+        assert.equal(n.payMonth, 8);
+        assert.equal(n.payYear, 2026);
+        assert.equal(n.resubmitToLm, true);
+        assert.equal(n.ot2Hours, '4');
+        assert.equal(n.medicalAmount, '500');
+    });
+
+    it('normalizeManualImportRow reads quoted Excel headers and Send to LM = N', () => {
+        const { normalizeManualImportRow } = require('../src/modules/claims/portalService');
+        const n = normalizeManualImportRow({
+            '"Code"': 'ASIL/SPL-91/21',
+            '"Work Month"': '7',
+            '"Work Year"': '2026',
+            '"Send to LM?"': 'N',
+            '"Replace Existing?"': 'Y',
+        });
+        assert.equal(n.employeeId, 'ASIL/SPL-91/21');
+        assert.equal(n.resubmitToLm, false);
+        assert.equal(n.mode, 'replace');
+        assert.equal(n.payMonth, 8);
+    });
+
     it('validateOtRow upgrades gazetted holiday Double input to Triple', () => {
         const period = { claim_month: 8, claim_year: 2026 };
         const aug14 = validateOtRow({

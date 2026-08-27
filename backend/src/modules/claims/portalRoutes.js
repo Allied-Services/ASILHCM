@@ -607,60 +607,56 @@ function registerPortalClaimsRoutes(app, deps) {
             }
             const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
             const dryRun = !!req.body?.dryRun;
+            const defaults = {
+                workMonth: req.body?.workMonth,
+                workYear: req.body?.workYear,
+            };
             const results = [];
+            const periodIds = new Set();
             for (const row of rows) {
-                const mode = String(row.mode || row['Replace Existing?'] || 'add').toLowerCase();
-                const normalizedMode = mode === 'y' || mode === 'yes' || mode === 'replace' ? 'replace'
-                    : mode === 'remove' ? 'remove' : 'add';
-                const resubmitToLm = row.resubmitToLm !== false
-                    && String(row.resubmitToLm || row['Send to LM?'] || 'Y').toLowerCase() !== 'n'
-                    && String(row.resubmitToLm || row['Send to LM?'] || 'Y').toLowerCase() !== 'no';
-                const workMonth = parseInt(row.workMonth || row['Work Month'] || row['Period Month'] || row.month, 10);
-                const workYear = parseInt(row.workYear || row['Work Year'] || row['Period Year'] || row.year, 10);
-                const payMonth = parseInt(row.payMonth || row['Pay Month'] || workMonth, 10);
-                const payYear = parseInt(row.payYear || row['Pay Year'] || workYear, 10);
-                const employeeId = row.employeeId || row.Code || row['ASIL Employee Code'];
-                const ot1Hours = row.ot1Hours ?? row['OT (1X)'] ?? row['OT 1X Hours'] ?? row['OT (1x)'];
-                const ot2Hours = row.ot2Hours ?? row['OT (x2)'] ?? row['OT (X2)'] ?? row['OT 2X Hours'];
-                const ot3Hours = row.ot3Hours ?? row['OT (x3)'] ?? row['OT (X3)'] ?? row['OT 3X Hours'];
-                const expenseAmount = row.expenseAmount ?? row.Exp ?? row['Expense Amount'];
-                const medicalAmount = row.medicalAmount ?? row.OPD ?? row['Medical Amount'];
-                const reason = row.reason || row.Reason || 'CSV manual upload';
-                if (resubmitToLm) {
+                const n = portal.normalizeManualImportRow(row, defaults);
+                if (n.resubmitToLm) {
                     const r = await portal.applyPortalCorrection(pool, sendAppEmail, {
-                        employeeId,
-                        workMonth,
-                        workYear,
-                        ot1Hours,
-                        ot2Hours,
-                        ot3Hours,
-                        expenseAmount,
-                        medicalAmount,
-                        reason,
+                        employeeId: n.employeeId,
+                        workMonth: n.workMonth,
+                        workYear: n.workYear,
+                        ot1Hours: n.ot1Hours,
+                        ot2Hours: n.ot2Hours,
+                        ot3Hours: n.ot3Hours,
+                        expenseAmount: n.expenseAmount,
+                        medicalAmount: n.medicalAmount,
+                        reason: n.reason,
                         createdBy: req.user?.email || 'import',
                         dryRun,
+                        notifyLm: false,
                     });
+                    if (r.periodId) periodIds.add(r.periodId);
                     results.push(r);
                     continue;
                 }
                 const r = await portal.applyManualOverride(pool, {
-                    employeeId,
-                    month: payMonth,
-                    year: payYear,
-                    ot1Hours,
-                    ot2Hours,
-                    ot3Hours,
-                    expenseAmount,
-                    medicalAmount,
-                    mode: normalizedMode,
-                    reason,
+                    employeeId: n.employeeId,
+                    month: n.payMonth,
+                    year: n.payYear,
+                    ot1Hours: n.ot1Hours,
+                    ot2Hours: n.ot2Hours,
+                    ot3Hours: n.ot3Hours,
+                    expenseAmount: n.expenseAmount,
+                    medicalAmount: n.medicalAmount,
+                    mode: n.mode,
+                    reason: n.reason,
                     createdBy: req.user?.email || 'import',
                     dryRun,
                     isSuperadmin: req.user?.role === 'superadmin',
                 });
                 results.push(r);
             }
-            res.json({ dryRun, results });
+            if (!dryRun && periodIds.size) {
+                for (const periodId of periodIds) {
+                    await portal.ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail: true });
+                }
+            }
+            res.json({ dryRun, results, summary: portal.summarizeManualImport(results) });
         } catch (err) {
             handleRouteError(res, 'portalClaims.manualImport', err);
         }
