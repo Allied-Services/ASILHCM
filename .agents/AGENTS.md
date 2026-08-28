@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-08-28 — Salary Revision popover sits above the sheet
+Revise form is portaled to `document.body` with `position: fixed` so table rows and the sheet overflow no longer hide it.
+
+**Env vars needed:** none new.
+
 ### 2026-08-28 — Dated salary revisions (employee_salary_revisions)
 Salary changes are now effective-dated: `employee_salary_revisions` + `payroll_transactions.salary_used` snapshot at Calculate. `salaryAsOf` feeds Payroll Sheet Calculate (and therefore bonus accrual). Locked months stay frozen; a Sep raise does not rewrite Jan–Aug. Employee Profile Salary & Increments tab is API-backed. Payroll Sheet SALARY column has Revise.
 

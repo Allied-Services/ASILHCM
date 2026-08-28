@@ -1,6 +1,8 @@
 // Dedicated Payroll Sheet "Salary Revision" column. History loads only when Revise is opened (not per row on mount).
+// Popover is portaled to document.body — table rows / overflow would otherwise hide it.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Pencil } from 'lucide-react';
 import { api } from '../../api';
 import './SalaryRevisionCell.css';
@@ -11,6 +13,10 @@ const MONTHS = [
     { n: 7, label: 'Jul' }, { n: 8, label: 'Aug' }, { n: 9, label: 'Sep' },
     { n: 10, label: 'Oct' }, { n: 11, label: 'Nov' }, { n: 12, label: 'Dec' },
 ];
+
+const POPOVER_WIDTH = 260;
+const POPOVER_EST_HEIGHT = 280;
+const GAP = 6;
 
 function parseSheetMonth(sheetMonth, year, month) {
     if (Number(year) && Number(month) >= 1 && Number(month) <= 12) {
@@ -53,6 +59,20 @@ function salaryAsOfClient(revisions, year, month, fallback) {
     return Number(fallback) || 0;
 }
 
+function placePopover(btn) {
+    if (!btn) return { top: 80, left: 80 };
+    const r = btn.getBoundingClientRect();
+    const left = Math.min(
+        Math.max(8, r.right - POPOVER_WIDTH),
+        Math.max(8, window.innerWidth - POPOVER_WIDTH - 8),
+    );
+    const below = r.bottom + GAP;
+    const top = (below + POPOVER_EST_HEIGHT > window.innerHeight - 8)
+        ? Math.max(8, r.top - POPOVER_EST_HEIGHT - GAP)
+        : below;
+    return { top, left };
+}
+
 export default function SalaryRevisionCell({
     employeeId,
     sheetMonth,
@@ -68,8 +88,12 @@ export default function SalaryRevisionCell({
     );
     const defaultEffective = locked ? nextMonth(sheet.year, sheet.month) : sheet;
 
+    const btnRef = useRef(null);
+    const popRef = useRef(null);
+
     const [revisions, setRevisions] = useState([]);
     const [open, setOpen] = useState(false);
+    const [pos, setPos] = useState({ top: 0, left: 0 });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [form, setForm] = useState({
@@ -110,9 +134,40 @@ export default function SalaryRevisionCell({
             note: '',
         });
         setError('');
+        setPos(placePopover(btnRef.current));
         setOpen(true);
         load();
     };
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const place = () => setPos(placePopover(btnRef.current));
+        place();
+        window.addEventListener('scroll', place, true);
+        window.addEventListener('resize', place);
+        return () => {
+            window.removeEventListener('scroll', place, true);
+            window.removeEventListener('resize', place);
+        };
+    }, [open]);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const onDown = (e) => {
+            if (btnRef.current && btnRef.current.contains(e.target)) return;
+            if (popRef.current && popRef.current.contains(e.target)) return;
+            setOpen(false);
+        };
+        const onKey = (e) => {
+            if (e.key === 'Escape') setOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onDown);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [open]);
 
     const save = async () => {
         const amount = Number(form.newSalary);
@@ -146,55 +201,70 @@ export default function SalaryRevisionCell({
 
     const years = [sheet.year - 1, sheet.year, sheet.year + 1];
 
+    const popover = open ? createPortal(
+        <div
+            ref={popRef}
+            className="src-popover"
+            style={{ top: pos.top, left: pos.left }}
+            role="dialog"
+            aria-label="Revise salary"
+        >
+            <h4>Revise salary</h4>
+            <div className="src-field">
+                <label>New salary (Rs.)</label>
+                <input
+                    type="number"
+                    value={form.newSalary}
+                    onChange={(e) => setForm((p) => ({ ...p, newSalary: e.target.value }))}
+                />
+            </div>
+            <div className="src-field">
+                <label>Effective month</label>
+                <select
+                    value={`${form.effectiveYear}-${form.effectiveMonth}`}
+                    onChange={(e) => {
+                        const [y, m] = e.target.value.split('-').map(Number);
+                        setForm((p) => ({ ...p, effectiveYear: y, effectiveMonth: m }));
+                    }}
+                >
+                    {years.flatMap((y) => MONTHS.map((mo) => (
+                        <option key={`${y}-${mo.n}`} value={`${y}-${mo.n}`}>{mo.label} {y}</option>
+                    )))}
+                </select>
+            </div>
+            <div className="src-field">
+                <label>Note (optional)</label>
+                <input
+                    type="text"
+                    value={form.note}
+                    onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))}
+                    placeholder="Annual increment"
+                />
+            </div>
+            {error && <p className="src-error">{error}</p>}
+            <div className="src-actions">
+                <button type="button" className="src-cancel" onClick={() => setOpen(false)}>Cancel</button>
+                <button type="button" className="src-save" onClick={save} disabled={saving}>
+                    {saving ? 'Saving...' : 'Save'}
+                </button>
+            </div>
+        </div>,
+        document.body,
+    ) : null;
+
     return (
         <div className="src-cell">
-            <button type="button" className="src-revise" onClick={openForm} title="Revise salary from this month">
+            <button
+                ref={btnRef}
+                type="button"
+                className="src-revise"
+                onClick={openForm}
+                title="Revise salary from this month"
+            >
                 <Pencil size={14} />
                 Revise
             </button>
-            {open && (
-                <div className="src-popover">
-                    <h4>Revise salary</h4>
-                    <div className="src-field">
-                        <label>New salary (Rs.)</label>
-                        <input
-                            type="number"
-                            value={form.newSalary}
-                            onChange={(e) => setForm((p) => ({ ...p, newSalary: e.target.value }))}
-                        />
-                    </div>
-                    <div className="src-field">
-                        <label>Effective month</label>
-                        <select
-                            value={`${form.effectiveYear}-${form.effectiveMonth}`}
-                            onChange={(e) => {
-                                const [y, m] = e.target.value.split('-').map(Number);
-                                setForm((p) => ({ ...p, effectiveYear: y, effectiveMonth: m }));
-                            }}
-                        >
-                            {years.flatMap((y) => MONTHS.map((mo) => (
-                                <option key={`${y}-${mo.n}`} value={`${y}-${mo.n}`}>{mo.label} {y}</option>
-                            )))}
-                        </select>
-                    </div>
-                    <div className="src-field">
-                        <label>Note (optional)</label>
-                        <input
-                            type="text"
-                            value={form.note}
-                            onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))}
-                            placeholder="Annual increment"
-                        />
-                    </div>
-                    {error && <p className="src-error">{error}</p>}
-                    <div className="src-actions">
-                        <button type="button" className="src-cancel" onClick={() => setOpen(false)}>Cancel</button>
-                        <button type="button" className="src-save" onClick={save} disabled={saving}>
-                            {saving ? 'Saving...' : 'Save'}
-                        </button>
-                    </div>
-                </div>
-            )}
+            {popover}
         </div>
     );
 }
