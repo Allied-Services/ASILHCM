@@ -72,7 +72,7 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 
 ## JUST SHIPPED (2026-08-28)
 - **Provident Fund now deducts on the Payroll Sheet** — if the contract End of Service Benefit is Provident Fund, Calculate takes Gross ÷ 24 from the employee and matches it as employer PF (no gratuity on those people). Press Calculate on that contract’s unlocked month to refresh. Do not re-Calculate July Wafi.
-- **Employee Code can be changed** — timestamp codes like `ASIL-1787…` save as real staff codes including slashes (`ASILFM/SPL/22/167`). Pay and claims rows stay attached. Admin only.
+- **Employee Code can be changed** — timestamp codes like `ASIL-1787…` save as real staff codes including slashes (`ASILFM/SPL/22/167`). The same person's CNIC is not treated as a duplicate. Pay and claims rows stay attached. Admin only.
 - **Sadia can Revise Salary on Payroll Sheet** — same payroll.edit right she already has for the sheet. Role `operations_team` was being blocked.
 - **Paid Days stay the full calendar month** — Sundays are paid holidays. A 26 on the sheet is weekday attendance, not a pay cut. Example: salary 40,000 + OT 11,154 → Paid Days 31 and Gross 51,154. Leave/Other Deduction is how pay is cut. Recalculate the month to refresh stored rows.
 - **Payroll Sheet Gross includes full-month salary + OT** — 26 working days present is a full month (Sundays paid). Example: salary 40,000 + OT 11,154 → Gross 51,154, not 45,821. Recalculate the month to refresh stored rows.
