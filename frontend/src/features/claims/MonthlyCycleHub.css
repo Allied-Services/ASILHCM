@@ -186,6 +186,35 @@
   color: var(--text-muted);
 }
 
+.mch-file textarea {
+  width: 100%;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.6rem 0.75rem;
+  font-family: inherit;
+}
+
+.mch-close-list {
+  margin: 1rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.mch-close-list li {
+  margin: 0.4rem 0;
+  color: var(--text-muted);
+}
+
+.mch-close-list li.is-done {
+  color: var(--text);
+}
+
+.mch-close-list li.is-done strong::before {
+  content: "✓ ";
+  color: #22c55e;
+}
+
 .mch-badge-warn {
   display: inline-block;
   padding: 0.15rem 0.45rem;

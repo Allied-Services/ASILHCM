@@ -100,22 +100,22 @@ const AUTH_BOOTSTRAP_MS = 14000;
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','payroll_run','fixed_value','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','monthly_cycle','contract_ops','bizdev','bill_verification','compliance','ar'],
+    superadmin:           ['dashboard','employee','payroll','payroll_run','fixed_value','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev','bill_verification','compliance','ar'],
     supervisor:           ['attendance','maintenance'],
-    operations:           ['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_queue','claims_portal','monthly_cycle','contract_ops','bizdev'],
-    operations_supervisor:['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_queue','claims_portal','monthly_cycle','contract_ops','bizdev'],
-    operations_team:      ['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_queue','claims_portal','monthly_cycle','contract_ops'],
+    operations:           ['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev'],
+    operations_supervisor:['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev'],
+    operations_team:      ['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops'],
     procurement_proposer: ['billing','vendor','inventory','bill_verification','ap'],
     procurement_approver: ['billing','vendor','inventory','bill_verification'],
     procurement_manager:  ['billing','vendor','inventory','ap','maintenance','bill_verification'],
     procurement:          ['billing','vendor','inventory','ap','bill_verification'],
     finance_proposer:     ['billing','invoices','fixed_value','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
-    finance_approver:     ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal','monthly_cycle','contract_ops','compliance','bizdev','ar'],
-    finance_manager:      ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','intake_hub','claims_queue','claims_portal','monthly_cycle','contract_ops','bizdev','compliance','ar'],
+    finance_approver:     ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','client','annexure','config','users','attendance','claims_portal','monthly_cycle','contract_ops','compliance','bizdev','ar'],
+    finance_manager:      ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev','compliance','ar'],
     ap_team:              ['ap','billing','payroll_run','fixed_value'],
     ar_team:              ['invoices','fixed_value','po_tracking','billing','compliance'],
-    payroll_initiator:    ['payroll','payroll_run','fixed_value','employee','claims_queue','claims_portal','monthly_cycle'],
-    payroll:              ['payroll','payroll_run','fixed_value','employee','claims_queue','claims_portal','monthly_cycle'],
+    payroll_initiator:    ['payroll','payroll_run','fixed_value','employee','claims_portal','monthly_cycle'],
+    payroll:              ['payroll','payroll_run','fixed_value','employee','claims_portal','monthly_cycle'],
     bizdev:               ['bizdev','client','contract_ops'],
     pending:              [],
 };
@@ -361,8 +361,14 @@ function App() {
     allowedTabs = ROLE_NAV[role] || [];
   }
 
-  // Auto-redirect to first allowed tab if current tab not accessible
-  const effectiveTab = allowedTabs.includes(activeTab) ? activeTab : (allowedTabs[0] || '');
+  const HIDDEN_LEGACY_NAV = new Set(['email_claims', 'wafi_claims', 'claims_queue']);
+  const visibleTabs = allowedTabs.filter((t) => !HIDDEN_LEGACY_NAV.has(t));
+
+  // Auto-redirect to first allowed tab if current tab not accessible.
+  // Hidden doors stay reachable via leftover deep links.
+  const effectiveTab = (allowedTabs.includes(activeTab) || HIDDEN_LEGACY_NAV.has(activeTab))
+    ? activeTab
+    : (visibleTabs[0] || '');
 
   // ── Pending user screen ────────────────────────────────────────────────────
   if (role === 'pending') {
@@ -421,7 +427,7 @@ function App() {
     { key: 'ar',            label: 'AR & Collections',        icon: <TrendingUp size={20} /> },
   ];
 
-  const NAV = ALL_NAV.filter(n => allowedTabs.includes(n.key));
+  const NAV = ALL_NAV.filter(n => visibleTabs.includes(n.key));
 
   return (
     <>

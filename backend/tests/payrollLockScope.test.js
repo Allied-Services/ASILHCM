@@ -42,6 +42,7 @@ describe('PATCH /api/payroll/:year/:month/lock — freeze lock scope (P1)', () =
     });
 
     test('scoped lock UPDATE sets client, contract_name, locked_net via employees join', async () => {
+        mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // conflicts
         mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 2 }); // lock UPDATE
         mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // PF/Gratuity lookup
 
@@ -74,6 +75,7 @@ describe('PATCH /api/payroll/:year/:month/lock — freeze lock scope (P1)', () =
     });
 
     test('full-month lock UPDATE sets the same three frozen columns without employee_ids filter', async () => {
+        mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // conflicts
         mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 3 }); // lock UPDATE
         mockPool.query.mockResolvedValueOnce({
             rows: [{ employee_id: 'ASIL-003' }, { employee_id: 'ASIL-004' }],

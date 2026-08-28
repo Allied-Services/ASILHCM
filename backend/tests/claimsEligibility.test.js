@@ -157,6 +157,47 @@ describe('claimsEligibility routing', () => {
         expect(r.profile).toBe('focal_only');
         expect(r.fillerEmail).toBe('focal@wafi-energy.com');
     });
+
+    test('explicit employee_then_focal uses employee work mailbox', () => {
+        const r = resolveClaimsRouting({
+            email: 'emp@wafi-energy.com',
+            claim_authority: 'focal@wafi.com',
+        }, { routing_mode: 'employee_then_focal' });
+        expect(r.profile).toBe('employee_then_focal');
+        expect(r.fillerEmail).toBe('emp@wafi-energy.com');
+        expect(r.approverEmail).toBe('focal@wafi.com');
+    });
+
+    test('explicit employee_then_lm uses employee then LM', () => {
+        const r = resolveClaimsRouting({
+            email: 'emp@asil.com.pk',
+            line_manager_email: 'lm@wafi.com',
+        }, { routing_mode: 'employee_then_lm' });
+        expect(r.profile).toBe('employee_then_lm');
+        expect(r.fillerEmail).toBe('emp@asil.com.pk');
+        expect(r.approverEmail).toBe('lm@wafi.com');
+    });
+
+    test('dedicated payroll resource replaces Sadia when named', () => {
+        const r = resolveClaimsRouting(
+            { email: 'emp@wafi-energy.com' },
+            { dedicated_payroll_resource_email: 'payroll.owner@asil.com.pk' }
+        );
+        expect(r.profile).toBe('employee_then_asil');
+        expect(r.approverEmail).toBe('payroll.owner@asil.com.pk');
+    });
+
+    test('asil_supervisor_then_focal uses location supervisor', () => {
+        const r = resolveClaimsRouting({
+            asil_site_supervisor_email: 'site.asil@asil.com.pk',
+        }, {
+            routing_mode: 'asil_supervisor_then_focal',
+            allied_contract_focal_email: 'focal@asil.com.pk',
+        });
+        expect(r.profile).toBe('asil_supervisor_then_focal');
+        expect(r.fillerEmail).toBe('site.asil@asil.com.pk');
+        expect(r.approverEmail).toBe('focal@asil.com.pk');
+    });
 });
 
 describe('claimsEligibility rules', () => {

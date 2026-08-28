@@ -687,6 +687,8 @@ export default function PayrollSheet({ user }) {
     // Turn on only when you want approved claims merged into the sheet.
     const [pullClaimsOnCalc, setPullClaimsOnCalc] = useState(false);
     const [claimCompare, setClaimCompare] = useState({});
+    const [provenance, setProvenance] = useState(null);
+    const [engineMap, setEngineMap] = useState({});
     const [serverRows, setServerRows] = useState({}); // employee_id -> GET/calculate row
     const saveTimerRef = useRef(null);
     const serverRowsRef = useRef({});
@@ -836,6 +838,10 @@ export default function PayrollSheet({ user }) {
                 };
             });
             setEMPLOYEES(mapped);
+            const cids = [...new Set(mapped.map((e) => e.contractId).filter(Boolean))];
+            if (cids.length) {
+                api.getPayrollEngines(cids).then((d) => setEngineMap(d.engines || {})).catch(() => {});
+            }
         }).catch(() => {});
     }, []);
 
@@ -917,6 +923,9 @@ export default function PayrollSheet({ user }) {
         api.getPayrollClaimCompare(yr, mo)
             .then(d => setClaimCompare(d?.byEmployee || {}))
             .catch(() => setClaimCompare({}));
+        api.getPayrollProvenance(yr, mo)
+            .then(setProvenance)
+            .catch(() => setProvenance(null));
         api.getPayrollInvoiceStatus(yr, mo)
             .then(d => setInvoiceStatus(d || { invoicedClients: [], invoicedContracts: [] }))
             .catch(() => {});
@@ -2334,6 +2343,65 @@ export default function PayrollSheet({ user }) {
                     <span style={{ fontSize: '0.88rem', color: '#f59e0b' }}>
                         <strong>Partial Lock</strong> — {filtered.filter(e => lockedIds.has(e.id)).length} of {filtered.length} employees in this view are locked. Use <strong>Lock:</strong> filter to see only locked or unlocked rows.
                     </span>
+                </div>
+            )}
+            {Object.values(engineMap).includes('runs') && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.35)', borderRadius: '10px', padding: '0.75rem 1.25rem', marginBottom: '1.25rem' }}>
+                    <AlertCircle size={16} color="#38bdf8" />
+                    <span style={{ fontSize: '0.88rem', color: '#7dd3fc' }}>
+                        <strong>Runs engine</strong> — at least one contract on this sheet is view-only. Calculate and lock stay on the Payroll Sheet for legacy contracts only.
+                    </span>
+                </div>
+            )}
+            {provenance && (provenance.pending?.length > 0 || provenance.conflicts?.length > 0) && (
+                <div className="ps-provenance" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '0.85rem 1.25rem', marginBottom: '1.25rem' }}>
+                    <strong>Pending import / conflicts</strong>
+                    <p style={{ margin: '0.35rem 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        {provenance.pending?.length || 0} approved cycle rows ready to import (empty sheet cells only). {provenance.conflicts?.length || 0} open conflicts — lock is blocked until they are resolved.
+                    </p>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={async () => {
+                                const [yr, mo] = month.split('-');
+                                try {
+                                    const r = await api.importPendingClaims(yr, mo, provenance.pending.map((p) => p.employee_id));
+                                    setCalcMsg(`Imported ${r.imported || 0} pending claims.`);
+                                    setProvenance(await api.getPayrollProvenance(yr, mo));
+                                } catch (e) { alert(e.message); }
+                            }}
+                        >
+                            Import pending
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={async () => {
+                                const [yr, mo] = month.split('-');
+                                try { setProvenance(await api.detectPayrollConflicts(yr, mo)); }
+                                catch (e) { alert(e.message); }
+                            }}
+                        >
+                            Detect conflicts
+                        </button>
+                        {(provenance.conflicts || []).slice(0, 8).map((c) => (
+                            <button
+                                key={c.id}
+                                type="button"
+                                className="btn-secondary"
+                                onClick={async () => {
+                                    try {
+                                        await api.resolvePayrollConflict(c.id);
+                                        const [yr, mo] = month.split('-');
+                                        setProvenance(await api.getPayrollProvenance(yr, mo));
+                                    } catch (e) { alert(e.message); }
+                                }}
+                            >
+                                Resolve {c.employee_id} {c.field}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             )}
 

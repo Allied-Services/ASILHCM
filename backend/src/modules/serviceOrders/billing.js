@@ -392,6 +392,12 @@ async function findExistingSoInvoice(pool, { contractId, serviceOrderId, month, 
 async function persistSoInvoice(pool, { serviceOrderId, month, year, generatedBy, poNumber }) {
     const computed = await computeSoInvoice(pool, { serviceOrderId, month, year, requireConfirmations: true });
     const policy = await getPolicy(pool, computed.contractId);
+    if (String(policy?.commercial_type || '') === 'cost_plus') {
+        const err = new Error('Use cost-plus payroll invoice for this contract');
+        err.status = 409;
+        err.code = 'USE_COST_PLUS_INVOICE';
+        throw err;
+    }
     const creditDays = Number(policy?.credit_days) || Number(computed.creditDays) || 30;
 
     const lineItems = computed.lineItems.map(l => ({

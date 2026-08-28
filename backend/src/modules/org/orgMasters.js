@@ -30,6 +30,7 @@ async function ensureOrgMasterTables(pool) {
             contract_id TEXT REFERENCES contracts(id) ON DELETE SET NULL,
             name VARCHAR(200) NOT NULL,
             province VARCHAR(100),
+            region VARCHAR(40),
             is_active BOOLEAN DEFAULT TRUE,
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -49,6 +50,7 @@ async function ensureOrgMasterTables(pool) {
             UNIQUE(client_id, name)
         )
     `);
+    await pool.query(`ALTER TABLE client_locations ADD COLUMN IF NOT EXISTS region VARCHAR(40)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_locations_client ON client_locations(client_id)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_departments_client ON client_departments(client_id)`);
 }
@@ -123,40 +125,44 @@ function registerOrgMasterRoutes(app, { pool, requireAuth, requireRole }) {
     app.post('/api/clients/:id/locations', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'operations', 'hr_manager'), async (req, res) => {
         try {
             await ensureOrgMasterTables(pool);
-            const { name, province, contract_id, sort_order } = req.body || {};
+            const { name, province, region, contract_id, sort_order } = req.body || {};
             if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
             const { rows } = await pool.query(
-                `INSERT INTO client_locations (client_id, contract_id, name, province, sort_order)
-                 VALUES ($1,$2,$3,$4,$5)
+                `INSERT INTO client_locations (client_id, contract_id, name, province, region, sort_order)
+                 VALUES ($1,$2,$3,$4,$5,$6)
                  ON CONFLICT (client_id, name) DO UPDATE SET
                    province=COALESCE(EXCLUDED.province, client_locations.province),
+                   region=COALESCE(EXCLUDED.region, client_locations.region),
                    contract_id=COALESCE(EXCLUDED.contract_id, client_locations.contract_id),
                    is_active=TRUE
                  RETURNING *`,
-                [req.params.id, contract_id || null, String(name).trim(), province || null, sort_order || 0]
+                [req.params.id, contract_id || null, String(name).trim(), province || null, region || null, sort_order || 0]
             );
             res.json({ location: rows[0] });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error('[POST /api/clients/:id/locations]', err);
+            res.status(500).json({ error: 'Internal server error' });
         }
     });
 
     app.put('/api/clients/:id/locations/:locId', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'operations', 'hr_manager'), async (req, res) => {
         try {
-            const { name, province, is_active, contract_id, sort_order } = req.body || {};
+            const { name, province, region, is_active, contract_id, sort_order } = req.body || {};
             const { rows } = await pool.query(
                 `UPDATE client_locations SET
                    name=COALESCE($1,name), province=COALESCE($2,province),
-                   is_active=COALESCE($3,is_active), contract_id=COALESCE($4,contract_id),
-                   sort_order=COALESCE($5,sort_order)
-                 WHERE id=$6 AND client_id=$7 RETURNING *`,
-                [name || null, province || null, typeof is_active === 'boolean' ? is_active : null,
+                   region=COALESCE($3,region),
+                   is_active=COALESCE($4,is_active), contract_id=COALESCE($5,contract_id),
+                   sort_order=COALESCE($6,sort_order)
+                 WHERE id=$7 AND client_id=$8 RETURNING *`,
+                [name || null, province || null, region || null, typeof is_active === 'boolean' ? is_active : null,
                     contract_id === undefined ? null : contract_id, sort_order ?? null, req.params.locId, req.params.id]
             );
             if (!rows.length) return res.status(404).json({ error: 'Not found' });
             res.json({ location: rows[0] });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error('[PUT /api/clients/:id/locations/:locId]', err);
+            res.status(500).json({ error: 'Internal server error' });
         }
     });
 

@@ -3368,6 +3368,12 @@ app.post('/api/payroll/:year/:month', requireAuth, requirePayrollSheet(pool, 'ed
             return res.status(403).json({ error: 'Payroll for this month is locked. Unlock it first.' });
         }
 
+        const writeIds = incoming.map((r) => r.employee_id).filter(Boolean);
+        if (writeIds.length) {
+            const { assertSheetWritable } = require('./src/modules/records/engineFlag');
+            await assertSheetWritable(pool, writeIds);
+        }
+
         const saved = [];
         for (const row of incoming) {
             const { employee_id, ov = {}, calc = {} } = row;
@@ -3430,7 +3436,11 @@ app.post('/api/payroll/:year/:month', requireAuth, requirePayrollSheet(pool, 'ed
             if (upserted.length) saved.push(upserted[0].employee_id);
         }
         res.json({ ok: true, saved: saved.length, inputsOnly: !!inputsOnly });
-    } catch (err) { console.error('[POST /api/payroll/:year/:month]', err); res.status(500).json({ error: 'Internal server error' }); }
+    } catch (err) {
+        console.error('[POST /api/payroll/:year/:month]', err);
+        if (err.status === 409) return res.status(409).json({ error: err.message, code: err.code, ...(err.details || {}) });
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 // PATCH /api/payroll/:year/:month/lock Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ lock a payroll month + auto-post PF/Gratuity
@@ -3439,6 +3449,8 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
         const { year, month } = req.params;
         const { employee_ids } = req.body || {};
         const yr = parseInt(year), mo = parseInt(month);
+        const { assertNoOpenConflicts } = require('./src/modules/records/provenance');
+        await assertNoOpenConflicts(pool, yr, mo, employee_ids && employee_ids.length ? employee_ids : null);
 
         let lockedEmpIds;
         if (employee_ids && employee_ids.length > 0) {
@@ -3539,7 +3551,11 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
 
         logAudit(req, 'payroll_lock', 'payroll_period', `${yr}-${mo}${lockedEmpIds?.length ? ` (${lockedEmpIds.length} employees)` : ''} accruals:${accruals.ok ? 'ok' : 'failed'}`);
         res.json({ ok: true, locked: true, lockedBy: req.user.email, accruals_posted: lockedEmpIds?.length || 0, accruals });
-    } catch (err) { console.error('[PATCH /api/payroll/:year/:month/lock]', err); res.status(500).json({ error: 'Internal server error' }); }
+    } catch (err) {
+        console.error('[PATCH /api/payroll/:year/:month/lock]', err);
+        if (err.status === 409) return res.status(409).json({ error: err.message, code: err.code, ...(err.details || {}) });
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 // PATCH /api/payroll/:year/:month/unlock Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ unlock a payroll month (scoped to employee_ids if provided)
@@ -5123,9 +5139,12 @@ app.get('/api/payroll/:year/:month/invoice-status', requireAuth, async (req, res
     } catch (err) { console.error('[GET /api/payroll/:year/:month/invoice-status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// GET /api/payroll/:year/:month/preview-invoice
-// Query params: client, contract_id, segregate_region, segregate_bu, segregate_payroll, segregate_overtime, segregate_overheads
+// GET /api/payroll/:year/:month/preview-invoice — retired third invoice writer
 app.get('/api/payroll/:year/:month/preview-invoice', requireAuth, async (req, res) => {
+    return res.status(410).json({
+        error: 'Use the contract invoice writer: cost-plus month-close or Fixed Value service-order invoice.',
+        code: 'PREVIEW_INVOICE_RETIRED',
+    });
     try {
         const yr = parseInt(req.params.year), mo = parseInt(req.params.month);
         const { client, contract_id,

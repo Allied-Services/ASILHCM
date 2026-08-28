@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-28 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-29 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -45,12 +45,12 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 ### Payroll (P0)
 1. **S5B shadow month** — pilot Excel vs HCM must reach zero variance; blocked on payroll team CSV export (`BLOCKED.md`)
 2. **S5C** — no production pay through new engine yet
-3. **Two payroll brains** — World A (browser) vs World B (server); risk of conflicting numbers until S6B engine flag exists
+3. **Two payroll brains** — engine flag exists (`legacy` default vs `runs`). Do not flip a contract to `runs` on production without `Go red:` + S5B variance.
 4. **June 2026 reconciliation** — may be ahead in `C:\Projects\ASILHCM-Staging`; not merged here (S5B1–S5B3)
 
 ### Owner vision gaps (P1 — after pilot proof)
 5. **Portal payslips** — portal reads old pay table only; new-engine employees would see nothing
-6. **Claims** — Monthly Cycle hub shipped (contract pack + people UI); four legacy intake paths still exist until hide pass
+6. **Claims** — Monthly Cycle is the collector (rulebook, machine file, Close). Email Claims / Wafi Claims / Claims Queue hidden. Intake-as-claims off.
 7. **Payslip branding** — emails work if Resend is set; **no logo image** in templates today
 8. **Nothing is automatic** — compute, lock, disburse, email each need a human click
 
