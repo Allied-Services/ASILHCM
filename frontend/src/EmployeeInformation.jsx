@@ -313,8 +313,30 @@ export default function EmployeeInformation({ user }) {
         setSaving(true);
         const gross = parseSalary(form.salary);
         try {
+            const incomingId = String(form.id || '').trim();
+            const lookup = await api.lookupEmployee({ id: incomingId, cnic: form.cnic }).catch(() => ({ byId: null, byCnic: null }));
+            if (lookup.byCnic && lookup.byCnic.id !== incomingId) {
+                const hidden = lookup.byCnic.hiddenFromList
+                    ? ' They are hidden from this list (inactive, or last working day before Jul 2026). Turn on Show pre-Jul 2026 archive and open that record instead.'
+                    : ' Open that record instead of adding a new one.';
+                alert(`CNIC ${form.cnic} already belongs to ${lookup.byCnic.name} (${lookup.byCnic.id}).${hidden}`);
+                setSaving(false);
+                return;
+            }
+            if (lookup.byId) {
+                const extra = lookup.byId.hiddenFromList
+                    ? ' They are hidden from this list (inactive, or last working day before Jul 2026). Turn on Show pre-Jul 2026 archive to see them.\n\nSave will update that existing record.'
+                    : ' Save will update that existing record.';
+                if (!window.confirm(`Employee code ${lookup.byId.id} already exists as ${lookup.byId.name}.${extra}\n\nContinue?`)) {
+                    setSaving(false);
+                    return;
+                }
+            }
             const data = await api.createEmployee({ ...form, salary: gross, lastSalary: parseSalary(form.lastSalary) || gross });
-            setEmps(p => [...p, data.employee]);
+            setEmps(p => {
+                const rest = p.filter(e => e.id !== data.employee.id);
+                return [...rest, data.employee];
+            });
             setForm(EMPTY_FORM); setSec(SECTIONS[0]); setShowAdd(false);
         } catch (err) { alert('Save failed: ' + err.message); }
         setSaving(false);
