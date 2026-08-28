@@ -311,10 +311,14 @@ A task is NOT complete until:
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
 ### 2026-08-28 — Dated salary revisions (employee_salary_revisions)
-Salary changes are now effective-dated: `employee_salary_revisions` + `payroll_transactions.salary_used` snapshot at Calculate. `salaryAsOf` feeds Payroll Sheet Calculate (and therefore bonus accrual). Locked months stay frozen; a Sep raise does not rewrite Jan–Aug. Employee Profile Salary & Increments tab is API-backed. `SalaryRevisionCell` is ready for Payroll Sheet insert (file not edited here).
+Salary changes are now effective-dated: `employee_salary_revisions` + `payroll_transactions.salary_used` snapshot at Calculate. `salaryAsOf` feeds Payroll Sheet Calculate (and therefore bonus accrual). Locked months stay frozen; a Sep raise does not rewrite Jan–Aug. Employee Profile Salary & Increments tab is API-backed. Payroll Sheet SALARY column has Revise.
 
 **Env vars needed:** none new. Run `npm run migrate` on deploy target.
 
+### 2026-08-28 — Payroll Sheet typed values win over Portal Claims
+`sourceMode=canonical` now keeps a sheet OT/OPD/Reimb cell when it is already > 0 (typed wins, higher or lower). Empty cells still fill from claims / attendance / hub. Calculate blurs the active cell and flushes pending `persistEmployee` saves first. Override note via `GET /api/payroll/:year/:month/claim-compare`.
+
+**Env vars needed:** none new.
 ### 2026-08-27 — August Calculate merges July Portal Claims
 Payroll Sheet **Merge approved Portal Claims** (`sourceMode=canonical`) now loads approved `portal_claim_*` rows whose settlement month is the sheet month (July work → August pay). Previously Calculate only read `employee_claims` for August, so 133 approved July Wafi claims never appeared. OT 1x still folds into OT 2x. Default Calculate (checkbox off) is unchanged. Production dry-run: 133 of 305 Wafi August rows would receive claims; August sheet today is still all zeros. No live write.
 

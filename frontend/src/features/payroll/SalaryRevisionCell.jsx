@@ -1,5 +1,4 @@
-// Chief insert point: unlocked Payroll Sheet row, salary/gross column (~line 2584, the emp.gross <td>).
-// Usage: <SalaryRevisionCell employeeId={emp.id} sheetMonth={month} locked={lockedIds.has(emp.id)} fallbackSalary={emp.gross} />
+// Payroll Sheet SALARY column. History loads only when Revise is opened (not per row on mount).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pencil } from 'lucide-react';
@@ -82,16 +81,27 @@ export default function SalaryRevisionCell({
         note: '',
     });
 
+    const [displaySalary, setDisplaySalary] = useState(Number(fallbackSalary) || 0);
+
+    useEffect(() => {
+        setDisplaySalary(Number(fallbackSalary) || 0);
+    }, [fallbackSalary]);
+
     const load = useCallback(() => {
-        if (!employeeId) return;
-        api.getSalaryRevisions(employeeId)
-            .then((d) => setRevisions(d.revisions || []))
-            .catch(() => {});
-    }, [employeeId]);
+        if (!employeeId) return Promise.resolve();
+        return api.getSalaryRevisions(employeeId)
+            .then((d) => {
+                const rows = d.revisions || [];
+                setRevisions(rows);
+                setDisplaySalary(salaryAsOfClient(rows, sheet.year, sheet.month, fallbackSalary));
+                return rows;
+            })
+            .catch(() => []);
+    }, [employeeId, sheet.year, sheet.month, fallbackSalary]);
 
-    useEffect(() => { load(); }, [load]);
-
-    const current = salaryAsOfClient(revisions, sheet.year, sheet.month, fallbackSalary);
+    const current = revisions.length
+        ? salaryAsOfClient(revisions, sheet.year, sheet.month, fallbackSalary)
+        : displaySalary;
 
     const openForm = () => {
         const eff = locked ? nextMonth(sheet.year, sheet.month) : sheet;
@@ -103,6 +113,7 @@ export default function SalaryRevisionCell({
         });
         setError('');
         setOpen(true);
+        load();
     };
 
     const save = async () => {

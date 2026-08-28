@@ -20,8 +20,8 @@ describe('resolvePayrollSheetInputs — sheet OT must survive hub zeros', () => 
         expect(r.expense).toBe(20000);
     });
 
-    test('canonical: positive hub OT can raise sheet OT', () => {
-        const r = resolvePayrollSheetInputs({
+    test('canonical: positive hub OT raises only when sheet OT is 0', () => {
+        const keep = resolvePayrollSheetInputs({
             sheet: { ot2_hrs: 2, ot3_hrs: 0, reimbursement: 0 },
             attOt: { ot2: 0, ot3: 0 },
             monthlyOv: { ot2_hours: 10, ot3_hours: 3 },
@@ -29,11 +29,22 @@ describe('resolvePayrollSheetInputs — sheet OT must survive hub zeros', () => 
             hasClaims: false,
             sourceMode: 'canonical',
         });
-        expect(r.ot2).toBe(10);
-        expect(r.ot3).toBe(3);
+        expect(keep.ot2).toBe(2);
+        expect(keep.ot3).toBe(3);
+
+        const fill = resolvePayrollSheetInputs({
+            sheet: { ot2_hrs: 0, ot3_hrs: 0, reimbursement: 0 },
+            attOt: { ot2: 0, ot3: 0 },
+            monthlyOv: { ot2_hours: 10, ot3_hours: 3 },
+            claimAgg: {},
+            hasClaims: false,
+            sourceMode: 'canonical',
+        });
+        expect(fill.ot2).toBe(10);
+        expect(fill.ot3).toBe(3);
     });
 
-    test('canonical: claims OT merges upward; claims win OPD/expense when present', () => {
+    test('canonical: sheet OT/OPD/expense survive when already > 0', () => {
         const r = resolvePayrollSheetInputs({
             sheet: { ot2_hrs: 5, reimbursement: 1000, opd_claim: 50 },
             attOt: {},
@@ -42,9 +53,22 @@ describe('resolvePayrollSheetInputs — sheet OT must survive hub zeros', () => 
             hasClaims: true,
             sourceMode: 'canonical',
         });
-        expect(r.ot2).toBe(8);
-        expect(r.opd).toBe(200);
-        expect(r.expense).toBe(500);
+        expect(r.ot2).toBe(5);
+        expect(r.opd).toBe(50);
+        expect(r.expense).toBe(1000);
+    });
+
+    test('canonical: typed sheet expense 12000 wins over claim 6000', () => {
+        const r = resolvePayrollSheetInputs({
+            sheet: { reimbursement: 12000, opd_claim: 0, ot2_hrs: 0 },
+            attOt: {},
+            monthlyOv: null,
+            claimAgg: { ot2: 0, opd: 0, expense: 6000 },
+            hasClaims: true,
+            sourceMode: 'canonical',
+        });
+        expect(r.expense).toBe(12000);
+        expect(r.opd).toBe(0);
     });
 
     test('canonical: empty August sheet fills from July portal-shaped claimAgg', () => {
