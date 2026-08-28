@@ -1,0 +1,28 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month for the pilot — HCM matches Excel and pays right.
+Status: AMBER
+
+NOT FINISHED YET
+1. August Wafi still needs Calculate with "Merge approved Portal Claims" (fix is live; sheet may still be empty until Calculate runs)
+2. Pilot shadow month — Excel vs HCM still blocked (waiting on payroll team CSV)
+3. No production pay through the new engine yet
+
+NEEDS YOU TODAY
+- Send the pilot Excel export for shadow month (see scripts/VARIANCE_INPUT_FORMAT.md)
+- Connect morning email on the Automation — this brief could not be emailed (no email tool connected yet)
+- Open PRs needing you today: none
+
+I SUGGEST
+- On August Payroll Sheet: tick Merge approved Portal Claims → Calculate. Do not lock or disburse. Do not re-Calculate July.
+- After you like a few briefs, keep weekday morning email on (once connected)
+
+FOCUS TODAY
+Run August Calculate with Merge on — then stop. No lock, no pay out.
+
+---
+Live check: https://asilhcm.onrender.com/health → status ok, migrations ok, commit 50dab1b
+HTML card: docs/owner/morning_latest.html
+Agent: https://cursor.com/agents/bc-2390e5e6-a28c-4a4e-be06-5f18b6d1cad3
+Automation email setup: https://cursor.com/automations/5e5c7662-8dce-11f1-a7d1-d6b4613131ce
