@@ -457,8 +457,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             year: y,
         };
 
-        // Full working-day month (26/26) = full salary. Do not use expectedDays=30
-        // when present is 26 — that invents 4 absences (40,000 + OT 11,154 → Gross 45,821).
+        // Paid Days = calendar month. Weekday 26 is Sundays-paid, not a 26/30 cut.
         const modelABasis = num(policy.standard_month_days, 30) || 30;
         const modelAFlags = resolveSheetModelAComputeInput({
             paidDays,
@@ -467,9 +466,12 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             absentDaysForModelA,
             sheetPaidDays: sheet.paid_days,
             modelABasis,
+            calendarDays: lastDay,
         });
-        Object.assign(computeInput, modelAFlags);
-        const useModelA = !!modelAFlags.modelA;
+        const persistPaidDays = modelAFlags.persistPaidDays;
+        const engineFlags = { ...modelAFlags };
+        delete engineFlags.persistPaidDays;
+        Object.assign(computeInput, engineFlags);
 
         const computed = computePrSheetRow(computeInput, {
             ...policy,
@@ -479,9 +481,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         });
 
         const ovOut = {
-            paid_days: useModelA
-                ? (computeInput.presentDays != null ? computeInput.presentDays : paidDays)
-                : paidDays,
+            paid_days: persistPaidDays != null ? persistPaidDays : paidDays,
             ot2_hrs: ot2,
             ot3_hrs: ot3,
             opd_claim: opd,

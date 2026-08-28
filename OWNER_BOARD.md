@@ -9,7 +9,7 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — Payroll Sheet was cutting a full working month as 26/30 of salary (40,000 + OT 11,154 showed Gross 45,821). Press Calculate on that month after this lands. Do not lock or disburse. Do not re-Calculate July Wafi on live.
+STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid). Press Calculate on that month after this lands. Do not lock or disburse. Do not re-Calculate July Wafi on live.
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -36,7 +36,7 @@ STATUS: **YELLOW** — Payroll Sheet was cutting a full working month as 26/30 o
 ---
 
 ## TOP LINE (for agents / morning brief)
-**Payroll Sheet Gross was short by four days of salary on a full working month.** 26 present weekdays were treated as 26/30, so 40,000 + OT 11,154 became 45,821 instead of 51,154. Calculate after deploy to refresh the row. Do not lock or disburse. Do not re-Calculate July Wafi on live.
+**Paid Days are the full calendar month.** Sundays are paid. A stored 26 is not four days unpaid. 40,000 + OT 11,154 → Gross 51,154 and PD Days 31 (August). Calculate after deploy. Do not lock or disburse. Do not re-Calculate July Wafi on live.
 
 ---
 
@@ -71,6 +71,7 @@ STATUS: **YELLOW** — Payroll Sheet was cutting a full working month as 26/30 o
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-28)
+- **Paid Days stay the full calendar month** — Sundays are paid holidays. A 26 on the sheet is weekday attendance, not a pay cut. Example: salary 40,000 + OT 11,154 → Paid Days 31 and Gross 51,154. Leave/Other Deduction is how pay is cut. Recalculate the month to refresh stored rows.
 - **Payroll Sheet Gross includes full-month salary + OT** — 26 working days present is a full month (Sundays paid). Example: salary 40,000 + OT 11,154 → Gross 51,154, not 45,821. Recalculate the month to refresh stored rows.
 
 ## JUST SHIPPED (2026-08-27)
