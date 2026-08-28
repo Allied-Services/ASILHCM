@@ -31,6 +31,7 @@ const {
     claimAggHasValues,
 } = require('../claims/claimsResponse');
 const cutover = require('../../core/cutover');
+const { loadRevisionsForEmployees, salaryAsOfMap } = require('../salaryRevision/service');
 
 const DEFAULT_POLICY = {
     standard_month_days: 30,
@@ -200,14 +201,47 @@ async function loadSheetEmployees(pool, { year, month, client, contractId, emplo
     return rows;
 }
 
+function claimCompareFromPortalMap(portalByEmp) {
+    const byEmployee = {};
+    if (!portalByEmp) return byEmployee;
+    for (const [empId, portal] of portalByEmp) {
+        const agg = portalToClaimAgg(portal);
+        byEmployee[empId] = {
+            expense: agg.expense,
+            opd: agg.opd,
+            ot2: agg.ot2,
+            ot3: agg.ot3,
+        };
+    }
+    return byEmployee;
+}
+
+async function loadPayrollClaimCompare(pool, year, month, opts = {}) {
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10);
+    if (!y || !m) return { byEmployee: {} };
+    const employees = await loadSheetEmployees(pool, {
+        year: y,
+        month: m,
+        client: opts.client,
+        contractId: opts.contractId,
+        employeeIds: opts.employeeIds,
+    });
+    const empIds = employees.map((e) => e.id);
+    if (!empIds.length) return { byEmployee: {} };
+    const portalByEmp = await loadApprovedPortalClaimsForPayMonth(pool, empIds, y, m);
+    return { byEmployee: claimCompareFromPortalMap(portalByEmp) };
+}
+
 /**
  * Calculate payroll for a World A month and persist results.
  * @param {object} opts
  * @param {string} [opts.client] filter
  * @param {string} [opts.contractId] filter
  * @param {string[]} [opts.employeeIds] filter
- * @param {boolean} [opts.keepSheetClaimInputs=false] if true, sheet OT/OPD/reimb win over claims
  * @param {boolean} [opts.dryRun=false]
+ * canonical fills empty sheet OT/OPD/reimb from claims/attendance/hub;
+ * sheet cells already > 0 (typed) always win.
  */
 async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
     const y = parseInt(year, 10);
@@ -241,12 +275,29 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         employeeIds: opts.employeeIds,
     });
     if (!employees.length) {
-        return { ok: true, year: y, month: m, updated: 0, rows: [], warnings: [{ code: 'NO_EMPLOYEES', message: 'No employees in scope' }] };
+        return {
+            ok: true,
+            year: y,
+            month: m,
+            updated: 0,
+            rows: [],
+            warnings: [{ code: 'NO_EMPLOYEES', message: 'No employees in scope' }],
+            claimCompare: { byEmployee: {} },
+        };
     }
 
     const empIds = employees.map((e) => e.id);
     const { start, end, lastDay } = periodBounds(y, m);
     const asOf = new Date(y, m - 1, 15);
+
+    let salaryByEmp = new Map();
+    try {
+        const revisionRows = await loadRevisionsForEmployees(pool, empIds);
+        salaryByEmp = salaryAsOfMap(revisionRows, employees, y, m);
+    } catch (err) {
+        console.error('[payrollSheet.calculate] salaryAsOf', err);
+        salaryByEmp = new Map();
+    }
 
     const [{ rows: existingTx }, { rows: claimRows }, attRows, { rows: monthlyOvs }, { rows: holidays }] = await Promise.all([
         pool.query(
@@ -294,12 +345,10 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
     //    that settle in this pay month (July work → August sheet for Wafi)
     const sourceMode = opts.sourceMode === 'canonical' ? 'canonical' : 'sheet_inputs';
     let portalByEmp = new Map();
-    if (sourceMode === 'canonical') {
-        try {
-            portalByEmp = await loadApprovedPortalClaimsForPayMonth(pool, empIds, y, m);
-        } catch (err) {
-            console.error('[payrollSheet.calculate] portal claims', err);
-        }
+    try {
+        portalByEmp = await loadApprovedPortalClaimsForPayMonth(pool, empIds, y, m);
+    } catch (err) {
+        console.error('[payrollSheet.calculate] portal claims', err);
     }
 
     const warnings = [];
@@ -355,7 +404,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         const attOt = deriveOtHours(att, holidayDateSet);
         const empClaims = claimsByEmp.get(emp.id) || [];
         let claimAgg = aggregateClaimInputs(empClaims);
-        const portal = portalByEmp.get(emp.id);
+        const portal = sourceMode === 'canonical' ? portalByEmp.get(emp.id) : null;
         if (portal) {
             claimAgg = mergeClaimAgg(claimAgg, portalToClaimAgg(portal));
         }
@@ -394,7 +443,12 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         const otherDeduction = num(sheet.other_deduction);
         let specialAllowance = num(sheet.special_allowance);
 
-        const salary = num(emp.salary);
+        let salary = num(emp.salary);
+        try {
+            if (salaryByEmp.has(emp.id)) salary = num(salaryByEmp.get(emp.id), salary);
+        } catch (_err) {
+            salary = num(emp.salary);
+        }
         // sheet_inputs: bonus_amount on the sheet is authoritative (including 0).
         // Do not re-fill from the July accrual CSV — that made re-Calculate invent pay.
         // canonical: may fill from July bonus map / contract when sheet bonus is empty.
@@ -506,6 +560,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             ov: ovOut,
             calc,
             computed,
+            salary_used: salary,
         });
     }
 
@@ -519,7 +574,8 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         month: m,
         updated: payloads.length,
         dryRun: !!opts.dryRun,
-        claimsMerged: portalByEmp.size,
+        claimsMerged: sourceMode === 'canonical' ? portalByEmp.size : 0,
+        claimCompare: { byEmployee: claimCompareFromPortalMap(portalByEmp) },
         warnings,
         rows: payloads.map((p) => ({
             employee_id: p.employee_id,
@@ -591,10 +647,72 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
         const remarks = chunk.map((r) => r.ov.remarks);
         const computedJson = chunk.map((r) => r.calc);
         const creators = chunk.map(() => createdBy);
+        const salaryUsed = chunk.map((r) => r.salary_used);
 
-        try {
-            await pool.query(
-                `INSERT INTO payroll_transactions (
+        const runUpsert = (includeSalaryUsed) => pool.query(
+            includeSalaryUsed
+                ? `INSERT INTO payroll_transactions (
+                    month, year, employee_id, paid_days, ot2_hrs, ot3_hrs, opd_claim,
+                    reimbursement, arrears, bonus_amount, special_allowance, fuel_mobile,
+                    other_deduction, advance_deduction, loan_deduction,
+                    medical_ee, medical_sp, medical_ch1, medical_ch2,
+                    gross, net, wht, eobi_ee, service_charges, sales_tax, total_invoice,
+                    remarks, computed_json, created_by, updated_at, salary_used
+                 )
+                 SELECT
+                    u.month, u.year, u.employee_id, u.paid_days, u.ot2_hrs, u.ot3_hrs, u.opd_claim,
+                    u.reimbursement, u.arrears, u.bonus_amount, u.special_allowance, u.fuel_mobile,
+                    u.other_deduction, u.advance_deduction, u.loan_deduction,
+                    u.medical_ee, u.medical_sp, u.medical_ch1, u.medical_ch2,
+                    u.gross, u.net, u.wht, u.eobi_ee, u.service_charges, u.sales_tax, u.total_invoice,
+                    u.remarks, u.computed_json, u.created_by, NOW(), u.salary_used
+                 FROM unnest(
+                    $1::int[], $2::int[], $3::text[], $4::numeric[], $5::numeric[], $6::numeric[], $7::numeric[],
+                    $8::numeric[], $9::numeric[], $10::numeric[], $11::numeric[], $12::numeric[],
+                    $13::numeric[], $14::numeric[], $15::numeric[],
+                    $16::numeric[], $17::numeric[], $18::numeric[], $19::numeric[],
+                    $20::numeric[], $21::numeric[], $22::numeric[], $23::numeric[], $24::numeric[], $25::numeric[], $26::numeric[],
+                    $27::text[], $28::jsonb[], $29::text[], $30::numeric[]
+                 ) AS u(
+                    month, year, employee_id, paid_days, ot2_hrs, ot3_hrs, opd_claim,
+                    reimbursement, arrears, bonus_amount, special_allowance, fuel_mobile,
+                    other_deduction, advance_deduction, loan_deduction,
+                    medical_ee, medical_sp, medical_ch1, medical_ch2,
+                    gross, net, wht, eobi_ee, service_charges, sales_tax, total_invoice,
+                    remarks, computed_json, created_by, salary_used
+                 )
+                 ON CONFLICT (employee_id, month, year) DO UPDATE SET
+                    paid_days = EXCLUDED.paid_days,
+                    ot2_hrs = EXCLUDED.ot2_hrs,
+                    ot3_hrs = EXCLUDED.ot3_hrs,
+                    opd_claim = EXCLUDED.opd_claim,
+                    reimbursement = EXCLUDED.reimbursement,
+                    arrears = EXCLUDED.arrears,
+                    bonus_amount = EXCLUDED.bonus_amount,
+                    special_allowance = EXCLUDED.special_allowance,
+                    fuel_mobile = EXCLUDED.fuel_mobile,
+                    other_deduction = EXCLUDED.other_deduction,
+                    advance_deduction = EXCLUDED.advance_deduction,
+                    loan_deduction = EXCLUDED.loan_deduction,
+                    medical_ee = EXCLUDED.medical_ee,
+                    medical_sp = EXCLUDED.medical_sp,
+                    medical_ch1 = EXCLUDED.medical_ch1,
+                    medical_ch2 = EXCLUDED.medical_ch2,
+                    gross = EXCLUDED.gross,
+                    net = EXCLUDED.net,
+                    wht = EXCLUDED.wht,
+                    eobi_ee = EXCLUDED.eobi_ee,
+                    service_charges = EXCLUDED.service_charges,
+                    sales_tax = EXCLUDED.sales_tax,
+                    total_invoice = EXCLUDED.total_invoice,
+                    remarks = EXCLUDED.remarks,
+                    computed_json = EXCLUDED.computed_json,
+                    salary_used = CASE
+                        WHEN payroll_transactions.locked IS TRUE THEN payroll_transactions.salary_used
+                        ELSE EXCLUDED.salary_used
+                    END,
+                    updated_at = NOW()`
+                : `INSERT INTO payroll_transactions (
                     month, year, employee_id, paid_days, ot2_hrs, ot3_hrs, opd_claim,
                     reimbursement, arrears, bonus_amount, special_allowance, fuel_mobile,
                     other_deduction, advance_deduction, loan_deduction,
@@ -651,7 +769,16 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     remarks = EXCLUDED.remarks,
                     computed_json = EXCLUDED.computed_json,
                     updated_at = NOW()`,
-                [
+            includeSalaryUsed
+                ? [
+                    months, years, employeeIds, paidDays, ot2, ot3, opd,
+                    reimb, arrears, bonus, spl, fuel,
+                    other, adv, loan,
+                    medEe, medSp, medCh1, medCh2,
+                    gross, net, wht, eobi, sc, st, inv,
+                    remarks, computedJson, creators, salaryUsed,
+                ]
+                : [
                     months, years, employeeIds, paidDays, ot2, ot3, opd,
                     reimb, arrears, bonus, spl, fuel,
                     other, adv, loan,
@@ -659,8 +786,20 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     gross, net, wht, eobi, sc, st, inv,
                     remarks, computedJson, creators,
                 ],
-            );
+        );
+
+        try {
+            await runUpsert(true);
         } catch (err) {
+            if (/salary_used/i.test(err.message || '')) {
+                try {
+                    await runUpsert(false);
+                    continue;
+                } catch (err2) {
+                    if (!/computed_json/i.test(err2.message || '')) throw err2;
+                    err = err2;
+                }
+            }
             // Pre-migration fallback: column computed_json missing
             if (!/computed_json/i.test(err.message || '')) throw err;
             for (const p of chunk) {
@@ -697,6 +836,8 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
 
 module.exports = {
     calculatePayrollSheet,
+    loadPayrollClaimCompare,
+    claimCompareFromPortalMap,
     assertMonthUnlocked,
     sheetCalcFromEngine,
     resolvePayrollSheetInputs: require('./resolveInputs').resolvePayrollSheetInputs,

@@ -23,6 +23,7 @@ const { registerPayslipRoutes } = require('./src/modules/payslip/routes');
 const { registerPayrollSheetRoutes } = require('./src/modules/payrollSheet/routes');
 const { registerPayrollReconciliationRoutes } = require('./src/modules/payrollReconciliation/routes');
 const { registerServiceOrderRoutes } = require('./src/modules/serviceOrders/routes');
+const { registerSalaryRevisionRoutes } = require('./src/modules/salaryRevision/routes');
 const { runMigrations } = require('./src/core/runMigrations');
 const { initJobs, registerWorkers, scheduleJob } = require('./src/core/jobs');
 const { pollIntakeMailbox } = require('./src/intake/imapWatcher');
@@ -57,6 +58,7 @@ function mountRestructureModules(app, deps) {
     registerPayslipRoutes(app, deps);
     registerPayrollSheetRoutes(app, deps);
     registerPayrollReconciliationRoutes(app, deps);
+    registerSalaryRevisionRoutes(app, deps);
 }
 
 let migrationStatus = 'ok';

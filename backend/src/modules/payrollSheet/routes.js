@@ -1,11 +1,26 @@
 'use strict';
 
-const { calculatePayrollSheet } = require('./service');
+const { calculatePayrollSheet, loadPayrollClaimCompare } = require('./service');
 const { requirePayrollSheet } = require('./access');
 
 function registerPayrollSheetRoutes(app, deps) {
     const { pool, requireAuth, logAudit } = deps;
     const calcRoles = requirePayrollSheet(pool, 'edit');
+
+    app.get('/api/payroll/:year/:month/claim-compare', requireAuth, async (req, res) => {
+        try {
+            const year = parseInt(req.params.year, 10);
+            const month = parseInt(req.params.month, 10);
+            if (!year || !month || month < 1 || month > 12) {
+                return res.status(400).json({ error: 'Invalid year/month' });
+            }
+            const result = await loadPayrollClaimCompare(pool, year, month);
+            res.json(result);
+        } catch (err) {
+            console.error('[GET /api/payroll/:year/:month/claim-compare]', err);
+            return res.status(500).json({ error: 'Internal server error' });
+        }
+    });
 
     app.post('/api/payroll/:year/:month/calculate', requireAuth, calcRoles, async (req, res) => {
         try {

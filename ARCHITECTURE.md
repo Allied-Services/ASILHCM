@@ -1,6 +1,6 @@
 # ASIL HCM — Architecture (Verified Facts)
 
-**Last updated:** 2026-08-13 (P4 payroll vs AP reconciliation)  
+**Last updated:** 2026-08-28 (dated salary revisions)  
 **Program:** See `.agents/REMEDIATION_PLAN.md` for the active multi-session remediation plan.
 
 ---
@@ -24,14 +24,17 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 
 | | **World A (legacy sheet + AP path)** | **World B (2026 restructure)** |
 |---|---|---|
-| Compute | **Server:** `POST /api/payroll/:year/:month/calculate` → `payrollSheet/service.js` + `resolveInputs.js` + `prSheetEngine.js` + `taxEngine.js` (Payroll Sheet is display/input UI only; browser `payrollUtils.calcEmployeeRow` is not used for money). **Sheet columns are baseline:** Monthly Hub / attendance zeros must not wipe sheet OT; default `sourceMode=sheet_inputs` (idempotent recompute). `canonical` (UI **Merge approved Portal Claims**) also loads approved `portal_claim_*` rows whose **settlement month** is the Payroll Sheet month (July work → August pay) — not only `employee_claims` stamped with the pay month. | Server: `backend/src/modules/payrollrun/` + `prSheetEngine.js` + `taxEngine.js` |
+| Compute | **Server:** `POST /api/payroll/:year/:month/calculate` → `payrollSheet/service.js` + `resolveInputs.js` + `prSheetEngine.js` + `taxEngine.js` (Payroll Sheet is display/input UI only; browser `payrollUtils.calcEmployeeRow` is not used for money). **Sheet columns are baseline:** Monthly Hub / attendance zeros must not wipe sheet OT; default `sourceMode=sheet_inputs` (idempotent recompute). `canonical` (UI **Merge approved Portal Claims**) fills **empty** sheet OT/OPD/Reimb from approved `portal_claim_*` (settlement month = sheet month; July work → August pay) plus attendance/hub. **Typed / already-filled sheet cells (> 0) always win** — claims never replace a number the owner already entered. Compare map: `GET /api/payroll/:year/:month/claim-compare`. | Server: `backend/src/modules/payrollrun/` + `prSheetEngine.js` + `taxEngine.js` |
 | Storage | `POST /api/payroll/:year/:month` → `payroll_transactions`. **Write auth:** payroll roles (`finance_proposer`, `payroll_initiator`, `payroll`, `finance_manager`, `finance_approver`, `superadmin`) **or** User Management `payroll.edit` on `hcm_users.permissions` (JWT role alone is not enough when the tab was granted as a custom permission). Same guard on `POST .../calculate`. Lock/unlock stay `finance_approver`/`superadmin`. | `payroll_runs` + `payroll_run_rows` |
+
 | Disbursement | AP queue → `payment_batches` → `payment_ledger` ✅ | `POST /api/payroll-runs/:id/disburse` → same tables ✅ (S4B) |
 | Status | Pays ~500 employees today | Excel-parity-validated engine; not yet paying |
 
 **Direction:** Build disbursement bridge (S4), pilot one contract at zero variance (S5), cut over contracts (S7), retire World A compute (S7R). World A must keep working until Phase 7.
 
 **Proration decree:** Backend 30-day engine (`prSheetEngine.js`) is authoritative. Do not "fix" frontend `payrollUtils.js` to match it — it is scheduled for deletion.
+
+**Dated salary:** Gross salary is effective-dated via `employee_salary_revisions` (`GET/POST /api/employees/:id/salary-revisions`). Calculate resolves each month with `salaryAsOf` (latest revision on or before the sheet month; months before the first revision use that revision’s `old_salary`). `payroll_transactions.salary_used` is written at Calculate time so a later master change cannot rewrite a month that already ran. Locked rows keep `salary_used`. Bonus accrual uses the same per-month salary (`prSheetEngine` `bonusAccrual = contractBonusMonths * salary / 12`). A Sep raise must not pretend Jan–Aug were already the new rate. Creating a revision for a month that already has a locked `payroll_transactions` row for that employee returns `409 MONTH_LOCKED`.
 
 **Snapshot decree (World A):** `payroll_transactions.computed_json` has exactly one producer — Payroll Sheet Calculate — and it is what the sheet UI shows and the bank file pays. Every other consumer (locked CSV export, HBL/IBFT bank files, payslip HTML, payslip PDF/email, invoice columns) **reads it via `src/payroll/snapshotView.js` and must never recompute payroll from raw inputs**. Independent recomputation in each consumer is what made the locked export disagree with the sheet (invented WHT on bonus-excluded rows; Rs. 155,559 across 305 employees, Jul-2026 Wafi). Rows predating the column (pre 2026-08-10) fall back to the legacy per-consumer math; that fallback is for history only — do not extend it. `backend/tests/payrollSnapshotParity.test.js` pins the invariant: export, payslip and snapshot must agree field for field and each document must balance.
 
@@ -43,7 +46,8 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 |---|---|---|
 | AR invoices | `client_invoices` | `invoices` (legacy) |
 | Employees | `employees` | — |
-| Payroll history | `payroll_transactions` (legacy + history) | — |
+| Employee salary (dated) | `employee_salary_revisions` — effective year/month; Calculate uses `salaryAsOf` | in-memory `emp.salaryHistory` |
+| Payroll history | `payroll_transactions` (legacy + history); `salary_used` is the Calculate-time salary snapshot | — |
 | Payroll runs (World B) | `payroll_runs`, `payroll_run_rows` | — |
 | Claims (target) | `employee_claims` | scattered legacy writers (S8 consolidates) |
 | Payments | `payment_batches`, `payment_ledger` | — |

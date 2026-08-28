@@ -222,9 +222,23 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
 
 
 
-    // Salary History state
+    // Salary revisions — API-backed (employee_salary_revisions), not React-only history
     const [showAddSalary, setShowAddSalary] = useState(false);
-    const [newSalary, setNewSalary] = useState({ date: '', basic: '', hra: '', conveyance: '', medical_allowance: '', other_allowances: '', note: '' });
+    const [salaryRevisions, setSalaryRevisions] = useState([]);
+    const [salarySaving, setSalarySaving] = useState(false);
+    const nowSal = new Date();
+    const [newSalary, setNewSalary] = useState({
+        effectiveYear: nowSal.getFullYear(),
+        effectiveMonth: nowSal.getMonth() + 1,
+        amount: '',
+        note: '',
+    });
+    const loadSalaryRevisions = useCallback(() => {
+        api.getSalaryRevisions(emp.id)
+            .then((d) => setSalaryRevisions(d.revisions || []))
+            .catch(() => setSalaryRevisions([]));
+    }, [emp.id]);
+    useEffect(() => { loadSalaryRevisions(); }, [loadSalaryRevisions]);
 
     // Leave state
     const [showAddLeave, setShowAddLeave] = useState(false);
@@ -232,10 +246,9 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
 
     // Payroll state
     const [showAddPayroll, setShowAddPayroll] = useState(false);
-    const latestSal = emp.salaryHistory?.[emp.salaryHistory.length - 1] || {};
     const [newPayroll, setNewPayroll] = useState({
-        month: '', basic: latestSal.basic || 0, hra: latestSal.hra || 0, conveyance: latestSal.conveyance || 0,
-        medical_allowance: latestSal.medical || 0, other_allowances: latestSal.other || 0,
+        month: '', basic: emp.salary || 0, hra: 0, conveyance: 0,
+        medical_allowance: 0, other_allowances: 0,
         ot_hours: 0, ot_rate: '2x', ot_amount: 0, reimbursements: 0,
         advance_deduction: 0, other_deductions: 0, notes: ''
     });
@@ -273,11 +286,34 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     const save = (updated) => { setEmp(updated); onUpdate(updated); };
 
     // ── Handlers ─────────────────────────────────────────────────────────────
-    const addSalaryRecord = () => {
-        const gross = ['basic', 'hra', 'conveyance', 'medical_allowance', 'other_allowances'].reduce((s, k) => s + parseFloat(newSalary[k] || 0), 0);
-        const record = { date: newSalary.date, basic: parseFloat(newSalary.basic) || 0, hra: parseFloat(newSalary.hra) || 0, conveyance: parseFloat(newSalary.conveyance) || 0, medical: parseFloat(newSalary.medical_allowance) || 0, other: parseFloat(newSalary.other_allowances) || 0, gross, note: newSalary.note || 'Increment' };
-        const updated = { ...emp, salary: gross, lastSalary: gross, salaryHistory: [...(emp.salaryHistory || []), record] };
-        save(updated); setShowAddSalary(false); setNewSalary({ date: '', basic: '', hra: '', conveyance: '', medical_allowance: '', other_allowances: '', note: '' });
+    const addSalaryRecord = async () => {
+        const amount = parseFloat(newSalary.amount);
+        if (!Number.isFinite(amount) || amount < 0) return alert('Enter the new salary.');
+        if (!newSalary.effectiveYear || !newSalary.effectiveMonth) return alert('Effective month is required.');
+        setSalarySaving(true);
+        try {
+            const res = await api.createSalaryRevision(emp.id, {
+                newSalary: amount,
+                effectiveYear: Number(newSalary.effectiveYear),
+                effectiveMonth: Number(newSalary.effectiveMonth),
+                note: newSalary.note,
+            });
+            loadSalaryRevisions();
+            if (res.masterUpdated) {
+                const updated = { ...emp, salary: amount, lastSalary: amount };
+                save(updated);
+            }
+            setShowAddSalary(false);
+            setNewSalary({
+                effectiveYear: nowSal.getFullYear(),
+                effectiveMonth: nowSal.getMonth() + 1,
+                amount: '',
+                note: '',
+            });
+        } catch (err) {
+            alert(err.message || 'Could not save salary revision.');
+        }
+        setSalarySaving(false);
     };
 
     const [leaveSaving, setLeaveSaving] = useState(false);
@@ -328,7 +364,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     };
 
     const svc = dateDiff(emp.doj, new Date());
-    const currentSal = (emp.salaryHistory || []).slice(-1)[0] || { basic: emp.salary, hra: 0, conveyance: 0, medical: 0, other: 0, gross: emp.salary };
+    const currentSal = { basic: emp.salary, hra: 0, conveyance: 0, medical: 0, other: 0, gross: emp.salary };
     const eobi = calcEOBI(currentSal.gross || emp.salary);
     const wht = calcWHT(currentSal.gross || emp.salary);
 
@@ -728,48 +764,68 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        {(emp.salaryHistory || []).slice().reverse().map((s, i) => (
-                            <Card key={i} style={{ borderLeft: `3px solid ${i === 0 ? '#22c55e' : 'var(--border)'}` }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        {salaryRevisions.map((s, i) => (
+                            <Card key={s.id || i} style={{ borderLeft: `3px solid ${i === 0 ? '#22c55e' : 'var(--border)'}` }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                                     <div>
-                                        <div style={{ fontWeight: 700, fontSize: '1rem' }}>{s.note || 'Salary Record'}</div>
-                                        <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Effective: {s.date} {i === 0 && <span style={{ color: '#22c55e', fontWeight: 600 }}> ← Current</span>}</div>
+                                        <div style={{ fontWeight: 700, fontSize: '1rem' }}>{s.note || 'Salary revision'}</div>
+                                        <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                            Effective: {new Date(s.effective_year, s.effective_month - 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' })}
+                                            {i === 0 && <span style={{ color: '#22c55e', fontWeight: 600 }}> ← Current</span>}
+                                        </div>
+                                        <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '4px' }}>
+                                            {s.changed_at ? new Date(s.changed_at).toLocaleString('en-PK') : '—'}
+                                            {s.changed_by ? ` · ${s.changed_by}` : ''}
+                                        </div>
                                     </div>
-                                    <div style={{ fontWeight: 800, fontSize: '1.3rem', color: i === 0 ? '#22c55e' : 'var(--text)' }}>{fmtRs(s.gross)}</div>
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: '0.75rem', background: 'var(--bg-dark)', borderRadius: '8px', padding: '1rem', fontSize: '0.85rem' }}>
-                                    {[['Basic', s.basic], ['HRA', s.hra], ['Conveyance', s.conveyance], ['Medical', s.medical || s.medical_allowance || 0], ['Other', s.other || s.other_allowances || 0]].map(([l, v]) => (
-                                        <div key={l} style={{ textAlign: 'center' }}><div style={{ fontWeight: 600 }}>{fmtRs(v)}</div><div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{l}</div></div>
-                                    ))}
+                                    <div style={{ textAlign: 'right' }}>
+                                        <div style={{ fontWeight: 800, fontSize: '1.3rem', color: i === 0 ? '#22c55e' : 'var(--text)' }}>{fmtRs(s.new_salary)}</div>
+                                        <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{fmtRs(s.old_salary)} → {fmtRs(s.new_salary)}</div>
+                                    </div>
                                 </div>
                             </Card>
                         ))}
-                        {!(emp.salaryHistory || []).length && <p style={{ color: 'var(--text-muted)' }}>No salary records yet.</p>}
+                        {!salaryRevisions.length && <p style={{ color: 'var(--text-muted)' }}>No dated salary revisions yet. Master salary is {fmtRs(emp.salary)}.</p>}
                     </div>
 
                     {showAddSalary && (
                         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '2rem' }}>
-                            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '600px' }}>
+                            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '520px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
                                     <h3 style={{ margin: 0 }}>Record Salary Change / Increment</h3>
                                     <button onClick={() => setShowAddSalary(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
                                 </div>
                                 <div style={{ padding: '1.5rem 2rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                    <div style={{ gridColumn: '1/-1' }}><FField label="Effective Date"><FInput type="date" value={newSalary.date} onChange={e => setNewSalary(p => ({ ...p, date: e.target.value }))} /></FField></div>
-                                    <FField label="Basic Salary (Rs.)"><FInput type="number" value={newSalary.basic} onChange={e => setNewSalary(p => ({ ...p, basic: e.target.value }))} ph="e.g. 35000" /></FField>
-                                    <FField label="HRA (Rs.)"><FInput type="number" value={newSalary.hra} onChange={e => setNewSalary(p => ({ ...p, hra: e.target.value }))} ph="0" /></FField>
-                                    <FField label="Conveyance (Rs.)"><FInput type="number" value={newSalary.conveyance} onChange={e => setNewSalary(p => ({ ...p, conveyance: e.target.value }))} ph="0" /></FField>
-                                    <FField label="Medical Allowance (Rs.)"><FInput type="number" value={newSalary.medical_allowance} onChange={e => setNewSalary(p => ({ ...p, medical_allowance: e.target.value }))} ph="0" /></FField>
-                                    <FField label="Other Allowances (Rs.)"><FInput type="number" value={newSalary.other_allowances} onChange={e => setNewSalary(p => ({ ...p, other_allowances: e.target.value }))} ph="0" /></FField>
-                                    <div style={{ background: 'rgba(56,189,248,0.1)', borderRadius: '8px', padding: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>New Gross</span>
-                                        <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{fmtRs(['basic', 'hra', 'conveyance', 'medical_allowance', 'other_allowances'].reduce((s, k) => s + parseFloat(newSalary[k] || 0), 0))}</span>
+                                    <FField label="Effective year">
+                                        <FInput type="number" value={newSalary.effectiveYear} onChange={e => setNewSalary(p => ({ ...p, effectiveYear: e.target.value }))} />
+                                    </FField>
+                                    <FField label="Effective month">
+                                        <select
+                                            value={newSalary.effectiveMonth}
+                                            onChange={e => setNewSalary(p => ({ ...p, effectiveMonth: e.target.value }))}
+                                            style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '7px 10px', color: 'var(--text)', fontSize: '0.88rem', width: '100%' }}
+                                        >
+                                            {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                                                <option key={m} value={m}>{new Date(2000, m - 1).toLocaleString('en-PK', { month: 'long' })}</option>
+                                            ))}
+                                        </select>
+                                    </FField>
+                                    <div style={{ gridColumn: '1/-1' }}>
+                                        <FField label="New salary (Rs.)">
+                                            <FInput type="number" value={newSalary.amount} onChange={e => setNewSalary(p => ({ ...p, amount: e.target.value }))} ph="e.g. 65000" />
+                                        </FField>
+                                    </div>
+                                    <div style={{ gridColumn: '1/-1', background: 'rgba(56,189,248,0.1)', borderRadius: '8px', padding: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Current master</span>
+                                        <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{fmtRs(emp.salary)}</span>
                                     </div>
                                     <div style={{ gridColumn: '1/-1' }}><FField label="Note / Reason"><FInput value={newSalary.note} onChange={e => setNewSalary(p => ({ ...p, note: e.target.value }))} ph="e.g. Annual Increment FY2026" /></FField></div>
                                 </div>
                                 <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
                                     <button onClick={() => setShowAddSalary(false)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
-                                    <button onClick={addSalaryRecord} style={{ background: '#22c55e', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}><CheckCircle size={16} style={{ marginRight: '6px', verticalAlign: 'middle' }} />Save Increment</button>
+                                    <button onClick={addSalaryRecord} disabled={salarySaving} style={{ background: '#22c55e', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                                        <CheckCircle size={16} style={{ marginRight: '6px', verticalAlign: 'middle' }} />{salarySaving ? 'Saving…' : 'Save Increment'}
+                                    </button>
                                 </div>
                             </div>
                         </div>

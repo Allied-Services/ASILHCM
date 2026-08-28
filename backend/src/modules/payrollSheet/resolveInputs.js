@@ -4,8 +4,9 @@
  * Resolve Payroll Sheet money inputs for Calculate.
  *
  * World A rule: payroll_transactions columns are the operator source of truth.
- * Attendance / Monthly Hub / claims may RAISE hours or fill gaps — they must never
- * wipe sheet OT/OPD/reimb just because a hub row exists with zeros.
+ * When a sheet cell is already > 0, that typed number wins — claims / attendance /
+ * hub must not replace it (higher or lower). Empty / 0 cells may fill from those
+ * sources. Hub zeros must never wipe sheet OT.
  */
 
 function num(v, fallback = 0) {
@@ -48,21 +49,17 @@ function resolvePayrollSheetInputs({
     let expense = sheetExpense;
 
     if (sourceMode === 'canonical') {
-        // Merge upward only — empty attendance / hub zeros cannot clear sheet OT
-        ot1 = Math.max(ot1, positiveOrZero(attOt.ot1), positiveOrZero(claimAgg.ot1));
-        ot2 = Math.max(ot2, positiveOrZero(attOt.ot2), positiveOrZero(claimAgg.ot2));
-        ot3 = Math.max(ot3, positiveOrZero(attOt.ot3), positiveOrZero(claimAgg.ot3));
-
-        if (monthlyOv) {
-            // Hub OT applies only when > 0 (import blanks often land as 0, not null)
-            if (positiveOrZero(monthlyOv.ot1_hours) > 0) ot1 = Math.max(ot1, num(monthlyOv.ot1_hours));
-            if (positiveOrZero(monthlyOv.ot2_hours) > 0) ot2 = Math.max(ot2, num(monthlyOv.ot2_hours));
-            if (positiveOrZero(monthlyOv.ot3_hours) > 0) ot3 = Math.max(ot3, num(monthlyOv.ot3_hours));
-        }
+        const hubOt1 = monthlyOv ? positiveOrZero(monthlyOv.ot1_hours) : 0;
+        const hubOt2 = monthlyOv ? positiveOrZero(monthlyOv.ot2_hours) : 0;
+        const hubOt3 = monthlyOv ? positiveOrZero(monthlyOv.ot3_hours) : 0;
+        // Typed / already-filled sheet OT wins. Fill only empty (0) cells.
+        if (!(sheetOt1 > 0)) ot1 = Math.max(positiveOrZero(attOt.ot1), positiveOrZero(claimAgg.ot1), hubOt1);
+        if (!(sheetOt2 > 0)) ot2 = Math.max(positiveOrZero(attOt.ot2), positiveOrZero(claimAgg.ot2), hubOt2);
+        if (!(sheetOt3 > 0)) ot3 = Math.max(positiveOrZero(attOt.ot3), positiveOrZero(claimAgg.ot3), hubOt3);
 
         if (hasClaims) {
-            opd = num(claimAgg.opd);
-            expense = num(claimAgg.expense);
+            if (!(sheetOpd > 0)) opd = num(claimAgg.opd);
+            if (!(sheetExpense > 0)) expense = num(claimAgg.expense);
         }
     }
     // sheet_inputs: keep sheet columns only (idempotent recompute)

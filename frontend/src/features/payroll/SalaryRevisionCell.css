@@ -1,0 +1,127 @@
+/* Dedicated Salary Revision column — stacked so Revise cannot be clipped by nowrap */
+
+.src-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.25rem;
+  position: relative;
+  min-width: 128px;
+  white-space: normal;
+}
+
+.src-revise {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(56, 189, 248, 0.16);
+  border: 1px solid #38bdf8;
+  color: #e0f2fe;
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.src-revise:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.28);
+}
+
+.src-revise:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.src-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: 240px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  text-align: left;
+  white-space: normal;
+}
+
+.src-popover h4 {
+  margin: 0 0 0.6rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.src-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.5rem;
+}
+
+.src-field label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.src-field input,
+.src-field select {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.src-error {
+  color: #f43f5e;
+  font-size: 0.72rem;
+  margin: 0 0 0.45rem;
+}
+
+.src-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.src-actions button {
+  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.src-cancel {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.src-save {
+  background: #22c55e;
+  border: none;
+  color: #fff;
+}
+
+.src-save:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

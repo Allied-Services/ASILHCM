@@ -10,12 +10,30 @@ import {
 } from './payrollUtils';
 import { api } from './api';
 import { claimsBadgeStyle } from './utils/claimsRouting';
+import SalaryRevisionCell from './features/payroll/SalaryRevisionCell';
 import './PayrollSheet.css';
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = v => Math.round(parseFloat(v) || 0).toLocaleString('en-PK');
 const Rs = v => `Rs. ${fmt(v)}`;
+
+function formatGroupedNumber(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return '0';
+    if (Math.abs(v - Math.round(v)) < 1e-6) return Math.round(v).toLocaleString('en-PK');
+    return v.toLocaleString('en-PK', { maximumFractionDigits: 2 });
+}
+
+/** Owner-visible note when a typed sheet cell differs from the approved Portal Claim. */
+function formatSheetPortalNote(sheetVal, portalVal) {
+    const p = Number(portalVal);
+    if (!Number.isFinite(p) || !(p > 0)) return '';
+    const s = Number(sheetVal);
+    const sheetN = Number.isFinite(s) ? s : 0;
+    if (Math.abs(sheetN - p) < 1e-6) return '';
+    return `Sheet ${formatGroupedNumber(sheetN)} · Portal Claim was ${formatGroupedNumber(p)}`;
+}
 
 /** Calendar days in YYYY-MM (July → 31). Used as the Payroll Sheet Working Days default. */
 function calendarDaysInMonthStr(ym) {
@@ -609,28 +627,32 @@ function RefreshPayrollModal({ month, onClose, onSuccess }) {
 //   • onChange updates only this cell's local state — zero parent re-renders
 //   • onBlur calls setOv (parent re-render + save) — once per field exit
 // ─────────────────────────────────────────────────────────────────────────────
-const EditableCell = memo(function EditableCell({ empId, field, value, locked, w = '68px', setOv }) {
+const EditableCell = memo(function EditableCell({ empId, field, value, locked, w = '68px', setOv, note }) {
     const [localVal, setLocalVal] = useState(value);
     // Sync with parent when DB loads or month changes
     useEffect(() => { setLocalVal(value); }, [value]);
     return (
-        <input
-            type="number" min={0} step="any"
-            value={localVal}
-            disabled={locked}
-            onChange={e => { if (!locked) setLocalVal(e.target.value); }}
-            onBlur={e => { if (!locked) setOv(empId, field, e.target.value); }}
-            style={{
-                width: w,
-                background: locked ? 'transparent' : 'rgba(56,189,248,0.07)',
-                border: locked ? 'none' : '1px solid rgba(56,189,248,0.2)',
-                borderRadius: '4px', padding: '3px 5px',
-                color: 'var(--text)', fontSize: '0.78rem',
-                textAlign: 'right', outline: 'none',
-                cursor: locked ? 'not-allowed' : 'text',
-                opacity: locked ? 0.7 : 1,
-            }}
-        />
+        <div className="ps-edit-cell">
+            <input
+                type="number" min={0} step="any"
+                value={localVal}
+                disabled={locked}
+                title={note || undefined}
+                onChange={e => { if (!locked) setLocalVal(e.target.value); }}
+                onBlur={e => { if (!locked) setOv(empId, field, e.target.value); }}
+                style={{
+                    width: w,
+                    background: locked ? 'transparent' : 'rgba(56,189,248,0.07)',
+                    border: locked ? 'none' : '1px solid rgba(56,189,248,0.2)',
+                    borderRadius: '4px', padding: '3px 5px',
+                    color: 'var(--text)', fontSize: '0.78rem',
+                    textAlign: 'right', outline: 'none',
+                    cursor: locked ? 'not-allowed' : 'text',
+                    opacity: locked ? 0.7 : 1,
+                }}
+            />
+            {note ? <div className="ps-edit-cell__note" title={note}>{note}</div> : null}
+        </div>
     );
 });
 
@@ -664,6 +686,7 @@ export default function PayrollSheet({ user }) {
     // Default OFF: Calculate must recompute from current sheet hours (idempotent).
     // Turn on only when you want approved claims merged into the sheet.
     const [pullClaimsOnCalc, setPullClaimsOnCalc] = useState(false);
+    const [claimCompare, setClaimCompare] = useState({});
     const [serverRows, setServerRows] = useState({}); // employee_id -> GET/calculate row
     const saveTimerRef = useRef(null);
     const serverRowsRef = useRef({});
@@ -886,10 +909,14 @@ export default function PayrollSheet({ user }) {
         setLockedIds(new Set());
         setLockedBy(null);
         setCalcMsg(null);
+        setClaimCompare({});
         setShowReconPanel(false);
         setPayrollRecon(null);
         setReconError(null);
         api.getPayroll(yr, mo).then(applyPayrollPayload).catch(() => {});
+        api.getPayrollClaimCompare(yr, mo)
+            .then(d => setClaimCompare(d?.byEmployee || {}))
+            .catch(() => setClaimCompare({}));
         api.getPayrollInvoiceStatus(yr, mo)
             .then(d => setInvoiceStatus(d || { invoicedClients: [], invoicedContracts: [] }))
             .catch(() => {});
@@ -970,8 +997,8 @@ export default function PayrollSheet({ user }) {
 
     // ── Save INPUTS only (money columns update after Calculate) ───────────────
     const persistEmployee = async (empId) => {
-        const { emp, cfg } = empMapRef.current[empId] || {};
-        if (!emp || !cfg) return;
+        const { emp } = empMapRef.current[empId] || {};
+        if (!emp) return;
         const ov = buildOvForEmp(empId);
         const [yr, mo] = monthRef.current.split('-');
         try {
@@ -989,6 +1016,17 @@ export default function PayrollSheet({ user }) {
         setIsCalculating(true);
         setCalcMsg(null);
         try {
+            if (typeof document !== 'undefined' && document.activeElement && typeof document.activeElement.blur === 'function') {
+                document.activeElement.blur();
+            }
+            const pendingIds = Object.keys(perEmpTimers.current || {});
+            pendingIds.forEach((id) => {
+                clearTimeout(perEmpTimers.current[id]);
+                delete perEmpTimers.current[id];
+            });
+            if (pendingIds.length) {
+                await Promise.all(pendingIds.map((id) => persistEmployee(id)));
+            }
             // sheet_inputs = recompute from current grid; canonical = attendance + approved claims
             const body = { sourceMode: pullClaimsOnCalc ? 'canonical' : 'sheet_inputs' };
             if (filterClient && filterClient !== 'All') body.client = filterClient;
@@ -999,6 +1037,7 @@ export default function PayrollSheet({ user }) {
                 if (cid) body.contractId = cid;
             }
             const result = await api.calculatePayroll(yr, mo, body);
+            if (result.claimCompare?.byEmployee) setClaimCompare(result.claimCompare.byEmployee);
             applyPayrollPayload(result);
             const a208 = result.anchors && Object.entries(result.anchors).find(([id]) => /SPL-208/i.test(id));
             const a91 = result.anchors && Object.entries(result.anchors).find(([id]) => /SPL-91/i.test(id));
@@ -1013,6 +1052,9 @@ export default function PayrollSheet({ user }) {
             // Reload authoritative GET (includes locked flags)
             const fresh = await api.getPayroll(yr, mo);
             applyPayrollPayload(fresh);
+            api.getPayrollClaimCompare(yr, mo)
+                .then(d => setClaimCompare(d?.byEmployee || {}))
+                .catch(() => {});
         } catch (e) {
             setCalcMsg(e.message || 'Calculate failed');
         } finally {
@@ -1577,7 +1619,15 @@ export default function PayrollSheet({ user }) {
 
     // EC — thin wrapper that wires EditableCell to this component's setOv / overrides
     // Defined here (not at module level) because it captures setOv, getOv, lockedIds
-    const EC = ({ empId, field, def = 0, w = '68px' }) => (
+    const portalNoteFor = (empId, field) => {
+        const portal = claimCompare[empId];
+        if (!portal) return '';
+        const key = { ot2_hrs: 'ot2', ot3_hrs: 'ot3', opd_claim: 'opd', reimbursement: 'expense' }[field];
+        if (!key) return '';
+        return formatSheetPortalNote(getOv(empId, field, 0), portal[key]);
+    };
+
+    const EC = ({ empId, field, def = 0, w = '68px', note }) => (
         <EditableCell
             empId={empId}
             field={field}
@@ -1585,6 +1635,7 @@ export default function PayrollSheet({ user }) {
             locked={lockedIds.has(empId)}
             w={w}
             setOv={setOv}
+            note={note}
         />
     );
 
@@ -2432,7 +2483,9 @@ export default function PayrollSheet({ user }) {
                                 {/* Sticky group: CONTRACT col */}
                                 <th style={{ position: 'sticky', left: 216, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '140px' }} />
                                 {/* Sticky group: SALARY col */}
-                                <th style={{ position: 'sticky', left: 356, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '80px', borderRight: '2px solid var(--border)' }} />
+                                <th style={{ position: 'sticky', left: 356, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '110px' }} />
+                                {/* Sticky group: SALARY REVISION col */}
+                                <th style={{ position: 'sticky', left: 466, zIndex: 3, background: 'rgba(56,189,248,0.12)', padding: '6px', minWidth: '148px', borderRight: '2px solid var(--border)', color: '#7dd3fc', fontSize: '0.68rem', fontWeight: 800, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Revise</th>
                                 <th colSpan={10} style={{ padding: '6px', textAlign: 'center', background: 'rgba(34,197,94,0.08)', color: '#22c55e', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>EARNINGS (blue = editable)</th>
                                 <th style={{ padding: '6px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: '0.68rem', fontWeight: 800, borderLeft: '2px solid var(--border)', borderRight: '2px solid var(--border)', whiteSpace: 'nowrap' }}>GROSS</th>
                                 <th colSpan={6} style={{ padding: '6px', textAlign: 'center', background: 'rgba(244,63,94,0.08)', color: '#f43f5e', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>DEDUCTIONS</th>
@@ -2444,7 +2497,8 @@ export default function PayrollSheet({ user }) {
                                 <th style={{ position: 'sticky', left: 0, zIndex: 4, background: 'var(--bg-dark)', padding: '7px 8px', width: '36px' }} />
                                 <th style={{ position: 'sticky', left: 36, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 10px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '180px' }}>EMPLOYEE</th>
                                 <th style={{ position: 'sticky', left: 216, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 6px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '140px' }}>CONTRACT</th>
-                                <th style={{ position: 'sticky', left: 356, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 6px', textAlign: 'right', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', borderRight: '2px solid var(--border)', minWidth: '80px' }}>SALARY</th>
+                                <th style={{ position: 'sticky', left: 356, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 6px', textAlign: 'right', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '110px' }}>SALARY</th>
+                                <th style={{ position: 'sticky', left: 466, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 8px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 800, color: '#38bdf8', whiteSpace: 'normal', borderRight: '2px solid var(--border)', minWidth: '148px', lineHeight: 1.25, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Salary Revision</th>
                                 <TH label="Pd Days" sub="Edit" /><TH label="OT @2×" sub="Hrs" /><TH label="OT @3×" sub="Hrs" />
                                 <TH label="OT Amt" sub="Auto" /><TH label="OPD" sub="Edit" /><TH label="Reimb" sub="Edit" />
                                 <TH label="Arrears" sub="Edit" /><TH label="Spl Allow" sub="Edit" /><TH label="Fuel/Mob" sub="Edit" />
@@ -2478,7 +2532,7 @@ export default function PayrollSheet({ user }) {
                                                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{emp.designation}</span>
                                                 </div>
                                             </td>
-                                            <td colSpan={30} style={{ padding: '8px 12px' }}>
+                                            <td colSpan={31} style={{ padding: '8px 12px' }}>
                                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', padding: '4px 12px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700 }}>
                                                     ⚠ NO CONTRACT ASSIGNED — Payroll calculation skipped. Go to Employee Profile → Employment tab to assign a contract.
                                                 </span>
@@ -2586,7 +2640,18 @@ export default function PayrollSheet({ user }) {
                                             </div>
                                         </td>
                                         <td style={{ position: 'sticky', left: 216, zIndex: 2, background: rowBg, padding: '6px 7px', fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '140px' }}>{emp.contract}<br /><span style={{ fontSize: '0.68rem' }}>{emp.location}</span></td>
-                                        <td style={{ position: 'sticky', left: 356, zIndex: 2, background: rowBg, padding: '6px 7px', textAlign: 'right', fontWeight: 600, borderRight: '2px solid var(--border)', whiteSpace: 'nowrap', fontSize: '0.82rem', minWidth: '80px' }}>{fmt(emp.gross)}</td>
+                                        <td style={{ position: 'sticky', left: 356, zIndex: 2, background: rowBg, padding: '6px 7px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', fontSize: '0.82rem', minWidth: '110px' }}>
+                                            {fmt(emp.gross)}
+                                        </td>
+                                        <td style={{ position: 'sticky', left: 466, zIndex: 2, background: rowBg, padding: '6px 8px', textAlign: 'center', borderRight: '2px solid var(--border)', minWidth: '148px', whiteSpace: 'normal', verticalAlign: 'middle' }}>
+                                            <SalaryRevisionCell
+                                                employeeId={emp.id}
+                                                sheetMonth={month}
+                                                locked={isEmpLocked}
+                                                fallbackSalary={emp.gross}
+                                                onRevised={(amount) => setEMPLOYEES((prev) => prev.map((e) => (e.id === emp.id ? { ...e, gross: amount } : e)))}
+                                            />
+                                        </td>
                                         <td style={{ padding: '3px 3px' }}>
                                             <EC
                                                 empId={emp.id}
@@ -2598,11 +2663,11 @@ export default function PayrollSheet({ user }) {
                                                 )}
                                             />
                                         </td>
-                                        <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="ot2_hrs" def={0} /></td>
-                                        <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="ot3_hrs" def={0} /></td>
+                                        <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="ot2_hrs" def={0} note={portalNoteFor(emp.id, 'ot2_hrs')} /></td>
+                                        <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="ot3_hrs" def={0} note={portalNoteFor(emp.id, 'ot3_hrs')} /></td>
                                         <RC val={calc.otAmount} muted={!calc.otAmount} />
-                                        <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="opd_claim" def={0} /></td>
-                                        <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="reimbursement" def={0} /></td>
+                                        <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="opd_claim" def={0} note={portalNoteFor(emp.id, 'opd_claim')} /></td>
+                                        <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="reimbursement" def={0} note={portalNoteFor(emp.id, 'reimbursement')} /></td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="arrears" def={0} /></td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="special_allowance" def={0} /></td>
                                         <td style={{ padding: '3px 3px' }}><EC empId={emp.id} field="fuel_mobile" def={0} /></td>
@@ -2635,7 +2700,8 @@ export default function PayrollSheet({ user }) {
                         <tfoot>
                             <tr style={{ background: 'var(--bg-dark)', borderTop: '2px solid var(--border)', fontWeight: 700, fontSize: '0.78rem' }}>
                                 <td style={{ position: 'sticky', left: 0, zIndex: 4, background: 'var(--bg-dark)', padding: '9px 8px', width: '36px' }} />
-                                <td colSpan={3} style={{ position: 'sticky', left: 36, zIndex: 2, background: 'var(--bg-dark)', padding: '9px 10px', borderRight: '2px solid var(--border)', whiteSpace: 'nowrap' }}>TOTALS — {rows.length} employees</td>
+<td colSpan={3} style={{ position: 'sticky', left: 36, zIndex: 2, background: 'var(--bg-dark)', padding: '9px 10px', whiteSpace: 'nowrap' }}>TOTALS — {rows.length} employees</td>
+                                <td style={{ position: 'sticky', left: 466, zIndex: 2, background: 'var(--bg-dark)', padding: '9px 8px', borderRight: '2px solid var(--border)', minWidth: '148px' }} />
                                 {/* Pd Days */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.paid_days > 0 ? fmt(T.paid_days) : '—'}</td>
                                 {/* OT 2x hrs */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.ot2_hrs > 0 ? parseFloat(T.ot2_hrs).toFixed(1) : '—'}</td>
                                 {/* OT 3x hrs */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.ot3_hrs > 0 ? parseFloat(T.ot3_hrs).toFixed(1) : '—'}</td>
