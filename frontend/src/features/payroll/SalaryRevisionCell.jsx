@@ -1,4 +1,4 @@
-// Payroll Sheet SALARY column. History loads only when Revise is opened (not per row on mount).
+// Dedicated Payroll Sheet "Salary Revision" column. History loads only when Revise is opened (not per row on mount).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pencil } from 'lucide-react';
@@ -53,8 +53,6 @@ function salaryAsOfClient(revisions, year, month, fallback) {
     return Number(fallback) || 0;
 }
 
-const fmt = (n) => (parseFloat(n) || 0).toLocaleString('en-PK');
-
 export default function SalaryRevisionCell({
     employeeId,
     sheetMonth,
@@ -88,7 +86,7 @@ export default function SalaryRevisionCell({
     }, [fallbackSalary]);
 
     const load = useCallback(() => {
-        if (!employeeId) return Promise.resolve();
+        if (!employeeId) return Promise.resolve([]);
         return api.getSalaryRevisions(employeeId)
             .then((d) => {
                 const rows = d.revisions || [];
@@ -132,8 +130,9 @@ export default function SalaryRevisionCell({
                 note: form.note,
             });
             setOpen(false);
-            load();
-            if (typeof onRevised === 'function') onRevised(amount);
+            const rows = await load();
+            const asOf = salaryAsOfClient(rows, sheet.year, sheet.month, fallbackSalary);
+            if (typeof onRevised === 'function') onRevised(asOf);
         } catch (err) {
             const msg = err.message || 'Could not save revision';
             setError(msg);
@@ -149,9 +148,9 @@ export default function SalaryRevisionCell({
 
     return (
         <div className="src-cell">
-            <span className="src-amount">{fmt(current)}</span>
             <button type="button" className="src-revise" onClick={openForm} title="Revise salary from this month">
-                <Pencil size={11} /> Revise
+                <Pencil size={14} />
+                Revise
             </button>
             {open && (
                 <div className="src-popover">
@@ -191,7 +190,7 @@ export default function SalaryRevisionCell({
                     <div className="src-actions">
                         <button type="button" className="src-cancel" onClick={() => setOpen(false)}>Cancel</button>
                         <button type="button" className="src-save" onClick={save} disabled={saving}>
-                            {saving ? 'Saving…' : 'Save'}
+                            {saving ? 'Saving...' : 'Save'}
                         </button>
                     </div>
                 </div>

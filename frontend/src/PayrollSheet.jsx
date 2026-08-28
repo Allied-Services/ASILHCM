@@ -2483,7 +2483,9 @@ export default function PayrollSheet({ user }) {
                                 {/* Sticky group: CONTRACT col */}
                                 <th style={{ position: 'sticky', left: 216, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '140px' }} />
                                 {/* Sticky group: SALARY col */}
-                                <th style={{ position: 'sticky', left: 356, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '110px', borderRight: '2px solid var(--border)' }} />
+                                <th style={{ position: 'sticky', left: 356, zIndex: 3, background: '#0f1823', padding: '6px', minWidth: '110px' }} />
+                                {/* Sticky group: SALARY REVISION col */}
+                                <th style={{ position: 'sticky', left: 466, zIndex: 3, background: 'rgba(56,189,248,0.12)', padding: '6px', minWidth: '148px', borderRight: '2px solid var(--border)', color: '#7dd3fc', fontSize: '0.68rem', fontWeight: 800, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Revise</th>
                                 <th colSpan={10} style={{ padding: '6px', textAlign: 'center', background: 'rgba(34,197,94,0.08)', color: '#22c55e', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>EARNINGS (blue = editable)</th>
                                 <th style={{ padding: '6px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: '0.68rem', fontWeight: 800, borderLeft: '2px solid var(--border)', borderRight: '2px solid var(--border)', whiteSpace: 'nowrap' }}>GROSS</th>
                                 <th colSpan={6} style={{ padding: '6px', textAlign: 'center', background: 'rgba(244,63,94,0.08)', color: '#f43f5e', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>DEDUCTIONS</th>
@@ -2495,7 +2497,8 @@ export default function PayrollSheet({ user }) {
                                 <th style={{ position: 'sticky', left: 0, zIndex: 4, background: 'var(--bg-dark)', padding: '7px 8px', width: '36px' }} />
                                 <th style={{ position: 'sticky', left: 36, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 10px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '180px' }}>EMPLOYEE</th>
                                 <th style={{ position: 'sticky', left: 216, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 6px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '140px' }}>CONTRACT</th>
-                                <th style={{ position: 'sticky', left: 356, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 6px', textAlign: 'right', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', borderRight: '2px solid var(--border)', minWidth: '110px' }}>SALARY<br /><span style={{ fontWeight: 400, fontSize: '0.63rem', opacity: 0.7 }}>Revise</span></th>
+                                <th style={{ position: 'sticky', left: 356, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 6px', textAlign: 'right', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '110px' }}>SALARY</th>
+                                <th style={{ position: 'sticky', left: 466, zIndex: 3, background: 'var(--bg-dark)', padding: '7px 8px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 800, color: '#38bdf8', whiteSpace: 'normal', borderRight: '2px solid var(--border)', minWidth: '148px', lineHeight: 1.25, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Salary Revision</th>
                                 <TH label="Pd Days" sub="Edit" /><TH label="OT @2×" sub="Hrs" /><TH label="OT @3×" sub="Hrs" />
                                 <TH label="OT Amt" sub="Auto" /><TH label="OPD" sub="Edit" /><TH label="Reimb" sub="Edit" />
                                 <TH label="Arrears" sub="Edit" /><TH label="Spl Allow" sub="Edit" /><TH label="Fuel/Mob" sub="Edit" />
@@ -2529,7 +2532,7 @@ export default function PayrollSheet({ user }) {
                                                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{emp.designation}</span>
                                                 </div>
                                             </td>
-                                            <td colSpan={30} style={{ padding: '8px 12px' }}>
+                                            <td colSpan={31} style={{ padding: '8px 12px' }}>
                                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', padding: '4px 12px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700 }}>
                                                     ⚠ NO CONTRACT ASSIGNED — Payroll calculation skipped. Go to Employee Profile → Employment tab to assign a contract.
                                                 </span>
@@ -2637,12 +2640,16 @@ export default function PayrollSheet({ user }) {
                                             </div>
                                         </td>
                                         <td style={{ position: 'sticky', left: 216, zIndex: 2, background: rowBg, padding: '6px 7px', fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '140px' }}>{emp.contract}<br /><span style={{ fontSize: '0.68rem' }}>{emp.location}</span></td>
-                                        <td style={{ position: 'sticky', left: 356, zIndex: 2, background: rowBg, padding: '6px 7px', textAlign: 'right', fontWeight: 600, borderRight: '2px solid var(--border)', whiteSpace: 'nowrap', fontSize: '0.82rem', minWidth: '110px' }}>
+                                        <td style={{ position: 'sticky', left: 356, zIndex: 2, background: rowBg, padding: '6px 7px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', fontSize: '0.82rem', minWidth: '110px' }}>
+                                            {fmt(emp.gross)}
+                                        </td>
+                                        <td style={{ position: 'sticky', left: 466, zIndex: 2, background: rowBg, padding: '6px 8px', textAlign: 'center', borderRight: '2px solid var(--border)', minWidth: '148px', whiteSpace: 'normal', verticalAlign: 'middle' }}>
                                             <SalaryRevisionCell
                                                 employeeId={emp.id}
                                                 sheetMonth={month}
                                                 locked={isEmpLocked}
                                                 fallbackSalary={emp.gross}
+                                                onRevised={(amount) => setEMPLOYEES((prev) => prev.map((e) => (e.id === emp.id ? { ...e, gross: amount } : e)))}
                                             />
                                         </td>
                                         <td style={{ padding: '3px 3px' }}>
@@ -2693,7 +2700,8 @@ export default function PayrollSheet({ user }) {
                         <tfoot>
                             <tr style={{ background: 'var(--bg-dark)', borderTop: '2px solid var(--border)', fontWeight: 700, fontSize: '0.78rem' }}>
                                 <td style={{ position: 'sticky', left: 0, zIndex: 4, background: 'var(--bg-dark)', padding: '9px 8px', width: '36px' }} />
-                                <td colSpan={3} style={{ position: 'sticky', left: 36, zIndex: 2, background: 'var(--bg-dark)', padding: '9px 10px', borderRight: '2px solid var(--border)', whiteSpace: 'nowrap' }}>TOTALS — {rows.length} employees</td>
+<td colSpan={3} style={{ position: 'sticky', left: 36, zIndex: 2, background: 'var(--bg-dark)', padding: '9px 10px', whiteSpace: 'nowrap' }}>TOTALS — {rows.length} employees</td>
+                                <td style={{ position: 'sticky', left: 466, zIndex: 2, background: 'var(--bg-dark)', padding: '9px 8px', borderRight: '2px solid var(--border)', minWidth: '148px' }} />
                                 {/* Pd Days */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.paid_days > 0 ? fmt(T.paid_days) : '—'}</td>
                                 {/* OT 2x hrs */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.ot2_hrs > 0 ? parseFloat(T.ot2_hrs).toFixed(1) : '—'}</td>
                                 {/* OT 3x hrs */}<td style={{ padding: '6px 5px', textAlign: 'right', color: 'var(--text-muted)' }}>{T.ot3_hrs > 0 ? parseFloat(T.ot3_hrs).toFixed(1) : '—'}</td>
