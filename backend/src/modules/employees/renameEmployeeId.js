@@ -79,6 +79,25 @@ function existingEmployeeId(raw) {
     return id;
 }
 
+function cnicDigits(raw) {
+    return String(raw == null ? '' : raw).replace(/[^0-9]/g, '');
+}
+
+async function listUniqueEmployeeColumns(client) {
+    const { rows } = await client.query(`
+        SELECT DISTINCT kcu.column_name
+          FROM information_schema.table_constraints tc
+          JOIN information_schema.key_column_usage kcu
+            ON tc.constraint_name = kcu.constraint_name
+           AND tc.table_schema = kcu.table_schema
+         WHERE tc.table_schema = 'public'
+           AND tc.table_name = 'employees'
+           AND tc.constraint_type = 'UNIQUE'
+           AND kcu.column_name <> 'id'
+    `);
+    return rows.map((r) => r.column_name).filter((c) => IDENT_RE.test(c));
+}
+
 async function renameEmployeeId(pool, oldId, newId) {
     const from = existingEmployeeId(oldId);
     const to = normalizeEmployeeId(newId);
@@ -103,8 +122,38 @@ async function renameEmployeeId(pool, oldId, newId) {
         const row = rows[0];
         if (!row) throw httpError(404, 'Not found', 'NOT_FOUND');
 
+        const digits = cnicDigits(row.cnic);
+        if (digits) {
+            const others = await client.query(
+                `SELECT id, name FROM employees
+                  WHERE regexp_replace(COALESCE(cnic, ''), '[^0-9]', '', 'g') = $1
+                    AND id <> $2
+                  LIMIT 5`,
+                [digits, from]
+            );
+            if (others.rows.length) {
+                const who = others.rows[0].name
+                    ? `${others.rows[0].name} (${others.rows[0].id})`
+                    : others.rows[0].id;
+                throw httpError(409, `CNIC already belongs to ${who}`, 'CNIC_TAKEN');
+            }
+        }
+
+        const uniqueCols = await listUniqueEmployeeColumns(client);
+        if (Object.prototype.hasOwnProperty.call(row, 'cnic') && !uniqueCols.includes('cnic')) {
+            uniqueCols.push('cnic');
+        }
+        const parked = uniqueCols
+            .filter((c) => Object.prototype.hasOwnProperty.call(row, c) && row[c] != null && row[c] !== '')
+            .map((c) => ({ column: c, value: row[c] }));
+
         const cols = Object.keys(row);
-        const vals = cols.map((c) => (c === 'id' ? to : row[c]));
+        const parkSet = new Set(parked.map((p) => p.column));
+        const vals = cols.map((c) => {
+            if (c === 'id') return to;
+            if (parkSet.has(c)) return null;
+            return row[c];
+        });
         await client.query(
             `INSERT INTO employees (${cols.map(quoteIdent).join(',')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(',')})`,
             vals
@@ -119,6 +168,12 @@ async function renameEmployeeId(pool, oldId, newId) {
         }
 
         await client.query('DELETE FROM employees WHERE id=$1', [from]);
+        for (const { column, value } of parked) {
+            await client.query(
+                `UPDATE employees SET ${quoteIdent(column)}=$1 WHERE id=$2`,
+                [value, to]
+            );
+        }
         await client.query('COMMIT');
         return { renamed: true, id: to, from, tables: targets.map((t) => t.table) };
     } catch (err) {
@@ -134,6 +189,8 @@ module.exports = {
     quoteIdent,
     normalizeEmployeeId,
     existingEmployeeId,
+    cnicDigits,
     listEmployeeIdTargets,
+    listUniqueEmployeeColumns,
     renameEmployeeId,
 };
