@@ -24,6 +24,7 @@ const { registerPayrollSheetRoutes } = require('./src/modules/payrollSheet/route
 const { registerPayrollReconciliationRoutes } = require('./src/modules/payrollReconciliation/routes');
 const { registerServiceOrderRoutes } = require('./src/modules/serviceOrders/routes');
 const { registerSalaryRevisionRoutes } = require('./src/modules/salaryRevision/routes');
+const { registerRecordsRoutes } = require('./src/modules/records/routes');
 const { runMigrations } = require('./src/core/runMigrations');
 const { initJobs, registerWorkers, scheduleJob } = require('./src/core/jobs');
 const { pollIntakeMailbox } = require('./src/intake/imapWatcher');
@@ -59,6 +60,7 @@ function mountRestructureModules(app, deps) {
     registerPayrollSheetRoutes(app, deps);
     registerPayrollReconciliationRoutes(app, deps);
     registerSalaryRevisionRoutes(app, deps);
+    registerRecordsRoutes(app, deps);
 }
 
 let migrationStatus = 'ok';
@@ -123,6 +125,13 @@ async function bootstrapRestructure(deps) {
             await portalClaims.autoCloseNoClaims(pool);
             return portalClaims.sendReminders(pool, withClaimsPortalMail(sendAppEmail), sendJazzSMS);
         },
+        'records.focalDigest': async () => {
+            if (process.env.FOCAL_DIGEST_SEND !== 'true') {
+                return { skipped: 'FOCAL_DIGEST_SEND is not true' };
+            }
+            const { sendFocalDigests } = require('./src/modules/records/digest');
+            return sendFocalDigests(pool, sendAppEmail, {});
+        },
     });
 
     await scheduleJob('intake.poll', {}, '*/5 * * * *').catch(() => {});
@@ -135,6 +144,7 @@ async function bootstrapRestructure(deps) {
     await scheduleJob('xero.bills.sync', {}, '0 1 * * *').catch(() => {});
     await scheduleJob('xero.ar.sync', {}, '0 2 * * *').catch(() => {});
     await scheduleJob('portal.claims.reminders', {}, '0 9 * * *').catch(() => {});
+    await scheduleJob('records.focalDigest', {}, '0 2 * * *').catch(() => {});
 
     return boss;
 }

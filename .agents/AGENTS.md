@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-08-29 — Records spine + Monthly Cycle Phase 2 (must-do plan)
+One Rulebook per contract (`commercial_type`, `payroll_engine` legacy|runs, mandatory ASIL Contract Focal, Dedicated Payroll Resource, routing a–g). Contacts + region compliance. Daily Focal digest preview (`GET /api/records/digest`); live send only if `FOCAL_DIGEST_SEND=true`. Machine-file Collect (upload → edit → submit). Sheet provenance + Pending Import; open conflicts `409 INPUT_CONFLICTS` on lock. Engine flag blocks Sheet write vs Run compute. Cost-plus invoice from locked snapshot; SO path `409 USE_COST_PLUS_INVOICE`; `preview-invoice` is 410. Close pack from locked sheet + statutory files. Month-close checklist on Monthly Cycle Close. Hidden: Email Claims, Wafi Claims, Claims Queue. Intake-as-claims off unless `CLAIMS_INTAKE_ROUTING=true`. Sadia/Huzaifa are data (Dedicated Payroll Resource), not code.
+
+**Env vars needed:** none required. Optional on Render: `FOCAL_DIGEST_SEND`, `CLAIMS_INTAKE_ROUTING`. Run `npm run migrate` on deploy target.
+
 ### 2026-08-28 — Add Employee 409 instead of 500 on duplicate CNIC/code
 `POST /api/employees` looked up nothing and mapped unique-constraint failures to a generic 500. Employee Information also hides inactive people and anyone with `last_working_day` before Jul 2026, so a rehire like `ASILFM/SPL/22/169` looks “not in the list”. Add now preflights ID + digit-normalized CNIC against the full table, returns **409 CNIC_TAKEN** with the existing name/code (and an archive hint when they are hidden), and `GET /api/employees/lookup` powers the Add form confirm. Invalid dates parse via `parseDateOrNull` instead of crashing Postgres.
 

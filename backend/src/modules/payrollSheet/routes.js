@@ -47,8 +47,8 @@ function registerPayrollSheetRoutes(app, deps) {
             if (err.status === 403 || err.code === 'PAYROLL_LOCKED') {
                 return res.status(403).json({ error: err.message || 'Payroll locked', code: 'PAYROLL_LOCKED' });
             }
-            if (err.status === 409 || err.code === 'CUTOVER_BLOCKED') {
-                return res.status(409).json({ error: err.message || 'Cutover blocked', code: err.code });
+            if (err.status === 409 || err.code === 'CUTOVER_BLOCKED' || err.code === 'CONTRACT_ON_RUNS_ENGINE') {
+                return res.status(409).json({ error: err.message || 'Conflict', code: err.code, ...(err.details || {}) });
             }
             if (err.status === 400) {
                 return res.status(400).json({ error: err.message || 'Bad request', code: err.code });

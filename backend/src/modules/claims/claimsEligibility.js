@@ -8,6 +8,16 @@ const {
 const HUZAIFA_FALLBACK = 'huzaifa.rafaqat@asil.com.pk';
 const SADIA_FALLBACK = 'sadia.komal@asil.com.pk';
 
+function dedicatedPayrollEmail(rulebook) {
+    const e = String(rulebook?.dedicated_payroll_resource_email || '').trim().toLowerCase();
+    return isNamedEmail(e) ? e : SADIA_FALLBACK;
+}
+
+function asilContractFocalEmail(rulebook) {
+    const e = String(rulebook?.allied_contract_focal_email || '').trim().toLowerCase();
+    return isNamedEmail(e) ? e : dedicatedPayrollEmail(rulebook);
+}
+
 function isNamedEmail(v) {
     if (v == null) return false;
     const s = String(v).trim().toLowerCase();
@@ -103,20 +113,103 @@ function isOfficialEmployeeEmail(emp) {
     return OFFICIAL_EMAIL_DOMAINS.some((d) => domain === d || domain.endsWith(`.${d}`));
 }
 
-/**
- * Routing rules (owner Aug 2026):
- * - Focal + LM → Focal fills, LM approves.
- * - Focal only (no LM) → Focal fills and approves (final).
- * - No focal + LM → LM fills and approves (final).
- * - No focal + no LM + official @wafi-energy.com / @asil.com.pk → Employee fills, Sadia approves.
- * - No focal + no LM + personal email → Sadia fills and approves (final).
- *
- * @returns {{ profile: string, category: string, fillerEmail: string|null, approverEmail: string|null, initiator: string }}
- */
-function resolveClaimsRouting(emp) {
+function resolveExplicitRouting(emp, rulebook) {
     const focal = resolveFocalEmail(emp);
     const lm = resolveLmEmail(emp);
     const empEmail = resolveEmployeeFillerEmail(emp);
+    const payroll = dedicatedPayrollEmail(rulebook);
+    const asilFocal = asilContractFocalEmail(rulebook);
+    const supervisor = String(emp.asil_site_supervisor_email || '').toLowerCase().trim();
+    const mode = rulebook.routing_mode;
+
+    if (mode === 'employee_then_focal') {
+        return {
+            profile: 'employee_then_focal',
+            category: 'Employee + Focal',
+            fillerEmail: empEmail,
+            approverEmail: focal || asilFocal,
+            initiator: 'employee',
+        };
+    }
+    if (mode === 'employee_then_lm') {
+        return {
+            profile: 'employee_then_lm',
+            category: 'Employee + LM',
+            fillerEmail: empEmail,
+            approverEmail: lm || payroll,
+            initiator: 'employee',
+        };
+    }
+    if (mode === 'focal_then_lm') {
+        return {
+            profile: 'focal_then_lm',
+            category: 'Focal + LM',
+            fillerEmail: focal || payroll,
+            approverEmail: lm || payroll,
+            initiator: 'focal',
+        };
+    }
+    if (mode === 'focal_only') {
+        return {
+            profile: 'focal_only',
+            category: 'Focal only',
+            fillerEmail: focal || payroll,
+            approverEmail: focal || payroll,
+            initiator: 'focal',
+        };
+    }
+    if (mode === 'lm_only') {
+        return {
+            profile: 'lm_only',
+            category: 'LM only',
+            fillerEmail: lm || payroll,
+            approverEmail: lm || payroll,
+            initiator: 'lm',
+        };
+    }
+    if (mode === 'employee_then_asil') {
+        return {
+            profile: 'employee_then_asil',
+            category: 'Employee + ASIL',
+            fillerEmail: empEmail || payroll,
+            approverEmail: payroll,
+            initiator: empEmail ? 'employee' : 'lm',
+        };
+    }
+    if (mode === 'asil_supervisor_then_focal') {
+        return {
+            profile: 'asil_supervisor_then_focal',
+            category: 'ASIL supervisor + Focal',
+            fillerEmail: isNamedEmail(supervisor) ? supervisor : payroll,
+            approverEmail: asilFocal,
+            initiator: 'lm',
+        };
+    }
+    return null;
+}
+
+/**
+ * Routing rules (owner Aug 2026) when routing_mode is `auto`:
+ * - Focal + LM → Focal fills, LM approves.
+ * - Focal only (no LM) → Focal fills and approves (final).
+ * - No focal + LM → LM fills and approves (final).
+ * - No focal + no LM + official @wafi-energy.com / @asil.com.pk → Employee fills, Dedicated Payroll Resource approves.
+ * - No focal + no LM + personal email → Dedicated Payroll Resource fills and approves (final).
+ *
+ * Explicit contract routing_mode values a–g override auto.
+ *
+ * @returns {{ profile: string, category: string, fillerEmail: string|null, approverEmail: string|null, initiator: string }}
+ */
+function resolveClaimsRouting(emp, rulebook) {
+    if (rulebook?.routing_mode && rulebook.routing_mode !== 'auto') {
+        const explicit = resolveExplicitRouting(emp, rulebook);
+        if (explicit) return explicit;
+    }
+
+    const focal = resolveFocalEmail(emp);
+    const lm = resolveLmEmail(emp);
+    const empEmail = resolveEmployeeFillerEmail(emp);
+    const payroll = dedicatedPayrollEmail(rulebook);
 
     // Focal + LM (different people) — focal always fills.
     if (focal && lm && focal !== lm) {
@@ -150,32 +243,43 @@ function resolveClaimsRouting(emp) {
         };
     }
 
-    // No focal, no LM + official work mailbox — employee fills, Sadia approves.
+    // No focal, no LM + official work mailbox — employee fills, contract payroll resource approves.
     if (empEmail) {
         return {
             profile: 'employee_then_asil',
             category: 'Employee + ASIL',
             fillerEmail: empEmail,
-            approverEmail: SADIA_FALLBACK,
+            approverEmail: payroll,
             initiator: 'employee',
         };
     }
 
-    // No focal, no LM + personal / missing work mailbox — Sadia fills and final.
+    // No focal, no LM + personal / missing work mailbox — payroll resource fills and final.
     return {
         profile: 'lm_only',
         category: 'ASIL only',
-        fillerEmail: SADIA_FALLBACK,
-        approverEmail: SADIA_FALLBACK,
+        fillerEmail: payroll,
+        approverEmail: payroll,
         initiator: 'lm',
     };
 }
 
-function resolveClaimsCategory(emp, eligibility = { eligible: true }) {
+async function resolveClaimsRoutingForEmployee(pool, emp) {
+    const { getRulebookForEmployee } = require('../records/rulebook');
+    const { resolveAsilSupervisor } = require('../records/contacts');
+    const book = await getRulebookForEmployee(pool, emp);
+    let enriched = emp;
+    if (book.routing_mode === 'asil_supervisor_then_focal') {
+        enriched = { ...emp, asil_site_supervisor_email: await resolveAsilSupervisor(pool, emp) };
+    }
+    return resolveClaimsRouting(enriched, book);
+}
+
+function resolveClaimsCategory(emp, eligibility = { eligible: true }, rulebook) {
     if (!eligibility.eligible) {
         return { category: 'Not eligible', profile: 'not_eligible', tooltip: eligibility.ruleName || 'Excluded by rule' };
     }
-    const routing = resolveClaimsRouting(emp);
+    const routing = resolveClaimsRouting(emp, rulebook);
     if (routing.profile === 'setup_needed' || !routing.fillerEmail) {
         return {
             ...routing,
@@ -285,7 +389,7 @@ async function countEligibleEmployees(pool) {
             });
             continue;
         }
-        const routing = resolveClaimsRouting(e);
+        const routing = await resolveClaimsRoutingForEmployee(pool, e);
         const cat = resolveClaimsCategory(e, elig);
         if (cat.category === 'Setup needed') {
             skipped.push({
@@ -321,6 +425,7 @@ module.exports = {
     loadEligibilityRules,
     evaluateEmployeeEligibility,
     resolveClaimsRouting,
+    resolveClaimsRoutingForEmployee,
     resolveClaimsCategory,
     resolveFocalEmail,
     resolveLmEmail,

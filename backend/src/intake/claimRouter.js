@@ -62,6 +62,9 @@ async function resolveFocalEmail(pool, contractId) {
 }
 
 async function routeIntakeToClaims(pool) {
+    if (process.env.CLAIMS_INTAKE_ROUTING !== 'true') {
+        return { routed: 0, skipped: 'CLAIMS_INTAKE_ROUTING off' };
+    }
     const { rows: messages } = await pool.query(
         `SELECT * FROM intake_messages WHERE status = 'new' AND classification = 'claim' ORDER BY id LIMIT 50`
     );

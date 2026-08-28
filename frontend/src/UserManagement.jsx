@@ -142,7 +142,7 @@ const MODULES = [
 
 // ─── Default permissions per role (must cover every ROLE_META key) ────────────
 const ROLE_NAV_SET = {
-  superadmin:            ['dashboard','employee','payroll','fixed_value','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','claims_portal'],
+  superadmin:            ['dashboard','employee','payroll','fixed_value','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','attendance','maintenance','claims_portal'],
   operations:            ['employee','documents','client','fixed_value','attendance','maintenance','claims_portal'],
   operations_supervisor: ['employee','documents','client','fixed_value','attendance','maintenance','claims_portal'],
   operations_team:       ['employee','documents','client','fixed_value','attendance','maintenance','claims_portal'],
@@ -151,8 +151,8 @@ const ROLE_NAV_SET = {
   procurement_manager:   ['billing','vendor','inventory','ap','maintenance'],
   procurement:           ['billing','vendor','inventory','ap'],
   finance_proposer:      ['billing','invoices','fixed_value','po_tracking','employee','ap','vendor','inventory','annexure','maintenance'],
-  finance_approver:      ['payroll','billing','invoices','fixed_value','po_tracking','client','annexure','config','users','attendance','email_claims','wafi_claims','claims_portal'],
-  finance_manager:       ['payroll','billing','invoices','fixed_value','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','email_claims','wafi_claims','claims_portal'],
+  finance_approver:      ['payroll','billing','invoices','fixed_value','po_tracking','client','annexure','config','users','attendance','claims_portal'],
+  finance_manager:       ['payroll','billing','invoices','fixed_value','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','claims_portal'],
   ap_team:               ['ap','billing','fixed_value'],
   ar_team:               ['invoices','fixed_value','po_tracking','billing'],
   payroll_initiator:     ['payroll','fixed_value','employee','claims_portal'],

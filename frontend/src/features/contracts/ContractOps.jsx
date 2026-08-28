@@ -12,6 +12,7 @@ const ContractOps = () => {
     const [rateCards, setRateCards] = useState([]);
     const [budgetForm, setBudgetForm] = useState({ category: 'supplies', name: '', monthlyCap: '' });
     const [rateCardForm, setRateCardForm] = useState({ roleTitle: '', billRate: '', costRate: '' });
+    const [rulebook, setRulebook] = useState(null);
     const [msg, setMsg] = useState('');
     const [error, setError] = useState('');
 
@@ -32,6 +33,7 @@ const ContractOps = () => {
     useEffect(() => {
         if (!selectedContract) return;
         api.getContractPolicy(selectedContract).then(p => setPolicy(p || {})).catch(() => setPolicy({}));
+        api.getRulebook(selectedContract).then(setRulebook).catch(() => setRulebook(null));
         api.getOnboardingStatus(selectedContract).then(setOnboarding).catch(() => setOnboarding(null));
         loadBudgetLines();
         loadRateCards();
@@ -186,6 +188,51 @@ const ContractOps = () => {
                         <button onClick={savePolicy} className="btn-primary" style={{ marginTop: '1rem', marginRight: '0.5rem' }}>Save Policy</button>
                         <button type="button" onClick={applyWafiDefaults} className="btn-secondary" style={{ marginTop: '1rem' }}>Apply Wafi defaults</button>
                     </div>
+
+                    {rulebook && (
+                        <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+                            <h3 style={{ marginBottom: '1rem' }}>Contract Rulebook</h3>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                                Commercial type, Focal, and payroll engine. Full pack + routing live on Monthly Cycle Setup.
+                            </p>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                                <label>Commercial type
+                                    <select value={rulebook.commercial_type || 'cost_plus'} onChange={e => setRulebook(r => ({ ...r, commercial_type: e.target.value }))} style={inputStyle}>
+                                        <option value="cost_plus">cost_plus</option>
+                                        <option value="fixed_value">fixed_value</option>
+                                    </select>
+                                </label>
+                                <label>Payroll engine
+                                    <select value={rulebook.payroll_engine || 'legacy'} onChange={e => setRulebook(r => ({ ...r, payroll_engine: e.target.value }))} style={inputStyle}>
+                                        <option value="legacy">legacy (Sheet pays)</option>
+                                        <option value="runs">runs (Sheet view-only)</option>
+                                    </select>
+                                </label>
+                                <label>ASIL Contract Focal
+                                    <input value={rulebook.allied_contract_focal_email || ''} onChange={e => setRulebook(r => ({ ...r, allied_contract_focal_email: e.target.value }))} style={inputStyle} />
+                                </label>
+                                <label>Dedicated Payroll Resource
+                                    <input value={rulebook.dedicated_payroll_resource_email || ''} onChange={e => setRulebook(r => ({ ...r, dedicated_payroll_resource_email: e.target.value }))} style={inputStyle} />
+                                </label>
+                            </div>
+                            <button
+                                type="button"
+                                className="btn-primary"
+                                style={{ marginTop: '1rem' }}
+                                onClick={async () => {
+                                    setError('');
+                                    try {
+                                        const saved = await api.saveRulebook(selectedContract, rulebook);
+                                        setRulebook(saved);
+                                        setMsg('Rulebook saved');
+                                        setTimeout(() => setMsg(''), 3000);
+                                    } catch (e) { setError(e.message); }
+                                }}
+                            >
+                                Save rulebook
+                            </button>
+                        </div>
+                    )}
 
                     <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
                         <h3 style={{ marginBottom: '1rem' }}>Billing Rate Cards</h3>

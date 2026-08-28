@@ -192,9 +192,14 @@ async function closeFixedValueRun(pool, { runId, lockedBy }) {
         }
 
         const fv = await isFixedValueContract(pool, run.contract_id);
-        if (!fv) {
+        const { getRulebook } = require('../records/rulebook');
+        let commercial = 'cost_plus';
+        try {
+            commercial = (await getRulebook(pool, run.contract_id)).commercial_type;
+        } catch { /* keep default */ }
+        if (!fv && commercial !== 'cost_plus' && commercial !== 'fixed_value') {
             await client.query('ROLLBACK');
-            return { ok: false, code: 'NOT_FV_CONTRACT' };
+            return { ok: false, code: 'NOT_CLOSABLE_CONTRACT' };
         }
 
         const { rows: locked } = await client.query(
@@ -569,6 +574,60 @@ async function reopenInvoice(pool, { invoiceId, actor }) {
     return { ok: true, invoice: rows[0] };
 }
 
+async function createClosePackFromSheet(pool, { contractId, year, month, actor }) {
+    const { rows: sheet } = await pool.query(
+        `SELECT pt.* FROM payroll_transactions pt
+         JOIN employees e ON e.id = pt.employee_id
+         WHERE e.contract_id::text = $1 AND pt.year = $2 AND pt.month = $3 AND pt.locked = TRUE`,
+        [contractId, year, month]
+    );
+    if (!sheet.length) {
+        return { ok: false, code: 'SHEET_NOT_LOCKED' };
+    }
+    const runRows = sheet.map((r) => ({
+        employee_id: r.employee_id,
+        computed: r.computed_json || {
+            netPay: r.net,
+            eobiEmployer: 0,
+            sessiEmployer: 0,
+            pfDeduction: 0,
+            wht: r.wht,
+            gratuityAccrual: 0,
+            bonusAccrual: 0,
+        },
+    }));
+
+    const { rows: existingRun } = await pool.query(
+        `SELECT * FROM payroll_runs
+         WHERE contract_id = $1 AND period_month = $2 AND period_year = $3
+         ORDER BY id DESC LIMIT 1`,
+        [contractId, month, year]
+    );
+    let run = existingRun[0];
+    if (!run) {
+        const { rows: created } = await pool.query(
+            `INSERT INTO payroll_runs (contract_id, period_month, period_year, status, locked_at, locked_by)
+             VALUES ($1,$2,$3,'locked',NOW(),$4)
+             RETURNING *`,
+            [contractId, month, year, actor || null]
+        );
+        run = created[0];
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const result = await upsertClosePackTx(client, run, actor, runRows);
+        await client.query('COMMIT');
+        return { ok: true, run, ...result };
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
 module.exports = {
     PAYABLE_TYPES,
     PAYABLE_LABELS,
@@ -577,6 +636,7 @@ module.exports = {
     isInvoiceLocked,
     aggregatePayablesFromRows,
     closeFixedValueRun,
+    createClosePackFromSheet,
     listClosePacks,
     getClosePackDetail,
     settlePayable,

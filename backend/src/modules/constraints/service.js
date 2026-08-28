@@ -114,19 +114,58 @@ async function upsertPolicy(pool, data) {
     );
 
     if (existing.length) {
-        const updateValues = [...params.slice(2, 23), params[24]];
         const { rows } = await pool.query(
             `UPDATE contract_policies SET
-                billing_model = $4, attendance_input_mode = $5, standard_month_days = $6,
-                ot_allowed = $7, ot_monthly_cap_hours = $8, ot_client_managed = $9,
-                ot_divisor_days = $10, ot_divisor_hours = $11, service_charge_pct = $12,
-                medical_annual_cap = $13, medical_cycle_anchor = $14, credit_days = $15,
-                invoice_frequency = $16, invoice_day_of_month = $17, po_required = $18,
-                challans_required = $19, reminder_cadence = $20, edu_cess_enabled = $21,
-                bonus_accrual_months = $22, gratuity_accrual_months = $23, income_tax_wht_pct = $24, effective_to = $25
-             WHERE id = $26
+                billing_model = $3, attendance_input_mode = $4, standard_month_days = $5,
+                ot_allowed = $6, ot_monthly_cap_hours = $7, ot_client_managed = $8,
+                ot_divisor_days = $9, ot_divisor_hours = $10, service_charge_pct = $11,
+                medical_annual_cap = $12, medical_cycle_anchor = $13, credit_days = $14,
+                invoice_frequency = $15, invoice_day_of_month = $16, po_required = $17,
+                challans_required = $18, reminder_cadence = $19, edu_cess_enabled = $20,
+                bonus_accrual_months = $21, gratuity_accrual_months = $22, income_tax_wht_pct = $23, effective_to = $25,
+                commercial_type = COALESCE($26, commercial_type),
+                payroll_engine = COALESCE($27, payroll_engine),
+                allied_contract_focal_email = COALESCE($28, allied_contract_focal_email),
+                dedicated_payroll_resource_email = COALESCE($29, dedicated_payroll_resource_email),
+                routing_mode = COALESCE($30, routing_mode),
+                overhead_per_employee = $31,
+                medical_in_cost = $32,
+                employer_pf_in_cost = $33,
+                sessi_basis = $34,
+                proration_basis = $35,
+                ot_applicable_tiers = $36,
+                sales_tax_rate = COALESCE($37, sales_tax_rate),
+                sales_tax_exempt = $38
+             WHERE id = $39
              RETURNING *`,
-            [...updateValues, existing[0].id]
+            [
+                data.contract_id, projectId, data.billing_model || 'headcount_rate',
+                data.attendance_input_mode || 'full_ledger', data.standard_month_days || 30,
+                data.ot_allowed !== false, data.ot_monthly_cap_hours || null, data.ot_client_managed || false,
+                data.ot_divisor_days || 26, data.ot_divisor_hours || 8,
+                data.service_charge_pct ?? 0.18, data.medical_annual_cap || null,
+                data.medical_cycle_anchor || 'employment_date', data.credit_days || 30,
+                data.invoice_frequency || 'monthly', data.invoice_day_of_month || 1,
+                data.po_required || false, JSON.stringify(data.challans_required || []),
+                JSON.stringify(data.reminder_cadence || []), data.edu_cess_enabled || false,
+                data.bonus_accrual_months || 12, data.gratuity_accrual_months || 12,
+                data.income_tax_wht_pct ?? null,
+                data.effective_to || null,
+                data.commercial_type || null,
+                data.payroll_engine || 'legacy',
+                data.allied_contract_focal_email || null,
+                data.dedicated_payroll_resource_email || null,
+                data.routing_mode || 'auto',
+                data.overhead_per_employee ?? null,
+                data.medical_in_cost !== false,
+                data.employer_pf_in_cost !== false,
+                data.sessi_basis || 'salary_45k',
+                data.proration_basis || 'calendar_30',
+                data.ot_applicable_tiers || ['2x', '3x'],
+                data.sales_tax_rate ?? null,
+                !!data.sales_tax_exempt,
+                existing[0].id,
+            ]
         );
         return rows[0];
     }

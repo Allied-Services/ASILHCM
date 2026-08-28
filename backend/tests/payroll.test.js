@@ -73,6 +73,8 @@ const UNLOCK_PATH = `/api/payroll/${TEST_YEAR}/${TEST_MONTH}/unlock`;
 // ── Default mock: UPDATE succeeds, no rows returned ──────────────────────────
 const mockUpdateSuccess = () =>
   mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+const mockNoConflicts = () =>
+  mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. PATCH /api/payroll/:year/:month/lock — role enforcement
@@ -88,6 +90,7 @@ describe('PATCH /api/payroll/:year/:month/lock — role guards', () => {
     'role "%s" is allowed to lock payroll → 200',
     async (role) => {
       const token = makeToken({ role });
+      mockNoConflicts();
       // Mock 1: the UPDATE locked=TRUE query
       mockUpdateSuccess();
       // Mock 2: SELECT locked employee_ids (full-month path)
@@ -134,6 +137,7 @@ describe('PATCH /api/payroll/:year/:month/lock — lock scope', () => {
   test('scoped lock with employee_ids provided → uses targeted UPDATE path', async () => {
     // For scoped lock: server.js takes the employee_ids path (line 2471)
     // and does NOT do the SELECT to fetch all locked IDs.
+    mockNoConflicts();
     mockUpdateSuccess(); // the scoped UPDATE
     // No SELECT needed for scoped path — employees passed directly
     mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // PF/Gratuity lookup
@@ -150,6 +154,7 @@ describe('PATCH /api/payroll/:year/:month/lock — lock scope', () => {
   });
 
   test('full-month lock with no employee_ids → returns accruals_posted count', async () => {
+    mockNoConflicts();
     mockUpdateSuccess(); // full UPDATE
     // SELECT to get all locked employee IDs
     mockPool.query.mockResolvedValueOnce({
@@ -170,6 +175,7 @@ describe('PATCH /api/payroll/:year/:month/lock — lock scope', () => {
   });
 
   test('empty employee_ids array treated as full-month lock', async () => {
+    mockNoConflicts();
     mockUpdateSuccess();
     mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // locked IDs
     mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // PF lookup
@@ -185,6 +191,7 @@ describe('PATCH /api/payroll/:year/:month/lock — lock scope', () => {
 
   test('response always includes lockedBy matching the token email', async () => {
     const specificToken = makeToken({ role: 'finance_approver', email: 'payroll.officer@asil.com.pk' });
+    mockNoConflicts();
     mockUpdateSuccess();
     mockPool.query.mockResolvedValueOnce({ rows: [{ employee_id: 'ASIL-001' }], rowCount: 1 });
     mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
@@ -199,6 +206,7 @@ describe('PATCH /api/payroll/:year/:month/lock — lock scope', () => {
   });
 
   test('lock still succeeds when PF accrual insert fails → accruals.ok false', async () => {
+    mockNoConflicts();
     mockUpdateSuccess();
     mockPool.query.mockResolvedValueOnce({
       rows: [{ employee_id: 'ASIL-PF-1' }],
@@ -274,6 +282,7 @@ describe('PATCH /api/payroll/:year/:month/unlock', () => {
 
   test('lock → unlock sequence produces correct state transitions', async () => {
     // LOCK
+    mockNoConflicts();
     mockUpdateSuccess();
     mockPool.query.mockResolvedValueOnce({ rows: [{ employee_id: 'ASIL-020' }], rowCount: 1 });
     mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });

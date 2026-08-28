@@ -287,6 +287,8 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
     }
 
     const empIds = employees.map((e) => e.id);
+    const { assertSheetWritable } = require('../records/engineFlag');
+    await assertSheetWritable(pool, empIds);
     const { start, end, lastDay } = periodBounds(y, m);
     const asOf = new Date(y, m - 1, 15);
 

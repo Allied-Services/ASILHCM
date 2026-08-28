@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine } from 'lucide-react';
+import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine, ListChecks } from 'lucide-react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import PortalClaimsHub from './PortalClaimsHub';
@@ -13,6 +13,25 @@ const SECTIONS = [
   { key: 'track', label: 'Track', icon: Activity },
   { key: 'corrections', label: 'Corrections', icon: FilePenLine },
   { key: 'payroll', label: 'Payroll', icon: Wallet },
+  { key: 'close', label: 'Close', icon: ListChecks },
+];
+
+const ROUTING_MODES = [
+  { id: 'auto', label: 'Auto (today’s Focal / LM rules)' },
+  { id: 'employee_then_focal', label: 'a. Employee → Focal' },
+  { id: 'employee_then_lm', label: 'b. Employee → LM' },
+  { id: 'focal_then_lm', label: 'c. Focal → LM' },
+  { id: 'focal_only', label: 'd. Focal final' },
+  { id: 'lm_only', label: 'e. LM final' },
+  { id: 'employee_then_asil', label: 'f. Employee → Dedicated Payroll' },
+  { id: 'asil_supervisor_then_focal', label: 'g. ASIL Site Supervisor → Contract Focal' },
+];
+
+const INPUT_MODES = [
+  { id: 'full_ledger', label: 'Full ledger' },
+  { id: 'hours', label: 'Hours only' },
+  { id: 'days', label: 'Days only' },
+  { id: 'absent_only', label: 'Absent / deductions only' },
 ];
 
 const CLAIM_TYPE_OPTIONS = [
@@ -37,6 +56,7 @@ function MonthlyCycleSetup() {
   const [contracts, setContracts] = useState([]);
   const [contractId, setContractId] = useState('');
   const [policy, setPolicy] = useState(null);
+  const [rulebook, setRulebook] = useState(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
@@ -55,10 +75,19 @@ function MonthlyCycleSetup() {
   useEffect(() => {
     if (!contractId) {
       setPolicy(null);
+      setRulebook(null);
       return;
     }
     setErr('');
     api.getClaimsPolicy(contractId).then(setPolicy).catch((e) => setErr(e.message));
+    api.getRulebook(contractId).then(setRulebook).catch(() => setRulebook({
+      commercial_type: 'cost_plus',
+      payroll_engine: 'legacy',
+      routing_mode: 'auto',
+      allied_contract_focal_email: '',
+      dedicated_payroll_resource_email: '',
+      attendance_input_mode: 'full_ledger',
+    }));
   }, [contractId]);
 
   const toggleType = (typeId) => {
@@ -78,7 +107,11 @@ function MonthlyCycleSetup() {
     try {
       const saved = await api.updateClaimsPolicy(contractId, policy);
       setPolicy(saved);
-      setMsg('Contract pack saved.');
+      if (rulebook) {
+        const rb = await api.saveRulebook(contractId, { ...rulebook, claims: policy });
+        setRulebook(rb);
+      }
+      setMsg('Contract pack and rulebook saved.');
     } catch (e) {
       setErr(e.message);
     }
@@ -135,6 +168,71 @@ function MonthlyCycleSetup() {
               ))}
             </select>
           </div>
+          {rulebook && (
+            <div className="mch-block">
+              <h3>Contract rulebook</h3>
+              <div className="mch-form-grid mch-form-grid-2">
+                <label>
+                  <span className="lbl">Commercial type</span>
+                  <select
+                    value={rulebook.commercial_type || 'cost_plus'}
+                    onChange={(e) => setRulebook((r) => ({ ...r, commercial_type: e.target.value }))}
+                  >
+                    <option value="cost_plus">Cost-plus (salary + fee)</option>
+                    <option value="fixed_value">Fixed value (Service Order invoice)</option>
+                  </select>
+                </label>
+                <label>
+                  <span className="lbl">Payroll engine</span>
+                  <select
+                    value={rulebook.payroll_engine || 'legacy'}
+                    onChange={(e) => setRulebook((r) => ({ ...r, payroll_engine: e.target.value }))}
+                  >
+                    <option value="legacy">Legacy — Payroll Sheet pays</option>
+                    <option value="runs">Runs — Sheet is view-only</option>
+                  </select>
+                </label>
+                <label>
+                  <span className="lbl">ASIL Contract Focal (required)</span>
+                  <input
+                    value={rulebook.allied_contract_focal_email || ''}
+                    onChange={(e) => setRulebook((r) => ({ ...r, allied_contract_focal_email: e.target.value }))}
+                    placeholder="focal@asil.com.pk"
+                  />
+                </label>
+                <label>
+                  <span className="lbl">Dedicated Payroll Resource</span>
+                  <input
+                    value={rulebook.dedicated_payroll_resource_email || ''}
+                    onChange={(e) => setRulebook((r) => ({ ...r, dedicated_payroll_resource_email: e.target.value }))}
+                    placeholder="defaults to Contract Focal"
+                  />
+                </label>
+                <label>
+                  <span className="lbl">Claims routing</span>
+                  <select
+                    value={rulebook.routing_mode || 'auto'}
+                    onChange={(e) => setRulebook((r) => ({ ...r, routing_mode: e.target.value }))}
+                  >
+                    {ROUTING_MODES.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span className="lbl">Client file mode</span>
+                  <select
+                    value={rulebook.attendance_input_mode || 'full_ledger'}
+                    onChange={(e) => setRulebook((r) => ({ ...r, attendance_input_mode: e.target.value }))}
+                  >
+                    {INPUT_MODES.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+          )}
           <div className="mch-block">
             <h3>Calendar &amp; pay timing</h3>
             <div className="mch-form-grid mch-form-grid-3">
@@ -176,7 +274,7 @@ function MonthlyCycleSetup() {
               checked={!!policy.reviewer_required}
               onChange={(e) => setPolicy((p) => ({ ...p, reviewer_required: e.target.checked }))}
             />
-            <span>Require separate reviewer step (between claimer and approver)</span>
+            <span>Require separate reviewer step (only then is Reviewer used)</span>
           </label>
           {selected && (
             <p className="mch-muted">
@@ -295,8 +393,8 @@ function MonthlyCyclePeople() {
         <label><span className="lbl">Claimer / Focal email</span>
           <input value={claimAuthority} onChange={(e) => setClaimAuthority(e.target.value)} placeholder="focal@wafi-energy.com" />
         </label>
-        <label><span className="lbl">Reviewer email (optional)</span>
-          <input value={reviewerEmail} onChange={(e) => setReviewerEmail(e.target.value)} placeholder="reviewer@…" />
+        <label><span className="lbl">Reviewer email (unused unless pack requires it)</span>
+          <input value={reviewerEmail} onChange={(e) => setReviewerEmail(e.target.value)} placeholder="leave blank unless Setup turns Reviewer on" />
         </label>
         <label><span className="lbl">Approver / LM email</span>
           <input value={lmEmail} onChange={(e) => setLmEmail(e.target.value)} placeholder="lm@wafi-energy.com" />
@@ -350,6 +448,252 @@ function MonthlyCyclePeople() {
   );
 }
 
+function MachineFileCollect() {
+  const [contracts, setContracts] = useState([]);
+  const [contractId, setContractId] = useState('');
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [mode, setMode] = useState('full_ledger');
+  const [text, setText] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [pack, setPack] = useState(null);
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getContracts().then((list) => {
+      const rows = Array.isArray(list) ? list : (list?.contracts || []);
+      setContracts(rows.map((c) => ({
+        id: c.id,
+        name: c.contractName || c.contract_name || c.id,
+      })));
+    }).catch((e) => setErr(e.message));
+  }, []);
+
+  const upload = async () => {
+    if (!contractId || !text.trim()) return;
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const r = await api.uploadCycleFile({
+        contractId, month, year, input_mode: mode, fileName, text,
+      });
+      setPack(r);
+      setMsg(`Draft ${r.import?.id} — ${r.rows?.length || 0} rows. Edit then submit.`);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const submit = async () => {
+    if (!pack?.import?.id) return;
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const r = await api.submitCycleFile(pack.import.id);
+      setPack(r);
+      setMsg('Submitted into Monthly Cycle attendance.');
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="mch-block">
+      <h3>Machine / client file</h3>
+      <p className="mch-muted">Upload CSV or TSV, edit unmatched rows, then submit. Hours, days, or absent-only files are supported.</p>
+      {err && <div className="pch-err">{err}</div>}
+      {msg && <div className="pch-ok">{msg}</div>}
+      <div className="mch-form-grid mch-form-grid-3">
+        <label><span className="lbl">Contract</span>
+          <select value={contractId} onChange={(e) => setContractId(e.target.value)}>
+            <option value="">Select…</option>
+            {contracts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        <label><span className="lbl">Month</span>
+          <input type="number" min={1} max={12} value={month} onChange={(e) => setMonth(parseInt(e.target.value, 10) || 1)} />
+        </label>
+        <label><span className="lbl">Year</span>
+          <input type="number" value={year} onChange={(e) => setYear(parseInt(e.target.value, 10) || year)} />
+        </label>
+        <label><span className="lbl">File mode</span>
+          <select value={mode} onChange={(e) => setMode(e.target.value)}>
+            {INPUT_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <label className="mch-file">
+        <span className="lbl">Paste CSV / TSV</span>
+        <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="employee_id,name,present_days,absent_days,ot2,ot3" />
+      </label>
+      <label>
+        <span className="lbl">Or choose a file</span>
+        <input
+          type="file"
+          accept=".csv,.tsv,.txt"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            setFileName(f.name);
+            const reader = new FileReader();
+            reader.onload = () => setText(String(reader.result || ''));
+            reader.readAsText(f);
+          }}
+        />
+      </label>
+      <div className="mch-people-actions">
+        <button type="button" className="btn-primary" disabled={busy} onClick={upload}>{busy ? 'Working…' : 'Upload draft'}</button>
+        <button type="button" className="btn-secondary" disabled={busy || pack?.import?.status !== 'draft'} onClick={submit}>Submit into cycle</button>
+      </div>
+      {pack?.rows?.length > 0 && (
+        <div className="mch-people-table-wrap">
+          <table className="mch-people-table">
+            <thead>
+              <tr><th>Employee</th><th>Present</th><th>Absent</th><th>Hours</th><th>OT2</th><th>OT3</th><th>Match</th></tr>
+            </thead>
+            <tbody>
+              {pack.rows.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.employee_name || r.employee_id || '—'}</td>
+                  <td>{r.present_days ?? '—'}</td>
+                  <td>{r.absent_days ?? '—'}</td>
+                  <td>{r.hours ?? '—'}</td>
+                  <td>{r.ot2_hours ?? '—'}</td>
+                  <td>{r.ot3_hours ?? '—'}</td>
+                  <td>{r.matched ? 'OK' : <span className="mch-badge-warn">Unmatched</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MonthClosePanel() {
+  const [contracts, setContracts] = useState([]);
+  const [contractId, setContractId] = useState('');
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getContracts().then((list) => {
+      const rows = Array.isArray(list) ? list : (list?.contracts || []);
+      setContracts(rows.map((c) => ({
+        id: c.id,
+        name: c.contractName || c.contract_name || c.id,
+      })));
+    }).catch((e) => setErr(e.message));
+  }, []);
+
+  const load = async () => {
+    if (!contractId) return;
+    setBusy(true); setErr('');
+    try { setData(await api.getMonthClose(contractId, year, month)); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const raiseInvoice = async () => {
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      await api.raiseCostPlusInvoice(contractId, year, month);
+      setMsg('Cost-plus invoice drafted from the locked sheet.');
+      await load();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const closePack = async () => {
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      await api.createSheetClosePack(contractId, year, month);
+      setMsg('Close pack created from the locked sheet.');
+      await load();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const downloadStatutory = async () => {
+    setBusy(true); setErr('');
+    try {
+      const files = await api.getStatutoryFiles(year, month, contractId);
+      const blob = new Blob([JSON.stringify(files, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `statutory_${contractId}_${year}-${String(month).padStart(2, '0')}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="mch-panel">
+      <p className="mch-lead">Nine-step month close for one contract: cycle, conflicts, calculate, lock, invoice, pay, payslips, compliance.</p>
+      {err && <div className="pch-err">{err}</div>}
+      {msg && <div className="pch-ok">{msg}</div>}
+      <div className="mch-form-grid mch-form-grid-3">
+        <label><span className="lbl">Contract</span>
+          <select value={contractId} onChange={(e) => setContractId(e.target.value)}>
+            <option value="">Select…</option>
+            {contracts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        <label><span className="lbl">Month</span>
+          <input type="number" min={1} max={12} value={month} onChange={(e) => setMonth(parseInt(e.target.value, 10) || 1)} />
+        </label>
+        <label><span className="lbl">Year</span>
+          <input type="number" value={year} onChange={(e) => setYear(parseInt(e.target.value, 10) || year)} />
+        </label>
+      </div>
+      <div className="mch-people-actions">
+        <button type="button" className="btn-primary" disabled={busy || !contractId} onClick={load}>Refresh checklist</button>
+        <button type="button" className="btn-secondary" disabled={busy || !contractId} onClick={raiseInvoice}>Raise cost-plus invoice</button>
+        <button type="button" className="btn-secondary" disabled={busy || !contractId} onClick={closePack}>Create close pack</button>
+        <button type="button" className="btn-secondary" disabled={busy || !contractId} onClick={downloadStatutory}>Statutory files</button>
+      </div>
+      {data?.steps && (
+        <ol className="mch-close-list">
+          {data.steps.map((s) => (
+            <li key={s.key} className={s.done ? 'is-done' : ''}>
+              <strong>{s.label}</strong>
+              <span className="hint">{s.detail}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {data?.progress && (
+        <p className="mch-muted">{data.progress.done}/{data.progress.total} steps done · engine {data.engine} · {data.contract?.commercial_type}</p>
+      )}
+    </div>
+  );
+}
+
+function ContactsSeedBar() {
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const seed = async () => {
+    setErr(''); setMsg('');
+    try {
+      const r = await api.seedOrgContacts();
+      setMsg(`Seeded ${r.inserted || 0} contacts from existing Focal / LM / supervisor fields.`);
+    } catch (e) { setErr(e.message); }
+  };
+  return (
+    <div className="mch-block">
+      <h3>Contacts</h3>
+      <p className="mch-muted">One contact record per role (client Focal, LM, ASIL Contract Focal, site supervisor). Seed from current employee/contract columns once.</p>
+      {err && <div className="pch-err">{err}</div>}
+      {msg && <div className="pch-ok">{msg}</div>}
+      <button type="button" className="btn-secondary" onClick={seed}>Seed contacts from existing fields</button>
+    </div>
+  );
+}
+
 export default function MonthlyCycleHub({ user }) {
   const [section, setSection] = useState('track');
   const [manualSeed, setManualSeed] = useState(null);
@@ -361,7 +705,7 @@ export default function MonthlyCycleHub({ user }) {
           <CalendarRange size={22} />
           <div>
             <h1>Monthly Cycle</h1>
-            <p>One place to configure, assign people, collect claims, track progress, and send to payroll.</p>
+            <p>One place to configure the rulebook, assign people, collect claims or a machine file, track, correct, and close the month.</p>
           </div>
         </div>
         <nav className="mch-nav">
@@ -380,9 +724,15 @@ export default function MonthlyCycleHub({ user }) {
       </header>
 
       {section === 'setup' && <MonthlyCycleSetup />}
-      {section === 'people' && <MonthlyCyclePeople />}
+      {section === 'people' && (
+        <>
+          <ContactsSeedBar />
+          <MonthlyCyclePeople />
+        </>
+      )}
       {section === 'collect' && (
         <div className="mch-panel">
+          <MachineFileCollect />
           <ClaimRequestCampaign user={user} />
         </div>
       )}
@@ -406,6 +756,7 @@ export default function MonthlyCycleHub({ user }) {
       {section === 'payroll' && (
         <PortalClaimsHub user={user} lockSection="response" hideSectionNav initialFilter="ready_for_payroll" />
       )}
+      {section === 'close' && <MonthClosePanel />}
     </div>
   );
 }

@@ -22,6 +22,7 @@ const {
     countEligibleEmployees,
     resolveClaimsCategory,
     resolveClaimsRouting,
+    resolveClaimsRoutingForEmployee,
     isFinalSubmitProfile,
     listRules,
     upsertRule,
@@ -223,8 +224,8 @@ function resolveFillerEmail(emp) {
     return auth;
 }
 
-function resolveApproverEmail(emp) {
-    return resolveClaimsRouting(emp).approverEmail;
+function resolveApproverEmail(emp, rulebook) {
+    return resolveClaimsRouting(emp, rulebook).approverEmail;
 }
 
 /** PKT wall-clock → UTC timestamptz (PKT = UTC+5). */
@@ -2537,7 +2538,8 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     const emp = await findEmployeeByCode(pool, employeeId);
     if (!emp) return { ok: false, status: 404, error: `Employee not found: ${String(employeeId).trim()}`, employeeId };
     const resolvedId = emp.id;
-    const approverEmail = resolveApproverEmail(emp);
+    const routing = await resolveClaimsRoutingForEmployee(pool, emp);
+    const approverEmail = routing.approverEmail;
     const period = await getOrCreatePeriodForClaimMonth(pool, wm, wy);
     const { rows: subRows } = await pool.query(
         `SELECT * FROM portal_claim_submissions WHERE period_id = $1 AND employee_id = $2`,
