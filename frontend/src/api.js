@@ -54,6 +54,12 @@ export async function apiFetch(path, options = {}) {
 export const api = {
     // ── Employees ────────────────────────────────────────────────────────────
     getEmployees: () => { const c = _cacheGet('employees'); if (c) return Promise.resolve(c); return apiFetch('/api/employees').then(d => { _cacheSet('employees', d); return d; }); },
+    lookupEmployee: ({ id, cnic } = {}) => {
+        const q = new URLSearchParams();
+        if (id) q.set('id', String(id).trim());
+        if (cnic) q.set('cnic', String(cnic).trim());
+        return apiFetch(`/api/employees/lookup?${q.toString()}`);
+    },
     createEmployee: (data) => apiFetch('/api/employees', { method: 'POST', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
     updateEmployee: (id, data) => apiFetch(empPath(id), { method: 'PUT', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
     getSalaryRevisions: (id) => apiFetch(empPath(id, '/salary-revisions')),

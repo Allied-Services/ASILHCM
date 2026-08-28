@@ -43,6 +43,12 @@ const { buildWorldAPayslipData } = require('./src/modules/payslip/dataBuilder');
 const { renderPayslipHtml: renderWorldAPayslipHtml } = require('./src/modules/payslip/template');
 const { routingFieldsFromBody, routingFieldsFromRow, bodyHasClaimAuthority } = require('./src/modules/employees/contactEmails');
 const { renameEmployeeId, normalizeEmployeeId } = require('./src/modules/employees/renameEmployeeId');
+const { parseDateOrNull } = require('./src/core/dateParse');
+const {
+    findEmployeeConflicts,
+    cnicTakenMessage,
+    mapEmployeeWriteError,
+} = require('./src/modules/employees/employeeWrite');
 const { requirePayrollSheet } = require('./src/modules/payrollSheet/access');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
@@ -440,19 +446,19 @@ app.get('/api/debug/bonus-check', requireAuth, requireRole('superadmin'), async 
     } catch (err) { console.error('[GET /api/debug/bonus-check]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-const nullDate = (d) => (d && d !== '' && d !== 'undefined') ? d : null;
+const nullDate = (d) => parseDateOrNull(d);
 const toDateStr = d => !d ? '' : (d instanceof Date ? d.toISOString().slice(0,10) : String(d).slice(0,10));
 const nullNum = (n) => (n !== '' && n != null) ? parseFloat(n) || null : null;
 
 const empToDb = (e) => ({
-    id: e.id || `ASIL-${Date.now()}`,
+    id: (e.id && String(e.id).trim()) || `ASIL-${Date.now()}`,
     bu: e.bu || null, active: e.active || 'Yes',
     client: e.client || null, client_bu: e.clientBU || null,
     dept: e.dept || null, designation: e.designation || null,
     location: e.location || null, site: e.site || null, province: e.province || null,
-    name: e.name,
+    name: (e.name && String(e.name).trim()) || null,
     father_name: e.fatherName || null, mother_name: e.motherName || null,
-    cnic: e.cnic || null,
+    cnic: (e.cnic && String(e.cnic).trim()) || null,
     cnic_issue: nullDate(e.cnicIssue), cnic_expiry: nullDate(e.cnicExpiry),
     place_of_birth: e.placeOfBirth || null, eobi_no: e.eobiNo || null,
     religion: e.religion || null, marital_status: e.maritalStatus || null,
@@ -539,6 +545,19 @@ const {
     importMasterRosterCsv,
     MASTER_ROSTER_COLUMNS,
 } = require('./src/modules/employees/masterRoster');
+
+app.get('/api/employees/lookup', requireAuth, async (req, res) => {
+    try {
+        const id = String(req.query.id || '').trim();
+        const cnic = String(req.query.cnic || '').trim();
+        if (!id && !cnic) return res.status(400).json({ error: 'id or cnic is required' });
+        const found = await findEmployeeConflicts(pool, { id, cnic });
+        res.json(found);
+    } catch (err) {
+        console.error('[GET /api/employees/lookup]', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 app.get('/api/employees/export', requireAuth, requireRole('superadmin', 'hr_manager', 'operations', 'operations_supervisor', 'operations_team', 'finance_manager', 'finance_approver'), async (req, res) => {
     try {
@@ -742,16 +761,28 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
 app.post('/api/employees', requireAuth, async (req, res) => {
     try {
         const d = empToDb(req.body);
+        if (!d.name) return res.status(400).json({ error: 'Employee name is required.' });
+        if (!d.cnic) return res.status(400).json({ error: 'CNIC is required.' });
+        const conflicts = await findEmployeeConflicts(pool, { id: d.id, cnic: d.cnic });
+        if (conflicts.byCnic && conflicts.byCnic.id !== d.id) {
+            return res.status(409).json({
+                error: cnicTakenMessage(conflicts.byCnic, d.cnic),
+                code: 'CNIC_TAKEN',
+                existing: conflicts.byCnic,
+            });
+        }
         const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'claim_authority', 'claims_reviewer_email', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
-        const vals = cols.map(c => d[c]);
+        const vals = cols.map(c => (d[c] === undefined ? null : d[c]));
         const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
-        const updates = cols.slice(1).map((c, i) => `${c}=EXCLUDED.${c}`).join(',');
+        const updates = cols.slice(1).map((c) => `${c}=EXCLUDED.${c}`).join(',');
         const { rows } = await pool.query(
             `INSERT INTO employees (${cols.join(',')}) VALUES (${placeholders}) ON CONFLICT (id) DO UPDATE SET ${updates}, updated_at=NOW() RETURNING *`,
             vals
         );
-        res.json({ employee: empFromDb(rows[0]) });
+        res.json({ employee: empFromDb(rows[0]), updatedExisting: !!conflicts.byId });
     } catch (err) {
+        const mapped = mapEmployeeWriteError(err, { id: req.body?.id, cnic: req.body?.cnic });
+        if (mapped) return res.status(mapped.status).json(mapped.body);
         console.error('[POST /api/employees]', err);
         res.status(500).json({ error: 'Internal server error' });
     }
@@ -777,7 +808,7 @@ app.put('/api/employees/:id', requireAuth, async (req, res) => {
         // Old profile saves omit Focal — do not wipe claim_authority unless the client sent it.
         if (!bodyHasClaimAuthority(req.body)) cols = cols.filter(c => c !== 'claim_authority');
         const setClauses = cols.map((c, i) => `${c}=$${i + 1}`).join(',');
-        const vals = [...cols.map(c => d[c]), targetId];
+        const vals = [...cols.map(c => (d[c] === undefined ? null : d[c])), targetId];
         const { rows } = await pool.query(
             `UPDATE employees SET ${setClauses}, updated_at=NOW() WHERE id=$${cols.length + 1} RETURNING *`,
             vals
@@ -788,6 +819,8 @@ app.put('/api/employees/:id', requireAuth, async (req, res) => {
         if (err.status === 400 || err.status === 403 || err.status === 404 || err.status === 409) {
             return res.status(err.status).json({ error: err.message, code: err.code });
         }
+        const mapped = mapEmployeeWriteError(err, { id: req.body?.id || req.params.id, cnic: req.body?.cnic });
+        if (mapped) return res.status(mapped.status).json(mapped.body);
         console.error('[PUT /api/employees/:id]', err);
         res.status(500).json({ error: 'Internal server error' });
     }
