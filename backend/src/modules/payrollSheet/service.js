@@ -199,14 +199,47 @@ async function loadSheetEmployees(pool, { year, month, client, contractId, emplo
     return rows;
 }
 
+function claimCompareFromPortalMap(portalByEmp) {
+    const byEmployee = {};
+    if (!portalByEmp) return byEmployee;
+    for (const [empId, portal] of portalByEmp) {
+        const agg = portalToClaimAgg(portal);
+        byEmployee[empId] = {
+            expense: agg.expense,
+            opd: agg.opd,
+            ot2: agg.ot2,
+            ot3: agg.ot3,
+        };
+    }
+    return byEmployee;
+}
+
+async function loadPayrollClaimCompare(pool, year, month, opts = {}) {
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10);
+    if (!y || !m) return { byEmployee: {} };
+    const employees = await loadSheetEmployees(pool, {
+        year: y,
+        month: m,
+        client: opts.client,
+        contractId: opts.contractId,
+        employeeIds: opts.employeeIds,
+    });
+    const empIds = employees.map((e) => e.id);
+    if (!empIds.length) return { byEmployee: {} };
+    const portalByEmp = await loadApprovedPortalClaimsForPayMonth(pool, empIds, y, m);
+    return { byEmployee: claimCompareFromPortalMap(portalByEmp) };
+}
+
 /**
  * Calculate payroll for a World A month and persist results.
  * @param {object} opts
  * @param {string} [opts.client] filter
  * @param {string} [opts.contractId] filter
  * @param {string[]} [opts.employeeIds] filter
- * @param {boolean} [opts.keepSheetClaimInputs=false] if true, sheet OT/OPD/reimb win over claims
  * @param {boolean} [opts.dryRun=false]
+ * canonical fills empty sheet OT/OPD/reimb from claims/attendance/hub;
+ * sheet cells already > 0 (typed) always win.
  */
 async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
     const y = parseInt(year, 10);
@@ -240,7 +273,15 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         employeeIds: opts.employeeIds,
     });
     if (!employees.length) {
-        return { ok: true, year: y, month: m, updated: 0, rows: [], warnings: [{ code: 'NO_EMPLOYEES', message: 'No employees in scope' }] };
+        return {
+            ok: true,
+            year: y,
+            month: m,
+            updated: 0,
+            rows: [],
+            warnings: [{ code: 'NO_EMPLOYEES', message: 'No employees in scope' }],
+            claimCompare: { byEmployee: {} },
+        };
     }
 
     const empIds = employees.map((e) => e.id);
@@ -293,12 +334,10 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
     //    that settle in this pay month (July work → August sheet for Wafi)
     const sourceMode = opts.sourceMode === 'canonical' ? 'canonical' : 'sheet_inputs';
     let portalByEmp = new Map();
-    if (sourceMode === 'canonical') {
-        try {
-            portalByEmp = await loadApprovedPortalClaimsForPayMonth(pool, empIds, y, m);
-        } catch (err) {
-            console.error('[payrollSheet.calculate] portal claims', err);
-        }
+    try {
+        portalByEmp = await loadApprovedPortalClaimsForPayMonth(pool, empIds, y, m);
+    } catch (err) {
+        console.error('[payrollSheet.calculate] portal claims', err);
     }
 
     const warnings = [];
@@ -354,7 +393,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         const attOt = deriveOtHours(att, holidayDateSet);
         const empClaims = claimsByEmp.get(emp.id) || [];
         let claimAgg = aggregateClaimInputs(empClaims);
-        const portal = portalByEmp.get(emp.id);
+        const portal = sourceMode === 'canonical' ? portalByEmp.get(emp.id) : null;
         if (portal) {
             claimAgg = mergeClaimAgg(claimAgg, portalToClaimAgg(portal));
         }
@@ -530,7 +569,8 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         month: m,
         updated: payloads.length,
         dryRun: !!opts.dryRun,
-        claimsMerged: portalByEmp.size,
+        claimsMerged: sourceMode === 'canonical' ? portalByEmp.size : 0,
+        claimCompare: { byEmployee: claimCompareFromPortalMap(portalByEmp) },
         warnings,
         rows: payloads.map((p) => ({
             employee_id: p.employee_id,
@@ -708,6 +748,8 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
 
 module.exports = {
     calculatePayrollSheet,
+    loadPayrollClaimCompare,
+    claimCompareFromPortalMap,
     assertMonthUnlocked,
     sheetCalcFromEngine,
     resolvePayrollSheetInputs: require('./resolveInputs').resolvePayrollSheetInputs,

@@ -532,3 +532,20 @@
   color: var(--text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+.ps-edit-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.ps-edit-cell__note {
+  font-size: 0.58rem;
+  line-height: 1.2;
+  color: var(--text-muted);
+  max-width: 9.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
