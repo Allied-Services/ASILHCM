@@ -100,8 +100,84 @@ function resolvePayrollSheetPaidDays({
     return { paidDays, presentDaysForModelA, absentDaysForModelA };
 }
 
+/**
+ * 22–27 "present" on a 28–31 day month is weekday attendance, not unpaid
+ * Sunday-leave. Sunday is a paid holiday. Paid Days stay the calendar month.
+ */
+function isWeekdayShapedPaidDays(paidDays, calendarDays) {
+    const pd = num(paidDays, 0);
+    const cal = num(calendarDays, 0);
+    if (cal < 28 || cal > 31) return false;
+    if (pd < 22 || pd > 27) return false;
+    return pd < cal;
+}
+
+function liftPaidDaysToCalendarMonth(paidDays, calendarDays, { explicitAbsent = false } = {}) {
+    const cal = num(calendarDays, 0) || 30;
+    if (explicitAbsent) return num(paidDays, 0);
+    const pd = num(paidDays, 0);
+    if (pd <= 0) return cal;
+    if (isWeekdayShapedPaidDays(pd, cal)) return cal;
+    return pd;
+}
+
+/**
+ * Model A flags for Payroll Sheet Calculate.
+ *
+ * Paid Days default to the calendar month (30/31). A stored 26 (weekdays)
+ * is Sundays-paid, not four days unpaid — otherwise 40,000 + OT 11,154
+ * becomes Gross 45,821 instead of 51,154.
+ *
+ * Leave / Other Deduction cut pay. Do not shrink Paid Days for Sundays.
+ * Mid-month joiners with a real short calendar count (e.g. 20) still prorate.
+ */
+function resolveSheetModelAComputeInput({
+    paidDays,
+    workingDays,
+    presentDaysForModelA,
+    absentDaysForModelA,
+    sheetPaidDays,
+    modelABasis = 30,
+    calendarDays,
+}) {
+    const cal = num(calendarDays, 0) || num(modelABasis, 30) || 30;
+    const hasExplicitAbsent = absentDaysForModelA != null && absentDaysForModelA !== '';
+    const raw = sheetPaidDays == null || sheetPaidDays === ''
+        ? num(paidDays, 0)
+        : num(sheetPaidDays);
+    const lifted = liftPaidDaysToCalendarMonth(raw || num(paidDays, 0), cal, {
+        explicitAbsent: hasExplicitAbsent,
+    });
+
+    if (hasExplicitAbsent) {
+        const absent = num(absentDaysForModelA);
+        return {
+            modelA: true,
+            absentDays: absent,
+            expectedDays: cal,
+            calendarBasis: cal,
+            presentDays: presentDaysForModelA != null
+                ? num(presentDaysForModelA)
+                : Math.max(0, cal - absent),
+            // PD Days stay the full month; the cut is the absence line.
+            persistPaidDays: cal,
+        };
+    }
+
+    return {
+        modelA: true,
+        presentDays: lifted,
+        expectedDays: cal,
+        calendarBasis: cal,
+        persistPaidDays: lifted,
+    };
+}
+
 module.exports = {
     resolvePayrollSheetInputs,
     resolvePayrollSheetPaidDays,
+    resolveSheetModelAComputeInput,
+    isWeekdayShapedPaidDays,
+    liftPaidDaysToCalendarMonth,
     num,
 };

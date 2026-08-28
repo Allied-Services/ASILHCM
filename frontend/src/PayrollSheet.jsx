@@ -5,6 +5,8 @@ import {
     downloadCSV,
     buildPayrollCSV, buildHBLFile, buildWHTFile, buildEOBIFile, buildSESSIFile,
     COMPANY,
+    liftPaidDaysToCalendarMonth,
+    isWeekdayShapedPaidDays,
 } from './payrollUtils';
 import { api } from './api';
 import { claimsBadgeStyle } from './utils/claimsRouting';
@@ -262,12 +264,15 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                         errs.push(`Row ${i + 2}: Present Days ${rawPresent} exceeds Working Days ${workDays} — not truncated`);
                     }
                     const presentDays = rawPresent;
-                    const leaveDays = Math.max(0, workDays - presentDays);
+                    const paidDays = liftPaidDaysToCalendarMonth(presentDays, workDays);
+                    const leaveDays = isWeekdayShapedPaidDays(presentDays, workDays)
+                        ? 0
+                        : Math.max(0, workDays - presentDays);
                     // Special Allowance column is bonus verification in Excel — never import as special_allowance.
                     // Bonus disbursement comes from contract auto-calc only.
                     rows.push({
                         empId:             match.id,
-                        paid_days:         presentDays,
+                        paid_days:         paidDays,
                         ot2_hrs:           n(obj['OT Hrs @ 2X']),
                         ot3_hrs:           n(obj['OT Hrs @ 3X']),
                         opd_claim:         n(obj['OPD']),
@@ -324,7 +329,7 @@ function ImportModal({ onApply, onClose, employees = [], workDays = 26 }) {
                         <strong>Required:</strong> ASIL Employee Code (primary match key).<br />
                         <strong>Optional:</strong> Month, Year, Emp Name (fuzzy warn), Present Days, OT Hrs @ 2X/3X, OPD, Expense Reimbursement, Arrears, Fuel/Mobile, Other Deduction, Remarks.<br />
                         <strong style={{ color: '#f59e0b' }}>Special Allowance:</strong> Not imported — bonus comes from contract settings only.<br />
-                        <strong style={{ color: '#f59e0b' }}>Present Days:</strong> If less than Working Days ({workDays}), the difference is treated as unauthorized leave and salary is deducted. Notified leave = show full {workDays} days.
+                        <strong style={{ color: '#f59e0b' }}>Present Days:</strong> Paid Days stay the full calendar month ({workDays}). Sundays are paid. Do not enter weekday counts (26) here — that is not unpaid leave. Cuts go in Other Deduction. Mid-month join/exit: enter the actual calendar days paid.
                     </div>
                     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
                         <button onClick={downloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
