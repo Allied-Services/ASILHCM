@@ -265,10 +265,18 @@ function computePrSheetRow(input, policy = {}) {
         : calculateEOBI();
     // SESSI: flat Rs. 2,400 (6% × Rs. 40,000 min wage) when contractual salary < 45,000.
     const sessiEr = salary < 45000 ? 2400 : 0;
-    const hasPfOverride = input.pfDeduction != null;
-    const pfDeductionExact = hasPfOverride ? Number(input.pfDeduction) : 0;
-    const pfDeduction = hasPfOverride ? Math.round(pfDeductionExact) : 0;
-    const pfForNet = hasPfOverride ? pfDeductionExact : pfDeduction;
+    const eosbType = String(input.eosbType || input.eosb_type || '').trim();
+    const isPF = eosbType === 'Provident Fund';
+    // Explicit pfDeduction (Excel / monthly override) wins. A stored/default 0 on a
+    // PF contract is not an override — it must not wipe Gross ÷ 24.
+    const rawPf = input.pfDeduction;
+    const numericPf = rawPf == null || rawPf === '' ? null : Number(rawPf);
+    const hasPfOverride = numericPf != null && Number.isFinite(numericPf) && !(isPF && numericPf === 0);
+    const autoPf = isPF ? Math.round(Number(salary) / 24) : 0;
+    const pfDeductionExact = hasPfOverride ? numericPf : autoPf;
+    const pfDeduction = Math.round(pfDeductionExact || 0);
+    const pfForNet = hasPfOverride ? numericPf : pfDeduction;
+    const pfER = isPF ? pfDeduction : 0;
     const whtForNet = input.wht != null ? whtExact : wht;
     const totalDeductions = wht + pfDeduction + eobi.employeeShare + Math.round(otherDeduction);
     const netPay = Math.round(gross - whtForNet - pfForNet - eobi.employeeShare - otherDeduction);
@@ -286,14 +294,19 @@ function computePrSheetRow(input, policy = {}) {
     const bonusAccrual = contractBonusMonths != null
         ? (contractBonusMonths > 0 ? Math.round(contractBonusMonths * salary / 12) : 0)
         : (policyBonusDivisor > 0 ? Math.round(salary / policyBonusDivisor) : 0);
-    const gratuityAccrual = gratuityMonths > 0 ? Math.round(salary / gratuityMonths) : 0;
+    // PF and Gratuity are mutually exclusive. Unset eosbType keeps legacy Excel behaviour
+    // (gratuity always accrued) so World B parity fixtures stay unchanged.
+    const gratuityAccrual = isPF
+        ? 0
+        : (gratuityMonths > 0 ? Math.round(salary / gratuityMonths) : 0);
     const eobiEr = eobi.employerShare;
     const lifeInsurance = Number(input.lifeInsurance || 150);
     const medicalCoverage = Number(input.medicalCoverage || 0);
     const eduCess = policy.edu_cess_enabled ? Math.round(grossForTPC * 0.0833) : 0;
 
     // Bonus disbursement is in net pay (gross) but excluded from TPC — client provisioned via monthly accrual.
-    const totalPayrollCost = grossForTPC + eduCess + sessiEr + eobiEr + bonusAccrual + gratuityAccrual + lifeInsurance;
+    // PF employer match is billed only when the contract EOSB scheme is Provident Fund.
+    const totalPayrollCost = grossForTPC + eduCess + sessiEr + eobiEr + bonusAccrual + gratuityAccrual + lifeInsurance + pfER;
     const scPct = Number(policy.service_charge_pct ?? 0.18);
     const serviceCharges = Math.round(totalPayrollCost * scPct);
     const stRate = Number(input.salesTaxRate ?? 0.18);

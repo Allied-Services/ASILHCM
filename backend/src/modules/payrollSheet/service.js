@@ -505,11 +505,17 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             medicalCoverage,
             lifeInsurance,
             contractBonusMonths: costs.bonus_months,
+            eosbType: costs.eosb_type,
             salesTaxRate,
             excludeBonusFromWht,
             month: m,
             year: y,
         };
+        // monthly_attendance_overrides.pf_deduction defaults to 0 — only a positive
+        // value is a real override. A zero must not wipe contract PF.
+        if (monthlyOv && Number(monthlyOv.pf_deduction) > 0) {
+            computeInput.pfDeduction = Number(monthlyOv.pf_deduction);
+        }
 
         // Paid Days = calendar month. Weekday 26 is Sundays-paid, not a 26/30 cut.
         const modelABasis = num(policy.standard_month_days, 30) || 30;

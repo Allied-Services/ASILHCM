@@ -173,7 +173,7 @@ function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
                     <S title="Employee Deductions" color="#f43f5e">
                         <R label="Income Tax (WHT)" formula={`Taxable Annual Rs.${fmt(calc.taxableMonthly*12)} → FBR 2025-26 ÷ 12`} value={calc.incomeTax} color="#f43f5e" />
                         <R label="EOBI Employee — Fixed" formula="1% × Rs. 40,000 (statutory minimum wage)" value={calc.eobi_ee} />
-                        {emp.pf_enrolled && <R label="PF Employee (Gross ÷ 24)" formula={`${fmt(emp.gross || 0)} ÷ 24`} value={calc.pfEE} />}
+                        {(calc.pfEE > 0 || cfg.eosb_type === 'Provident Fund' || emp.pf_enrolled) && <R label="PF Employee (Gross ÷ 24)" formula={`${fmt(emp.gross || 0)} ÷ 24`} value={calc.pfEE} />}
                         {calc.advanceDed > 0 && <R label="Advance Recovery" value={calc.advanceDed} />}
                         {calc.loanDed > 0 && <R label="Loan Installment" value={calc.loanDed} />}
                         <D label="Total Deductions" value={calc.totalDeductions} color="#f43f5e" />
@@ -191,7 +191,7 @@ function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
                         {calc.medSP > 0 && <R label="Medical — Spouse" value={calc.medSP} />}
                         {calc.medCh1 > 0 && <R label="Medical — Child 1" value={calc.medCh1} />}
                         {calc.medCh2 > 0 && <R label="Medical — Child 2" value={calc.medCh2} />}
-                        {(emp.pf_enrolled || calc.pfER > 0) && <R label="PF Employer Match (Gross ÷ 24)" formula={`Gross ÷ 24 ≈ 4.17%`} value={calc.pfER} />}
+                        {(emp.pf_enrolled || calc.pfER > 0 || cfg.eosb_type === 'Provident Fund') && <R label="PF Employer Match (Gross ÷ 24)" formula={`Gross ÷ 24 ≈ 4.17%`} value={calc.pfER} />}
                         {(cfg.bonus_months ?? 0) === 0
                             ? <R label="Bonus Accrual" formula="No bonus applicable for this contract" value={0} muted />
                             : <R label={`Bonus Accrual (${cfg.bonus_months ?? 0} month${cfg.bonus_months !== 1 ? 's' : ''}/yr)`} formula={`${cfg.bonus_months ?? 0} × Gross ÷ 12`} value={calc.bonusAccrual} muted={!calc.bonusAccrual} />}
