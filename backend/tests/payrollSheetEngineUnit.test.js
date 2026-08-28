@@ -43,4 +43,70 @@ describe('payrollSheet sheetCalcFromEngine', () => {
         expect(calc.grossMonthly).toBe(computed.gross);
         expect(calc.serverComputed).toBe(true);
     });
+
+    test('Provident Fund contract deducts Gross ÷ 24 and matches employer PF (no gratuity)', () => {
+        const salary = 48000;
+        const computed = computePrSheetRow({
+            newSalary: salary,
+            presentDays: 30,
+            expectedDays: 30,
+            modelA: true,
+            eosbType: 'Provident Fund',
+            lifeInsurance: 150,
+        }, { standard_month_days: 30, service_charge_pct: 0.18, gratuity_accrual_months: 12 });
+
+        const pf = Math.round(salary / 24);
+        expect(computed.pfDeduction).toBe(pf);
+        expect(computed.gratuityAccrual).toBe(0);
+        expect(computed.netPay).toBe(computed.gross - computed.wht - pf - computed.eobiEmployee);
+
+        const withoutPf = computePrSheetRow({
+            newSalary: salary,
+            presentDays: 30,
+            expectedDays: 30,
+            modelA: true,
+            lifeInsurance: 150,
+        }, { standard_month_days: 30, service_charge_pct: 0.18, gratuity_accrual_months: 12 });
+        // PF ER replaces gratuity: TPC delta = pfER − gratuity
+        expect(computed.totalPayrollCost).toBe(withoutPf.totalPayrollCost - withoutPf.gratuityAccrual + pf);
+
+        const calc = sheetCalcFromEngine(computed, { paid_days: 30 }, { newSalary: salary });
+        expect(calc.pfEE).toBe(pf);
+        expect(calc.pfER).toBe(pf);
+        expect(calc.gratuity).toBe(0);
+        expect(calc.netPay).toBe(computed.netPay);
+    });
+
+    test('PF contract ignores stored pfDeduction of 0 (default column must not wipe PF)', () => {
+        const salary = 37933;
+        const computed = computePrSheetRow({
+            newSalary: salary,
+            presentDays: 30,
+            expectedDays: 30,
+            modelA: true,
+            eosbType: 'Provident Fund',
+            pfDeduction: 0,
+        }, { standard_month_days: 30, service_charge_pct: 0.18 });
+        expect(computed.pfDeduction).toBe(Math.round(salary / 24));
+    });
+
+    test('without eosbType, PF stays 0 unless an explicit positive override is passed', () => {
+        const none = computePrSheetRow({
+            newSalary: 48000,
+            presentDays: 30,
+            expectedDays: 30,
+            modelA: true,
+        }, { standard_month_days: 30, service_charge_pct: 0.18 });
+        expect(none.pfDeduction).toBe(0);
+        expect(none.gratuityAccrual).toBe(Math.round(48000 / 12));
+
+        const override = computePrSheetRow({
+            newSalary: 48000,
+            presentDays: 30,
+            expectedDays: 30,
+            modelA: true,
+            pfDeduction: 1667,
+        }, { standard_month_days: 30, service_charge_pct: 0.18 });
+        expect(override.pfDeduction).toBe(1667);
+    });
 });

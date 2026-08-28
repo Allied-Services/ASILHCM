@@ -568,7 +568,10 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             if (ov.fuel_mobile != null) inputs.fuelMobile = Number(ov.fuel_mobile) || 0;
             if (ov.other_deduction != null) inputs.otherDeduction = Number(ov.other_deduction) || 0;
             if (ov.leave_deduction != null) inputs.leaveDeduction = Number(ov.leave_deduction) || 0;
-            if (ov.pf_deduction != null) inputs.pfDeduction = Number(ov.pf_deduction) || 0;
+            // Column defaults to 0; only a positive value is a real PF override.
+            if (ov.pf_deduction != null && Number(ov.pf_deduction) > 0) {
+                inputs.pfDeduction = Number(ov.pf_deduction);
+            }
             if (ov.income_tax != null) inputs.wht = Number(ov.income_tax);
             if (ov.eobi_employee != null) inputs.eobiEmployee = Number(ov.eobi_employee);
             if (ov.salary_for_days != null) inputs.salaryForDays = Number(ov.salary_for_days);
@@ -625,6 +628,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             lifeInsurance,
             medicalCoverage: computeMedicalCoverage(emp, contractCosts),
             contractBonusMonths: contractCosts.bonus_months,
+            eosbType: contractCosts.eosb_type,
             bonusDisbursement,
             excludeBonusFromWht: Number(month) === 7 && Number(year) === 2026
                 && isWafiBpoJulyContext({ employeeId: emp.id, contractId }),
@@ -808,6 +812,7 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
         ot3,
         salesTaxRate: 0.18,
         contractBonusMonths: contractCosts.bonus_months,
+        eosbType: contractCosts.eosb_type,
         bonusDisbursement,
         excludeBonusFromWht: Number(periodMonth) === 7 && Number(periodYear) === 2026
             && isWafiBpoJulyContext({ employeeId: row.employee_id, contractId: runRows[0].contract_id }),
