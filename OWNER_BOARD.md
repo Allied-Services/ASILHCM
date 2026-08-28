@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-27 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-28 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -9,7 +9,7 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — August Wafi Calculate with Merge approved Portal Claims did not pull July Portal Claims (it only read August `employee_claims`). Fix on `agent/aug-calc-merge`. Do not lock or disburse. Do not re-Calculate July Wafi on live.
+STATUS: **AMBER** — Merge fix is live on prod (`50dab1b` / #133). August Wafi still needs Calculate with **Merge approved Portal Claims** ticked (dry-run said ~133 people would get OT / expense / medical). Do not lock or disburse. Do not re-Calculate July Wafi on live.
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -36,7 +36,7 @@ STATUS: **YELLOW** — August Wafi Calculate with Merge approved Portal Claims d
 ---
 
 ## TOP LINE (for agents / morning brief)
-**August Wafi sheet is still empty of July claims.** Portal Claims has 133 approved July people; Calculate’s merge checkbox looked at August `employee_claims` (almost empty). Fix on `agent/aug-calc-merge`: merge July Portal Claims that settle in August. Then Calculate with the checkbox on. Do not lock or disburse. Do not re-Calculate July Wafi on live.
+**Merge code is live; August Calculate with Merge still needs to run.** #133 shipped: Calculate with Merge now pulls approved July Portal Claims that settle in August (~133 people in dry-run). Open August Payroll Sheet → tick **Merge approved Portal Claims** → Calculate. Do not lock or disburse. Do not re-Calculate July Wafi on live.
 
 ---
 
@@ -57,7 +57,7 @@ STATUS: **YELLOW** — August Wafi Calculate with Merge approved Portal Claims d
 ### Infrastructure / ops
 9. **Staging cold starts** — free tier sleeps; verify after wake before calling staging "broken"
 10. **Local tests on GDrive** — `jest` node_modules corrupt; use temp clone or CI for counts
-11. **Morning brief Automation** — email only; not switched on until you say so
+11. **Morning brief Automation** — weekday cron runs; **email delivery still not connected** (HTML + PR only until you connect Email on the Automation)
 
 ### Parked until mission gate clears
 12. **Imprest workflow** — bill type exists; no dedicated process
@@ -70,7 +70,11 @@ STATUS: **YELLOW** — August Wafi Calculate with Merge approved Portal Claims d
 ## IN PROGRESS
 - BPO / PSO contract matching on staging (separate track — do not block)
 
+## JUST SHIPPED (2026-08-28)
+- **Morning brief** — site OK (`50dab1b`); mission AMBER; no open work PRs needing owner; email still not sent (delivery not connected)
+
 ## JUST SHIPPED (2026-08-27)
+- **August Calculate merges July Portal Claims** — #133 on main / live (`50dab1b`). With Merge checked, approved July claims that settle in August fill OT / expense / medical. Default Calculate unchanged. July salary not touched. Calculate-with-Merge on the August sheet still pending.
 - **Portal Claims shows the July upload** — Response lists OT / expense / medical; Review and Push writes them onto the August Payroll Sheet (replaces a previous send that did not land). Then Calculate / Update Payroll. July salary not touched. No emails.
 - **11 missed July claims loaded** — the 10 Excel thousand-comma rows plus Asif Arain (`ASIL/SPL-304/21`, 9 OT x2) are now July portal approved, payable with August. No email. July salary untouched. FM codes were already in from the first upload.
 - **Portal Claims CSV safe import** — Excel amounts like 80,823 import as 80823; template example ASIL/SPL-001 is blocked with a visible reason; Send to LM = N still replaces July portal only and sends no email.
@@ -93,6 +97,7 @@ STATUS: **YELLOW** — August Wafi Calculate with Merge approved Portal Claims d
 ## BLOCKED ON YOU
 - Payroll team **Excel export** for pilot shadow month (S5B) — see `scripts/VARIANCE_INPUT_FORMAT.md`
 - **MD sign-off** on zero-variance report before any production pay through new engine
+- **Connect Email** on the morning Automation (https://cursor.com/automations/5e5c7662-8dce-11f1-a7d1-d6b4613131ce) — digests stay email-only; no SMS/WhatsApp/Twilio
 - **Go red:** production disbursement, prod engine-flag flip, Render secrets (Resend, Jazz, OpenAI, Xero)
 
 ---
