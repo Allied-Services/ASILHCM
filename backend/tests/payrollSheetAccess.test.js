@@ -25,7 +25,7 @@ describe('canAccessPayrollSheet', () => {
 
     test('custom payroll.edit works without a payroll role', () => {
         const user = {
-            role: 'operations',
+            role: 'operations_team',
             email: 'sadia.komal@asil.com.pk',
             permissions: { payroll: { access: true, subPerms: ['view', 'edit', 'lock', 'export'] } },
         };
