@@ -55,6 +55,8 @@ export const api = {
     getEmployees: () => { const c = _cacheGet('employees'); if (c) return Promise.resolve(c); return apiFetch('/api/employees').then(d => { _cacheSet('employees', d); return d; }); },
     createEmployee: (data) => apiFetch('/api/employees', { method: 'POST', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
     updateEmployee: (id, data) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
+    getSalaryRevisions: (id) => apiFetch(`/api/employees/${encodeURIComponent(id)}/salary-revisions`),
+    createSalaryRevision: (id, payload) => apiFetch(`/api/employees/${encodeURIComponent(id)}/salary-revisions`, { method: 'POST', body: JSON.stringify(payload) }).then(d => { _cacheClear('employees'); return d; }),
     deleteEmployee: (id) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(d => { _cacheClear('employees'); return d; }),
     bulkImportEmployees: (employees, notifyNew = false) => apiFetch('/api/employees/bulk', { method: 'POST', body: JSON.stringify({ employees, notifyNew }) }),
     exportMasterRoster: async () => {

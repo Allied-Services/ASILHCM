@@ -1,0 +1,126 @@
+/* Compact Payroll Sheet salary + revise control (dark theme) */
+
+.src-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  position: relative;
+  min-width: 96px;
+}
+
+.src-amount {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.src-revise {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--primary);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+
+.src-revise:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.src-revise:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.src-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: 220px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  text-align: left;
+}
+
+.src-popover h4 {
+  margin: 0 0 0.6rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.src-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.5rem;
+}
+
+.src-field label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.src-field input,
+.src-field select {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.src-error {
+  color: #f43f5e;
+  font-size: 0.72rem;
+  margin: 0 0 0.45rem;
+}
+
+.src-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.src-actions button {
+  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.src-cancel {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.src-save {
+  background: #22c55e;
+  border: none;
+  color: #fff;
+}
+
+.src-save:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
