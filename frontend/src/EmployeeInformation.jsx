@@ -344,9 +344,12 @@ export default function EmployeeInformation({ user }) {
 
     const closeAdd = () => { setShowAdd(false); setCsvRows([]); setCsvErr(''); setForm(EMPTY_FORM); setSec(SECTIONS[0]); if (fileRef.current) fileRef.current.value = ''; };
 
-    const updateEmployee = async (updated) => {
-        setEmps(p => p.map(e => e.id === updated.id ? updated : e)); setProfile(updated); // optimistic
-        try { await api.updateEmployee(updated.id, updated); } catch (err) { console.error('Sync error:', err.message); }
+    const updateEmployee = async (updated, meta = {}) => {
+        const fromId = meta.previousId || updated.id;
+        setEmps(p => p.map(e => (e.id === fromId || e.id === updated.id) ? updated : e));
+        setProfile(updated);
+        if (meta.alreadySaved) return;
+        try { await api.updateEmployee(fromId, updated); } catch (err) { console.error('Sync error:', err.message); }
     };
 
     const deleteEmployee = async (emp) => {

@@ -45,7 +45,7 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 | Entity | Use this table | Do not use |
 |---|---|---|
 | AR invoices | `client_invoices` | `invoices` (legacy) |
-| Employees | `employees` | — |
+| Employees | `employees` — `id` is the staff code (slashes allowed, e.g. `ASILFM/SPL/22/167`). Changing it on save rewrites related `employee_id` rows. | — |
 | Employee salary (dated) | `employee_salary_revisions` — effective year/month; Calculate uses `salaryAsOf` | in-memory `emp.salaryHistory` |
 | Payroll history | `payroll_transactions` (legacy + history); `salary_used` is the Calculate-time salary snapshot | — |
 | Payroll runs (World B) | `payroll_runs`, `payroll_run_rows` | — |
