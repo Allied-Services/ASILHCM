@@ -7,11 +7,12 @@ const {
 } = require('../src/modules/employees/renameEmployeeId');
 const { mockPool, makeToken } = require('./setup');
 
-function makeClient({ found = true, taken = false, row, tables = ['payroll_transactions', 'employee_claims'] } = {}) {
+function makeClient({ found = true, taken = false, cnicOthers = [], row, tables = ['payroll_transactions', 'employee_claims'] } = {}) {
     const queries = [];
     const employee = row || {
         id: 'ASIL-1787922714735',
         name: 'Test Person',
+        cnic: '42401-6159297-5',
         salary: 50000,
         updated_at: new Date('2026-08-01'),
     };
@@ -25,6 +26,9 @@ function makeClient({ found = true, taken = false, row, tables = ['payroll_trans
             if (s.includes('FOR UPDATE')) {
                 return { rows: found ? [{ id: params[0] }] : [] };
             }
+            if (s.includes('regexp_replace')) {
+                return { rows: cnicOthers };
+            }
             if (/SELECT id FROM employees WHERE id=\$1\s*$/.test(s.replace(/\s+/g, ' ').trim())) {
                 return { rows: taken ? [{ id: params[0] }] : [] };
             }
@@ -32,6 +36,9 @@ function makeClient({ found = true, taken = false, row, tables = ['payroll_trans
                 return { rows: found ? [employee] : [] };
             }
             if (s.includes('INSERT INTO employees')) return { rows: [], rowCount: 1 };
+            if (s.includes("constraint_type = 'UNIQUE'")) {
+                return { rows: [{ column_name: 'cnic' }] };
+            }
             if (s.includes('information_schema.columns')) {
                 return { rows: tables.map((table_name) => ({ table_name, column_name: 'employee_id' })) };
             }
@@ -89,7 +96,7 @@ describe('renameEmployeeId', () => {
             .rejects.toMatchObject({ status: 409, code: 'ID_TAKEN' });
     });
 
-    test('copies the row, rewrites child ids, deletes the old id', async () => {
+    test('copies the row, parks CNIC, rewrites child ids, then restores CNIC', async () => {
         const client = makeClient();
         const pool = { connect: jest.fn().mockResolvedValue(client) };
         const result = await renameEmployeeId(pool, 'ASIL-1787922714735', 'ASILFM/SPL/22/167');
@@ -100,15 +107,30 @@ describe('renameEmployeeId', () => {
         const insert = client.queries.find((q) => q.sql.includes('INSERT INTO employees'));
         expect(insert.params[0]).toBe('ASILFM/SPL/22/167');
         expect(insert.params[1]).toBe('Test Person');
+        expect(insert.params[2]).toBe(null);
 
-        const updates = client.queries.filter((q) => /^UPDATE /i.test(q.sql));
-        expect(updates.length).toBeGreaterThanOrEqual(2);
-        expect(updates.every((q) => q.params[0] === 'ASILFM/SPL/22/167' && q.params[1] === 'ASIL-1787922714735')).toBe(true);
+        const childUpdates = client.queries.filter((q) => /^UPDATE /i.test(q.sql) && q.sql.includes('employee_id'));
+        expect(childUpdates.length).toBeGreaterThanOrEqual(2);
+        expect(childUpdates.every((q) => q.params[0] === 'ASILFM/SPL/22/167' && q.params[1] === 'ASIL-1787922714735')).toBe(true);
 
         const del = client.queries.find((q) => q.sql.includes('DELETE FROM employees'));
         expect(del.params).toEqual(['ASIL-1787922714735']);
+        const restore = client.queries.find((q) => /^UPDATE employees SET "cnic"=/i.test(q.sql));
+        expect(restore.params).toEqual(['42401-6159297-5', 'ASILFM/SPL/22/167']);
+        expect(client.queries.findIndex((q) => q.sql.includes('DELETE FROM employees')))
+            .toBeLessThan(client.queries.findIndex((q) => /^UPDATE employees SET "cnic"=/i.test(q.sql)));
         expect(client.queries.some((q) => /^COMMIT/i.test(q.sql))).toBe(true);
         expect(client.release).toHaveBeenCalled();
+    });
+
+    test('409 when a different person already has the CNIC', async () => {
+        const client = makeClient({
+            cnicOthers: [{ id: 'ASIL-OTHER', name: 'Someone Else' }],
+        });
+        const pool = { connect: jest.fn().mockResolvedValue(client) };
+        await expect(renameEmployeeId(pool, 'ASIL-1787922714735', 'ASILFM/SPL/22/167'))
+            .rejects.toMatchObject({ status: 409, code: 'CNIC_TAKEN' });
+        expect(client.queries.some((q) => q.sql.includes('INSERT INTO employees'))).toBe(false);
     });
 });
 
