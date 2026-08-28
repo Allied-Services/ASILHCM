@@ -19,6 +19,24 @@ export const PAYROLL_CONTRACT_CFG = {
 // Strip comma-formatting from CSV numbers like "10,000" â†’ 10000
 export const parseNum = (v) => parseFloat(String(v || '').replace(/,/g, '')) || 0;
 
+/** 22–27 present on a 28–31 day month is weekdays, not unpaid Sundays. */
+export const isWeekdayShapedPaidDays = (paidDays, calendarDays) => {
+    const pd = parseNum(paidDays);
+    const cal = parseNum(calendarDays);
+    if (cal < 28 || cal > 31) return false;
+    if (pd < 22 || pd > 27) return false;
+    return pd < cal;
+};
+
+/** Paid Days default to the calendar month. Sunday is a paid holiday. */
+export const liftPaidDaysToCalendarMonth = (paidDays, calendarDays) => {
+    const cal = parseNum(calendarDays) || 30;
+    const pd = parseNum(paidDays);
+    if (pd <= 0) return cal;
+    if (isWeekdayShapedPaidDays(pd, cal)) return cal;
+    return pd;
+};
+
 // FBR 2025-26 Salaried Individual — Finance Act 2024
 // Default: taxableAnnual = (grossMonthly - OPD - Reimbursement - arrears) × 12
 // Payroll Sheet rule: exclude bonus disbursement lump from WHT base (bonus taxed at FY-end)
