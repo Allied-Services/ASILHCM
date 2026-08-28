@@ -2,9 +2,13 @@
 
 const { handleRouteError } = require('../../core/validate');
 const { listRevisions, createRevision } = require('./service');
+const { requirePayrollSheet } = require('../payrollSheet/access');
 
 function registerSalaryRevisionRoutes(app, deps) {
-    const { pool, requireAuth, requireRole } = deps;
+    const { pool, requireAuth } = deps;
+    // Same gate as Payroll Sheet save/Calculate: payroll roles OR User Management
+    // payroll.edit (Sadia is operations_team with custom payroll.edit — not in requireRole).
+    const canRevise = requirePayrollSheet(pool, 'edit');
 
     app.get('/api/employees/:id/salary-revisions', requireAuth, async (req, res) => {
         try {
@@ -18,7 +22,7 @@ function registerSalaryRevisionRoutes(app, deps) {
     app.post(
         '/api/employees/:id/salary-revisions',
         requireAuth,
-        requireRole('superadmin', 'operations', 'payroll_initiator', 'finance_manager'),
+        canRevise,
         async (req, res) => {
             try {
                 const body = req.body || {};
