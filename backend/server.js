@@ -42,6 +42,7 @@ const { renderPayslipHtml: renderWorldBPayslipHtml } = require('./src/modules/pa
 const { buildWorldAPayslipData } = require('./src/modules/payslip/dataBuilder');
 const { renderPayslipHtml: renderWorldAPayslipHtml } = require('./src/modules/payslip/template');
 const { routingFieldsFromBody, routingFieldsFromRow, bodyHasClaimAuthority } = require('./src/modules/employees/contactEmails');
+const { requirePayrollSheet } = require('./src/modules/payrollSheet/access');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -3303,7 +3304,7 @@ app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
 
 // POST /api/payroll/:year/:month — bulk UPSERT inputs (and optional browser-legacy calc).
 // Prefer POST .../calculate for money columns (server engine). inputsOnly skips overwriting net/tax.
-app.post('/api/payroll/:year/:month', requireAuth, requireRole('finance_proposer'), async (req, res) => {
+app.post('/api/payroll/:year/:month', requireAuth, requirePayrollSheet(pool, 'edit'), async (req, res) => {
     try {
         const { year, month } = req.params;
         const { rows: incoming = [], inputsOnly = false } = req.body;
