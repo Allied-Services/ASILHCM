@@ -7,6 +7,7 @@ import {
     COMPANY,
     liftPaidDaysToCalendarMonth,
     isWeekdayShapedPaidDays,
+    eobiRatesForPeriod,
 } from './payrollUtils';
 import { api } from './api';
 import { claimsBadgeStyle } from './utils/claimsRouting';
@@ -123,7 +124,9 @@ function emptyServerCalc(ov = {}) {
 }
 
 // ─── Breakdown panel ─────────────────────────────────────────────────────────
-function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
+function BreakdownPanel({ emp, calc, cfg, workDays, month, onClose }) {
+    const [eobiYear, eobiMonth] = String(month || '').split('-').map(Number);
+    const eobiRates = eobiRatesForPeriod(eobiYear, eobiMonth);
     const S = ({ title, color, children }) => (
         <div style={{ marginBottom: '1.25rem' }}>
             <div style={{ fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color, marginBottom: '0.6rem', paddingBottom: '0.4rem', borderBottom: `1px solid ${color}44` }}>{title}</div>
@@ -172,7 +175,7 @@ function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
                     </S>
                     <S title="Employee Deductions" color="#f43f5e">
                         <R label="Income Tax (WHT)" formula={`Taxable Annual Rs.${fmt(calc.taxableMonthly*12)} → FBR 2025-26 ÷ 12`} value={calc.incomeTax} color="#f43f5e" />
-                        <R label="EOBI Employee — Fixed" formula="1% × Rs. 40,000 (statutory minimum wage)" value={calc.eobi_ee} />
+                        <R label="EOBI Employee — Fixed" formula={`1% × Rs. ${fmt(eobiRates.minWage)} (statutory minimum wage)`} value={calc.eobi_ee} />
                         {(calc.pfEE > 0 || cfg.eosb_type === 'Provident Fund' || emp.pf_enrolled) && <R label="PF Employee (Gross ÷ 24)" formula={`${fmt(emp.gross || 0)} ÷ 24`} value={calc.pfEE} />}
                         {calc.advanceDed > 0 && <R label="Advance Recovery" value={calc.advanceDed} />}
                         {calc.loanDed > 0 && <R label="Loan Installment" value={calc.loanDed} />}
@@ -181,7 +184,7 @@ function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
                     </S>
                     <S title="Employer Add-ons (Billed to Client)" color="#a78bfa">
                         <R label="Gross Monthly (pass-through)" value={calc.grossMonthly} />
-                        <R label="EOBI Employer — Fixed" formula="5% × Rs. 40,000 (statutory minimum wage)" value={calc.eobi_er} />
+                        <R label="EOBI Employer — Fixed" formula={`5% × Rs. ${fmt(eobiRates.minWage)} (statutory minimum wage)`} value={calc.eobi_er} />
                         {calc.sessi > 0
                             ? <R label={`SESSI (6% — gross Rs.${fmt(calc.grossMonthly)} < 45,000)`} formula={`6% × ${fmt(calc.grossMonthly)}`} value={calc.sessi} />
                             : <R label="SESSI — Exempt (gross ≥ Rs. 45,000)" formula="Not applicable" value={0} muted />}
@@ -2751,7 +2754,7 @@ export default function PayrollSheet({ user }) {
                 Total Payroll Cost = Gross + employer obligations | Service Charges on Total Payroll Cost | Sales Tax on (Total Payroll Cost + Service Charges). Click <strong>Verify</strong> on any row for full step-by-step breakdown.
             </div>
 
-            {breakdown && <BreakdownPanel emp={breakdown.emp} calc={breakdown.calc} cfg={breakdown.cfg || {}} workDays={workDays} onClose={() => setBreakdown(null)} />}
+            {breakdown && <BreakdownPanel emp={breakdown.emp} calc={breakdown.calc} cfg={breakdown.cfg || {}} workDays={workDays} month={month} onClose={() => setBreakdown(null)} />}
             {showExport && <ExportMenu month={month} isLocked={isLocked} filterClient={filterClient} filterContract={filterContract} filterLoc={filterLoc} onClose={() => setShowExport(false)} />}
             {showImport && <ImportModal onApply={applyImport} onClose={() => setShowImport(false)} employees={EMPLOYEES} workDays={workDays} />}
         </div>

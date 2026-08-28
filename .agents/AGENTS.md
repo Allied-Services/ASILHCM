@@ -179,7 +179,7 @@ Before considering a backend route complete, verify all of the following:
 ### 3.2 Tax & Payroll Calculations
 - **Always** use `taxEngine.js` for WHT and SESSI calculations. Never inline slab logic.
 - **Always** use `payrollUtils.js` for frontend payroll computation helpers.
-- Pakistan statutory constants (EOBI: Rs. 400 flat, Gratuity: 1/26 x basic x years, min 1 year) must not be changed without confirming the legal source.
+- Pakistan statutory constants (EOBI: Rs. 400/2,000 through Jul 2026, Rs. 430/2,150 from Aug 2026 — see `taxEngine.js`; Gratuity: 1/26 x basic x years, min 1 year) must not be changed without confirming the legal source.
 - The payslip salary split (60% Basic / 20% HRA / 10% Conv / 7% Medical / 3% Other) is currently **hardcoded**. Do not change it without a dedicated task to make it configurable.
 
 ### 3.3 Canonical Data Sources
@@ -309,6 +309,11 @@ A task is NOT complete until:
 ## SECTION 10 — Claude Code Session Changelog
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
+
+### 2026-08-28 — EOBI rates from August 2026 (EE 430 / ER 2,150)
+`taxEngine.calculateEOBI({ year, month })` is period-aware. Through Jul 2026: EE 400 / ER 2,000. From Aug 2026: EE 430 / ER 2,150. Payroll Sheet Calculate, World B runs, compliance, EOBI export, and payslip fallbacks use the period. Already-calculated months keep their snapshot until Calculate is re-run.
+
+**Env vars needed:** none.
 
 ### 2026-08-28 — Add Employee 409 instead of 500 on duplicate CNIC/code
 `POST /api/employees` looked up nothing and mapped unique-constraint failures to a generic 500. Employee Information also hides inactive people and anyone with `last_working_day` before Jul 2026, so a rehire like `ASILFM/SPL/22/169` looks “not in the list”. Add now preflights ID + digit-normalized CNIC against the full table, returns **409 CNIC_TAKEN** with the existing name/code (and an archive hint when they are hidden), and `GET /api/employees/lookup` powers the Add form confirm. Invalid dates parse via `parseDateOrNull` instead of crashing Postgres.

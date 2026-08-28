@@ -271,12 +271,31 @@ describe('Pillar 5 — Previous Dues', () => {
     });
 });
 
-describe('Pillar 6 — Employee EOBI 400 PKR', () => {
-    test('flat EE share is always 400', () => {
+describe('Pillar 6 — Employee EOBI (period-aware)', () => {
+    test('no period and pre-Aug 2026 stay at EE 400 / ER 2000', () => {
         expect(calculateEOBI().employeeShare).toBe(400);
         expect(calculateEOBI().employerShare).toBe(2000);
+        expect(calculateEOBI({ year: 2026, month: 7 }).employeeShare).toBe(400);
+        expect(calculateEOBI({ year: 2026, month: 7 }).employerShare).toBe(2000);
         const row = computePrSheetRow({ newSalary: 87416, paidDays: 30, workingDays: 30 }, POLICY);
         expect(row.eobiEmployee).toBe(400);
+        expect(row.eobiEmployer).toBe(2000);
+    });
+
+    test('August 2026+ is EE 430 / ER 2150', () => {
+        expect(calculateEOBI({ year: 2026, month: 8 }).employeeShare).toBe(430);
+        expect(calculateEOBI({ year: 2026, month: 8 }).employerShare).toBe(2150);
+        expect(calculateEOBI({ year: 2026, month: 9 }).employeeShare).toBe(430);
+        const row = computePrSheetRow({
+            newSalary: 87416,
+            paidDays: 30,
+            workingDays: 30,
+            month: 8,
+            year: 2026,
+        }, POLICY);
+        expect(row.eobiEmployee).toBe(430);
+        expect(row.eobiEmployer).toBe(2150);
+        expect(row.netPay).toBe(row.gross - row.wht - row.pfDeduction - 430);
     });
 });
 

@@ -1,5 +1,7 @@
 'use strict';
 
+const { calculateEOBI } = require('../../../taxEngine');
+
 function fmt(v) {
     return Math.round(parseFloat(v) || 0).toLocaleString('en-PK');
 }
@@ -20,7 +22,7 @@ function renderPayslipHtml({ emp, computed, month, year, paidDays, workingDays }
     const reimbursement = Math.round(computed.expense || 0);
     const grossTotal = Math.round(computed.gross || 0);
     const incomeTax = Math.round(computed.wht || 0);
-    const eobiEE = Math.round(computed.eobiEmployee || 400);
+    const eobiEE = Math.round(computed.eobiEmployee || calculateEOBI({ year, month }).employeeShare);
     const totalDeductions = Math.round(computed.totalDeductions || (incomeTax + eobiEE));
     const netPay = Math.round(computed.netPay || 0);
 

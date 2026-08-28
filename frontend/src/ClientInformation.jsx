@@ -22,7 +22,7 @@ const EMPTY_CONTRACT = {
     id: '', contractName: '', location: '', serviceType: 'Manpower Services', headcount: 0,
     status: 'Active', startDate: '', endDate: '',
     costs: {
-        eobi: 2000,           // EOBI employer (flat statutory Rs.2,000)
+        eobi: 2150,           // EOBI employer (flat statutory from Aug 2026)
         life_insurance: 500,  // Life insurance per head/month
         medical_ee: 800,      // Medical premium — Employee (Self)
         medical_sp: 600,      // Medical premium — Spouse

@@ -5,7 +5,7 @@ import { api } from './api';
 import EmploymentOrgCascade from './EmploymentOrgCascade';
 import { normalizeAsilBu } from './orgHierarchy';
 import { activeStatusLabel } from './employeeActive';
-import { calcWHT as calcAnnualWHT } from './payrollUtils';
+import { calcWHT as calcAnnualWHT, calcEOBI_fn } from './payrollUtils';
 
 // ── Edit-form context (module-level) ─────────────────────────────────────────
 // Keeps EI / ERow / ECombo as STABLE module-level components so React never
@@ -84,8 +84,22 @@ const dateDiff = (d1, d2) => {
 // drifted from payroll for months and showed ~5x the correct tax on this screen.
 const calcWHT = (monthlyGross) => calcAnnualWHT((parseFloat(monthlyGross) || 0) * 12);
 
-// EOBI: flat statutory amounts for all employees (1%/5% of Rs.40,000 minimum wage cap)
-const calcEOBI = () => ({ employee: 400, employer: 2000 });
+const parsePayslipPeriod = (monthLabel) => {
+    const s = String(monthLabel || '');
+    const iso = s.match(/^(\d{4})-(\d{1,2})/);
+    if (iso) return { year: Number(iso[1]), month: Number(iso[2]) };
+    const named = s.match(/^([A-Za-z]+)\s+(\d{4})/);
+    if (named) {
+        const month = new Date(`${named[1]} 1, ${named[2]}`).getMonth() + 1;
+        return { year: Number(named[2]), month };
+    }
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() + 1 };
+};
+const calcEOBI = (period) => {
+    const p = period && typeof period === 'object' ? period : parsePayslipPeriod(period);
+    return calcEOBI_fn(p.year, p.month);
+};
 
 const calcGratuity = (gross, doj, calcDate) => {
     const { years, months } = dateDiff(doj, calcDate);
@@ -115,7 +129,7 @@ const FField = ({ label, children }) => <div style={{ display: 'flex', flexDirec
 
 // ── PAYSLIP MODAL ────────────────────────────────────────────────────────────
 function PayslipModal({ payslip, employee, onClose }) {
-    const eobi = calcEOBI(payslip.gross || employee.salary);
+    const eobi = calcEOBI(payslip.month);
     const wht = calcWHT(payslip.gross || employee.salary);
     const totalEarnings = (payslip.gross || 0) + (payslip.ot_amount || 0) + (payslip.reimbursements || 0);
     const totalDed = eobi.employee + wht + (payslip.advance_deduction || 0) + (payslip.other_deductions || 0);
@@ -337,7 +351,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     const addPayroll = () => {
         if (!newPayroll.month) return alert('Month is required.');
         const gross = ['basic', 'hra', 'conveyance', 'medical_allowance', 'other_allowances'].reduce((s, k) => s + parseFloat(newPayroll[k] || 0), 0);
-        const eobi = calcEOBI(); // flat 400/2000
+        const eobi = calcEOBI(newPayroll.month);
         const record = {
             ...newPayroll,
             gross,
@@ -366,7 +380,8 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
 
     const svc = dateDiff(emp.doj, new Date());
     const currentSal = { basic: emp.salary, hra: 0, conveyance: 0, medical: 0, other: 0, gross: emp.salary };
-    const eobi = calcEOBI(currentSal.gross || emp.salary);
+    const now = new Date();
+    const eobi = calcEOBI({ year: now.getFullYear(), month: now.getMonth() + 1 });
     const wht = calcWHT(currentSal.gross || emp.salary);
 
     const TABS = [
@@ -848,7 +863,7 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         {(emp.payrollHistory || []).slice().reverse().map((p, i) => {
                             const gross = (p.basic || 0) + (p.hra || 0) + (p.conveyance || 0) + (p.medical_allowance || 0) + (p.other_allowances || 0);
-                            const eobi2 = calcEOBI(gross); const wht2 = calcWHT(gross);
+                            const eobi2 = calcEOBI(p.month); const wht2 = calcWHT(gross);
                             const netPay = gross + (p.ot_amount || 0) + (p.reimbursements || 0) - eobi2.employee - wht2 - (p.advance_deduction || 0) - (p.other_deductions || 0);
                             return (
                                 <div key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>

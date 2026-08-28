@@ -260,9 +260,13 @@ function computePrSheetRow(input, policy = {}) {
             ? calculatePayrollSheetMonthlyIncomeTax(gross, bonusDisbursed, opd, expense, Math.round(arrears))
             : calculateMonthlyIncomeTax(gross, opd, expense, Math.round(arrears)));
     const wht = Math.round(whtExact);
+    const eobiPeriod = {
+        year: input.year ?? input.periodYear,
+        month: input.month ?? input.periodMonth,
+    };
     const eobi = input.eobiEmployee != null
-        ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI().employerShare }
-        : calculateEOBI();
+        ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI(eobiPeriod).employerShare }
+        : calculateEOBI(eobiPeriod);
     // SESSI: flat Rs. 2,400 (6% × Rs. 40,000 min wage) when contractual salary < 45,000.
     const sessiEr = salary < 45000 ? 2400 : 0;
     const eosbType = String(input.eosbType || input.eosb_type || '').trim();

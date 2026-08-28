@@ -38,7 +38,7 @@ function mapWorldBRowToSummary(row) {
         gross: parseFloat(computed.gross) || 0,
         net: parseFloat(computed.netPay) || 0,
         wht: parseFloat(computed.wht) || 0,
-        eobi: parseFloat(computed.eobiEmployee) || 400,
+        eobi: parseFloat(computed.eobiEmployee) || 0,
         advance: parseFloat(inputs.advanceDeduction) || 0,
         status: row.run_status || 'locked',
         source: 'world_b',

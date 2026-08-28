@@ -630,6 +630,8 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             contractBonusMonths: contractCosts.bonus_months,
             eosbType: contractCosts.eosb_type,
             bonusDisbursement,
+            month,
+            year,
             excludeBonusFromWht: Number(month) === 7 && Number(year) === 2026
                 && isWafiBpoJulyContext({ employeeId: emp.id, contractId }),
             ...inputs,
@@ -814,6 +816,8 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
         contractBonusMonths: contractCosts.bonus_months,
         eosbType: contractCosts.eosb_type,
         bonusDisbursement,
+        month: periodMonth,
+        year: periodYear,
         excludeBonusFromWht: Number(periodMonth) === 7 && Number(periodYear) === 2026
             && isWafiBpoJulyContext({ employeeId: row.employee_id, contractId: runRows[0].contract_id }),
         ...inputs,

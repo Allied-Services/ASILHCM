@@ -33,7 +33,7 @@ async function computeStatutoryForMonth(pool, month, year) {
 
     for (const row of payroll) {
         const salary = Number(row.gross || 0);
-        const eobi = calculateEOBI(salary);
+        const eobi = calculateEOBI({ year, month });
         const sessi = calculateSESSI(salary);
         const tax = calculateMonthlyIncomeTax(salary, row.province || 'Sindh');
         eobiEmployee += Number(eobi?.employeeShare || 0);

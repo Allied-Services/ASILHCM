@@ -68,6 +68,7 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 ---
 
 ## IN PROGRESS
+- **EOBI Aug 2026 rates (430 EE / 2,150 ER)** — on `agent/eobi-aug2026`. July stays 400/2,000. August Calculate needed after merge. Staging first.
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-28)

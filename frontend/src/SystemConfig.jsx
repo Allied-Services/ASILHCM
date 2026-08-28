@@ -214,8 +214,8 @@ const DEFAULT_PAYSLIP_SPLIT = { basic: 60, hra: 20, conveyance: 10, medical: 7, 
 
 // ─── Statutory Reference Panel (Editable) ────────────────────────────────────
 const DEFAULT_STATUTORY = [
-    { label: 'EOBI — Employer Contribution', rate: '5% of minimum wage (Rs. 37,000 cap)', section: 'EOBI Act 1976' },
-    { label: 'EOBI — Employee Contribution', rate: '1% of minimum wage (Rs. 37,000 cap)', section: 'EOBI Act 1976' },
+    { label: 'EOBI — Employer Contribution', rate: 'Rs. 2,150 flat from Aug 2026 (5% of Rs. 43,000 min wage; was Rs. 2,000)', section: 'EOBI Act 1976' },
+    { label: 'EOBI — Employee Contribution', rate: 'Rs. 430 flat from Aug 2026 (1% of Rs. 43,000 min wage; was Rs. 400)', section: 'EOBI Act 1976' },
     { label: 'SESSI — Employer (Sindh)', rate: '6% of gross salary (exempt if gross ≥ Rs. 45,000)', section: 'SESSI Act 2012' },
     { label: 'SESSI — Employee (Sindh)', rate: '1% of wages', section: 'SESSI Act 2012' },
     { label: 'ESSI — Employer (Punjab)', rate: '5% of wages', section: 'ESSI Act 1952' },

@@ -1,6 +1,6 @@
 'use strict';
 
-const { calculateMonthlyIncomeTax } = require('../../../taxEngine');
+const { calculateMonthlyIncomeTax, calculateEOBI } = require('../../../taxEngine');
 const { readPayrollSnapshot } = require('../../payroll/snapshotView');
 const { calendarDaysInMonth } = require('../../payroll/prSheetEngine');
 
@@ -182,7 +182,8 @@ function buildWorldAPayslipData(emp, pay, contractEosbType) {
     const wht = (pay != null && pay.wht != null && pay.wht !== '')
         ? Math.round(parseFloat(pay.wht) || 0)
         : calculateMonthlyIncomeTax(grossProrated + otAmount + medicalReimb + expenseReimb + arrears + specialAllow + fuelMobile + bonus, medicalReimb, expenseReimb);
-    const eobi = Math.round(parseFloat(pay?.eobi_ee || 0)) || 400;
+    const eobi = Math.round(parseFloat(pay?.eobi_ee || 0))
+        || calculateEOBI({ year: pay?.year, month: pay?.month }).employeeShare;
     const pf = contractEosbType === 'Provident Fund' ? Math.round(grossSalary / 24) : 0;
     const advance = Math.round(parseFloat(pay?.advance_deduction || 0) || 0);
     const loan = Math.round(parseFloat(pay?.loan_deduction || 0) || 0);

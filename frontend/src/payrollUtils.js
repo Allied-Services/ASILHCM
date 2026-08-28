@@ -69,10 +69,18 @@ export const calcPayrollSheetWHT = (grossMonthly, bonusDisbursement, opd, expens
 };
 /** @deprecated Use calcPayrollSheetWHT */
 export const calcJuly2026WafiWHT = calcPayrollSheetWHT;
-export const calcEOBI_fn = () => {
-    // EOBI is a flat statutory amount â€” 1%/5% of minimum wage Rs. 40,000
-    // Fixed for ALL employees regardless of their salary
-    return { employee: 400, employer: 2000 };
+/** EOBI 1%/5% of notified min wage. Aug 2026+ is Rs. 43,000 → EE 430 / ER 2,150. */
+export const eobiRatesForPeriod = (year, month) => {
+    const y = Number(year);
+    const m = Number(month);
+    if (y > 2026 || (y === 2026 && m >= 8)) {
+        return { employee: 430, employer: 2150, minWage: 43000 };
+    }
+    return { employee: 400, employer: 2000, minWage: 40000 };
+};
+export const calcEOBI_fn = (year, month) => {
+    const rates = eobiRatesForPeriod(year, month);
+    return { employee: rates.employee, employer: rates.employer };
 };
 // PF: 1/24th of Gross Salary (â‰ˆ 4.166%) â€” both EE and ER
 export const calcPF_fn = (gross, enrolled) => enrolled ? Math.round(parseFloat(gross || 0) / 24) : 0;
@@ -201,7 +209,9 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const incomeTax      = usePayrollSheetTax
         ? calcPayrollSheetWHT(grossMonthly, bonusDisbursed, opdClaim, reimb, arrears)
         : calcWHT(annualIncome);
-    const eobi           = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
+    const payrollYm = typeof window !== 'undefined' ? String(window.__payrollMonth || '') : '';
+    const [eobiYear, eobiMonth] = payrollYm.split('-').map(Number);
+    const eobi           = calcEOBI_fn(eobiYear, eobiMonth);
 
     // ——— EOSB ———————————————————————————————————————————————————————————————
     const eosbType   = cfg.eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');

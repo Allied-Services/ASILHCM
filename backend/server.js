@@ -3139,7 +3139,11 @@ app.delete('/api/portal/me/photo', requirePortalAuth, async (req, res) => {
     const gross = parseFloat(grossSalary);
     const join = joiningDate || '2020-01-01';
     const calc = calcDate || new Date().toISOString().split('T')[0];
-    const eobi = calculateEOBI(gross);
+    const calcD = new Date(calc);
+    const eobi = calculateEOBI({
+        year: Number.isFinite(calcD.getFullYear()) ? calcD.getFullYear() : undefined,
+        month: Number.isFinite(calcD.getMonth()) ? calcD.getMonth() + 1 : undefined,
+    });
     const sessi = calculateSESSI(gross);
     const incomeTax = calculateMonthlyIncomeTax(gross);
     const gratuity = calculateGratuity(gross, join, calc);
@@ -3756,7 +3760,9 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const wht = (pay != null && pay.wht != null && pay.wht !== '')
                 ? Math.round(parseFloat(pay.wht) || 0)
                 : whtCalc(grossM * 12);
-            const eobi_ee  = 400, eobi_er = 2000;
+            const eobiRates = calculateEOBI({ year: yrInt, month: moInt });
+            const eobi_ee  = eobiRates.employeeShare;
+            const eobi_er = eobiRates.employerShare;
             // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ EOSB: PF and Gratuity are MUTUALLY EXCLUSIVE Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ mirrors frontend exactly Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
             // Source of truth: contract costs.eosb_type ('Provident Fund' | 'Gratuity' | 'None')
             const eosbType       = emp._eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
@@ -3858,7 +3864,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Gross Monthly':    c.grossM,
                     // Employee Deductions
                     'Income Tax (WHT)':         c.wht,
-                    'EOBI Employee (Rs.400)':   c.eobi_ee,
+                    'EOBI Employee':            c.eobi_ee,
                     'PF Employee Deduction':    c.pfDed,
                     'Advance Deduction':        c.advDed,
                     'Loan Deduction':           c.loanDed,
@@ -3866,7 +3872,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Total Deductions':         c.totalDed,
                     'Net Pay to Employee':      c.netPay,
                     // Employer Costs
-                    'EOBI Employer (Rs.2000)':  c.eobi_er,
+                    'EOBI Employer':            c.eobi_er,
                     'PF Employer Contribution': c.pfER,
                     'Gratuity Accrual':         c.gratuity,
                     'SESSI':                    c.sessi,
@@ -3950,11 +3956,18 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             filename = `WHT_Returns_${year}-${String(month).padStart(2,'0')}.csv`;
 
         } else if (type === 'eobi') {
-            rows = empRes.rows.map(emp => ({
-                'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
-                'CNIC': cnic(emp), 'EOBI No': emp.eobi_no || emp.eobino || '',
-                'EOBI Employee (Rs.400)': 400, 'EOBI Employer (Rs.2000)': 2000,
-                'Total EOBI': 2400 }));
+            const eobiRates = calculateEOBI({ year: yrInt, month: moInt });
+            rows = empRes.rows.map(emp => {
+                const snap = readPayrollSnapshot(payMap[emp.id]);
+                const ee = snap ? Math.round(snap.eobi_ee) : eobiRates.employeeShare;
+                const er = snap ? Math.round(snap.eobi_er) : eobiRates.employerShare;
+                return {
+                    'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
+                    'CNIC': cnic(emp), 'EOBI No': emp.eobi_no || emp.eobino || '',
+                    'EOBI Employee': ee, 'EOBI Employer': er,
+                    'Total EOBI': ee + er,
+                };
+            });
             filename = `EOBI_${year}-${String(month).padStart(2,'0')}.csv`;
 
         } else if (type === 'sessi') {

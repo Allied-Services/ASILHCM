@@ -58,7 +58,7 @@ export default function AnnexureDashboard() {
     // Build annexure rows — one per client
     const rows = Object.values(clientGroups).map(g => {
         const gross = g.grossTotal;
-        const eobi_er = g.employees.length * 2000;          // Rs.2000 ER per head
+        const eobi_er = g.employees.length * 2150;          // EOBI ER from Aug 2026
         const sessi_er = g.employees.filter(e => parseFloat(e.salary||0) < 45000).length * Math.round(parseFloat(g.employees[0]?.salary||0) * 0.06 / g.employees.length || 0);
         const payrollCost = gross + eobi_er;                  // simplified
         const svcPct = 15; // default — ideally from contract
