@@ -103,8 +103,61 @@ function resolvePayrollSheetPaidDays({
     return { paidDays, presentDaysForModelA, absentDaysForModelA };
 }
 
+/**
+ * Model A flags for Payroll Sheet Calculate.
+ *
+ * A full working-day month (e.g. 26 present of 26 weekdays) is full salary —
+ * Sundays/holidays are paid rest. Do not set expectedDays to 30 when present
+ * is 26: that invents 4 absences and yields Gross = salary×26/30 + OT
+ * (Rs. 40,000 + OT 11,154 → 45,821 instead of 51,154).
+ *
+ * Matches World B payrollrun: Model A when explicit absents exist or paid
+ * days cover the working-day month (or a full 30-day calendar figure).
+ * Partial months prorate paid/working, not 26/30.
+ */
+function resolveSheetModelAComputeInput({
+    paidDays,
+    workingDays,
+    presentDaysForModelA,
+    absentDaysForModelA,
+    sheetPaidDays,
+    modelABasis = 30,
+}) {
+    const wd = num(workingDays, 0);
+    const pd = num(paidDays, 0);
+    const basis = num(modelABasis, 30) || 30;
+    const sheetPd = sheetPaidDays == null || sheetPaidDays === '' ? null : num(sheetPaidDays);
+    const hasExplicitAbsent = absentDaysForModelA != null && absentDaysForModelA !== '';
+    const fullWorkingMonth = wd > 0 && pd >= wd;
+    const fullCalendarMonth = sheetPd != null && sheetPd >= basis;
+    const useModelA = hasExplicitAbsent || fullWorkingMonth || fullCalendarMonth;
+
+    if (!useModelA) {
+        return { modelA: false, paidDays: pd, workingDays: wd };
+    }
+
+    if (hasExplicitAbsent) {
+        return {
+            modelA: true,
+            absentDays: num(absentDaysForModelA),
+            expectedDays: basis,
+            calendarBasis: basis,
+            presentDays: presentDaysForModelA != null
+                ? num(presentDaysForModelA)
+                : Math.max(0, basis - num(absentDaysForModelA)),
+        };
+    }
+
+    return {
+        modelA: true,
+        presentDays: presentDaysForModelA != null ? num(presentDaysForModelA) : pd,
+        expectedDays: wd > 0 ? wd : basis,
+    };
+}
+
 module.exports = {
     resolvePayrollSheetInputs,
     resolvePayrollSheetPaidDays,
+    resolveSheetModelAComputeInput,
     num,
 };

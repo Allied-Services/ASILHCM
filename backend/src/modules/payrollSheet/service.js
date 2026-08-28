@@ -22,6 +22,7 @@ const {
 const {
     resolvePayrollSheetInputs,
     resolvePayrollSheetPaidDays,
+    resolveSheetModelAComputeInput,
 } = require('./resolveInputs');
 const {
     loadApprovedPortalClaimsForPayMonth,
@@ -456,31 +457,19 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             year: y,
         };
 
-        // World A / Excel PR-sheet Model A uses a fixed 30-day month (policy),
-        // not calendar days-in-month (31 in July). Using 31 rewrote partial-month
-        // pay and made re-Calculate drift from Excel.
+        // Full working-day month (26/26) = full salary. Do not use expectedDays=30
+        // when present is 26 — that invents 4 absences (40,000 + OT 11,154 → Gross 45,821).
         const modelABasis = num(policy.standard_month_days, 30) || 30;
-        const useModelA = absentDaysForModelA != null || paidDays >= workingDays || presentDaysForModelA != null
-            || (sheet.paid_days != null && num(sheet.paid_days) >= modelABasis);
-        if (useModelA) {
-            computeInput.modelA = true;
-            computeInput.expectedDays = modelABasis;
-            computeInput.calendarBasis = modelABasis;
-            computeInput.month = m;
-            computeInput.year = y;
-            if (absentDaysForModelA != null) {
-                computeInput.absentDays = absentDaysForModelA;
-                computeInput.presentDays = presentDaysForModelA != null
-                    ? presentDaysForModelA
-                    : Math.max(0, modelABasis - absentDaysForModelA);
-            } else {
-                computeInput.presentDays = presentDaysForModelA != null ? presentDaysForModelA : paidDays;
-            }
-        } else {
-            computeInput.paidDays = paidDays;
-            computeInput.workingDays = workingDays;
-            computeInput.modelA = false;
-        }
+        const modelAFlags = resolveSheetModelAComputeInput({
+            paidDays,
+            workingDays,
+            presentDaysForModelA,
+            absentDaysForModelA,
+            sheetPaidDays: sheet.paid_days,
+            modelABasis,
+        });
+        Object.assign(computeInput, modelAFlags);
+        const useModelA = !!modelAFlags.modelA;
 
         const computed = computePrSheetRow(computeInput, {
             ...policy,

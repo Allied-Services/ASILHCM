@@ -3,7 +3,9 @@
 const {
     resolvePayrollSheetInputs,
     resolvePayrollSheetPaidDays,
+    resolveSheetModelAComputeInput,
 } = require('../src/modules/payrollSheet/resolveInputs');
+const { computePrSheetRow } = require('../src/payroll/prSheetEngine');
 
 describe('resolvePayrollSheetInputs — sheet OT must survive hub zeros', () => {
     test('canonical: monthly hub OT=0 does not wipe sheet OT', () => {
@@ -96,5 +98,103 @@ describe('resolvePayrollSheetPaidDays', () => {
             attendancePaidDays: 0,
         });
         expect(r.paidDays).toBe(31);
+    });
+});
+
+const OT_POLICY = {
+    standard_month_days: 30,
+    ot_divisor_days: 26,
+    ot_divisor_hours: 8,
+    service_charge_pct: 0.18,
+};
+
+describe('resolveSheetModelAComputeInput — full working month is full salary', () => {
+    test('26 present of 26 weekdays does not 26/30-cut salary (ASILFM/SPL/22/165 shape)', () => {
+        const flags = resolveSheetModelAComputeInput({
+            paidDays: 26,
+            workingDays: 26,
+            presentDaysForModelA: 26,
+            absentDaysForModelA: null,
+            sheetPaidDays: 26,
+            modelABasis: 30,
+        });
+        expect(flags.modelA).toBe(true);
+        expect(flags.expectedDays).toBe(26);
+        expect(flags.presentDays).toBe(26);
+        expect(flags.calendarBasis).toBeUndefined();
+
+        const row = computePrSheetRow({
+            newSalary: 40000,
+            ot2: 29,
+            month: 8,
+            year: 2026,
+            ...flags,
+        }, OT_POLICY);
+        expect(row.overtimeAmount).toBe(11154);
+        expect(row.salaryForDays).toBe(40000);
+        expect(row.modelA.absentDays).toBe(0);
+        expect(row.gross).toBe(51154);
+    });
+
+    test('forcing expectedDays=30 with 26 present is the 45,821 bug — resolver must not do that', () => {
+        const flags = resolveSheetModelAComputeInput({
+            paidDays: 26,
+            workingDays: 26,
+            presentDaysForModelA: 26,
+            absentDaysForModelA: null,
+            sheetPaidDays: 26,
+            modelABasis: 30,
+        });
+        const wrong = computePrSheetRow({
+            newSalary: 40000,
+            ot2: 29,
+            modelA: true,
+            presentDays: 26,
+            expectedDays: 30,
+            calendarBasis: 30,
+        }, OT_POLICY);
+        expect(wrong.gross).toBe(45821);
+        expect(flags.expectedDays).not.toBe(30);
+        expect(flags.calendarBasis).not.toBe(30);
+    });
+
+    test('explicit 4 calendar absents still prorate 26/30', () => {
+        const flags = resolveSheetModelAComputeInput({
+            paidDays: 26,
+            workingDays: 26,
+            presentDaysForModelA: 26,
+            absentDaysForModelA: 4,
+            sheetPaidDays: 26,
+            modelABasis: 30,
+        });
+        expect(flags.absentDays).toBe(4);
+        expect(flags.expectedDays).toBe(30);
+        const row = computePrSheetRow({
+            newSalary: 40000,
+            ot2: 29,
+            ...flags,
+        }, OT_POLICY);
+        expect(row.salaryForDays).toBe(Math.round(40000 * 26 / 30));
+        expect(row.gross).toBe(45821);
+    });
+
+    test('partial month (20 of 26) uses working-day ratio, not Model A 20/30', () => {
+        const flags = resolveSheetModelAComputeInput({
+            paidDays: 20,
+            workingDays: 26,
+            presentDaysForModelA: 20,
+            absentDaysForModelA: null,
+            sheetPaidDays: 20,
+            modelABasis: 30,
+        });
+        expect(flags.modelA).toBe(false);
+        expect(flags.paidDays).toBe(20);
+        expect(flags.workingDays).toBe(26);
+        const row = computePrSheetRow({
+            newSalary: 40000,
+            ot2: 0,
+            ...flags,
+        }, OT_POLICY);
+        expect(row.salaryForDays).toBe(Math.round(40000 * 20 / 26));
     });
 });

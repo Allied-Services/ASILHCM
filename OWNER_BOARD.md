@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-27 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-28 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -9,7 +9,7 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — August Wafi Calculate with Merge approved Portal Claims did not pull July Portal Claims (it only read August `employee_claims`). Fix on `agent/aug-calc-merge`. Do not lock or disburse. Do not re-Calculate July Wafi on live.
+STATUS: **YELLOW** — Payroll Sheet was cutting a full working month as 26/30 of salary (40,000 + OT 11,154 showed Gross 45,821). Press Calculate on that month after this lands. Do not lock or disburse. Do not re-Calculate July Wafi on live.
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -36,7 +36,7 @@ STATUS: **YELLOW** — August Wafi Calculate with Merge approved Portal Claims d
 ---
 
 ## TOP LINE (for agents / morning brief)
-**August Wafi sheet is still empty of July claims.** Portal Claims has 133 approved July people; Calculate’s merge checkbox looked at August `employee_claims` (almost empty). Fix on `agent/aug-calc-merge`: merge July Portal Claims that settle in August. Then Calculate with the checkbox on. Do not lock or disburse. Do not re-Calculate July Wafi on live.
+**Payroll Sheet Gross was short by four days of salary on a full working month.** 26 present weekdays were treated as 26/30, so 40,000 + OT 11,154 became 45,821 instead of 51,154. Calculate after deploy to refresh the row. Do not lock or disburse. Do not re-Calculate July Wafi on live.
 
 ---
 
@@ -69,6 +69,9 @@ STATUS: **YELLOW** — August Wafi Calculate with Merge approved Portal Claims d
 
 ## IN PROGRESS
 - BPO / PSO contract matching on staging (separate track — do not block)
+
+## JUST SHIPPED (2026-08-28)
+- **Payroll Sheet Gross includes full-month salary + OT** — 26 working days present is a full month (Sundays paid). Example: salary 40,000 + OT 11,154 → Gross 51,154, not 45,821. Recalculate the month to refresh stored rows.
 
 ## JUST SHIPPED (2026-08-27)
 - **Portal Claims shows the July upload** — Response lists OT / expense / medical; Review and Push writes them onto the August Payroll Sheet (replaces a previous send that did not land). Then Calculate / Update Payroll. July salary not touched. No emails.
