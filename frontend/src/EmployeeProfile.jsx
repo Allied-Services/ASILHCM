@@ -201,9 +201,10 @@ export default function EmployeeProfile({ employee, user, onBack, onUpdate, allE
     const saveEdit = async () => {
         setEditSaving(true);
         try {
-            const res = await api.updateEmployee(editForm.id, editForm);
+            const res = await api.updateEmployee(emp.id, editForm);
             const updated = res.employee || editForm;
-            setEmp(updated); onUpdate(updated);
+            setEmp(updated);
+            onUpdate(updated, { previousId: emp.id, alreadySaved: true });
             setIsEditing(false); setEditForm({});
         } catch (err) { alert('Save failed: ' + err.message); }
         setEditSaving(false);

@@ -11,6 +11,7 @@ const _cacheGet = (key) => {
 const _cacheSet = (key, data) => { _cache[key] = { data, cachedAt: Date.now() }; };
 const _cacheClear = (key) => { delete _cache[key]; };
 const API = import.meta.env.VITE_API_URL || 'https://asilhcm.onrender.com';
+const empPath = (id, suffix = '') => `/api/employees/${encodeURIComponent(id)}${suffix}`;
 
 export function getArchiveMode() {
     return localStorage.getItem('asil_show_archive') === '1';
@@ -54,10 +55,10 @@ export const api = {
     // ── Employees ────────────────────────────────────────────────────────────
     getEmployees: () => { const c = _cacheGet('employees'); if (c) return Promise.resolve(c); return apiFetch('/api/employees').then(d => { _cacheSet('employees', d); return d; }); },
     createEmployee: (data) => apiFetch('/api/employees', { method: 'POST', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
-    updateEmployee: (id, data) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
-    getSalaryRevisions: (id) => apiFetch(`/api/employees/${encodeURIComponent(id)}/salary-revisions`),
-    createSalaryRevision: (id, payload) => apiFetch(`/api/employees/${encodeURIComponent(id)}/salary-revisions`, { method: 'POST', body: JSON.stringify(payload) }).then(d => { _cacheClear('employees'); return d; }),
-    deleteEmployee: (id) => apiFetch(`/api/employees/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(d => { _cacheClear('employees'); return d; }),
+    updateEmployee: (id, data) => apiFetch(empPath(id), { method: 'PUT', body: JSON.stringify(data) }).then(d => { _cacheClear('employees'); return d; }),
+    getSalaryRevisions: (id) => apiFetch(empPath(id, '/salary-revisions')),
+    createSalaryRevision: (id, payload) => apiFetch(empPath(id, '/salary-revisions'), { method: 'POST', body: JSON.stringify(payload) }).then(d => { _cacheClear('employees'); return d; }),
+    deleteEmployee: (id) => apiFetch(empPath(id), { method: 'DELETE' }).then(d => { _cacheClear('employees'); return d; }),
     bulkImportEmployees: (employees, notifyNew = false) => apiFetch('/api/employees/bulk', { method: 'POST', body: JSON.stringify({ employees, notifyNew }) }),
     exportMasterRoster: async () => {
         const token = localStorage.getItem('asil_hcm_token');
@@ -165,14 +166,14 @@ export const api = {
     updateConfig:          (key, v)  => apiFetch(`/api/config/${key}`, { method: 'PUT', body: JSON.stringify({ value: v }) }),
 
     // ── Employee Documents ────────────────────────────────────────────────────
-    getEmployeeDocs:       (id)      => apiFetch(`/api/employees/${id}/documents`),
-    createEmployeeDoc:     (id, d)   => apiFetch(`/api/employees/${id}/documents`, { method: 'POST', body: JSON.stringify(d) }),
-    updateEmployeeDoc:     (id, did, d) => apiFetch(`/api/employees/${id}/documents/${did}`, { method: 'PUT', body: JSON.stringify(d) }),
-    deleteEmployeeDoc:     (id, did) => apiFetch(`/api/employees/${id}/documents/${did}`, { method: 'DELETE' }),
+    getEmployeeDocs:       (id)      => apiFetch(empPath(id, '/documents')),
+    createEmployeeDoc:     (id, d)   => apiFetch(empPath(id, '/documents'), { method: 'POST', body: JSON.stringify(d) }),
+    updateEmployeeDoc:     (id, did, d) => apiFetch(empPath(id, `/documents/${did}`), { method: 'PUT', body: JSON.stringify(d) }),
+    deleteEmployeeDoc:     (id, did) => apiFetch(empPath(id, `/documents/${did}`), { method: 'DELETE' }),
 
     // ── Employee Messaging ────────────────────────────────────────────────────
-    getEmployeeMessages:   (id)      => apiFetch(`/api/employees/${id}/messages`),
-    sendEmployeeMessage:   (id, d)   => apiFetch(`/api/employees/${id}/messages`, { method: 'POST', body: JSON.stringify(d) }),
+    getEmployeeMessages:   (id)      => apiFetch(empPath(id, '/messages')),
+    sendEmployeeMessage:   (id, d)   => apiFetch(empPath(id, '/messages'), { method: 'POST', body: JSON.stringify(d) }),
 
     // ── SMS (Jazz CMT) ────────────────────────────────────────────────────────
     sendSms: (to, message, employee_id) => apiFetch('/api/sms/send', { method: 'POST', body: JSON.stringify({ to, message, employee_id }) }),
@@ -189,28 +190,28 @@ export const api = {
     submitBillForApproval: (billId) => apiFetch(`/api/bill-approval/${encodeURIComponent(billId)}/submit`, { method: 'POST', body: '{}' }),
 
     // ── Advances / Loans ──────────────────────────────────────────────────────
-    getAdvances:         (id)      => apiFetch(`/api/employees/${id}/advances`),
-    createAdvance:       (id, d)   => apiFetch(`/api/employees/${id}/advances`, { method: 'POST', body: JSON.stringify(d) }),
-    payAdvanceInstallment: (id, advId) => apiFetch(`/api/employees/${id}/advances/${advId}/pay-installment`, { method: 'POST' }),
-    deleteAdvance:       (id, advId) => apiFetch(`/api/employees/${id}/advances/${advId}`, { method: 'DELETE' }),
+    getAdvances:         (id)      => apiFetch(empPath(id, '/advances')),
+    createAdvance:       (id, d)   => apiFetch(empPath(id, '/advances'), { method: 'POST', body: JSON.stringify(d) }),
+    payAdvanceInstallment: (id, advId) => apiFetch(empPath(id, `/advances/${advId}/pay-installment`), { method: 'POST' }),
+    deleteAdvance:       (id, advId) => apiFetch(empPath(id, `/advances/${advId}`), { method: 'DELETE' }),
     getAdvanceDeductions: ()       => apiFetch('/api/payroll/advance-deductions'),
 
     // ── PF Ledger ─────────────────────────────────────────────────────────────
-    getPFLedger:         (id)      => apiFetch(`/api/employees/${id}/pf-ledger`),
-    upsertPFEntry:       (id, d)   => apiFetch(`/api/employees/${id}/pf-ledger`, { method: 'POST', body: JSON.stringify(d) }),
-    pfOpeningBalance:    (id, d)   => apiFetch(`/api/employees/${id}/pf-ledger/opening-balance`, { method: 'POST', body: JSON.stringify(d) }),
-    pfWithdrawal:        (id, d)   => apiFetch(`/api/employees/${id}/pf-ledger/withdrawal`, { method: 'POST', body: JSON.stringify(d) }),
-    deletePFEntry:       (id, eid) => apiFetch(`/api/employees/${id}/pf-ledger/${eid}`, { method: 'DELETE' }),
+    getPFLedger:         (id)      => apiFetch(empPath(id, '/pf-ledger')),
+    upsertPFEntry:       (id, d)   => apiFetch(empPath(id, '/pf-ledger'), { method: 'POST', body: JSON.stringify(d) }),
+    pfOpeningBalance:    (id, d)   => apiFetch(empPath(id, '/pf-ledger/opening-balance'), { method: 'POST', body: JSON.stringify(d) }),
+    pfWithdrawal:        (id, d)   => apiFetch(empPath(id, '/pf-ledger/withdrawal'), { method: 'POST', body: JSON.stringify(d) }),
+    deletePFEntry:       (id, eid) => apiFetch(empPath(id, `/pf-ledger/${eid}`), { method: 'DELETE' }),
 
     // ── Gratuity Ledger ───────────────────────────────────────────────────────
-    getGratuityLedger:   (id)      => apiFetch(`/api/employees/${id}/gratuity-ledger`),
-    upsertGratuityEntry: (id, d)   => apiFetch(`/api/employees/${id}/gratuity-ledger`, { method: 'POST', body: JSON.stringify(d) }),
+    getGratuityLedger:   (id)      => apiFetch(empPath(id, '/gratuity-ledger')),
+    upsertGratuityEntry: (id, d)   => apiFetch(empPath(id, '/gratuity-ledger'), { method: 'POST', body: JSON.stringify(d) }),
 
     // ── Asset Issuances ───────────────────────────────────────────────────────
-    getAssets:           (id)      => apiFetch(`/api/employees/${id}/assets`),
-    createAsset:         (id, d)   => apiFetch(`/api/employees/${id}/assets`, { method: 'POST', body: JSON.stringify(d) }),
-    returnAsset:         (id, aid) => apiFetch(`/api/employees/${id}/assets/${aid}/return`, { method: 'PATCH' }),
-    deleteAsset:         (id, aid) => apiFetch(`/api/employees/${id}/assets/${aid}`, { method: 'DELETE' }),
+    getAssets:           (id)      => apiFetch(empPath(id, '/assets')),
+    createAsset:         (id, d)   => apiFetch(empPath(id, '/assets'), { method: 'POST', body: JSON.stringify(d) }),
+    returnAsset:         (id, aid) => apiFetch(empPath(id, `/assets/${aid}/return`), { method: 'PATCH' }),
+    deleteAsset:         (id, aid) => apiFetch(empPath(id, `/assets/${aid}`), { method: 'DELETE' }),
 
     // ── Invoices (legacy — kept for backwards compat) ─────────────────────────
     getInvoices:         ()        => apiFetch('/api/invoices'),
@@ -429,8 +430,8 @@ export const api = {
     getFileUrl: (id) => `${API}/api/files/${id}`,
 
     // ── Phase 2: Warnings ─────────────────────────────────────────────────────
-    getWarnings: (empId) => apiFetch(`/api/employees/${encodeURIComponent(empId)}/warnings`),
-    createWarning: (empId, data) => apiFetch(`/api/employees/${encodeURIComponent(empId)}/warnings`, { method: 'POST', body: JSON.stringify(data) }),
+    getWarnings: (empId) => apiFetch(empPath(empId, '/warnings')),
+    createWarning: (empId, data) => apiFetch(empPath(empId, '/warnings'), { method: 'POST', body: JSON.stringify(data) }),
     getWarningPrintUrl: (id) => `${API}/api/warnings/${id}/print`,
     acknowledgeWarning: (id, ackFileId, ackNote) => apiFetch(`/api/warnings/${id}/acknowledge`, { method: 'POST', body: JSON.stringify({ ack_file_id: ackFileId, ack_note: ackNote }) }),
 
@@ -573,9 +574,9 @@ export const api = {
     // endpoints in server.js, which now resolve entitlements via the contract policy.
     getLeavePolicy:     (contractId)    => apiFetch(`/api/leave/policy/${encodeURIComponent(contractId)}`),
     updateLeavePolicy:  (contractId, d) => apiFetch(`/api/leave/policy/${encodeURIComponent(contractId)}`, { method: 'PUT', body: JSON.stringify(d) }),
-    getEmployeeLeave:   (employeeId, year) => apiFetch(`/api/employees/${encodeURIComponent(employeeId)}/leave-balance/${year}`),
-    getEmployeeLeaveHistory: (employeeId) => apiFetch(`/api/employees/${encodeURIComponent(employeeId)}/leaves`),
-    recordLeaveUsage:   (employeeId, d) => apiFetch(`/api/employees/${encodeURIComponent(employeeId)}/leaves`, { method: 'POST', body: JSON.stringify({ ...d, status: 'Approved' }) }),
+    getEmployeeLeave:   (employeeId, year) => apiFetch(empPath(employeeId, `/leave-balance/${year}`)),
+    getEmployeeLeaveHistory: (employeeId) => apiFetch(empPath(employeeId, '/leaves')),
+    recordLeaveUsage:   (employeeId, d) => apiFetch(empPath(employeeId, '/leaves'), { method: 'POST', body: JSON.stringify({ ...d, status: 'Approved' }) }),
 
     // ── Restructure: Compliance ──────────────────────────────────────────────────
     getComplianceLedger: (month, year) => apiFetch(`/api/compliance/ledger?month=${month}&year=${year}`),
