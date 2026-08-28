@@ -304,7 +304,7 @@ describe('PATCH /api/payroll/:year/:month/unlock', () => {
 describe('POST /api/payroll/:year/:month — locked month upsert guard', () => {
 
   test('blocked with 403 when any locked row exists for the target month', async () => {
-    // Route: line 2394 — requireRole('finance_proposer')
+    // Route used to be requireRole('finance_proposer') only; now payroll roles + payroll.edit perms
     const token = makeToken({ role: 'finance_proposer' });
     // server.js lock check: SELECT locked FROM payroll_transactions WHERE locked=TRUE
     mockPool.query.mockResolvedValueOnce({
@@ -336,6 +336,60 @@ describe('POST /api/payroll/:year/:month — locked month upsert guard', () => {
 
     // 200 or 400 (empty rows validation) — but NOT 403
     expect(res.status).not.toBe(403);
+  });
+
+  test('payroll_initiator can save sheet inputs', async () => {
+    mockPool.query.mockReset();
+    mockPool.query.mockResolvedValue({ rows: [], rowCount: 0 });
+    const token = makeToken({ role: 'payroll_initiator' });
+    mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const res = await request()
+      .post(`/api/payroll/${TEST_YEAR}/${TEST_MONTH}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ rows: [] });
+
+    expect(res.status).not.toBe(403);
+  });
+
+  test('operations with payroll.edit custom permission can save sheet inputs', async () => {
+    mockPool.query.mockReset();
+    mockPool.query.mockResolvedValue({ rows: [], rowCount: 0 });
+    const token = makeToken({ role: 'operations', email: 'sadia.komal@asil.com.pk' });
+    mockPool.query.mockResolvedValueOnce({
+      rows: [{
+        role: 'operations',
+        permissions: { payroll: { access: true, subPerms: ['view', 'edit', 'lock', 'export'] } },
+      }],
+      rowCount: 1,
+    });
+    mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const res = await request()
+      .post(`/api/payroll/${TEST_YEAR}/${TEST_MONTH}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ rows: [] });
+
+    expect(res.status).not.toBe(403);
+    expect(res.body.ok).toBe(true);
+  });
+
+  test('operations without payroll.edit is still 403 on save', async () => {
+    mockPool.query.mockReset();
+    mockPool.query.mockResolvedValue({ rows: [], rowCount: 0 });
+    const token = makeToken({ role: 'operations' });
+    mockPool.query.mockResolvedValueOnce({
+      rows: [{ role: 'operations', permissions: { payroll: { access: true, subPerms: ['view'] } } }],
+      rowCount: 1,
+    });
+
+    const res = await request()
+      .post(`/api/payroll/${TEST_YEAR}/${TEST_MONTH}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ rows: [] });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/insufficient role/i);
   });
 
 });

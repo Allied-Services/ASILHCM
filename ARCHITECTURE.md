@@ -25,7 +25,7 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 | | **World A (legacy sheet + AP path)** | **World B (2026 restructure)** |
 |---|---|---|
 | Compute | **Server:** `POST /api/payroll/:year/:month/calculate` → `payrollSheet/service.js` + `resolveInputs.js` + `prSheetEngine.js` + `taxEngine.js` (Payroll Sheet is display/input UI only; browser `payrollUtils.calcEmployeeRow` is not used for money). **Sheet columns are baseline:** Monthly Hub / attendance zeros must not wipe sheet OT; default `sourceMode=sheet_inputs` (idempotent recompute). `canonical` (UI **Merge approved Portal Claims**) also loads approved `portal_claim_*` rows whose **settlement month** is the Payroll Sheet month (July work → August pay) — not only `employee_claims` stamped with the pay month. | Server: `backend/src/modules/payrollrun/` + `prSheetEngine.js` + `taxEngine.js` |
-| Storage | `POST /api/payroll/:year/:month` → `payroll_transactions` | `payroll_runs` + `payroll_run_rows` |
+| Storage | `POST /api/payroll/:year/:month` → `payroll_transactions`. **Write auth:** payroll roles (`finance_proposer`, `payroll_initiator`, `payroll`, `finance_manager`, `finance_approver`, `superadmin`) **or** User Management `payroll.edit` on `hcm_users.permissions` (JWT role alone is not enough when the tab was granted as a custom permission). Same guard on `POST .../calculate`. Lock/unlock stay `finance_approver`/`superadmin`. | `payroll_runs` + `payroll_run_rows` |
 | Disbursement | AP queue → `payment_batches` → `payment_ledger` ✅ | `POST /api/payroll-runs/:id/disburse` → same tables ✅ (S4B) |
 | Status | Pays ~500 employees today | Excel-parity-validated engine; not yet paying |
 

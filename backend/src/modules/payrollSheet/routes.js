@@ -1,16 +1,11 @@
 'use strict';
 
 const { calculatePayrollSheet } = require('./service');
+const { requirePayrollSheet } = require('./access');
 
 function registerPayrollSheetRoutes(app, deps) {
-    const { pool, requireAuth, requireRole, logAudit } = deps;
-    const calcRoles = requireRole(
-        'finance_proposer',
-        'payroll_initiator',
-        'finance_manager',
-        'finance_approver',
-        'superadmin',
-    );
+    const { pool, requireAuth, logAudit } = deps;
+    const calcRoles = requirePayrollSheet(pool, 'edit');
 
     app.post('/api/payroll/:year/:month/calculate', requireAuth, calcRoles, async (req, res) => {
         try {

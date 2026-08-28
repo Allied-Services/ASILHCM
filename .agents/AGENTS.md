@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-08-28 — Payroll Sheet honors User Management edit rights
+Cell save (`POST /api/payroll/:year/:month`) was `requireRole('finance_proposer')` only, so a user granted Payroll Sheet in User Management (e.g. Sadia) could open the tab but got **Forbidden: insufficient role** on every value change. Save and Calculate now allow payroll roles **or** `hcm_users.permissions.payroll` with `edit` (same pattern as Portal Claims custom perms). Lock/unlock unchanged.
+
+**Env vars needed:** none.
+
 ### 2026-08-27 — August Calculate merges July Portal Claims
 Payroll Sheet **Merge approved Portal Claims** (`sourceMode=canonical`) now loads approved `portal_claim_*` rows whose settlement month is the sheet month (July work → August pay). Previously Calculate only read `employee_claims` for August, so 133 approved July Wafi claims never appeared. OT 1x still folds into OT 2x. Default Calculate (checkbox off) is unchanged. Production dry-run: 133 of 305 Wafi August rows would receive claims; August sheet today is still all zeros. No live write.
 
