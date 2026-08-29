@@ -69,10 +69,23 @@ export const calcPayrollSheetWHT = (grossMonthly, bonusDisbursement, opd, expens
 };
 /** @deprecated Use calcPayrollSheetWHT */
 export const calcJuly2026WafiWHT = calcPayrollSheetWHT;
-export const calcEOBI_fn = () => {
-    // EOBI is a flat statutory amount â€” 1%/5% of minimum wage Rs. 40,000
-    // Fixed for ALL employees regardless of their salary
+export const eobiRatesForPeriod = (year, month) => {
+    const y = Number(year);
+    const m = Number(month);
+    if (y > 2026 || (y === 2026 && m >= 8)) {
+        return { employee: 430, employer: 2150 };
+    }
     return { employee: 400, employer: 2000 };
+};
+export const calcEOBI_fn = (year, month) => {
+    if (year == null || month == null) {
+        if (typeof window !== 'undefined' && window.__payrollMonth) {
+            const [py, pm] = String(window.__payrollMonth).split('-').map(Number);
+            return eobiRatesForPeriod(py, pm);
+        }
+        return { employee: 400, employer: 2000 };
+    }
+    return eobiRatesForPeriod(year, month);
 };
 // PF: 1/24th of Gross Salary (â‰ˆ 4.166%) â€” both EE and ER
 export const calcPF_fn = (gross, enrolled) => enrolled ? Math.round(parseFloat(gross || 0) / 24) : 0;
@@ -191,17 +204,10 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     const medPaid    = 0;
     const otherPaid  = 0;
 
-    // Taxable income EXCLUDES OPD, expense reimbursements, and same-month arrears (year-end true-up in June).
-    // July 2026 Wafi BPO: also exclude bonus disbursement lump from WHT base (owner Excel parity).
-    const usePayrollSheetTax = isJuly2026Cutover && isWafiBpoEmployee(emp);
-    const taxableMonthly = usePayrollSheetTax
-        ? grossMonthly - bonusDisbursed - opdClaim - reimb - arrears
-        : grossMonthly - opdClaim - reimb - arrears;
-    const annualIncome   = taxableMonthly * 12;
-    const incomeTax      = usePayrollSheetTax
-        ? calcPayrollSheetWHT(grossMonthly, bonusDisbursed, opdClaim, reimb, arrears)
-        : calcWHT(annualIncome);
-    const eobi           = calcEOBI_fn(); // flat Rs. 400 EE / Rs. 2,000 ER
+    // Taxable income EXCLUDES OPD, expense reimbursements, same-month arrears,
+    // and the bonus disbursement lump (monthly payroll never annualizes bonus).
+    const incomeTax = calcPayrollSheetWHT(grossMonthly, bonusDisbursed, opdClaim, reimb, arrears);
+    const eobi = calcEOBI_fn();
 
     // ——— EOSB ———————————————————————————————————————————————————————————————
     const eosbType   = cfg.eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');

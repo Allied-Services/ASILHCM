@@ -11,6 +11,8 @@ const {
     computePrSheetRow,
     computeMedicalCoverage,
     resolvePayrollSheetBonus,
+    paidDaysFromEmploymentWindow,
+    calendarDaysInMonth,
 } = require('../../payroll/prSheetEngine');
 const { loadBonusWorkingMap, isWafiBpoJulyContext } = require('../../payroll/julyBonusAccrual');
 const {
@@ -189,7 +191,7 @@ async function loadSheetEmployees(pool, { year, month, client, contractId, emplo
     }
 
     const { rows } = await pool.query(
-        `SELECT e.id, e.name, e.salary, e.doj, e.contract_id, e.client, e.designation,
+        `SELECT e.id, e.name, e.salary, e.doj, e.last_working_day, e.contract_id, e.client, e.designation,
                 e.spouse_name, e.child1_name, e.child2_name, e.location,
                 c.costs AS contract_costs, c.financials AS contract_financials, c.contract_name AS contract_name
          FROM employees e
@@ -411,7 +413,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             claimAgg = mergeClaimAgg(claimAgg, portalToClaimAgg(portal));
         }
 
-        const {
+        let {
             paidDays,
             presentDaysForModelA,
             absentDaysForModelA,
@@ -420,6 +422,29 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             monthlyOv,
             attendancePaidDays: attPaidDays,
         });
+        const windowDays = paidDaysFromEmploymentWindow(y, m, emp.doj, emp.last_working_day);
+        const monthDays = calendarDaysInMonth(m, y) || lastDay;
+        if (windowDays === 0) {
+            warnings.push({
+                employeeId: emp.id,
+                code: 'OUTSIDE_EMPLOYMENT_WINDOW',
+                message: `${emp.name}: not employed in this month — skipped`,
+            });
+            continue;
+        }
+        const hasExplicitAbsent = absentDaysForModelA != null && absentDaysForModelA !== '';
+        if (windowDays < monthDays) {
+            paidDays = windowDays;
+            presentDaysForModelA = windowDays;
+        } else if (!hasExplicitAbsent) {
+            // Full month: calendar days (Excel). Stale 28 / weekday 26 must not stick.
+            paidDays = windowDays;
+            if (presentDaysForModelA == null || presentDaysForModelA < windowDays) {
+                presentDaysForModelA = windowDays;
+            }
+        } else {
+            paidDays = Math.min(Number(paidDays) || 0, windowDays);
+        }
 
         let { ot1, ot2, ot3, opd, expense } = resolvePayrollSheetInputs({
             sheet,
@@ -489,8 +514,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             ? 0
             : num(policy.sales_tax_rate, (Number(financials.sales_tax_pct) || 0) / 100);
 
-        const excludeBonusFromWht = Number(m) === 7 && Number(y) === 2026
-            && isWafiBpoJulyContext({ employeeId: emp.id, contractId });
+        const excludeBonusFromWht = true;
 
         const computeInput = {
             newSalary: salary,

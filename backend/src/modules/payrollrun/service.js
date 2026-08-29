@@ -1,7 +1,7 @@
 'use strict';
 
 const { computePrSheetRow, computeMedicalCoverage, resolvePayrollSheetBonus } = require('../../payroll/prSheetEngine');
-const { loadBonusWorkingMap, isWafiBpoJulyContext } = require('../../payroll/julyBonusAccrual');
+const { loadBonusWorkingMap } = require('../../payroll/julyBonusAccrual');
 const { getPolicy } = require('../constraints/service');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { provinceSalesTaxRate } = require('../../core/regionTax');
@@ -630,9 +630,10 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             contractBonusMonths: contractCosts.bonus_months,
             eosbType: contractCosts.eosb_type,
             bonusDisbursement,
-            excludeBonusFromWht: Number(month) === 7 && Number(year) === 2026
-                && isWafiBpoJulyContext({ employeeId: emp.id, contractId }),
+            excludeBonusFromWht: true,
             ...inputs,
+            month,
+            year,
         };
         // Model A (30-day calendar basis) for full months / conservancy absent rows.
         // Partial-month joiners/exits prorate on working days (matches Excel verify).
@@ -814,9 +815,10 @@ async function patchRunRow(pool, { runId, rowId, patch, overriddenBy }) {
         contractBonusMonths: contractCosts.bonus_months,
         eosbType: contractCosts.eosb_type,
         bonusDisbursement,
-        excludeBonusFromWht: Number(periodMonth) === 7 && Number(periodYear) === 2026
-            && isWafiBpoJulyContext({ employeeId: row.employee_id, contractId: runRows[0].contract_id }),
+        excludeBonusFromWht: true,
         ...inputs,
+        month: periodMonth,
+        year: periodYear,
     };
     if (useModelA) {
         computeInput.presentDays = patch.presentDays != null ? Number(patch.presentDays) : paidDays;
