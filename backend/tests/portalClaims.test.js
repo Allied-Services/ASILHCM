@@ -91,6 +91,28 @@ describe('portalClaims helpers', () => {
         assert.equal(isAfterFillClose(august, Date.parse('2026-08-27T12:00:00Z')), false);
     });
 
+    it('contract without an applied deadline stays open even after July close', () => {
+        const { isFillClosedForPolicy, isApproveClosedForPolicy } = require('../src/modules/claims/portalService');
+        const july = {
+            claim_month: 7,
+            claim_year: 2026,
+            fill_close_at: '2026-08-27T18:59:59.000Z',
+            approve_close_at: '2026-08-27T18:59:59.000Z',
+            campaign_mode: 'actual',
+        };
+        assert.equal(isFillClosedForPolicy(july, { calendar_apply: false }), false);
+        assert.equal(isFillClosedForPolicy(july, { calendar_apply: true }), false);
+        assert.equal(isApproveClosedForPolicy(july, { calendar_apply: true, approve_deadline_day: null }), false);
+        assert.equal(isFillClosedForPolicy(july, {
+            calendar_apply: true,
+            submit_deadline_day: 18,
+        }), true);
+        assert.equal(isApproveClosedForPolicy(july, {
+            calendar_apply: true,
+            approve_deadline_day: 22,
+        }), true);
+    });
+
     it('sendFillerBatchReminder does not mail after July fill close', async () => {
         const { sendFillerBatchReminder } = require('../src/modules/claims/portalService');
         let mailed = false;
