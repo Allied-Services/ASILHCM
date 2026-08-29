@@ -20,6 +20,7 @@ const {
 const {
     HUZAIFA_FALLBACK,
     countEligibleEmployees,
+    listCampaignFilterOptions,
     resolveClaimsCategory,
     resolveClaimsRouting,
     resolveClaimsRoutingForEmployee,
@@ -673,6 +674,7 @@ async function listEligibleEmployees(pool) {
 async function createCampaign(pool, {
     campaignMonth, campaignYear, claimMonth, claimYear, sendAppEmail, dryRun = false, preview = false,
     onlyEmails = null, onlyEmployeeIds = null, campaignMode = 'actual', testPackFour = false,
+    filterClient = null, filterContract = null, filterDept = null, filterLoc = null,
 }) {
     let period;
     if (claimMonth && claimYear) {
@@ -691,6 +693,10 @@ async function createCampaign(pool, {
         onlyEmployeeIds,
         campaignMode,
         testPackFour,
+        filterClient,
+        filterContract,
+        filterDept,
+        filterLoc,
         FRONTEND_URL: claimsFrontendUrl(),
         FILL_CLOSE_DAY,
         buildFillerInviteHtml,
@@ -3420,6 +3426,7 @@ module.exports = {
     resolveApproverEmail,
     ensureClaimAuthorityColumn,
     listEligibleEmployees,
+    listCampaignFilterOptions,
     createCampaign,
     openFillerSession,
     saveSubmissionItems,
