@@ -5,6 +5,8 @@ const {
     normalizeDeadlineMonth,
     parseOptionalDeadlineDay,
     inferCalendarApply,
+    hasSubmitDeadline,
+    hasApproveDeadline,
     deadlineYearMonth,
     shapePolicyRow,
     DEFAULTS,
@@ -54,6 +56,9 @@ describe('claimsPolicy', () => {
         expect(inferCalendarApply({ calendar_apply: true })).toBe(true);
         expect(inferCalendarApply({ submit_deadline_day: 18 })).toBe(true);
         expect(inferCalendarApply({})).toBe(false);
+        expect(hasSubmitDeadline({ calendar_apply: false, submit_deadline_day: 18 })).toBe(false);
+        expect(hasSubmitDeadline({ calendar_apply: true, submit_deadline_day: 18 })).toBe(true);
+        expect(hasApproveDeadline({ calendar_apply: true, approve_deadline_day: null })).toBe(false);
         expect(deadlineYearMonth(2026, 7, 'current_month')).toEqual({ year: 2026, month: 7 });
         expect(deadlineYearMonth(2026, 7, 'following_month')).toEqual({ year: 2026, month: 8 });
         expect(deadlineYearMonth(2026, 12, 'following_month')).toEqual({ year: 2027, month: 1 });
