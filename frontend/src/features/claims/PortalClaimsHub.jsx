@@ -11,7 +11,7 @@ const CLAIM_PROCESS_ROWS = [
   {
     situation: 'No Focal, no LM + official @wafi-energy.com or @asil.com.pk email',
     filler: 'Employee',
-    approver: `Sadia approves (${SADIA_EMAIL})`,
+    approver: 'No separate step — employee submit is final',
   },
   {
     situation: 'Focal + LM on roster',
@@ -125,6 +125,15 @@ function isClaimsApproved(p) {
   return ['ready_for_payroll', 'sent_to_payroll'].includes(p.control_status);
 }
 
+function hasPayrollDeskRow(p) {
+  if (isClaimsApproved(p)) return true;
+  const sheet = p.sheet || {};
+  const portal = p.portal || {};
+  return [sheet.ot2, sheet.ot3, sheet.medical, sheet.expense, sheet.reimb,
+    portal.ot2, portal.ot3, portal.expense, portal.medical]
+    .some((n) => Number(n) > 0);
+}
+
 export default function PortalClaimsHub({
   user,
   lockSection = null,
@@ -133,12 +142,16 @@ export default function PortalClaimsHub({
   onOpenManual = null,
   manualSeed = null,
   onManualSeedConsumed = null,
+  initialWorkMonth = null,
+  initialWorkYear = null,
+  initialPayMonth = null,
+  initialPayYear = null,
 }) {
   const start = defaultPeriod();
-  const [workMonth, setWorkMonth] = useState(start.workMonth);
-  const [workYear, setWorkYear] = useState(start.workYear);
-  const [payMonth, setPayMonth] = useState(start.payMonth);
-  const [payYear, setPayYear] = useState(start.payYear);
+  const [workMonth, setWorkMonth] = useState(initialWorkMonth || start.workMonth);
+  const [workYear, setWorkYear] = useState(initialWorkYear || start.workYear);
+  const [payMonth, setPayMonth] = useState(initialPayMonth || start.payMonth);
+  const [payYear, setPayYear] = useState(initialPayYear || start.payYear);
   const [client, setClient] = useState('');
   const [contract, setContract] = useState('');
   const [location, setLocation] = useState('');
@@ -269,6 +282,7 @@ export default function PortalClaimsHub({
     if (filter === 'claims_approved') return isClaimsApproved(p);
     if (filter === 'no_claims_confirmed') return isNoClaimsConfirmed(p);
     if (filter === 'no_claims_auto_closed') return p.control_status === 'no_claims_auto_closed';
+    if (filter === 'payroll_desk') return hasPayrollDeskRow(p);
     return p.control_status === filter;
   });
   const open = (board?.people || []).find(p => p.employee_id === openId) || null;
@@ -296,7 +310,9 @@ export default function PortalClaimsHub({
     return { ot2, ot3, exp, med, count: pushIds.length };
   }, [pushIds, board]);
 
+  const payrollDeskCount = (board?.people || []).filter(hasPayrollDeskRow).length;
   const chips = [
+    ['payroll_desk', `July claims / August sheet ${payrollDeskCount}`],
     ['needs_action', `Needs action ${actionCounts.needs_action || 0}`],
     ['waiting', `Waiting ${actionCounts.waiting || 0}`],
     ['submitted_by_focal', `Claims Submitted by Focals ${pipelineCounts.submitted_by_focal || 0}`],
@@ -638,7 +654,9 @@ export default function PortalClaimsHub({
       {activeSection === 'response' && (
         <>
           <div className="pch-note is-info">
-            {board?.period_label || 'Who must act, what is ready for payroll, and what is closed.'}
+            {filter === 'payroll_desk'
+              ? 'July work claims that are approved or already on the August Payroll Sheet.'
+              : (board?.period_label || 'Who must act, what is ready for payroll, and what is closed.')}
           </div>
           <div className="pch-stats">
             <div className="pch-stat is-warn"><strong>{pipelineCounts.submitted_by_focal || 0}</strong><span>Submitted by Focals</span></div>

@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-08-29 — Auto routing official mailbox is final; communications off
+`auto` with no Focal/LM and an official Wafi/ASIL mailbox is **employee_only** (submit is final). Personal/missing mail still goes to Dedicated Payroll Resource. Master gate `COMMUNICATIONS_ENABLED` defaults to **off** (no email, no SMS). `asil_only` allows `@asil.com.pk` only. Digest send also requires `FOCAL_DIGEST_SEND=true`. Monthly Cycle Setup shows Attendance as a claim type. Monthly Cycle → Payroll opens July 2026 claims against the August sheet.
+
+**Env vars needed:** `COMMUNICATIONS_ENABLED=off` on Render until verification. Do not set `on` without Go red.
+
 ### 2026-08-29 — Records spine + Monthly Cycle Phase 2 (must-do plan)
 One Rulebook per contract (`commercial_type`, `payroll_engine` legacy|runs, mandatory ASIL Contract Focal, Dedicated Payroll Resource, routing a–g). Contacts + region compliance. Daily Focal digest preview (`GET /api/records/digest`); live send only if `FOCAL_DIGEST_SEND=true`. Machine-file Collect (upload → edit → submit). Sheet provenance + Pending Import; open conflicts `409 INPUT_CONFLICTS` on lock. Engine flag blocks Sheet write vs Run compute. Cost-plus invoice from locked snapshot; SO path `409 USE_COST_PLUS_INVOICE`; `preview-invoice` is 410. Close pack from locked sheet + statutory files. Month-close checklist on Monthly Cycle Close. Hidden: Email Claims, Wafi Claims, Claims Queue. Intake-as-claims off unless `CLAIMS_INTAKE_ROUTING=true`. Sadia/Huzaifa are data (Dedicated Payroll Resource), not code.
 

@@ -196,7 +196,7 @@ function normalizeRouting(profile) {
 
 function isEmployeeFiller(profile) {
     const p = normalizeRouting(profile);
-    return p === 'employee_then_lm' || p === 'employee_then_focal' || p === 'employee_then_asil';
+    return p === 'employee_then_lm' || p === 'employee_then_focal' || p === 'employee_then_asil' || p === 'employee_only';
 }
 
 function isLmFiller(profile) {
@@ -208,6 +208,7 @@ function decidedByRole(profile) {
     if (p === 'focal_only') return 'Focal';
     if (p === 'lm_only') return 'LM';
     if (p === 'employee_then_asil') return 'ASIL';
+    if (p === 'employee_only') return 'Employee';
     return 'LM';
 }
 
@@ -220,7 +221,11 @@ function fillerWaitStatus(profile) {
 function approverWaitStatus(profile) {
     const p = normalizeRouting(profile);
     if (p === 'employee_then_asil') return 'waiting_asil';
-    if (p === 'focal_only' || p === 'lm_only') return p === 'lm_only' ? 'waiting_lm_fill' : 'waiting_focal';
+    if (p === 'focal_only' || p === 'lm_only' || p === 'employee_only') {
+        if (p === 'lm_only') return 'waiting_lm_fill';
+        if (p === 'employee_only') return 'waiting_employee';
+        return 'waiting_focal';
+    }
     return 'waiting_lm';
 }
 

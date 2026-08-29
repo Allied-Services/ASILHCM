@@ -100,7 +100,7 @@ function resolveEmployeeFillerEmail(emp) {
 }
 
 function isFinalSubmitProfile(profile) {
-    return profile === 'focal_only' || profile === 'lm_only';
+    return profile === 'focal_only' || profile === 'lm_only' || profile === 'employee_only';
 }
 
 const OFFICIAL_EMAIL_DOMAINS = ['wafi-energy.com', 'asil.com.pk'];
@@ -193,7 +193,7 @@ function resolveExplicitRouting(emp, rulebook) {
  * - Focal + LM → Focal fills, LM approves.
  * - Focal only (no LM) → Focal fills and approves (final).
  * - No focal + LM → LM fills and approves (final).
- * - No focal + no LM + official @wafi-energy.com / @asil.com.pk → Employee fills, Dedicated Payroll Resource approves.
+ * - No focal + no LM + official @wafi-energy.com / @asil.com.pk → Employee fills and submit is final.
  * - No focal + no LM + personal email → Dedicated Payroll Resource fills and approves (final).
  *
  * Explicit contract routing_mode values a–g override auto.
@@ -243,13 +243,13 @@ function resolveClaimsRouting(emp, rulebook) {
         };
     }
 
-    // No focal, no LM + official work mailbox — employee fills, contract payroll resource approves.
+    // No focal, no LM + official work mailbox — employee fills and submit is final.
     if (empEmail) {
         return {
-            profile: 'employee_then_asil',
-            category: 'Employee + ASIL',
+            profile: 'employee_only',
+            category: 'Employee final',
             fillerEmail: empEmail,
-            approverEmail: payroll,
+            approverEmail: empEmail,
             initiator: 'employee',
         };
     }

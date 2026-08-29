@@ -5,6 +5,7 @@ const {
   isJazzProxyConfigured,
   jazzProxyLogLabel,
 } = require('./jazz_http_transport');
+const { gateSms } = require('../src/core/communications');
 
 function normalisePhone(raw = '') {
   const digits = String(raw || '').replace(/\D/g, '');
@@ -100,6 +101,11 @@ function resolveCredentials({ otp = false } = {}) {
 }
 
 async function sendJazzSMS(phone, message, { otp = false } = {}) {
+  const gated = gateSms();
+  if (gated.skip) {
+    console.warn('[SMS] skipped', gated.reason, gated.mode);
+    return { ok: false, skipped: true, reason: gated.reason, to: phone };
+  }
   const { user: USER, pass: PASS, mask: MASK } = resolveCredentials({ otp });
   if (!USER || !PASS) {
     throw new Error(otp

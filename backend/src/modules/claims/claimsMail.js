@@ -133,7 +133,7 @@ function escapeHtml(value) {
 function submitterRoleLabel(profile) {
     const p = String(profile || '');
     if (p === 'lm_only') return 'Line Manager';
-    if (p === 'employee_then_lm' || p === 'employee_then_asil') return 'Employee';
+    if (p === 'employee_then_lm' || p === 'employee_then_asil' || p === 'employee_only') return 'Employee';
     if (p === 'focal_then_lm' || p === 'focal_only') return 'Focal';
     return 'Submitter';
 }
@@ -234,6 +234,7 @@ function buildSubmitRecordEmailHtml({ period, batch, submissions, items }) {
     const month = `${period.claim_month}/${period.claim_year}`;
     const dest = String(batch && batch.routing_profile) === 'focal_only'
         || String(batch && batch.routing_profile) === 'lm_only'
+        || String(batch && batch.routing_profile) === 'employee_only'
         ? 'This submit is final — no further approval.'
         : `Submitted to: ${escapeHtml((submissions && submissions[0] && submissions[0].approver_email) || 'Line Manager')}`;
     const summaryBits = [

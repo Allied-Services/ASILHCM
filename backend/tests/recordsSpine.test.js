@@ -40,6 +40,12 @@ describe('records spine — routing modes a–g', () => {
         expect(r.profile).toBe('focal_then_lm');
     });
 
+    test('auto official mailbox with no Focal/LM is employee final', () => {
+        const r = resolveClaimsRouting({ email: 'emp@wafi-energy.com' });
+        expect(r.profile).toBe('employee_only');
+        expect(r.fillerEmail).toBe(r.approverEmail);
+    });
+
     test('path a employee_then_focal', () => {
         const r = resolveClaimsRouting(
             { email: 'emp@wafi-energy.com', claim_authority: 'focal@wafi.com' },

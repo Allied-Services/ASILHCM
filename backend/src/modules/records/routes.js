@@ -1,6 +1,7 @@
 'use strict';
 
 const { handleRouteError } = require('../../core/validate');
+const { communicationsStatus } = require('../../core/communications');
 const { getRulebook, saveRulebook, listRulebooks } = require('./rulebook');
 const {
     listContacts, upsertContact, updateContact, seedContactsFromExisting,
@@ -21,6 +22,10 @@ const { createClosePackFromSheet } = require('../payrollClose/service');
 function registerRecordsRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail, logAudit } = deps;
     const writeRoles = requireRole('superadmin', 'finance_manager', 'operations', 'payroll_initiator');
+
+    app.get('/api/records/communications', requireAuth, async (_req, res) => {
+        res.json(communicationsStatus());
+    });
 
     app.get('/api/records/rulebooks', requireAuth, async (_req, res) => {
         try {

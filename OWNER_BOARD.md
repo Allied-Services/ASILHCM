@@ -70,6 +70,12 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 ## IN PROGRESS
 - BPO / PSO contract matching on staging (separate track — do not block)
 
+## JUST SHIPPED (2026-08-29)
+- **Monthly Cycle Setup includes Attendance** — tick it on the contract pack when a machine / client file is used.
+- **Monthly Cycle → Payroll shows July claims / August sheet** — open that tab; it starts on July 2026 work.
+- **Official mailbox, no Focal/LM: submit is final** — `@wafi-energy.com` or `@asil.com.pk` with no Focal and no LM does not wait for a second approver.
+- **Live email and SMS stay off** — `COMMUNICATIONS_ENABLED` defaults to off. Do not set `on` without `Go red:`.
+
 ## JUST SHIPPED (2026-08-28)
 - **Provident Fund now deducts on the Payroll Sheet** — if the contract End of Service Benefit is Provident Fund, Calculate takes Gross ÷ 24 from the employee and matches it as employer PF (no gratuity on those people). Press Calculate on that contract’s unlocked month to refresh. Do not re-Calculate July Wafi.
 - **Employee Code can be changed** — timestamp codes like `ASIL-1787…` save as real staff codes including slashes (`ASILFM/SPL/22/167`). The same person's CNIC is not treated as a duplicate. Pay and claims rows stay attached. Admin only.
