@@ -4,19 +4,46 @@
  * Taxable income = Gross - OPD Claims - Expense Reimbursements
  */
 
-// EOBI statutory minimum wage cap (Rs. 40,000 as of 2025-26)
-const EOBI_MIN_WAGE = 40000;
+// EOBI is a flat statutory amount (1% EE / 5% ER of the notified minimum wage).
+// Through Jul 2026: min wage Rs. 40,000 → EE 400 / ER 2,000
+// From Aug 2026:    min wage Rs. 43,000 → EE 430 / ER 2,150
+const EOBI_RATES_PRE_AUG_2026 = { employeeShare: 400, employerShare: 2000, minWage: 40000 };
+const EOBI_RATES_FROM_AUG_2026 = { employeeShare: 430, employerShare: 2150, minWage: 43000 };
+const EOBI_MIN_WAGE = EOBI_RATES_FROM_AUG_2026.minWage;
+
+function resolveEobiPeriod(period) {
+    if (!period || typeof period !== 'object') return null;
+    const year = Number(period.year ?? period.periodYear);
+    const month = Number(period.month ?? period.periodMonth);
+    if (!year || !month || month < 1 || month > 12) return null;
+    return { year, month };
+}
+
+function eobiAppliesAug2026Revision(year, month) {
+    return Number(year) > 2026 || (Number(year) === 2026 && Number(month) >= 8);
+}
+
+/**
+ * Period-aware EOBI rates. No period (or a legacy numeric salary arg) keeps
+ * the pre-Aug 2026 amounts so historical tests and July recalcs stay put.
+ */
+function eobiRatesForPeriod(period) {
+    const p = resolveEobiPeriod(period);
+    if (p && eobiAppliesAug2026Revision(p.year, p.month)) {
+        return { ...EOBI_RATES_FROM_AUG_2026 };
+    }
+    return { ...EOBI_RATES_PRE_AUG_2026 };
+}
 
 /**
  * Calculates EOBI employee and employer shares.
- * Flat rate against statutory minimum wage (Rs. 40,000 cap).
- * EE = 1% × 40,000 = Rs. 400 (flat for all employees)
- * ER = 5% × 40,000 = Rs. 2,000 (flat for all employees)
+ * @param {object} [period] - { year, month }. A number (legacy gross) is ignored.
  */
-function calculateEOBI() {
+function calculateEOBI(period) {
+    const rates = eobiRatesForPeriod(period);
     return {
-        employeeShare: 400,
-        employerShare: 2000,
+        employeeShare: rates.employeeShare,
+        employerShare: rates.employerShare,
     };
 }
 
@@ -136,6 +163,11 @@ function calculatePF(grossSalary, enrolled = false) {
 
 module.exports = {
     calculateEOBI,
+    eobiRatesForPeriod,
+    eobiAppliesAug2026Revision,
+    EOBI_RATES_PRE_AUG_2026,
+    EOBI_RATES_FROM_AUG_2026,
+    EOBI_MIN_WAGE,
     calculateSESSI,
     calculateMonthlyIncomeTax,
     calculatePayrollSheetMonthlyIncomeTax,

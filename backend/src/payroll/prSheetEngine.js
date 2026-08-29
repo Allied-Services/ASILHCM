@@ -13,6 +13,41 @@ function calendarDaysInMonth(month, year) {
     return new Date(y, m, 0).getDate();
 }
 
+function toYmd(value) {
+    if (!value) return null;
+    const s = String(value).trim();
+    const centuryTypo = s.match(/^00(\d{2})-(\d{2})-(\d{2})/);
+    if (centuryTypo) return `20${centuryTypo[1]}-${centuryTypo[2]}-${centuryTypo[3]}`;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Inclusive calendar days employed in the payroll month.
+ * Joiner: DOJ through month end. Exit: month start through last working day.
+ */
+function paidDaysFromEmploymentWindow(year, month, doj, lastWorkingDay) {
+    const dim = calendarDaysInMonth(month, year);
+    if (!dim) return 0;
+    const y = Number(year);
+    const m = Number(month);
+    const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
+    const monthEnd = `${y}-${String(m).padStart(2, '0')}-${String(dim).padStart(2, '0')}`;
+    const join = toYmd(doj);
+    const lwd = toYmd(lastWorkingDay);
+    if (join && join > monthEnd) return 0;
+    if (lwd && lwd < monthStart) return 0;
+    let start = monthStart;
+    let end = monthEnd;
+    if (join && join > start) start = join;
+    if (lwd && lwd < end) end = lwd;
+    const a = Date.parse(`${start}T00:00:00Z`);
+    const b = Date.parse(`${end}T00:00:00Z`);
+    return Math.round((b - a) / 86400000) + 1;
+}
+
 function resolveModelACalendarBasis(input = {}, policy = {}) {
     if (input.calendarBasis != null && input.calendarBasis !== '') {
         return Number(input.calendarBasis) || 30;
@@ -252,17 +287,22 @@ function computePrSheetRow(input, policy = {}) {
     const grossForTPC = grossComponents;
     const gross = grossComponents + bonusDisbursed;
 
-    const usePayrollSheetTax = input.excludeBonusFromWht === true
-        || input.julyWafiTax === true; // legacy flag — July 2026 Wafi rollout
+    // Monthly payroll always annualizes recurring pay only — bonus is taxed at FY-end.
+    const usePayrollSheetTax = input.excludeBonusFromWht !== false
+        || input.julyWafiTax === true;
     const whtExact = input.wht != null
         ? Number(input.wht)
         : (usePayrollSheetTax
             ? calculatePayrollSheetMonthlyIncomeTax(gross, bonusDisbursed, opd, expense, Math.round(arrears))
             : calculateMonthlyIncomeTax(gross, opd, expense, Math.round(arrears)));
     const wht = Math.round(whtExact);
+    const eobiPeriod = {
+        year: input.year ?? input.periodYear,
+        month: input.month ?? input.periodMonth,
+    };
     const eobi = input.eobiEmployee != null
-        ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI().employerShare }
-        : calculateEOBI();
+        ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI(eobiPeriod).employerShare }
+        : calculateEOBI(eobiPeriod);
     // SESSI: flat Rs. 2,400 (6% × Rs. 40,000 min wage) when contractual salary < 45,000.
     const sessiEr = salary < 45000 ? 2400 : 0;
     const eosbType = String(input.eosbType || input.eosb_type || '').trim();
@@ -357,6 +397,8 @@ module.exports = {
     computePrSheetRow,
     computeModelABasis,
     calendarDaysInMonth,
+    paidDaysFromEmploymentWindow,
+    toYmd,
     resolveModelACalendarBasis,
     computeOtRates,
     computeMedicalCoverage,
