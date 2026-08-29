@@ -3,11 +3,19 @@
 const ALL_CLAIM_TYPES = ['ATTENDANCE', 'OT', 'EXPENSE', 'MEDICAL'];
 const DEFAULT_ENABLED_TYPES = ['OT', 'EXPENSE', 'MEDICAL'];
 const COLLECTION_MODES = ['monthly_form', 'machine_file', 'daily_marks', 'mixed'];
+const DEADLINE_MONTHS = ['current_month', 'following_month'];
+
+const POLICY_COLUMNS = `claims_pay_timing, submit_deadline_day, approve_deadline_day,
+                submit_deadline_month, approve_deadline_month, calendar_apply,
+                enabled_types, collection_mode, reviewer_required`;
 
 const DEFAULTS = {
+    calendar_apply: false,
     claims_pay_timing: 'following_month',
-    submit_deadline_day: 18,
-    approve_deadline_day: 22,
+    submit_deadline_day: null,
+    approve_deadline_day: null,
+    submit_deadline_month: 'following_month',
+    approve_deadline_month: 'following_month',
     enabled_types: [...DEFAULT_ENABLED_TYPES],
     collection_mode: 'monthly_form',
     reviewer_required: false,
@@ -26,12 +34,54 @@ function normalizeCollectionMode(raw) {
     return COLLECTION_MODES.includes(v) ? v : DEFAULTS.collection_mode;
 }
 
+function normalizeDeadlineMonth(raw, fallback = 'following_month') {
+    const v = String(raw || '').trim();
+    if (DEADLINE_MONTHS.includes(v)) return v;
+    return fallback === 'current_month' ? 'current_month' : 'following_month';
+}
+
+function parseOptionalDeadlineDay(raw) {
+    if (raw == null || raw === '') return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return null;
+    return n;
+}
+
+function inferCalendarApply(body = {}) {
+    if (body.calendar_apply != null) {
+        return body.calendar_apply === true || body.calendar_apply === 'true';
+    }
+    return body.submit_deadline_day != null || body.approve_deadline_day != null;
+}
+
+function deadlineYearMonth(claimYear, claimMonth, monthMode) {
+    if (monthMode === 'current_month') {
+        return { year: Number(claimYear), month: Number(claimMonth) };
+    }
+    const d = new Date(Number(claimYear), Number(claimMonth), 1);
+    return { year: d.getFullYear(), month: d.getMonth() + 1 };
+}
+
+function assertDeadlineDay(day, field) {
+    if (day == null) return;
+    if (!Number.isFinite(day) || day < 1 || day > 28) {
+        const err = new Error(`${field} must be 1–28`);
+        err.status = 400;
+        throw err;
+    }
+}
+
 function shapePolicyRow(r) {
     if (!r) return { ...DEFAULTS };
+    const payTiming = r.claims_pay_timing || DEFAULTS.claims_pay_timing;
+    const monthFallback = payTiming === 'same_month' ? 'current_month' : 'following_month';
     return {
-        claims_pay_timing: r.claims_pay_timing || DEFAULTS.claims_pay_timing,
-        submit_deadline_day: r.submit_deadline_day != null ? Number(r.submit_deadline_day) : DEFAULTS.submit_deadline_day,
-        approve_deadline_day: r.approve_deadline_day != null ? Number(r.approve_deadline_day) : DEFAULTS.approve_deadline_day,
+        calendar_apply: !!r.calendar_apply,
+        claims_pay_timing: payTiming,
+        submit_deadline_day: parseOptionalDeadlineDay(r.submit_deadline_day),
+        approve_deadline_day: parseOptionalDeadlineDay(r.approve_deadline_day),
+        submit_deadline_month: normalizeDeadlineMonth(r.submit_deadline_month, monthFallback),
+        approve_deadline_month: normalizeDeadlineMonth(r.approve_deadline_month, monthFallback),
         enabled_types: normalizeEnabledTypes(r.enabled_types),
         collection_mode: normalizeCollectionMode(r.collection_mode),
         reviewer_required: !!r.reviewer_required,
@@ -41,21 +91,19 @@ function shapePolicyRow(r) {
 async function getClaimsPolicy(pool, contractId) {
     if (!contractId) return { ...DEFAULTS };
     const { rows } = await pool.query(
-        `SELECT claims_pay_timing, submit_deadline_day, approve_deadline_day,
-                enabled_types, collection_mode, reviewer_required
+        `SELECT ${POLICY_COLUMNS}
          FROM contract_claim_policies WHERE contract_id = $1`,
         [contractId]
     );
     return shapePolicyRow(rows[0]);
 }
 
-/** Resolve policy for portal period creation — uses first matching Wafi-style contract or defaults. */
+/** Resolve policy for portal period creation — prefer a pack that applies calendar. */
 async function getDefaultClaimsPolicy(pool) {
     const { rows } = await pool.query(
-        `SELECT claims_pay_timing, submit_deadline_day, approve_deadline_day,
-                enabled_types, collection_mode, reviewer_required
+        `SELECT ${POLICY_COLUMNS}
          FROM contract_claim_policies
-         ORDER BY updated_at DESC NULLS LAST
+         ORDER BY calendar_apply DESC, updated_at DESC NULLS LAST
          LIMIT 1`
     );
     return shapePolicyRow(rows[0]);
@@ -73,21 +121,15 @@ function assertEnabledType(policy, claimType) {
 }
 
 async function upsertClaimsPolicy(pool, contractId, body) {
+    const calendarApply = inferCalendarApply(body);
     const timing = body.claims_pay_timing === 'same_month' ? 'same_month' : 'following_month';
-    const submitDay = body.submit_deadline_day != null && body.submit_deadline_day !== ''
-        ? Number(body.submit_deadline_day) : DEFAULTS.submit_deadline_day;
-    const approveDay = body.approve_deadline_day != null && body.approve_deadline_day !== ''
-        ? Number(body.approve_deadline_day) : DEFAULTS.approve_deadline_day;
-    if (!Number.isFinite(submitDay) || submitDay < 1 || submitDay > 28) {
-        const err = new Error('submit_deadline_day must be 1–28');
-        err.status = 400;
-        throw err;
-    }
-    if (!Number.isFinite(approveDay) || approveDay < 1 || approveDay > 28) {
-        const err = new Error('approve_deadline_day must be 1–28');
-        err.status = 400;
-        throw err;
-    }
+    const monthFallback = timing === 'same_month' ? 'current_month' : 'following_month';
+    const submitDay = calendarApply ? parseOptionalDeadlineDay(body.submit_deadline_day) : null;
+    const approveDay = calendarApply ? parseOptionalDeadlineDay(body.approve_deadline_day) : null;
+    assertDeadlineDay(submitDay, 'submit_deadline_day');
+    assertDeadlineDay(approveDay, 'approve_deadline_day');
+    const submitMonth = normalizeDeadlineMonth(body.submit_deadline_month, monthFallback);
+    const approveMonth = normalizeDeadlineMonth(body.approve_deadline_month, monthFallback);
     const enabledTypes = normalizeEnabledTypes(body.enabled_types);
     const collectionMode = normalizeCollectionMode(body.collection_mode);
     const reviewerRequired = body.reviewer_required === true || body.reviewer_required === 'true';
@@ -95,18 +137,26 @@ async function upsertClaimsPolicy(pool, contractId, body) {
     const { rows } = await pool.query(
         `INSERT INTO contract_claim_policies
          (contract_id, claims_pay_timing, submit_deadline_day, approve_deadline_day,
+          submit_deadline_month, approve_deadline_month, calendar_apply,
           enabled_types, collection_mode, reviewer_required, updated_at)
-         VALUES ($1, $2, $3, $4, $5::text[], $6, $7, NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, NOW())
          ON CONFLICT (contract_id) DO UPDATE SET
            claims_pay_timing = EXCLUDED.claims_pay_timing,
            submit_deadline_day = EXCLUDED.submit_deadline_day,
            approve_deadline_day = EXCLUDED.approve_deadline_day,
+           submit_deadline_month = EXCLUDED.submit_deadline_month,
+           approve_deadline_month = EXCLUDED.approve_deadline_month,
+           calendar_apply = EXCLUDED.calendar_apply,
            enabled_types = EXCLUDED.enabled_types,
            collection_mode = EXCLUDED.collection_mode,
            reviewer_required = EXCLUDED.reviewer_required,
            updated_at = NOW()
          RETURNING *`,
-        [contractId, timing, submitDay, approveDay, enabledTypes, collectionMode, reviewerRequired]
+        [
+            contractId, timing, submitDay, approveDay,
+            submitMonth, approveMonth, calendarApply,
+            enabledTypes, collectionMode, reviewerRequired,
+        ]
     );
     return shapePolicyRow(rows[0]);
 }
@@ -116,10 +166,15 @@ module.exports = {
     getDefaultClaimsPolicy,
     upsertClaimsPolicy,
     normalizeEnabledTypes,
+    normalizeDeadlineMonth,
+    parseOptionalDeadlineDay,
+    inferCalendarApply,
+    deadlineYearMonth,
     assertEnabledType,
     shapePolicyRow,
     ALL_CLAIM_TYPES,
     DEFAULT_ENABLED_TYPES,
     COLLECTION_MODES,
+    DEADLINE_MONTHS,
     DEFAULTS,
 };

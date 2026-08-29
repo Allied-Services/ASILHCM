@@ -48,6 +48,25 @@ describe('portalClaims helpers', () => {
         assert.equal(w.fillOpenAt.getUTCDate(), 1);
     });
 
+    it('periodWindowFromClaim can put a deadline in the current claim month', () => {
+        const { periodWindowFromClaim } = require('../src/modules/claims/portalService');
+        const w = periodWindowFromClaim(2026, 7, {
+            calendar_apply: true,
+            claims_pay_timing: 'following_month',
+            submit_deadline_day: 10,
+            submit_deadline_month: 'current_month',
+            approve_deadline_day: 22,
+            approve_deadline_month: 'following_month',
+        });
+        assert.equal(w.settlementMonth, 8);
+        assert.equal(w.submitDeadlineMonth, 'current_month');
+        assert.equal(w.approveDeadlineMonth, 'following_month');
+        assert.equal(w.fillCloseAt.getUTCMonth(), 6);
+        assert.equal(w.fillCloseAt.getUTCDate(), 10);
+        assert.equal(w.approveCloseAt.getUTCMonth(), 7);
+        assert.equal(w.approveCloseAt.getUTCDate(), 22);
+    });
+
     it('July 2026 fill and LM approve are closed now; sample stays open', () => {
         const { isAfterFillClose, isAfterApproveClose, FILL_CLOSED_MESSAGE } = require('../src/modules/claims/portalService');
         const july = {
