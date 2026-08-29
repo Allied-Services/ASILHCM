@@ -21,6 +21,7 @@ const { isJazzProxyConfigured, jazzProxyLogLabel } = require('./lib/jazz_http_tr
 const { canApproveBill } = require('./src/modules/procurement/service');
 const { getLeavePolicy } = require('./src/modules/leave/service');
 const cutover = require('./src/core/cutover');
+const { gateEmailPayload } = require('./src/core/communications');
 const { resolvePaymentBatchBankId } = require('./src/core/paymentBankId');
 const wafiApproval = require('./src/modules/wafiClaims/approvalService');
 const {
@@ -80,14 +81,19 @@ function getResend() {
 const EMAIL_FROM = process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
 
 async function sendAppEmail({ to, subject, html, cc, bcc, reply_to, attachments }) {
-    const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
+    const gated = gateEmailPayload({ to, subject, html, cc, bcc, reply_to, attachments });
+    if (gated.skip) {
+        console.warn('[sendAppEmail] skipped', gated.reason, gated.mode);
+        return { skipped: true, reason: gated.reason, mode: gated.mode };
+    }
+    const recipients = (Array.isArray(gated.payload.to) ? gated.payload.to : [gated.payload.to]).filter(Boolean);
     const resend = getResend();
     if (!resend || !recipients.length) {
         return { skipped: true, reason: 'missing_key_or_recipients' };
     }
-    const ccList = (Array.isArray(cc) ? cc : cc ? [cc] : []).filter(Boolean);
-    const bccList = (Array.isArray(bcc) ? bcc : bcc ? [bcc] : []).filter(Boolean);
-    const replyTo = reply_to && String(reply_to).includes('@') ? String(reply_to).trim() : null;
+    const ccList = (Array.isArray(gated.payload.cc) ? gated.payload.cc : gated.payload.cc ? [gated.payload.cc] : []).filter(Boolean);
+    const bccList = (Array.isArray(gated.payload.bcc) ? gated.payload.bcc : gated.payload.bcc ? [gated.payload.bcc] : []).filter(Boolean);
+    const replyTo = gated.payload.reply_to && String(gated.payload.reply_to).includes('@') ? String(gated.payload.reply_to).trim() : null;
     try {
         const payload = { from: EMAIL_FROM, to: recipients, subject, html };
         if (ccList.length) payload.cc = ccList;
@@ -6848,14 +6854,15 @@ app.post('/api/claims/send-approval-emails', requireAuth, async (req, res) => {
 </body></html>`;
 
             try {
-                const resend = getResend();
-                if (!resend) throw new Error('RESEND_API_KEY not configured');
-                await resend.emails.send({
-                    from: EMAIL_FROM,
+                const mail = await sendAppEmail({
                     to: mgr.email,
                     subject: `Action Required: Approval for ${monthLabel} — ${mgr.employees.length} Claim(s)`,
                     html,
                 });
+                if (mail?.skipped) {
+                    errors.push({ manager: mgr.name, email: mgr.email, error: mail.reason || 'email skipped' });
+                    continue;
+                }
 
                 // Create approval cycle record
                 const totalVal = mgr.employees.reduce((s, e) =>

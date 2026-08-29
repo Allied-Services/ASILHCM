@@ -90,13 +90,15 @@ describe('claimsEligibility routing', () => {
         expect(r.initiator).toBe('focal');
     });
 
-    test('employee + Sadia when no focal or lm and official work mailbox', () => {
+    test('official work mailbox with no focal or lm is employee final', () => {
         const r = resolveClaimsRouting({
             email: 'emp@wafi-energy.com',
         });
-        expect(r.profile).toBe('employee_then_asil');
-        expect(r.approverEmail).toBe('sadia.komal@asil.com.pk');
+        expect(r.profile).toBe('employee_only');
+        expect(r.category).toBe('Employee final');
         expect(r.fillerEmail).toBe('emp@wafi-energy.com');
+        expect(r.approverEmail).toBe('emp@wafi-energy.com');
+        expect(r.initiator).toBe('employee');
     });
 
     test('personal Gmail with no focal or LM → Sadia fills final', () => {
@@ -178,12 +180,14 @@ describe('claimsEligibility routing', () => {
         expect(r.approverEmail).toBe('lm@wafi.com');
     });
 
-    test('dedicated payroll resource replaces Sadia when named', () => {
+    test('dedicated payroll resource fills final when no official mailbox', () => {
         const r = resolveClaimsRouting(
-            { email: 'emp@wafi-energy.com' },
+            { email: 'emp@gmail.com' },
             { dedicated_payroll_resource_email: 'payroll.owner@asil.com.pk' }
         );
-        expect(r.profile).toBe('employee_then_asil');
+        expect(r.profile).toBe('lm_only');
+        expect(r.category).toBe('ASIL only');
+        expect(r.fillerEmail).toBe('payroll.owner@asil.com.pk');
         expect(r.approverEmail).toBe('payroll.owner@asil.com.pk');
     });
 

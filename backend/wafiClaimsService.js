@@ -19,6 +19,7 @@ const XLSX        = require('xlsx');
 const { Resend }  = require('resend');
 const OpenAI      = require('openai');
 const crypto      = require('crypto');
+const { gateEmailPayload } = require('./src/core/communications');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const GMAIL_USER          = process.env.GMAIL_USER          || 'ops-support@asil.com.pk';
@@ -1796,6 +1797,15 @@ async function sendDailyDigest(pool) {
   </div>
 </div></body></html>`;
 
+        const gated = gateEmailPayload({
+            to: DIGEST_RECIPIENTS,
+            subject: `[ASIL Claims] Daily Summary — ${new Date().toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' })}`,
+            html,
+        });
+        if (gated.skip) {
+            console.log('[Wafi Claims] Daily digest skipped —', gated.reason, gated.mode);
+            return;
+        }
         const resend = getResend();
         if (!resend) {
             console.log('[Wafi Claims] Daily digest skipped — RESEND_API_KEY not configured');
@@ -1803,11 +1813,11 @@ async function sendDailyDigest(pool) {
         }
         await resend.emails.send({
             from: EMAIL_FROM,
-            to: DIGEST_RECIPIENTS,
-            subject: `[ASIL Claims] Daily Summary — ${new Date().toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' })}`,
-            html,
+            to: gated.payload.to,
+            subject: gated.payload.subject,
+            html: gated.payload.html,
         });
-        console.log('[Wafi Claims] Daily digest sent to', DIGEST_RECIPIENTS.join(', '));
+        console.log('[Wafi Claims] Daily digest sent to', gated.payload.to.join(', '));
     } catch (e) {
         console.error('[Wafi Claims] Daily digest error:', e.message);
     }
@@ -2241,8 +2251,10 @@ async function processOneMessage(pool, gmail, msg) {
             const { initApprovalChain } = require('./src/modules/wafiClaims/approvalService');
             const sendApprovalEmail = async ({ to, subject, html }) => {
                 if (!EMAILS_ENABLED || !to) return;
+                const gated = gateEmailPayload({ to, subject, html });
+                if (gated.skip) return;
                 const resend = getResend();
-                if (resend) await resend.emails.send({ from: EMAIL_FROM, to, subject, html });
+                if (resend) await resend.emails.send({ from: EMAIL_FROM, to: gated.payload.to, subject, html });
             };
             await initApprovalChain(pool, sessionId, {
                 sendAppEmail: sendApprovalEmail,

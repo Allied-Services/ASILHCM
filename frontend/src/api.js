@@ -878,6 +878,7 @@ export const api = {
     seedPsoNorthZone: () => apiFetch('/api/fixed-value/seed-pso', { method: 'POST', body: '{}' }),
     /** @deprecated prefer resyncPsoNorthZoneSeed */
 
+    getCommunicationsStatus: () => apiFetch('/api/records/communications'),
     getRulebook: (contractId) => apiFetch(`/api/records/rulebook/${encodeURIComponent(contractId)}`),
     saveRulebook: (contractId, d) => apiFetch(`/api/records/rulebook/${encodeURIComponent(contractId)}`, { method: 'PUT', body: JSON.stringify(d) }),
     listRulebooks: () => apiFetch('/api/records/rulebooks'),

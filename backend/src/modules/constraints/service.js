@@ -116,30 +116,31 @@ async function upsertPolicy(pool, data) {
     if (existing.length) {
         const { rows } = await pool.query(
             `UPDATE contract_policies SET
-                billing_model = $3, attendance_input_mode = $4, standard_month_days = $5,
-                ot_allowed = $6, ot_monthly_cap_hours = $7, ot_client_managed = $8,
-                ot_divisor_days = $9, ot_divisor_hours = $10, service_charge_pct = $11,
-                medical_annual_cap = $12, medical_cycle_anchor = $13, credit_days = $14,
-                invoice_frequency = $15, invoice_day_of_month = $16, po_required = $17,
-                challans_required = $18, reminder_cadence = $19, edu_cess_enabled = $20,
-                bonus_accrual_months = $21, gratuity_accrual_months = $22, income_tax_wht_pct = $23, effective_to = $25,
-                commercial_type = COALESCE($26, commercial_type),
-                payroll_engine = COALESCE($27, payroll_engine),
-                allied_contract_focal_email = COALESCE($28, allied_contract_focal_email),
-                dedicated_payroll_resource_email = COALESCE($29, dedicated_payroll_resource_email),
-                routing_mode = COALESCE($30, routing_mode),
-                overhead_per_employee = $31,
-                medical_in_cost = $32,
-                employer_pf_in_cost = $33,
-                sessi_basis = $34,
-                proration_basis = $35,
-                ot_applicable_tiers = $36,
-                sales_tax_rate = COALESCE($37, sales_tax_rate),
-                sales_tax_exempt = $38
-             WHERE id = $39
+                billing_model = $2, attendance_input_mode = $3, standard_month_days = $4,
+                ot_allowed = $5, ot_monthly_cap_hours = $6, ot_client_managed = $7,
+                ot_divisor_days = $8, ot_divisor_hours = $9, service_charge_pct = $10,
+                medical_annual_cap = $11, medical_cycle_anchor = $12, credit_days = $13,
+                invoice_frequency = $14, invoice_day_of_month = $15, po_required = $16,
+                challans_required = $17::jsonb, reminder_cadence = $18::jsonb, edu_cess_enabled = $19,
+                bonus_accrual_months = $20, gratuity_accrual_months = $21, income_tax_wht_pct = $22, effective_to = $23::date,
+                commercial_type = COALESCE($24, commercial_type),
+                payroll_engine = COALESCE($25, payroll_engine),
+                allied_contract_focal_email = COALESCE($26, allied_contract_focal_email),
+                dedicated_payroll_resource_email = COALESCE($27, dedicated_payroll_resource_email),
+                routing_mode = COALESCE($28, routing_mode),
+                overhead_per_employee = $29,
+                medical_in_cost = $30,
+                employer_pf_in_cost = $31,
+                sessi_basis = $32,
+                proration_basis = $33,
+                ot_applicable_tiers = COALESCE($34::text[], ot_applicable_tiers),
+                sales_tax_rate = COALESCE($35::numeric, sales_tax_rate),
+                sales_tax_exempt = $36
+             WHERE id = $1
              RETURNING *`,
             [
-                data.contract_id, projectId, data.billing_model || 'headcount_rate',
+                existing[0].id,
+                data.billing_model || 'headcount_rate',
                 data.attendance_input_mode || 'full_ledger', data.standard_month_days || 30,
                 data.ot_allowed !== false, data.ot_monthly_cap_hours || null, data.ot_client_managed || false,
                 data.ot_divisor_days || 26, data.ot_divisor_hours || 8,
@@ -164,7 +165,6 @@ async function upsertPolicy(pool, data) {
                 data.ot_applicable_tiers || ['2x', '3x'],
                 data.sales_tax_rate ?? null,
                 !!data.sales_tax_exempt,
-                existing[0].id,
             ]
         );
         return rows[0];

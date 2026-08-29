@@ -125,32 +125,48 @@ async function seedContactsFromExisting(pool) {
         }
     }
 
-    const { rows: emps } = await pool.query(
-        `SELECT id, name, client, contract_id, claim_authority, line_manager_email, line_manager_name, supervisor_email
-         FROM employees
-         WHERE LOWER(TRIM(COALESCE(active::text,''))) IN ('','yes','true','1','active')`
+    const { rowCount: focals } = await pool.query(
+        `INSERT INTO org_contacts (name, email, role, contract_id, employee_id)
+         SELECT DISTINCT ON (LOWER(e.claim_authority), e.contract_id)
+            e.claim_authority, LOWER(e.claim_authority), 'client_focal', e.contract_id, e.id
+         FROM employees e
+         WHERE LOWER(TRIM(COALESCE(e.active::text,''))) IN ('','yes','true','1','active')
+           AND e.claim_authority ILIKE '%@%'
+           AND LOWER(e.claim_authority) NOT IN ('self','n/a','na','none')
+           AND NOT EXISTS (
+             SELECT 1 FROM org_contacts oc
+             WHERE LOWER(oc.email) = LOWER(e.claim_authority) AND oc.role = 'client_focal'
+               AND oc.contract_id IS NOT DISTINCT FROM e.contract_id
+           )`
     );
-    for (const e of emps) {
-        const pairs = [
-            [e.claim_authority, 'client_focal', e.claim_authority],
-            [e.line_manager_email, 'line_manager', e.line_manager_name],
-            [e.supervisor_email, 'site_supervisor', e.supervisor_email],
-        ];
-        for (const [email, role, name] of pairs) {
-            if (!isEmail(email) || /^self$/i.test(String(email))) continue;
-            const { rowCount } = await pool.query(
-                `INSERT INTO org_contacts (name, email, role, contract_id, employee_id)
-                 SELECT $1, $2, $3, $4, $5
-                 WHERE NOT EXISTS (
-                    SELECT 1 FROM org_contacts
-                    WHERE LOWER(email) = LOWER($2) AND role = $3
-                      AND contract_id IS NOT DISTINCT FROM $4
-                 )`,
-                [name || email, String(email).toLowerCase(), role, e.contract_id || null, e.id]
-            );
-            inserted += rowCount || 0;
-        }
-    }
+    const { rowCount: lms } = await pool.query(
+        `INSERT INTO org_contacts (name, email, role, contract_id, employee_id)
+         SELECT DISTINCT ON (LOWER(e.line_manager_email), e.contract_id)
+            COALESCE(NULLIF(e.line_manager_name,''), e.line_manager_email),
+            LOWER(e.line_manager_email), 'line_manager', e.contract_id, e.id
+         FROM employees e
+         WHERE LOWER(TRIM(COALESCE(e.active::text,''))) IN ('','yes','true','1','active')
+           AND e.line_manager_email ILIKE '%@%'
+           AND NOT EXISTS (
+             SELECT 1 FROM org_contacts oc
+             WHERE LOWER(oc.email) = LOWER(e.line_manager_email) AND oc.role = 'line_manager'
+               AND oc.contract_id IS NOT DISTINCT FROM e.contract_id
+           )`
+    );
+    const { rowCount: supers } = await pool.query(
+        `INSERT INTO org_contacts (name, email, role, contract_id, employee_id)
+         SELECT DISTINCT ON (LOWER(e.supervisor_email), e.contract_id)
+            e.supervisor_email, LOWER(e.supervisor_email), 'site_supervisor', e.contract_id, e.id
+         FROM employees e
+         WHERE LOWER(TRIM(COALESCE(e.active::text,''))) IN ('','yes','true','1','active')
+           AND e.supervisor_email ILIKE '%@%'
+           AND NOT EXISTS (
+             SELECT 1 FROM org_contacts oc
+             WHERE LOWER(oc.email) = LOWER(e.supervisor_email) AND oc.role = 'site_supervisor'
+               AND oc.contract_id IS NOT DISTINCT FROM e.contract_id
+           )`
+    );
+    inserted += (focals || 0) + (lms || 0) + (supers || 0);
     return { inserted };
 }
 

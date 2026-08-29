@@ -1,6 +1,7 @@
 'use strict';
 
 const { Resend } = require('resend');
+const { gateEmailPayload } = require('./communications');
 
 let resendClient;
 const EMAIL_FROM = () => process.env.SMTP_FROM || 'ASIL HR <hr@asil.com.pk>';
@@ -27,20 +28,25 @@ function coerceAttachmentContent(content) {
 }
 
 async function sendAppEmail({ to, subject, html, from, cc, bcc, reply_to, attachments }) {
-    const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
+    const gated = gateEmailPayload({ to, subject, html, from, cc, bcc, reply_to, attachments });
+    if (gated.skip) {
+        console.warn('[mailer.sendAppEmail] skipped', gated.reason, gated.mode);
+        return { skipped: true, reason: gated.reason, mode: gated.mode };
+    }
+    const recipients = (Array.isArray(gated.payload.to) ? gated.payload.to : [gated.payload.to]).filter(Boolean);
     const resend = getResend();
     if (!resend || !recipients.length) {
         return { skipped: true, reason: 'missing_key_or_recipients' };
     }
-    const ccList = (Array.isArray(cc) ? cc : cc ? [cc] : []).filter(Boolean);
-    const bccList = (Array.isArray(bcc) ? bcc : bcc ? [bcc] : []).filter(Boolean);
-    const replyTo = reply_to && String(reply_to).includes('@') ? String(reply_to).trim() : null;
+    const ccList = (Array.isArray(gated.payload.cc) ? gated.payload.cc : gated.payload.cc ? [gated.payload.cc] : []).filter(Boolean);
+    const bccList = (Array.isArray(gated.payload.bcc) ? gated.payload.bcc : gated.payload.bcc ? [gated.payload.bcc] : []).filter(Boolean);
+    const replyTo = gated.payload.reply_to && String(gated.payload.reply_to).includes('@') ? String(gated.payload.reply_to).trim() : null;
     try {
         const payload = {
-            from: from || EMAIL_FROM(),
+            from: gated.payload.from || EMAIL_FROM(),
             to: recipients,
-            subject,
-            html,
+            subject: gated.payload.subject,
+            html: gated.payload.html,
         };
         if (ccList.length) payload.cc = ccList;
         if (bccList.length) payload.bcc = bccList;

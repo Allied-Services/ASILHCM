@@ -142,6 +142,9 @@ async function buildFocalDigests(pool, year, month) {
 }
 
 async function sendFocalDigests(pool, sendAppEmail, { year, month } = {}) {
+    if (process.env.FOCAL_DIGEST_SEND !== 'true') {
+        return { year: year || new Date().getFullYear(), month: month || (new Date().getMonth() + 1), sent: [], skipped: 'FOCAL_DIGEST_SEND is not true' };
+    }
     const now = new Date();
     const y = year || now.getFullYear();
     const m = month || (now.getMonth() + 1);

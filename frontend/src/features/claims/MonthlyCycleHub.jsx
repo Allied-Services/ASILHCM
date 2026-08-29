@@ -17,7 +17,7 @@ const SECTIONS = [
 ];
 
 const ROUTING_MODES = [
-  { id: 'auto', label: 'Auto (today’s Focal / LM rules)' },
+  { id: 'auto', label: 'Auto (Focal / LM; official mailbox submit is final)' },
   { id: 'employee_then_focal', label: 'a. Employee → Focal' },
   { id: 'employee_then_lm', label: 'b. Employee → LM' },
   { id: 'focal_then_lm', label: 'c. Focal → LM' },
@@ -35,7 +35,7 @@ const INPUT_MODES = [
 ];
 
 const CLAIM_TYPE_OPTIONS = [
-  { id: 'ATTENDANCE', label: 'Attendance', hint: 'PSO phase — not collected yet' },
+  { id: 'ATTENDANCE', label: 'Attendance', hint: 'Days, hours, or absent-only — used with a machine / client file' },
   { id: 'OT', label: 'Overtime' },
   { id: 'EXPENSE', label: 'Expense reimbursement' },
   { id: 'MEDICAL', label: 'Medical reimbursement' },
@@ -148,7 +148,6 @@ function MonthlyCycleSetup() {
                   <input
                     type="checkbox"
                     checked={(policy.enabled_types || []).includes(opt.id)}
-                    disabled={opt.id === 'ATTENDANCE'}
                     onChange={() => toggleType(opt.id)}
                   />
                   <span>{opt.label}</span>
@@ -697,6 +696,11 @@ function ContactsSeedBar() {
 export default function MonthlyCycleHub({ user }) {
   const [section, setSection] = useState('track');
   const [manualSeed, setManualSeed] = useState(null);
+  const [comms, setComms] = useState(null);
+
+  useEffect(() => {
+    api.getCommunicationsStatus().then(setComms).catch(() => setComms(null));
+  }, []);
 
   return (
     <div className="mch-root">
@@ -706,6 +710,9 @@ export default function MonthlyCycleHub({ user }) {
           <div>
             <h1>Monthly Cycle</h1>
             <p>One place to configure the rulebook, assign people, collect claims or a machine file, track, correct, and close the month.</p>
+            {comms && comms.mode !== 'on' && (
+              <p className="mch-muted">Live mail/SMS: <strong>{comms.email}</strong> · SMS {comms.sms}. No Wafi or personal inboxes until verification.</p>
+            )}
           </div>
         </div>
         <nav className="mch-nav">
@@ -754,7 +761,16 @@ export default function MonthlyCycleHub({ user }) {
         />
       )}
       {section === 'payroll' && (
-        <PortalClaimsHub user={user} lockSection="response" hideSectionNav initialFilter="ready_for_payroll" />
+        <PortalClaimsHub
+          user={user}
+          lockSection="response"
+          hideSectionNav
+          initialFilter="payroll_desk"
+          initialWorkMonth={7}
+          initialWorkYear={2026}
+          initialPayMonth={8}
+          initialPayYear={2026}
+        />
       )}
       {section === 'close' && <MonthClosePanel />}
     </div>
