@@ -2,6 +2,7 @@
 
 const {
     countEligibleEmployees,
+    employeeMatchesAudience,
 } = require('./claimsEligibility');
 const { SADIA_SETUP_EMAIL } = require('../employees/contactEmails');
 const {
@@ -259,6 +260,10 @@ async function createCampaignAugust(pool, {
     onlyEmployeeIds,
     campaignMode,
     testPackFour,
+    filterClient,
+    filterContract,
+    filterDept,
+    filterLoc,
     FRONTEND_URL,
     FILL_CLOSE_DAY,
     buildFillerInviteHtml,
@@ -268,8 +273,10 @@ async function createCampaignAugust(pool, {
         await ensurePeriodMode(pool, period.id, campaignMode);
     }
 
-    const { eligible, skipped, rules } = await countEligibleEmployees(pool);
-    let filtered = eligible;
+    const audience = { filterClient, filterContract, filterDept, filterLoc };
+    const { eligible, skipped: rawSkipped, rules } = await countEligibleEmployees(pool, audience);
+    const skipped = (rawSkipped || []).filter((s) => employeeMatchesAudience(s, audience));
+    let filtered = (eligible || []).filter((e) => employeeMatchesAudience(e, audience));
     if (testPackFour) {
         filtered = applyTestPackFour(eligible);
         if (!filtered.length) {

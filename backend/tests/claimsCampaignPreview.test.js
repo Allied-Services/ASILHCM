@@ -1,9 +1,13 @@
 'use strict';
 
-jest.mock('../src/modules/claims/claimsEligibility', () => ({
-    countEligibleEmployees: jest.fn(),
-    resolveClaimsCategory: jest.fn(),
-}));
+jest.mock('../src/modules/claims/claimsEligibility', () => {
+    const actual = jest.requireActual('../src/modules/claims/claimsEligibility');
+    return {
+        ...actual,
+        countEligibleEmployees: jest.fn(),
+        resolveClaimsCategory: jest.fn(),
+    };
+});
 
 const { countEligibleEmployees } = require('../src/modules/claims/claimsEligibility');
 const { createCampaignAugust } = require('../src/modules/claims/claimsCampaign');
@@ -11,6 +15,11 @@ const { createCampaignAugust } = require('../src/modules/claims/claimsCampaign')
 const FOCAL = {
     id: 'ASIL-1',
     name: 'Ali Focal Team',
+    client: 'Wafi Energy Pakistan Pvt Ltd',
+    contract_id: 'CTR-WAFI',
+    contract_name: 'Wafi BPO',
+    dept: 'Ops',
+    location: 'Karachi',
     filler_email: 'focal@wafi.example',
     approver_email: 'lm@wafi.example',
     routing_profile: 'focal_then_lm',
@@ -20,6 +29,11 @@ const FOCAL = {
 const EMP = {
     id: 'ASIL-2',
     name: 'No Focal Employee',
+    client: 'Pakistan State Oil',
+    contract_id: 'CTR-PSO',
+    contract_name: 'PSO North',
+    dept: 'FM',
+    location: 'Lahore',
     filler_email: 'emp@wafi.example',
     approver_email: 'lm2@wafi.example',
     routing_profile: 'employee_then_lm',
@@ -113,5 +127,36 @@ describe('createCampaignAugust preview', () => {
         expect(result.employees[0].id).toBe('ASIL-2');
         expect(result.recipients).toHaveLength(1);
         expect(result.recipients[0].template).toBe('employee');
+    });
+
+    it('filterClient pulls only that client', async () => {
+        const result = await createCampaignAugust(pool, {
+            period: { ...period },
+            preview: true,
+            campaignMode: 'actual',
+            filterClient: 'Wafi Energy Pakistan Pvt Ltd',
+            FRONTEND_URL: 'https://example.com',
+            buildFillerInviteHtml: () => '<html>x</html>',
+        });
+        expect(countEligibleEmployees).toHaveBeenCalledWith(pool, expect.objectContaining({
+            filterClient: 'Wafi Energy Pakistan Pvt Ltd',
+        }));
+        expect(result.employees).toHaveLength(1);
+        expect(result.employees[0].id).toBe('ASIL-1');
+        expect(result.recipients).toHaveLength(1);
+    });
+
+    it('filterContract + filterLoc keep the matching slice', async () => {
+        const result = await createCampaignAugust(pool, {
+            period: { ...period },
+            preview: true,
+            campaignMode: 'actual',
+            filterClient: 'Pakistan State Oil',
+            filterContract: 'CTR-PSO',
+            filterLoc: 'Lahore',
+            FRONTEND_URL: 'https://example.com',
+            buildFillerInviteHtml: () => '<html>x</html>',
+        });
+        expect(result.employees.map((e) => e.id)).toEqual(['ASIL-2']);
     });
 });

@@ -47,18 +47,21 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
   const [activeId, setActiveId] = useState(null);
   const [confirmActual, setConfirmActual] = useState(false);
   const [sendResults, setSendResults] = useState(null);
+  const [filterRows, setFilterRows] = useState([]);
+  const [filterGates, setFilterGates] = useState({});
+  const [filtersBusy, setFiltersBusy] = useState(true);
 
   const employees = preview?.employees || [];
   const recipients = preview?.recipients || [];
   const skipped = preview?.skipped || [];
-  const gates = preview?.gates || {};
+  const gates = preview?.gates || filterGates || {};
 
   const clients = useMemo(() => {
-    return [...new Set(employees.map(e => e.client).filter(Boolean))].sort();
-  }, [employees]);
+    return [...new Set(filterRows.map(e => e.client).filter(Boolean))].sort();
+  }, [filterRows]);
 
   const contracts = useMemo(() => {
-    const pool = filterClient ? employees.filter(e => e.client === filterClient) : [];
+    const pool = filterClient ? filterRows.filter(e => e.client === filterClient) : [];
     const map = new Map();
     for (const e of pool) {
       const key = e.contract_id || e.contract_name || '';
@@ -66,36 +69,28 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
       if (!map.has(key)) map.set(key, e.contract_name || e.contract_id);
     }
     return [...map.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
-  }, [employees, filterClient]);
+  }, [filterRows, filterClient]);
 
   const departments = useMemo(() => {
     if (!filterClient) return [];
-    return [...new Set(employees
+    return [...new Set(filterRows
       .filter(e => e.client === filterClient)
       .filter(e => !filterContract || e.contract_id === filterContract || e.contract_name === filterContract)
       .map(e => e.dept)
       .filter(Boolean))].sort();
-  }, [employees, filterClient, filterContract]);
+  }, [filterRows, filterClient, filterContract]);
 
   const locations = useMemo(() => {
     if (!filterClient) return [];
-    return [...new Set(employees
+    return [...new Set(filterRows
       .filter(e => e.client === filterClient)
       .filter(e => !filterContract || e.contract_id === filterContract || e.contract_name === filterContract)
       .filter(e => !filterDept || e.dept === filterDept)
       .map(e => e.location)
       .filter(Boolean))].sort();
-  }, [employees, filterClient, filterContract, filterDept]);
+  }, [filterRows, filterClient, filterContract, filterDept]);
 
-  const visible = useMemo(() => {
-    if (!filterClient) return [];
-    return employees.filter(e =>
-      e.client === filterClient
-      && (!filterContract || e.contract_id === filterContract || e.contract_name === filterContract)
-      && (!filterDept || e.dept === filterDept)
-      && (!filterLoc || e.location === filterLoc)
-    );
-  }, [employees, filterClient, filterContract, filterDept, filterLoc]);
+  const visible = employees;
 
   const selectedVisible = visible.filter(e => selected.has(e.id));
   const allVisibleSelected = visible.length > 0 && visible.every(e => selected.has(e.id));
@@ -109,9 +104,18 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
     [recipients, activeEmp]
   );
 
+  const clearRoster = () => {
+    setPreview(null);
+    setSelected(new Set());
+    setActiveId(null);
+    setSendResults(null);
+    setConfirmActual(false);
+  };
+
   const setMonthYear = (m, y) => {
     setMonth(m);
     setYear(y);
+    clearRoster();
     if (onPeriodChange) onPeriodChange(m, y);
   };
 
@@ -123,29 +127,51 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
   }, [claimMonth, claimYear, month, year]);
 
   useEffect(() => {
-    buildPreview();
-    // Load the roster as soon as the panel opens so Client/Contract/Location are usable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, year, campaignMode]);
+    let cancelled = false;
+    setFiltersBusy(true);
+    api.portalClaimsCampaignFilters()
+      .then((d) => {
+        if (cancelled) return;
+        setFilterRows(d.rows || []);
+        setFilterGates(d.gates || {});
+      })
+      .catch((e) => {
+        if (!cancelled) setErr(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setFiltersBusy(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const resetFilters = () => {
     setFilterClient('');
     setFilterContract('');
     setFilterDept('');
     setFilterLoc('');
-    setSelected(new Set());
-    setActiveId(null);
+    clearRoster();
   };
 
+  const audience = () => ({
+    filterClient, filterContract, filterDept, filterLoc,
+  });
+
   const buildPreview = async () => {
+    if (!filterClient) {
+      setErr('Select a client first, then load employees.');
+      return;
+    }
     setBusy(true); setErr(''); setMsg(''); setSendResults(null); setConfirmActual(false);
-    resetFilters();
+    setSelected(new Set());
+    setActiveId(null);
     try {
       const d = await api.portalClaimsCampaignPreview({
         month, year, campaignMode, dryRun: true,
+        ...audience(),
       });
       setPreview(d);
-      setMsg(`Roster loaded — ${d.employees?.length || d.summary?.employeeCount || 0} employee(s) with a filler email. Select Client → Contract → Department → Location, tick who to send, then Send.`);
+      const n = d.employees?.length || d.summary?.employeeCount || 0;
+      setMsg(`Loaded ${n} employee(s) for this filter. Tick who to send, then Send.`);
       if (onPeriodChange) onPeriodChange(month, year);
     } catch (e) {
       setErr(e.message);
@@ -203,6 +229,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
       const d = await api.portalClaimsCampaign({
         month, year, dryRun: false, campaignMode: mode,
         onlyEmployeeIds: ids,
+        ...audience(),
       });
       const invites = d.invites || [];
       const ok = invites.filter(i => i.ok).length;
@@ -232,8 +259,8 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
     }}>
       <h3 style={{ margin: '0 0 4px' }}>Send claim request emails</h3>
       <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-muted)', maxWidth: 860, lineHeight: 1.5 }}>
-        Month → Client → Contract → Department → Location, then tick employees and Send.
-        Focals get one email for their nominated people; employees with no focal get the mail themselves.
+        Choose Client (then Contract / Department / Location if you want), then Load employees.
+        Only that slice is fetched. Tick who to send. Focals get one email for their nominated people.
       </p>
 
       {err && <div style={{ color: '#fca5a5', marginBottom: 10 }}>{err}</div>}
@@ -254,7 +281,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
           </>
         )}
         {['sample', 'actual'].map(m => (
-          <button key={m} type="button" onClick={() => setCampaignMode(m)}
+          <button key={m} type="button" onClick={() => { setCampaignMode(m); clearRoster(); }}
             style={{
               padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13, height: 38,
               border: campaignMode === m ? '2px solid #22c55e' : '1px solid var(--border)',
@@ -269,25 +296,25 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
             SAMPLE mode — emails deliver to the test inbox only. The table shows each employee&apos;s real Focal/LM address; SAMPLE sends redirect to {gates.sampleEmail || 'CLAIMS_SAMPLE_EMAIL'}.
           </span>
         )}
-        <button type="button" className="btn-primary" disabled={busy} onClick={buildPreview}
+        <button type="button" className="btn-primary" disabled={busy || filtersBusy || !filterClient} onClick={buildPreview}
           style={{ height: 38 }}>
-          {busy ? 'Working…' : preview ? 'Reload roster' : 'Load employees'}
+          {busy ? 'Loading…' : preview ? 'Reload this filter' : 'Load employees'}
         </button>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', paddingBottom: 8 }}>Submit by day 18 · LM approve by day 22</span>
       </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
         <Field label="2. Client">
-          <select value={filterClient} disabled={!employees.length}
-            onChange={e => { setFilterClient(e.target.value); setFilterContract(''); setFilterDept(''); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
-            style={{ ...selectStyle, opacity: employees.length ? 1 : 0.5 }}>
-            <option value="">{employees.length ? 'Select client…' : (busy ? 'Loading clients…' : 'Waiting for roster…')}</option>
+          <select value={filterClient} disabled={filtersBusy}
+            onChange={e => { setFilterClient(e.target.value); setFilterContract(''); setFilterDept(''); setFilterLoc(''); clearRoster(); }}
+            style={{ ...selectStyle, opacity: filtersBusy ? 0.5 : 1 }}>
+            <option value="">{filtersBusy ? 'Loading clients…' : 'Select client…'}</option>
             {clients.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </Field>
         <Field label="3. Contract">
           <select value={filterContract} disabled={!filterClient}
-            onChange={e => { setFilterContract(e.target.value); setFilterDept(''); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
+            onChange={e => { setFilterContract(e.target.value); setFilterDept(''); setFilterLoc(''); clearRoster(); }}
             style={{ ...selectStyle, opacity: filterClient ? 1 : 0.5 }}>
             <option value="">{filterClient ? 'All contracts' : 'Select client first'}</option>
             {contracts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
@@ -295,7 +322,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
         </Field>
         <Field label="4. Department">
           <select value={filterDept} disabled={!filterClient}
-            onChange={e => { setFilterDept(e.target.value); setFilterLoc(''); setSelected(new Set()); setActiveId(null); }}
+            onChange={e => { setFilterDept(e.target.value); setFilterLoc(''); clearRoster(); }}
             style={{ ...selectStyle, opacity: filterClient ? 1 : 0.5 }}>
             <option value="">{filterClient ? 'All departments' : 'Select client first'}</option>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
@@ -303,7 +330,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
         </Field>
         <Field label="5. Location">
           <select value={filterLoc} disabled={!filterClient}
-            onChange={e => { setFilterLoc(e.target.value); setSelected(new Set()); setActiveId(null); }}
+            onChange={e => { setFilterLoc(e.target.value); clearRoster(); }}
             style={{ ...selectStyle, opacity: filterClient ? 1 : 0.5 }}>
             <option value="">{filterClient ? 'All locations' : 'Select client first'}</option>
             {locations.map(l => <option key={l} value={l}>{l}</option>)}
@@ -317,26 +344,30 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
         )}
       </div>
 
+      {gates && (gates.sampleEmailConfigured || gates.actualSendAllowed !== undefined) && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+          SAMPLE inbox: {gates.sampleEmailConfigured ? gates.sampleEmail : 'not configured (CLAIMS_SAMPLE_EMAIL)'}
+          {' · '}
+          ACTUAL send: {gates.actualSendAllowed ? 'allowed' : 'blocked until CLAIMS_ALLOW_ACTUAL_SEND=true'}
+          {Array.isArray(gates.monitorCc) && gates.monitorCc.length > 0 && (
+            <>
+              {' · '}
+              CC: {gates.monitorCc.join(', ')}
+            </>
+          )}
+        </div>
+      )}
+
+      {!preview && (
+        <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 12 }}>
+          {filterClient
+            ? 'Filters are set. Click Load employees to pull only this slice.'
+            : 'Select a client first. The full roster is not loaded until you do.'}
+        </p>
+      )}
+
       {preview && (
         <>
-          {gates && (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
-              SAMPLE inbox: {gates.sampleEmailConfigured ? gates.sampleEmail : 'not configured (CLAIMS_SAMPLE_EMAIL)'}
-              {' · '}
-              ACTUAL send: {gates.actualSendAllowed ? 'allowed' : 'blocked until CLAIMS_ALLOW_ACTUAL_SEND=true'}
-              {Array.isArray(gates.monitorCc) && gates.monitorCc.length > 0 && (
-                <>
-                  {' · '}
-                  CC: {gates.monitorCc.join(', ')}
-                </>
-              )}
-            </div>
-          )}
-
-          {!filterClient && (
-            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Select a client to list employees.</p>
-          )}
-
           {filterClient && (
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.25fr) minmax(280px,0.75fr)', gap: 14, alignItems: 'start' }}>
               <div>
