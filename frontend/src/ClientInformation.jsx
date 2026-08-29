@@ -174,6 +174,15 @@ function ClaimsPolicyEditor({ contractId }) {
                     </label>
                 ))}
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', marginBottom: '0.75rem' }}>
+                <input type="checkbox" checked={!!policy.calendar_apply} onChange={e => setPolicy(p => ({
+                    ...p,
+                    calendar_apply: e.target.checked,
+                    ...(e.target.checked ? {} : { submit_deadline_day: null, approve_deadline_day: null }),
+                }))} />
+                Apply calendar &amp; pay timing
+            </label>
+            {policy.calendar_apply && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
                 <FRow label="When claims pay">
                     <select value={policy.claims_pay_timing || 'following_month'} onChange={e => setPolicy(p => ({ ...p, claims_pay_timing: e.target.value }))}
@@ -182,13 +191,48 @@ function ClaimsPolicyEditor({ contractId }) {
                         <option value="same_month">Same month salary</option>
                     </select>
                 </FRow>
-                <FRow label="Submit deadline (day)">
-                    <FInput type="number" value={policy.submit_deadline_day ?? 18} onChange={e => setPolicy(p => ({ ...p, submit_deadline_day: parseInt(e.target.value, 10) || 18 }))} ph="18" />
+                <FRow label="Submit deadline">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                        <input type="checkbox" checked={policy.submit_deadline_day != null} onChange={e => setPolicy(p => ({
+                            ...p,
+                            submit_deadline_day: e.target.checked ? (p.submit_deadline_day || 18) : null,
+                            submit_deadline_month: p.submit_deadline_month || 'following_month',
+                        }))} />
+                        Add deadline
+                    </label>
+                    {policy.submit_deadline_day != null && (
+                        <>
+                            <FInput type="number" value={policy.submit_deadline_day} onChange={e => setPolicy(p => ({ ...p, submit_deadline_day: parseInt(e.target.value, 10) || 18 }))} ph="18" />
+                            <select value={policy.submit_deadline_month || 'following_month'} onChange={e => setPolicy(p => ({ ...p, submit_deadline_month: e.target.value }))}
+                                style={{ width: '100%', marginTop: '0.35rem', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }}>
+                                <option value="current_month">Current month</option>
+                                <option value="following_month">Following month</option>
+                            </select>
+                        </>
+                    )}
                 </FRow>
-                <FRow label="LM approve by (day)">
-                    <FInput type="number" value={policy.approve_deadline_day ?? 22} onChange={e => setPolicy(p => ({ ...p, approve_deadline_day: parseInt(e.target.value, 10) || 22 }))} ph="22" />
+                <FRow label="Approve deadline">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                        <input type="checkbox" checked={policy.approve_deadline_day != null} onChange={e => setPolicy(p => ({
+                            ...p,
+                            approve_deadline_day: e.target.checked ? (p.approve_deadline_day || 22) : null,
+                            approve_deadline_month: p.approve_deadline_month || 'following_month',
+                        }))} />
+                        Add deadline
+                    </label>
+                    {policy.approve_deadline_day != null && (
+                        <>
+                            <FInput type="number" value={policy.approve_deadline_day} onChange={e => setPolicy(p => ({ ...p, approve_deadline_day: parseInt(e.target.value, 10) || 22 }))} ph="22" />
+                            <select value={policy.approve_deadline_month || 'following_month'} onChange={e => setPolicy(p => ({ ...p, approve_deadline_month: e.target.value }))}
+                                style={{ width: '100%', marginTop: '0.35rem', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }}>
+                                <option value="current_month">Current month</option>
+                                <option value="following_month">Following month</option>
+                            </select>
+                        </>
+                    )}
                 </FRow>
             </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem' }}>
                 <FRow label="Collection mode">
                     <select value={policy.collection_mode || 'monthly_form'} onChange={e => setPolicy(p => ({ ...p, collection_mode: e.target.value }))}

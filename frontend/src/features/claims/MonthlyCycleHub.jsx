@@ -123,7 +123,7 @@ function MonthlyCycleSetup() {
   return (
     <div className="mch-panel">
       <p className="mch-lead">
-        Choose what each contract collects each month: claim types, how attendance is captured, deadlines, and whether a separate reviewer step is required.
+        Choose what each contract collects each month: claim types, how attendance is captured, optional calendar deadlines, and whether a separate reviewer step is required.
       </p>
       {err && <div className="pch-err">{err}</div>}
       {msg && <div className="pch-ok">{msg}</div>}
@@ -233,39 +233,122 @@ function MonthlyCycleSetup() {
             </div>
           )}
           <div className="mch-block">
-            <h3>Calendar &amp; pay timing</h3>
-            <div className="mch-form-grid mch-form-grid-3">
-              <label>
-                <span className="lbl">When claims pay</span>
-                <select
-                  value={policy.claims_pay_timing || 'following_month'}
-                  onChange={(e) => setPolicy((p) => ({ ...p, claims_pay_timing: e.target.value }))}
-                >
-                  <option value="following_month">Following month salary</option>
-                  <option value="same_month">Same month salary</option>
-                </select>
-              </label>
-              <label>
-                <span className="lbl">Submit by (day)</span>
+            <div className="mch-block-head">
+              <h3>Calendar &amp; pay timing</h3>
+              <label className="mch-check mch-check-inline mch-check-tight">
                 <input
-                  type="number"
-                  min={1}
-                  max={28}
-                  value={policy.submit_deadline_day ?? 18}
-                  onChange={(e) => setPolicy((p) => ({ ...p, submit_deadline_day: parseInt(e.target.value, 10) || 18 }))}
+                  type="checkbox"
+                  checked={!!policy.calendar_apply}
+                  onChange={(e) => setPolicy((p) => ({
+                    ...p,
+                    calendar_apply: e.target.checked,
+                    ...(e.target.checked
+                      ? {}
+                      : { submit_deadline_day: null, approve_deadline_day: null }),
+                  }))}
                 />
-              </label>
-              <label>
-                <span className="lbl">Approve by (day)</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={28}
-                  value={policy.approve_deadline_day ?? 22}
-                  onChange={(e) => setPolicy((p) => ({ ...p, approve_deadline_day: parseInt(e.target.value, 10) || 22 }))}
-                />
+                <span>Apply</span>
               </label>
             </div>
+            <p className="mch-muted">Optional. Check to apply. Add a deadline only when this contract uses one.</p>
+            {policy.calendar_apply && (
+              <>
+                <div className="mch-form-grid">
+                  <label>
+                    <span className="lbl">When claims pay</span>
+                    <select
+                      value={policy.claims_pay_timing || 'following_month'}
+                      onChange={(e) => setPolicy((p) => ({ ...p, claims_pay_timing: e.target.value }))}
+                    >
+                      <option value="following_month">Following month salary</option>
+                      <option value="same_month">Same month salary</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="mch-deadline-card">
+                  <label className="mch-check mch-check-inline mch-check-tight">
+                    <input
+                      type="checkbox"
+                      checked={policy.submit_deadline_day != null}
+                      onChange={(e) => setPolicy((p) => ({
+                        ...p,
+                        submit_deadline_day: e.target.checked ? (p.submit_deadline_day || 18) : null,
+                        submit_deadline_month: p.submit_deadline_month || 'following_month',
+                      }))}
+                    />
+                    <span>Add submit deadline</span>
+                  </label>
+                  {policy.submit_deadline_day != null && (
+                    <div className="mch-form-grid mch-form-grid-2">
+                      <label>
+                        <span className="lbl">Submit by (day)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={28}
+                          value={policy.submit_deadline_day}
+                          onChange={(e) => setPolicy((p) => ({
+                            ...p,
+                            submit_deadline_day: parseInt(e.target.value, 10) || 18,
+                          }))}
+                        />
+                      </label>
+                      <label>
+                        <span className="lbl">Deadline month</span>
+                        <select
+                          value={policy.submit_deadline_month || 'following_month'}
+                          onChange={(e) => setPolicy((p) => ({ ...p, submit_deadline_month: e.target.value }))}
+                        >
+                          <option value="current_month">Current month</option>
+                          <option value="following_month">Following month</option>
+                        </select>
+                      </label>
+                    </div>
+                  )}
+                </div>
+                <div className="mch-deadline-card">
+                  <label className="mch-check mch-check-inline mch-check-tight">
+                    <input
+                      type="checkbox"
+                      checked={policy.approve_deadline_day != null}
+                      onChange={(e) => setPolicy((p) => ({
+                        ...p,
+                        approve_deadline_day: e.target.checked ? (p.approve_deadline_day || 22) : null,
+                        approve_deadline_month: p.approve_deadline_month || 'following_month',
+                      }))}
+                    />
+                    <span>Add approve deadline</span>
+                  </label>
+                  {policy.approve_deadline_day != null && (
+                    <div className="mch-form-grid mch-form-grid-2">
+                      <label>
+                        <span className="lbl">Approve by (day)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={28}
+                          value={policy.approve_deadline_day}
+                          onChange={(e) => setPolicy((p) => ({
+                            ...p,
+                            approve_deadline_day: parseInt(e.target.value, 10) || 22,
+                          }))}
+                        />
+                      </label>
+                      <label>
+                        <span className="lbl">Deadline month</span>
+                        <select
+                          value={policy.approve_deadline_month || 'following_month'}
+                          onChange={(e) => setPolicy((p) => ({ ...p, approve_deadline_month: e.target.value }))}
+                        >
+                          <option value="current_month">Current month</option>
+                          <option value="following_month">Following month</option>
+                        </select>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
           <label className="mch-check mch-check-inline">
             <input

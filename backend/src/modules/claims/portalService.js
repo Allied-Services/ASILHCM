@@ -64,7 +64,13 @@ const { firstValidPkMobile } = require('../../../lib/sms');
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '1', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '18', 10);
 const APPROVE_CLOSE_DAY = parseInt(process.env.CLAIMS_APPROVE_CLOSE_DAY || '22', 10);
-const { getClaimsPolicy, getDefaultClaimsPolicy, normalizeEnabledTypes } = require('./claimsPolicy');
+const {
+    getClaimsPolicy,
+    getDefaultClaimsPolicy,
+    normalizeEnabledTypes,
+    normalizeDeadlineMonth,
+    deadlineYearMonth,
+} = require('./claimsPolicy');
 const PRODUCTION_FRONTEND_URL = 'https://asil-hcm-frontend.onrender.com';
 
 /** Resolve at send time — never emit localhost from a laptop .env on ACTUAL mail. */
@@ -235,8 +241,16 @@ function pktDeadline(year, month, day, hourPkt, min, sec) {
 
 function periodWindowFromClaim(claimYear, claimMonth, policy = {}) {
     const payTiming = policy.claims_pay_timing || 'following_month';
-    const submitDay = policy.submit_deadline_day ?? FILL_CLOSE_DAY;
-    const approveDay = policy.approve_deadline_day ?? APPROVE_CLOSE_DAY;
+    const calendarOn = policy.calendar_apply === true;
+    const monthFallback = payTiming === 'same_month' ? 'current_month' : 'following_month';
+    const submitDay = policy.submit_deadline_day != null ? Number(policy.submit_deadline_day) : FILL_CLOSE_DAY;
+    const approveDay = policy.approve_deadline_day != null ? Number(policy.approve_deadline_day) : APPROVE_CLOSE_DAY;
+    const submitMonthMode = calendarOn
+        ? normalizeDeadlineMonth(policy.submit_deadline_month, monthFallback)
+        : monthFallback;
+    const approveMonthMode = calendarOn
+        ? normalizeDeadlineMonth(policy.approve_deadline_month, monthFallback)
+        : monthFallback;
 
     let settlementMonth;
     let settlementYear;
@@ -256,11 +270,11 @@ function periodWindowFromClaim(claimYear, claimMonth, policy = {}) {
         campaignYear = settlementYear;
     }
 
-    const deadlineMonth = payTiming === 'same_month' ? claimMonth : campaignMonth;
-    const deadlineYear = payTiming === 'same_month' ? claimYear : campaignYear;
+    const submitYm = deadlineYearMonth(claimYear, claimMonth, submitMonthMode);
+    const approveYm = deadlineYearMonth(claimYear, claimMonth, approveMonthMode);
     const fillOpen = pktDeadline(claimYear, claimMonth, FILL_OPEN_DAY, 9, 0, 0);
-    const fillClose = pktDeadline(deadlineYear, deadlineMonth, submitDay, 23, 59, 59);
-    const approveClose = pktDeadline(deadlineYear, deadlineMonth, approveDay, 23, 59, 59);
+    const fillClose = pktDeadline(submitYm.year, submitYm.month, submitDay, 23, 59, 59);
+    const approveClose = pktDeadline(approveYm.year, approveYm.month, approveDay, 23, 59, 59);
 
     return {
         claimMonth,
@@ -271,6 +285,8 @@ function periodWindowFromClaim(claimYear, claimMonth, policy = {}) {
         campaignYear,
         submitDeadlineDay: submitDay,
         approveDeadlineDay: approveDay,
+        submitDeadlineMonth: submitMonthMode,
+        approveDeadlineMonth: approveMonthMode,
         claimsPayTiming: payTiming,
         fillOpenAt: fillOpen,
         fillCloseAt: fillClose,

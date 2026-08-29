@@ -114,6 +114,34 @@
   color: var(--text-muted);
 }
 
+.mch-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.mch-block-head h3 {
+  margin: 0;
+}
+
+.mch-check-tight {
+  margin: 0;
+}
+
+.mch-deadline-card {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.25);
+}
+
+.mch-deadline-card .mch-form-grid {
+  margin: 0.75rem 0 0;
+}
+
 .mch-check-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

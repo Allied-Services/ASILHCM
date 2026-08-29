@@ -71,6 +71,7 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 - BPO / PSO contract matching on staging (separate track — do not block)
 
 ## JUST SHIPPED (2026-08-29)
+- **Calendar & pay timing is optional** — Monthly Cycle → Setup: check Apply, then add a submit or approve deadline only if that contract uses one. Each deadline can be Current month or Following month. Contracts that do not use a calendar stay blank.
 - **Monthly Cycle Setup includes Attendance** — tick it on the contract pack when a machine / client file is used.
 - **Monthly Cycle → Payroll shows July claims / August sheet** — open that tab; it starts on July 2026 work.
 - **Official mailbox, no Focal/LM: submit is final** — `@wafi-energy.com` or `@asil.com.pk` with no Focal and no LM does not wait for a second approver.
