@@ -51,6 +51,7 @@ const {
     mapEmployeeWriteError,
 } = require('./src/modules/employees/employeeWrite');
 const { requirePayrollSheet } = require('./src/modules/payrollSheet/access');
+const { requireAttendanceAccess, EXPORT_ROLES } = require('./src/modules/attendance/attendanceAccess');
 
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Startup Guard ├óΓé¼ΓÇ¥ refuse to start if critical secrets are missing ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 const REQUIRED_ENV = ['JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -6459,7 +6460,7 @@ app.get('/api/attendance/report/weekly', requireAuth, requireRole('hr_manager','
 });
 
 // ── GET /api/attendance/export — CSV download ─────────────────────────────────
-app.get('/api/attendance/export', requireAuth, requireRole('hr_manager','finance_manager','superadmin','admin'), async (req, res) => {
+app.get('/api/attendance/export', requireAuth, requireAttendanceAccess(pool, 'export', EXPORT_ROLES), async (req, res) => {
     const { month, year, client } = req.query;
     const mo = parseInt(month) || new Date().getMonth() + 1;
     const yr = parseInt(year)  || new Date().getFullYear();
