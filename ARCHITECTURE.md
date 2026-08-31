@@ -1,6 +1,6 @@
 # ASIL HCM — Architecture (Verified Facts)
 
-**Last updated:** 2026-08-28 (dated salary revisions)  
+**Last updated:** 2026-08-31 (attendance CSV export honors User Management rights)  
 **Program:** See `.agents/REMEDIATION_PLAN.md` for the active multi-session remediation plan.
 
 ---
@@ -64,6 +64,7 @@ Two payroll systems coexist; consolidation is in progress (strangler-fig onto Wo
 - **Records spine:** `backend/src/modules/records/` — contract Rulebook (`commercial_type`, `payroll_engine`, Focal, Dedicated Payroll Resource, `routing_mode`), `org_contacts`, region compliance, machine-file drafts, sheet provenance, cost-plus invoice, month-close checklist. Routes under `/api/records/*`, `/api/cycle-files`, `/api/month-close`, `/api/payroll/:year/:month/provenance`.
 - **DDL:** `backend/migrations/` via node-pg-migrate — **no new CREATE TABLE in server.js**.
 - **Frontend API:** All calls through `frontend/src/api.js`.
+- **Attendance CSV export:** `GET /api/attendance/monthly-hub/export` and `GET /api/attendance/export` allow the usual attendance roles **or** User Management Full / view attendance rights (`hcm_users.permissions.attendance`). JWT role alone is not enough when the tab was granted as a custom permission — same pattern as Payroll Sheet `payroll.edit`. List/rollups on Monthly Report use the same guard.
 - **Tests:** `backend/tests/` (mocked pg); `npm run test:int` (real Postgres, S2A+) for money paths.
 
 ---
