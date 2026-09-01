@@ -20,6 +20,7 @@ const {
 const {
     HUZAIFA_FALLBACK,
     countEligibleEmployees,
+    listCampaignFilterOptions,
     resolveClaimsCategory,
     resolveClaimsRouting,
     resolveClaimsRoutingForEmployee,
@@ -70,6 +71,8 @@ const {
     normalizeEnabledTypes,
     normalizeDeadlineMonth,
     deadlineYearMonth,
+    hasSubmitDeadline,
+    hasApproveDeadline,
 } = require('./claimsPolicy');
 const PRODUCTION_FRONTEND_URL = 'https://asil-hcm-frontend.onrender.com';
 
@@ -338,29 +341,61 @@ function isAfterApproveClose(period, nowMs = Date.now()) {
     return nowMs > closeAt;
 }
 
+/** Unchecked calendar / missing deadline on a contract = no close for that contract. */
+function isFillClosedForPolicy(period, policy, nowMs = Date.now()) {
+    if (!hasSubmitDeadline(policy)) return false;
+    return isAfterFillClose(period, nowMs);
+}
+
+function isApproveClosedForPolicy(period, policy, nowMs = Date.now()) {
+    if (!hasApproveDeadline(policy)) return false;
+    return isAfterApproveClose(period, nowMs);
+}
+
+async function policiesForContractIds(pool, contractIds) {
+    const unique = [...new Set((contractIds || []).filter(Boolean))];
+    const out = [];
+    for (const id of unique) {
+        out.push(await getClaimsPolicy(pool, id));
+    }
+    return out;
+}
+
+function sessionClosedWhenEveryPolicyHasDeadline(policies, periodClosed) {
+    if (!policies.length) return periodClosed;
+    if (policies.some((p) => !hasSubmitDeadline(p))) return false;
+    return periodClosed;
+}
+
+function sessionApproveClosedWhenEveryPolicyHasDeadline(policies, periodClosed) {
+    if (!policies.length) return periodClosed;
+    if (policies.some((p) => !hasApproveDeadline(p))) return false;
+    return periodClosed;
+}
+
 function formatPeriodBanner(period) {
     const cm = period?.claim_month;
     const cy = period?.claim_year;
     const sm = period?.settlement_month;
     const sy = period?.settlement_year;
-    const submitDay = period?.submit_deadline_day || FILL_CLOSE_DAY;
-    const approveDay = period?.approve_deadline_day || APPROVE_CLOSE_DAY;
+    const submitDay = period?.submit_deadline_day != null ? period.submit_deadline_day : null;
+    const approveDay = period?.approve_deadline_day != null ? period.approve_deadline_day : null;
     const claimName = cm && cy ? `${MONTH_NAMES[cm] || cm} ${cy}` : 'this month';
     const settleName = sm && sy ? `${MONTH_NAMES[sm] || sm} ${sy}` : 'the following month';
-    if (isJuly2026TrialPeriod(period) && !isSamplePeriod(period)) {
+    if (isJuly2026TrialPeriod(period) && !isSamplePeriod(period) && (submitDay != null || approveDay != null)) {
         return {
             claimLabel: claimName,
             settlementLabel: settleName,
-            submitBy: '27 August 2026, 11:59 PM',
-            approveBy: '27 August 2026, 11:59 PM',
+            submitBy: submitDay != null ? '27 August 2026, 11:59 PM' : null,
+            approveBy: approveDay != null ? '27 August 2026, 11:59 PM' : null,
             payWith: `Approved amounts pay with your ${settleName} salary`,
         };
     }
     return {
         claimLabel: claimName,
         settlementLabel: settleName,
-        submitBy: `day ${submitDay} of ${MONTH_NAMES[cm] || cm || 'claim month'}`,
-        approveBy: `day ${approveDay} of ${MONTH_NAMES[cm] || cm || 'claim month'}`,
+        submitBy: submitDay != null ? `day ${submitDay} of ${MONTH_NAMES[cm] || cm || 'claim month'}` : null,
+        approveBy: approveDay != null ? `day ${approveDay} of ${MONTH_NAMES[cm] || cm || 'claim month'}` : null,
         payWith: `Approved amounts pay with your ${settleName} salary`,
     };
 }
@@ -639,6 +674,7 @@ async function listEligibleEmployees(pool) {
 async function createCampaign(pool, {
     campaignMonth, campaignYear, claimMonth, claimYear, sendAppEmail, dryRun = false, preview = false,
     onlyEmails = null, onlyEmployeeIds = null, campaignMode = 'actual', testPackFour = false,
+    filterClient = null, filterContract = null, filterDept = null, filterLoc = null,
 }) {
     let period;
     if (claimMonth && claimYear) {
@@ -657,6 +693,10 @@ async function createCampaign(pool, {
         onlyEmployeeIds,
         campaignMode,
         testPackFour,
+        filterClient,
+        filterContract,
+        filterDept,
+        filterLoc,
         FRONTEND_URL: claimsFrontendUrl(),
         FILL_CLOSE_DAY,
         buildFillerInviteHtml,
@@ -827,12 +867,22 @@ async function openFillerSession(pool, token) {
 
     const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [batch.period_id]);
     const periodRow = periodRows[0] || {};
-    const fillClosed = isAfterFillClose({ ...batch, campaign_mode: periodRow.campaign_mode || batch.campaign_mode });
+    const periodClosed = isAfterFillClose({ ...batch, campaign_mode: periodRow.campaign_mode || batch.campaign_mode });
+    const sessionPacks = submissions.length
+        ? await Promise.all(submissions.map((s) => policyForContract(s.contract_id)))
+        : [defaultPack];
+    const fillClosed = sessionClosedWhenEveryPolicyHasDeadline(sessionPacks, periodClosed);
+    const showSubmitDay = hasSubmitDeadline(defaultPack)
+        ? (isJuly2026TrialPeriod(batch) ? 27 : defaultPack.submit_deadline_day)
+        : null;
+    const showApproveDay = hasApproveDeadline(defaultPack)
+        ? (isJuly2026TrialPeriod(batch) ? 27 : defaultPack.approve_deadline_day)
+        : null;
     const banner = formatPeriodBanner({
         ...batch,
         campaign_mode: periodRow.campaign_mode || batch.campaign_mode,
-        submit_deadline_day: isJuly2026TrialPeriod(batch) ? 27 : FILL_CLOSE_DAY,
-        approve_deadline_day: isJuly2026TrialPeriod(batch) ? 27 : APPROVE_CLOSE_DAY,
+        submit_deadline_day: showSubmitDay,
+        approve_deadline_day: showApproveDay,
     });
     const apiBase = process.env.API_PUBLIC_URL || 'https://asilhcm.onrender.com';
     const review = computeBatchTotals(submissions, items);
@@ -857,8 +907,8 @@ async function openFillerSession(pool, token) {
             approve_close_at: batch.approve_close_at,
             fill_closed: fillClosed,
             campaign_mode: periodRow.campaign_mode || 'actual',
-            submit_deadline_day: isJuly2026TrialPeriod(batch) ? 27 : FILL_CLOSE_DAY,
-            approve_deadline_day: isJuly2026TrialPeriod(batch) ? 27 : APPROVE_CLOSE_DAY,
+            submit_deadline_day: showSubmitDay,
+            approve_deadline_day: showApproveDay,
             banner,
         },
         routing: {
@@ -892,14 +942,18 @@ async function saveSubmissionItems(pool, {
 }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
-    if (isAfterFillClose(batch)) {
-        return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
-    }
 
     const { rows: subRows } = await pool.query(
-        `SELECT * FROM portal_claim_submissions WHERE batch_id = $1 AND employee_id = $2`,
+        `SELECT s.*, e.contract_id
+         FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE s.batch_id = $1 AND s.employee_id = $2`,
         [batch.id, employeeId]
     );
+    const policy = await getClaimsPolicy(pool, subRows[0]?.contract_id);
+    if (isFillClosedForPolicy(batch, policy)) {
+        return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
+    }
     const sub = subRows[0];
     if (!sub) return { ok: false, status: 404, error: 'Employee not in your claim list' };
     if (['approved', 'in_payroll'].includes(sub.status)) {
@@ -1181,12 +1235,16 @@ function resolveSupportCategory(requestedCategory, claimTypes) {
 async function addAttachment(pool, { token, employeeId, filename, mimeType, contentBase64, category = 'other' }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
-    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
 
     const { rows: subRows } = await pool.query(
-        `SELECT * FROM portal_claim_submissions WHERE batch_id = $1 AND employee_id = $2`,
+        `SELECT s.*, e.contract_id
+         FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE s.batch_id = $1 AND s.employee_id = $2`,
         [batch.id, employeeId]
     );
+    const policy = await getClaimsPolicy(pool, subRows[0]?.contract_id);
+    if (isFillClosedForPolicy(batch, policy)) return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
     const sub = subRows[0];
     if (!sub) return { ok: false, status: 404, error: 'Employee not found' };
     if (['approved', 'in_payroll'].includes(sub.status)) {
@@ -1218,12 +1276,18 @@ async function addAttachment(pool, { token, employeeId, filename, mimeType, cont
 async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
-    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
 
     const { rows: subs } = await pool.query(
-        `SELECT employee_id FROM portal_claim_submissions WHERE batch_id = $1`,
+        `SELECT s.employee_id, e.contract_id
+         FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE s.batch_id = $1`,
         [batch.id]
     );
+    const importPolicies = await policiesForContractIds(pool, subs.map((s) => s.contract_id));
+    if (sessionClosedWhenEveryPolicyHasDeadline(importPolicies, isAfterFillClose(batch))) {
+        return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
+    }
     const allowed = subs.map(s => s.employee_id);
     const buf = Buffer.from(contentBase64, 'base64');
     if (buf.length > 12 * 1024 * 1024) return { ok: false, status: 400, error: 'File too large (max 12MB)' };
@@ -1491,7 +1555,7 @@ async function openApproverSession(pool, token) {
     if (!pack) return { ok: false, status: 404, error: 'Invalid or expired link' };
 
     const { rows: submissions } = await pool.query(
-        `SELECT s.*, e.name AS employee_name, e.client, e.location, e.dept, s.filler_email
+        `SELECT s.*, e.name AS employee_name, e.client, e.location, e.dept, e.contract_id, s.filler_email
          FROM portal_claim_submissions s
          JOIN employees e ON e.id = s.employee_id
          WHERE s.period_id = $1 AND LOWER(s.approver_email) = LOWER($2)
@@ -1540,6 +1604,11 @@ async function openApproverSession(pool, token) {
         items.filter(i => submissions.some(s => s.id === i.submission_id && s.status === 'submitted'))
     );
     const firstPending = submissions.find(s => s.status === 'submitted');
+    const approverPolicies = await policiesForContractIds(pool, submissions.map((s) => s.contract_id));
+    const approveClosed = sessionApproveClosedWhenEveryPolicyHasDeadline(
+        approverPolicies,
+        isAfterApproveClose(pack),
+    );
     const packMeta = {
         fromEmail: firstPending?.filler_email || null,
         fromName: firstPending ? (submissions.find(s => s.id === firstPending.id)?.employee_name) : null,
@@ -1559,7 +1628,7 @@ async function openApproverSession(pool, token) {
             settlement_month: pack.settlement_month,
             settlement_year: pack.settlement_year,
             approve_close_at: pack.approve_close_at,
-            approve_closed: isAfterApproveClose(pack),
+            approve_closed: approveClosed,
             campaign_mode: pack.campaign_mode || 'actual',
             banner: formatPeriodBanner({
                 claim_month: pack.claim_month,
@@ -1588,14 +1657,18 @@ async function openApproverSession(pool, token) {
 async function approverDecide(pool, { token, submissionId, decision, comment, sendAppEmail }) {
     const pack = await getApproverPackByToken(pool, token);
     if (!pack) return { ok: false, status: 404, error: 'Invalid link' };
-    if (isAfterApproveClose(pack)) {
-        return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
-    }
 
     const { rows } = await pool.query(
-        `SELECT * FROM portal_claim_submissions WHERE id = $1 AND period_id = $2 AND LOWER(approver_email) = LOWER($3)`,
+        `SELECT s.*, e.contract_id
+         FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE s.id = $1 AND s.period_id = $2 AND LOWER(s.approver_email) = LOWER($3)`,
         [submissionId, pack.period_id, pack.approver_email]
     );
+    const decidePolicy = await getClaimsPolicy(pool, rows[0]?.contract_id);
+    if (isApproveClosedForPolicy(pack, decidePolicy)) {
+        return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
+    }
     const sub = rows[0];
     if (!sub) return { ok: false, status: 404, error: 'Submission not found' };
     if (sub.status !== 'submitted') return { ok: false, status: 409, error: `Cannot decide from status ${sub.status}` };
@@ -3112,7 +3185,15 @@ async function resendFillerInvite(pool, batchId, sendAppEmail) {
     );
     if (!rows[0]) return { ok: false, error: 'Batch not found' };
     const b = rows[0];
-    if (isAfterFillClose(b)) return { ok: false, error: FILL_CLOSED_MESSAGE };
+    const { rows: resendContracts } = await pool.query(
+        `SELECT e.contract_id FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id WHERE s.batch_id = $1`,
+        [b.id]
+    );
+    const resendPolicies = await policiesForContractIds(pool, resendContracts.map((r) => r.contract_id));
+    if (sessionClosedWhenEveryPolicyHasDeadline(resendPolicies, isAfterFillClose(b))) {
+        return { ok: false, error: FILL_CLOSED_MESSAGE };
+    }
     const token = stableFillerToken(b.period_id, b.filler_email);
     await pool.query(
         `UPDATE portal_claim_batches
@@ -3218,7 +3299,15 @@ async function autoApproveSelfFinal(pool, batch, sendAppEmail) {
 async function batchSubmitAll(pool, { token, sendAppEmail }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
-    if (isAfterFillClose(batch)) return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
+    const { rows: submitContractRows } = await pool.query(
+        `SELECT e.contract_id FROM portal_claim_submissions s
+         JOIN employees e ON e.id = s.employee_id WHERE s.batch_id = $1`,
+        [batch.id]
+    );
+    const submitPolicies = await policiesForContractIds(pool, submitContractRows.map((r) => r.contract_id));
+    if (sessionClosedWhenEveryPolicyHasDeadline(submitPolicies, isAfterFillClose(batch))) {
+        return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
+    }
 
     const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [batch.period_id]);
     const period = periodRows[0];
@@ -3337,6 +3426,7 @@ module.exports = {
     resolveApproverEmail,
     ensureClaimAuthorityColumn,
     listEligibleEmployees,
+    listCampaignFilterOptions,
     createCampaign,
     openFillerSession,
     saveSubmissionItems,
@@ -3379,6 +3469,8 @@ module.exports = {
     formatPeriodBanner,
     isAfterFillClose,
     isAfterApproveClose,
+    isFillClosedForPolicy,
+    isApproveClosedForPolicy,
     refreshOpenPeriodFillClose,
     extendJuly2026ClaimsWindow,
     sendDeadlineExtensionNotice,

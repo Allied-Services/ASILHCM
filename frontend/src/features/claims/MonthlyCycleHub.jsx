@@ -107,11 +107,14 @@ function MonthlyCycleSetup() {
     try {
       const saved = await api.updateClaimsPolicy(contractId, policy);
       setPolicy(saved);
-      if (rulebook) {
+      const focal = String(rulebook?.allied_contract_focal_email || '').trim();
+      if (rulebook && focal.includes('@')) {
         const rb = await api.saveRulebook(contractId, { ...rulebook, claims: policy });
         setRulebook(rb);
+        setMsg('Contract pack and rulebook saved.');
+      } else {
+        setMsg('Contract pack saved.');
       }
-      setMsg('Contract pack and rulebook saved.');
     } catch (e) {
       setErr(e.message);
     }

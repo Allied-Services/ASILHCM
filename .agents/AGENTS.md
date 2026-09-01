@@ -320,6 +320,11 @@ Payroll Sheet **HBL → Other Banks** is now the portal IBFT **xlsx** (sheet `In
 
 **Env vars needed:** none.
 
+### 2026-08-31 — Attendance Export CSV honors User Management Full access
+Monthly Report **Export CSV** (`GET /api/attendance/monthly-hub/export`) was `requireRole(hr_manager, finance_manager, superadmin, admin, operations)` only, so Sadia and others granted Full Attendance in User Management could see the button and got **Forbidden**. Export, list, and rollups now allow those roles plus `payroll_initiator` / `finance_approver`, **or** `hcm_users.permissions.attendance` with view/Full access (JWT has no permissions — lookup is from DB). Legacy `GET /api/attendance/export` uses the same guard. Import / override / clear still role-gated.
+
+**Env vars needed:** none.
+
 ### 2026-08-29 — Auto routing official mailbox is final; communications off
 `auto` with no Focal/LM and an official Wafi/ASIL mailbox is **employee_only** (submit is final). Personal/missing mail still goes to Dedicated Payroll Resource. Master gate `COMMUNICATIONS_ENABLED` defaults to **off** (no email, no SMS). `asil_only` allows `@asil.com.pk` only. Digest send also requires `FOCAL_DIGEST_SEND=true`. Monthly Cycle Setup shows Attendance as a claim type. Monthly Cycle → Payroll opens July 2026 claims against the August sheet.
 

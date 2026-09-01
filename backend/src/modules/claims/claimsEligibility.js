@@ -361,8 +361,73 @@ async function previewRuleMatch(pool, ruleId) {
     return { count: matched.length, employees: matched.slice(0, 50) };
 }
 
-async function countEligibleEmployees(pool) {
+function normalizeAudienceFilters(raw = {}) {
+    const client = String(raw.filterClient || raw.client || '').trim();
+    const contract = String(raw.filterContract || raw.contractId || raw.contract || '').trim();
+    const dept = String(raw.filterDept || raw.dept || '').trim();
+    const location = String(raw.filterLoc || raw.location || '').trim();
+    return {
+        client: client || null,
+        contract: contract || null,
+        dept: dept || null,
+        location: location || null,
+    };
+}
+
+function employeeMatchesAudience(e, filters) {
+    const f = normalizeAudienceFilters(filters);
+    if (f.client && String(e.client || '') !== f.client) return false;
+    if (f.contract) {
+        const cid = String(e.contract_id || '');
+        const cname = String(e.contract_name || '');
+        if (cid !== f.contract && cname !== f.contract) return false;
+    }
+    if (f.dept && String(e.dept || '') !== f.dept) return false;
+    if (f.location && String(e.location || '') !== f.location) return false;
+    return true;
+}
+
+/** Distinct client / contract / dept / location rows — no routing, no email HTML. */
+async function listCampaignFilterOptions(pool) {
+    const { rows } = await pool.query(
+        `SELECT DISTINCT
+            e.client,
+            e.contract_id,
+            COALESCE(c.contract_name, e.contract_name) AS contract_name,
+            e.dept,
+            COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) AS location
+         FROM employees e
+         LEFT JOIN contracts c ON c.id::text = e.contract_id::text
+         WHERE (e.last_working_day IS NULL OR e.last_working_day >= CURRENT_DATE)
+           AND (
+             e.active IS NULL
+             OR LOWER(TRIM(e.active::text)) IN ('', 'yes', 'true', '1', 'active')
+           )`
+    );
+    return { rows };
+}
+
+async function countEligibleEmployees(pool, filters = {}) {
     const rules = await loadEligibilityRules(pool);
+    const f = normalizeAudienceFilters(filters);
+    const params = [];
+    const where = ['(e.last_working_day IS NULL OR e.last_working_day >= CURRENT_DATE)'];
+    if (f.client) {
+        params.push(f.client);
+        where.push(`e.client = $${params.length}`);
+    }
+    if (f.contract) {
+        params.push(f.contract);
+        where.push(`(e.contract_id = $${params.length} OR COALESCE(c.contract_name, e.contract_name) = $${params.length})`);
+    }
+    if (f.dept) {
+        params.push(f.dept);
+        where.push(`e.dept = $${params.length}`);
+    }
+    if (f.location) {
+        params.push(f.location);
+        where.push(`COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) = $${params.length}`);
+    }
     const { rows: emps } = await pool.query(
         `SELECT e.id, e.name, e.email, e.claim_authority, e.supervisor_email, e.line_manager_email,
                 e.client, e.active,
@@ -371,7 +436,8 @@ async function countEligibleEmployees(pool) {
                 COALESCE(c.contract_name, e.contract_name) AS contract_name
          FROM employees e
          LEFT JOIN contracts c ON c.id::text = e.contract_id::text
-         WHERE (e.last_working_day IS NULL OR e.last_working_day >= CURRENT_DATE)`
+         WHERE ${where.join(' AND ')}`,
+        params
     );
     const eligible = [];
     const skipped = [];
@@ -434,6 +500,9 @@ module.exports = {
     upsertRule,
     previewRuleMatch,
     countEligibleEmployees,
+    listCampaignFilterOptions,
+    normalizeAudienceFilters,
+    employeeMatchesAudience,
     normalizeAuthority,
     ruleMatchesEmployee,
 };

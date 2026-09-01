@@ -5,6 +5,9 @@ const {
     resolveClaimsCategory,
     ruleMatchesEmployee,
     evaluateEmployeeEligibility,
+    employeeMatchesAudience,
+    normalizeAudienceFilters,
+    countEligibleEmployees,
 } = require('../src/modules/claims/claimsEligibility');
 
 describe('claimsEligibility routing', () => {
@@ -229,5 +232,43 @@ describe('claimsEligibility rules', () => {
         expect(fm.eligible).toBe(true);
         expect(pso.eligible).toBe(true);
         expect(none.eligible).toBe(true);
+    });
+
+    test('audience filters match client / contract / dept / location', () => {
+        const emp = {
+            client: 'Wafi Energy Pakistan Pvt Ltd',
+            contract_id: 'CTR-W',
+            contract_name: 'Wafi BPO',
+            dept: 'Ops',
+            location: 'Karachi',
+        };
+        expect(normalizeAudienceFilters({ filterClient: ' Wafi ' }).client).toBe('Wafi');
+        expect(employeeMatchesAudience(emp, { filterClient: 'Wafi Energy Pakistan Pvt Ltd' })).toBe(true);
+        expect(employeeMatchesAudience(emp, { filterClient: 'PSO' })).toBe(false);
+        expect(employeeMatchesAudience(emp, {
+            filterClient: 'Wafi Energy Pakistan Pvt Ltd',
+            filterContract: 'CTR-W',
+            filterDept: 'Ops',
+            filterLoc: 'Karachi',
+        })).toBe(true);
+        expect(employeeMatchesAudience(emp, { filterContract: 'Wafi BPO' })).toBe(true);
+        expect(employeeMatchesAudience(emp, { filterLoc: 'Lahore' })).toBe(false);
+    });
+
+    test('countEligibleEmployees adds client/contract to the SQL', async () => {
+        const pool = {
+            query: jest.fn()
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [] }),
+        };
+        await countEligibleEmployees(pool, {
+            filterClient: 'Wafi Energy Pakistan Pvt Ltd',
+            filterContract: 'CTR-W',
+        });
+        expect(pool.query).toHaveBeenCalledTimes(2);
+        const [sql, params] = pool.query.mock.calls[1];
+        expect(sql).toMatch(/e\.client = \$1/);
+        expect(sql).toMatch(/e\.contract_id = \$2/);
+        expect(params).toEqual(['Wafi Energy Pakistan Pvt Ltd', 'CTR-W']);
     });
 });

@@ -6,6 +6,29 @@ const portal = require('./portalService');
 const { withClaimsPortalMail, getClaimsMonitorCc } = require('./claimsMail');
 const { requireClaimsPortal, CAMPAIGN_ROLES, VIEW_ROLES } = require('./claimsAccess');
 
+function audienceFiltersFromBody(body = {}) {
+    const pick = (v) => {
+        const s = String(v || '').trim();
+        return s || null;
+    };
+    return {
+        filterClient: pick(body.filterClient || body.client),
+        filterContract: pick(body.filterContract || body.contractId || body.contract),
+        filterDept: pick(body.filterDept || body.dept),
+        filterLoc: pick(body.filterLoc || body.location),
+    };
+}
+
+function campaignGates() {
+    const sampleEmail = process.env.CLAIMS_SAMPLE_EMAIL || process.env.CLAIMS_TEST_EMAIL || '';
+    return {
+        actualSendAllowed: process.env.CLAIMS_ALLOW_ACTUAL_SEND === 'true',
+        sampleEmailConfigured: String(sampleEmail).includes('@'),
+        sampleEmail: String(sampleEmail).includes('@') ? String(sampleEmail).trim().toLowerCase() : null,
+        monitorCc: getClaimsMonitorCc(),
+    };
+}
+
 function hasManualOverridePerm(user) {
     if (!user) return false;
     if (user.role === 'superadmin') return true;
@@ -197,6 +220,15 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
+    app.get('/api/portal-claims/campaign/filters', requireAuth, requireClaimsPortal(pool, 'campaign', CAMPAIGN_ROLES), async (req, res) => {
+        try {
+            const { rows } = await portal.listCampaignFilterOptions(pool);
+            res.json({ rows: rows || [], gates: campaignGates() });
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.campaignFilters', err);
+        }
+    });
+
     app.post('/api/portal-claims/campaign', requireAuth, requireClaimsPortal(pool, 'campaign', CAMPAIGN_ROLES), async (req, res) => {
         try {
             const now = new Date();
@@ -207,6 +239,7 @@ function registerPortalClaimsRoutes(app, deps) {
             const onlyEmployeeIds = Array.isArray(req.body?.onlyEmployeeIds) ? req.body.onlyEmployeeIds : null;
             const campaignMode = String(req.body?.campaignMode || 'sample').toLowerCase() === 'actual' ? 'actual' : 'sample';
             const testPackFour = !!req.body?.testPackFour;
+            const audience = audienceFiltersFromBody(req.body);
 
             if (campaignMode === 'actual' && process.env.CLAIMS_ALLOW_ACTUAL_SEND !== 'true') {
                 return res.status(403).json({
@@ -219,6 +252,7 @@ function registerPortalClaimsRoutes(app, deps) {
 
             const result = await portal.createCampaign(pool, {
                 claimMonth, claimYear, sendAppEmail, dryRun, onlyEmails, onlyEmployeeIds, campaignMode, testPackFour,
+                ...audience,
             });
             res.json(result);
         } catch (err) {
@@ -235,10 +269,14 @@ function registerPortalClaimsRoutes(app, deps) {
             const onlyEmployeeIds = Array.isArray(req.body?.onlyEmployeeIds) ? req.body.onlyEmployeeIds : null;
             const campaignMode = String(req.body?.campaignMode || 'sample').toLowerCase() === 'actual' ? 'actual' : 'sample';
             const testPackFour = !!req.body?.testPackFour;
-            const sampleEmail = process.env.CLAIMS_SAMPLE_EMAIL || process.env.CLAIMS_TEST_EMAIL || '';
+            const audience = audienceFiltersFromBody(req.body);
+            if (!audience.filterClient && !(onlyEmployeeIds && onlyEmployeeIds.length) && !testPackFour) {
+                return res.status(400).json({ error: 'Select a client before loading employees.' });
+            }
             const result = await portal.createCampaign(pool, {
                 claimMonth, claimYear, sendAppEmail: null, dryRun: true, preview: true,
                 onlyEmails, onlyEmployeeIds, campaignMode, testPackFour,
+                ...audience,
             });
             res.json({
                 period: result.period,
@@ -247,12 +285,7 @@ function registerPortalClaimsRoutes(app, deps) {
                 recipients: result.recipients || [],
                 employees: result.employees || [],
                 skipped: result.skipped || [],
-                gates: {
-                    actualSendAllowed: process.env.CLAIMS_ALLOW_ACTUAL_SEND === 'true',
-                    sampleEmailConfigured: String(sampleEmail).includes('@'),
-                    sampleEmail: String(sampleEmail).includes('@') ? String(sampleEmail).trim().toLowerCase() : null,
-                    monitorCc: getClaimsMonitorCc(),
-                },
+                gates: campaignGates(),
             });
         } catch (err) {
             handleRouteError(res, 'portalClaims.campaignPreview', err);

@@ -47,6 +47,14 @@ function parseOptionalDeadlineDay(raw) {
     return n;
 }
 
+function hasSubmitDeadline(policy) {
+    return !!(policy && policy.calendar_apply === true && policy.submit_deadline_day != null);
+}
+
+function hasApproveDeadline(policy) {
+    return !!(policy && policy.calendar_apply === true && policy.approve_deadline_day != null);
+}
+
 function inferCalendarApply(body = {}) {
     if (body.calendar_apply != null) {
         return body.calendar_apply === true || body.calendar_apply === 'true';
@@ -169,6 +177,8 @@ module.exports = {
     normalizeDeadlineMonth,
     parseOptionalDeadlineDay,
     inferCalendarApply,
+    hasSubmitDeadline,
+    hasApproveDeadline,
     deadlineYearMonth,
     assertEnabledType,
     shapePolicyRow,

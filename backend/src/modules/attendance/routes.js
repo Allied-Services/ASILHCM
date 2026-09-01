@@ -21,9 +21,12 @@ const {
     upsertProjectClientFocals,
     listProjectClientFocals,
 } = require('./clientFocals');
+const { requireAttendanceAccess, HUB_READ_ROLES } = require('./attendanceAccess');
 
 function registerAttendanceIntakeRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail, sendJazzSMS } = deps;
+    const hubRead = requireAttendanceAccess(pool, 'view', HUB_READ_ROLES);
+    const hubExport = requireAttendanceAccess(pool, 'export', HUB_READ_ROLES);
 
     app.get('/api/attendance/parser-profiles', requireAuth, requireRole('superadmin', 'operations', 'supervisor'), async (req, res) => {
         try {
@@ -87,7 +90,7 @@ function registerAttendanceIntakeRoutes(app, deps) {
     });
 
     // ── Monthly Report Hub (15-column export / import / rollups) ──────────────
-    app.get('/api/attendance/monthly-hub/export', requireAuth, requireRole('hr_manager', 'finance_manager', 'superadmin', 'admin', 'operations'), async (req, res) => {
+    app.get('/api/attendance/monthly-hub/export', requireAuth, hubExport, async (req, res) => {
         try {
             const month = parseInt(req.query.month, 10) || (new Date().getMonth() + 1);
             const year = parseInt(req.query.year, 10) || new Date().getFullYear();
@@ -180,7 +183,7 @@ function registerAttendanceIntakeRoutes(app, deps) {
         }
     });
 
-    app.get('/api/attendance/monthly-hub/list', requireAuth, requireRole('hr_manager', 'finance_manager', 'superadmin', 'admin', 'operations', 'payroll_initiator'), async (req, res) => {
+    app.get('/api/attendance/monthly-hub/list', requireAuth, hubRead, async (req, res) => {
         try {
             const month = parseInt(req.query.month, 10) || (new Date().getMonth() + 1);
             const year = parseInt(req.query.year, 10) || new Date().getFullYear();
@@ -199,7 +202,7 @@ function registerAttendanceIntakeRoutes(app, deps) {
         }
     });
 
-    app.get('/api/attendance/monthly-hub/rollups', requireAuth, requireRole('hr_manager', 'finance_manager', 'superadmin', 'admin', 'operations'), async (req, res) => {
+    app.get('/api/attendance/monthly-hub/rollups', requireAuth, hubRead, async (req, res) => {
         try {
             const month = parseInt(req.query.month, 10) || (new Date().getMonth() + 1);
             const year = parseInt(req.query.year, 10) || new Date().getFullYear();

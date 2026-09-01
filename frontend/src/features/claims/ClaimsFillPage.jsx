@@ -336,21 +336,35 @@ export default function ClaimsFillPage() {
         <h1 className="claims-title">Submit monthly claims</h1>
         <p className="claims-lead">
           Claiming for: <strong>{claimLabel}</strong>
-          {' · '}Submit by: <strong>day {data.period.submit_deadline_day || 18}</strong>
-          {' · '}LM approve by: <strong>day {data.period.approve_deadline_day || 22}</strong>
+          {data.period.submit_deadline_day != null && (
+            <>
+              {' · '}Submit by: <strong>day {data.period.submit_deadline_day}</strong>
+            </>
+          )}
+          {data.period.approve_deadline_day != null && (
+            <>
+              {' · '}LM approve by: <strong>day {data.period.approve_deadline_day}</strong>
+            </>
+          )}
           {' · '}Paid with: <strong>{settleLabel} salary</strong>
         </p>
         <p className="claims-muted">Progress {pct}% ({data.completion.submitted}/{data.completion.total})</p>
       </header>
 
+      {(data.period.submit_deadline_day != null || data.period.approve_deadline_day != null) && (
       <div className="claims-card claims-card-info">
         <div className="claims-card-title">Your deadlines</div>
         <p className="claims-body">
-          Submit all claims for <strong>{claimLabel}</strong> by <strong>day {data.period.submit_deadline_day || 18}</strong>.
-          Your Line Manager approves by <strong>day {data.period.approve_deadline_day || 22}</strong>.
+          {data.period.submit_deadline_day != null && (
+            <>Submit all claims for <strong>{claimLabel}</strong> by <strong>day {data.period.submit_deadline_day}</strong>. </>
+          )}
+          {data.period.approve_deadline_day != null && (
+            <>Your Line Manager approves by <strong>day {data.period.approve_deadline_day}</strong>. </>
+          )}
           Approved amounts are paid with your <strong>{settleLabel}</strong> salary.
         </p>
       </div>
+      )}
 
       <HowItWorks templateHref={templateHref} />
 
