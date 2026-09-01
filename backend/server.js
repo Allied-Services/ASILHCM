@@ -11,6 +11,8 @@ const { Resend } = require('resend');
 
 const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratuity } = require('./taxEngine');
 const { readPayrollSnapshot, exportRowFromSnapshot } = require('./src/payroll/snapshotView');
+const { buildHblSameCheckerRow, buildHblSameCheckerXlsx, isHblSameBank } = require('./src/payroll/hblSameExport');
+const { buildHblOtherRow, buildHblOtherXlsx } = require('./src/payroll/hblOtherExport');
 const { startEmailClaimsService, triggerManualPoll } = require('./emailClaimsService');
 const wafiClaims = require('./wafiClaimsService');
 const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmailClient, buildConfirmationHtml, createGmailDraft, reprocessSession } = wafiClaims;
@@ -3838,8 +3840,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         let rows = [], filename = 'export.csv';
         const bu  = e => e.client_bu || e.clientbu || e.clientBU || '';
         const cnic = e => e.cnic || '';
-        const isHBL = e => (e.bank_name || '').toLowerCase().replace(/\s/g,'').includes('hbl') ||
-                           (e.bank_name || '').toLowerCase().includes('habib');
+        const isHBL = e => isHblSameBank(e.bank_name);
         const monthAbbr = new Date(2000, moInt-1, 1).toLocaleString('en-US', { month: 'short' }); // 'Mar'
         const yr2 = String(yrInt).slice(-2); // '26'
 
@@ -3910,42 +3911,28 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             filename = `Payroll_${year}-${String(month).padStart(2,'0')}${filterClient && filterClient !== 'All' ? '_' + filterClient.replace(/\s+/g,'_').slice(0,20) : ''}.csv`;
 
         } else if (type === 'hbl_same') {
-            // HBL to HBL transfers Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ only employees with HBL accounts, locked rows only
-            rows = bankEmps.filter(isHBL).map((emp, i) => {
+            // HBL Checker File Summary Excel — locked HBL holders only
+            const hblRows = bankEmps.filter(isHBL).map((emp) => {
                 const c = calcRow(emp, payMap[emp.id]);
-                const ref1 = `PR${monthAbbr}${yr2}-${emp.id}`;
-                return {
-                    'Beneficiary\u00a0Name': emp.name,
-                    'Beneficiary Account Number': emp.bank_account || '',
-                    'Transaction Amount': c.netPay,
-                    'Reference # 1': ref1,
-                    'Reference # 2': '',
-                    'Reference # 3': '',
-                    'Inovice Number': '',
-                    'Account Title': emp.account_title || emp.name,
-                };
+                return buildHblSameCheckerRow(emp, c.netPay, monthAbbr, yr2);
             });
-            if (!rows.length) return res.status(200).json({ msg: 'No HBL account holders in locked payroll.' });
-            filename = `HBL_to_HBL_${monthAbbr}${yr2}.csv`;
+            if (!hblRows.length) return res.status(200).json({ msg: 'No HBL account holders in locked payroll.' });
+            const buf = buildHblSameCheckerXlsx(hblRows);
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="HBL_to_HBL_${monthAbbr}${yr2}.xlsx"`);
+            return res.send(buf);
 
         } else if (type === 'hbl_other') {
-            // HBL to Other Banks (IBFT) Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ non-HBL bank accounts, locked rows only
-            rows = bankEmps.filter(e => !isHBL(e)).map((emp, i) => {
+            // HBL Other-bank IBFT Excel — locked non-HBL holders only
+            const otherRows = bankEmps.filter(e => !isHBL(e)).map((emp) => {
                 const c = calcRow(emp, payMap[emp.id]);
-                const ref1 = `PR${monthAbbr}${yr2}-${emp.id}`;
-                return {
-                    'Beneficiary Name': emp.name,
-                    'Beneficiary Account Number': emp.bank_account || '',
-                    'Transaction Amount': c.netPay,
-                    'Reference # 1': ref1,
-                    'Reference # 2': '',
-                    'Reference # 3': '',
-                    'Inovice Number': '',
-                    'Account Title': emp.account_title || emp.name,
-                };
+                return buildHblOtherRow(emp, c.netPay, monthAbbr, yr2);
             });
-            if (!rows.length) return res.status(200).json({ msg: 'No other-bank account holders in locked payroll.' });
-            filename = `HBL_to_Others_${monthAbbr}${yr2}.csv`;
+            if (!otherRows.length) return res.status(200).json({ msg: 'No other-bank account holders in locked payroll.' });
+            const buf = buildHblOtherXlsx(otherRows);
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="HBL_to_Others_${monthAbbr}${yr2}.xlsx"`);
+            return res.send(buf);
 
         } else if (type === 'hbl') {
             // Legacy single HBL file Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ redirect to split files message

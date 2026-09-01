@@ -359,9 +359,14 @@ export const buildSESSIFile = (rows, month) => rows.map(({ emp, calc }) => ({
 
 // â”€â”€â”€ Bank file split by HBL vs Other Banks per client â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // isHBL: returns true if bank name contains 'hbl' or 'habib'
-const isHBLBank = (bankName = '') =>
-    bankName.toLowerCase().replace(/\s/g, '').includes('hbl') ||
-    bankName.toLowerCase().includes('habib');
+const isHBLBank = (bankName = '') => {
+    const compact = String(bankName || '').toLowerCase().replace(/[\s.\-_/]/g, '');
+    if (!compact) return false;
+    if (compact.includes('alhabib') || compact.includes('bankalhabib')) return false;
+    if (compact.includes('habibmetro') || compact.includes('metropolitan')) return false;
+    if (compact.includes('hbl')) return true;
+    return compact.includes('habibbank') || compact === 'habib';
+};
 
 /**
  * buildBankFileSplit â€” returns { hbl: rows[], other: rows[] } split by bank type

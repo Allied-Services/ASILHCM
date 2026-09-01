@@ -310,6 +310,16 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-01 — HBL Checker Excel export + Wafi HBL bank overwrite
+Payroll Sheet **HBL → HBL** is now the HBL Checker File Summary **xlsx** (sheet `data`: TXNREFNO, BENEFNAME, BENECELL, BENEEMAIL, TRANS_AMT, BENEACNO, BENEACCTITLE, TITLESTATUS). Phones export as `03XXXXXXXXX`. Employee Information bank/contact fields are the same `employees` columns. Production GO RED overwrote 124 Wafi HBL accounts from the HBL Bank Data Update CSV.
+
+**Env vars needed:** none.
+
+### 2026-09-01 — HBL Other-bank IBFT Excel + Wafi other-bank overwrite
+Payroll Sheet **HBL → Other Banks** is now the portal IBFT **xlsx** (sheet `Interbank Funds Transfer`, including the file’s `Beneficary` / `Pupose` / `Reference  3` headers). Bank code comes from IBAN (or a stored `(038)` override). Production GO RED overwrote 184 other-bank rows from Other Bank File for Portal Aug-26.
+
+**Env vars needed:** none.
+
 ### 2026-08-29 — Auto routing official mailbox is final; communications off
 `auto` with no Focal/LM and an official Wafi/ASIL mailbox is **employee_only** (submit is final). Personal/missing mail still goes to Dedicated Payroll Resource. Master gate `COMMUNICATIONS_ENABLED` defaults to **off** (no email, no SMS). `asil_only` allows `@asil.com.pk` only. Digest send also requires `FOCAL_DIGEST_SEND=true`. Monthly Cycle Setup shows Attendance as a claim type. Monthly Cycle → Payroll opens July 2026 claims against the August sheet.
 
