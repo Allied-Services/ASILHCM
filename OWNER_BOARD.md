@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-29 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-09-01 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -57,7 +57,7 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 ### Infrastructure / ops
 9. **Staging cold starts** — free tier sleeps; verify after wake before calling staging "broken"
 10. **Local tests on GDrive** — `jest` node_modules corrupt; use temp clone or CI for counts
-11. **Morning brief Automation** — email only; not switched on until you say so
+11. **Morning brief Automation** — weekday cron runs; email delivery still disconnected (no send tool) — connect on the Automation so briefs reach your inbox
 
 ### Parked until mission gate clears
 12. **Imprest workflow** — bill type exists; no dedicated process
@@ -108,6 +108,8 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 - Payroll team **Excel export** for pilot shadow month (S5B) — see `scripts/VARIANCE_INPUT_FORMAT.md`
 - **MD sign-off** on zero-variance report before any production pay through new engine
 - **Go red:** production disbursement, prod engine-flag flip, Render secrets (Resend, Jazz, OpenAI, Xero)
+- Close leftover **PR #146** (EOBI) — conflicts; Aug EOBI already live via #151
+- Connect **morning brief email** on the Automation (digests stay email-only)
 
 ---
 

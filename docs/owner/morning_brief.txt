@@ -1,0 +1,26 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month for the pilot (38 people) matches Excel
+Status: AMBER
+
+NOT FINISHED YET
+1. Pilot Excel vs HCM still blocked — need payroll team's export
+2. New pay engine not used for real production pay yet
+3. Morning email still not connected — this brief could not email
+
+NEEDS YOU TODAY
+- Ask payroll for the pilot Excel export
+- Close leftover PR #146 (EOBI already live via #151; this one conflicts)
+- Connect morning email on the Automation (https://cursor.com/automations/5e5c7662-8dce-11f1-a7d1-d6b4613131ce)
+
+I SUGGEST
+- Do not lock, disburse, or flip the new engine without Go red
+- Keep weekday morning email once delivery works
+
+FOCUS TODAY
+Get the pilot Excel file so we can prove pay matches — park new builds.
+
+Card: docs/owner/morning_latest.html
+Live health: ok · commit f6ae701 · 2026-09-01
+Agent: https://cursor.com/agents/bc-58571087-1772-460b-ab5f-237fccbb2c3f
