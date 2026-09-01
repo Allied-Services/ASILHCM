@@ -431,7 +431,8 @@ function ExportMenu({ month, isLocked, filterClient, filterContract, filterLoc, 
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             const cd = res.headers.get('content-disposition') || '';
-            const fname = cd.match(/filename="([^"]+)"/)?.[1] || `export_${type}_${yr}-${mo}.csv`;
+            const fname = cd.match(/filename="([^"]+)"/)?.[1]
+                || `export_${type}_${yr}-${mo}${type === 'hbl_same' || type === 'hbl_other' ? '.xlsx' : '.csv'}`;
             a.href = url; a.download = fname;
             document.body.appendChild(a); a.click();
             document.body.removeChild(a); URL.revokeObjectURL(url);
@@ -439,8 +440,8 @@ function ExportMenu({ month, isLocked, filterClient, filterContract, filterLoc, 
     };
     const opts = [
         { label: '📊 Full Payroll CSV', sub: `All columns — ${filterClient !== 'All' ? filterClient : 'all clients'}${filterContract !== 'All' ? ` · ${filterContract}` : ''}`, fn: () => dlExport('payroll') },
-        { label: '🏦 HBL → HBL Transfers', sub: 'Net Pay for HBL account holders (🔒 locked rows only)', fn: () => dlExport('hbl_same'), needsLock: true },
-        { label: '🏦 HBL → Other Banks (IBFT)', sub: 'Net Pay for non-HBL accounts (🔒 locked rows only)', fn: () => dlExport('hbl_other'), needsLock: true },
+        { label: '🏦 HBL → HBL Transfers', sub: 'HBL Checker Excel for HBL account holders (🔒 locked rows only)', fn: () => dlExport('hbl_same'), needsLock: true },
+        { label: '🏦 HBL → Other Banks (IBFT)', sub: 'HBL IBFT Excel for other-bank holders (🔒 locked rows only)', fn: () => dlExport('hbl_other'), needsLock: true },
         { label: '📋 WHT Returns (FBR)', sub: 'Taxable amount + tax per employee for FBR', fn: () => dlExport('wht') },
         { label: '📋 EOBI Contributions', sub: 'Employee & employer EOBI per head', fn: () => dlExport('eobi') },
         { label: '📋 SESSI Contributions', sub: 'Employer SESSI contribution per head', fn: () => dlExport('sessi') },

@@ -310,6 +310,16 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-01 — HBL Checker Excel export + Wafi HBL bank overwrite
+Payroll Sheet **HBL → HBL** is now the HBL Checker File Summary **xlsx** (sheet `data`: TXNREFNO, BENEFNAME, BENECELL, BENEEMAIL, TRANS_AMT, BENEACNO, BENEACCTITLE, TITLESTATUS). Phones export as `03XXXXXXXXX`. Employee Information bank/contact fields are the same `employees` columns. Production GO RED overwrote 124 Wafi HBL accounts from the HBL Bank Data Update CSV.
+
+**Env vars needed:** none.
+
+### 2026-09-01 — HBL Other-bank IBFT Excel + Wafi other-bank overwrite
+Payroll Sheet **HBL → Other Banks** is now the portal IBFT **xlsx** (sheet `Interbank Funds Transfer`, including the file’s `Beneficary` / `Pupose` / `Reference  3` headers). Bank code comes from IBAN (or a stored `(038)` override). Production GO RED overwrote 184 other-bank rows from Other Bank File for Portal Aug-26.
+
+**Env vars needed:** none.
+
 ### 2026-08-31 — Attendance Export CSV honors User Management Full access
 Monthly Report **Export CSV** (`GET /api/attendance/monthly-hub/export`) was `requireRole(hr_manager, finance_manager, superadmin, admin, operations)` only, so Sadia and others granted Full Attendance in User Management could see the button and got **Forbidden**. Export, list, and rollups now allow those roles plus `payroll_initiator` / `finance_approver`, **or** `hcm_users.permissions.attendance` with view/Full access (JWT has no permissions — lookup is from DB). Legacy `GET /api/attendance/export` uses the same guard. Import / override / clear still role-gated.
 
