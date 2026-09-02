@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-29 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-08-31 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -9,7 +9,7 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid). Press Calculate on that month after this lands. Do not lock or disburse. Do not re-Calculate July Wafi on live.
+STATUS: **YELLOW** — Site OK (live commit `2ab595b`). Paid Days stay the full calendar month; Aug EOBI 430 / 2,150 is live (#151). Pilot Excel vs HCM still open. Do not lock or disburse. Do not re-Calculate July Wafi on live.
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -57,7 +57,7 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 ### Infrastructure / ops
 9. **Staging cold starts** — free tier sleeps; verify after wake before calling staging "broken"
 10. **Local tests on GDrive** — `jest` node_modules corrupt; use temp clone or CI for counts
-11. **Morning brief Automation** — email only; not switched on until you say so
+11. **Morning brief Automation** — weekday run is on; **email delivery still not connected** (brief lands in PR + HTML card only)
 
 ### Parked until mission gate clears
 12. **Imprest workflow** — bill type exists; no dedicated process
@@ -70,7 +70,9 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 ## IN PROGRESS
 - BPO / PSO contract matching on staging (separate track — do not block)
 
-## JUST SHIPPED (2026-08-29)
+## JUST SHIPPED (2026-08-29–31)
+- **Aug EOBI rates live** — from August 2026: employee 430 / employer 2,150 (`#151`). Older months keep prior rates until Calculate. Close conflicting open PR `#146` (superseded).
+- **Claim-request employee list** — loads only after filters (`#152`).
 - **Calendar & pay timing is optional** — Monthly Cycle → Setup: check Apply, then add a submit or approve deadline only if that contract uses one. Each deadline can be Current month or Following month. Unchecked means no deadline and no “Deadline has expired” block (Operations Handling). Wafi 18th/22nd still closes.
 - **Monthly Cycle Setup includes Attendance** — tick it on the contract pack when a machine / client file is used.
 - **Monthly Cycle → Payroll shows July claims / August sheet** — open that tab; it starts on July 2026 work.
