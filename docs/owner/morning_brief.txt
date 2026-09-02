@@ -1,0 +1,28 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month for the pilot contract (38 people).
+Status: AMBER
+
+NOT FINISHED YET
+1. Pilot Excel vs HCM still needs a clean match
+2. New pay engine not used for real pay yet
+3. Morning email still not connected
+
+NEEDS YOU TODAY
+- Close PR #146 (old EOBI — already live via #151)
+- Connect morning email on the Automation
+- Payroll Excel export for the shadow month
+
+I SUGGEST
+- Keep weekday morning email once delivery works
+
+FOCUS TODAY
+Get the pilot Excel file in. No new features today.
+
+---
+Live check: https://asilhcm.onrender.com/health → ok (commit 9eef617)
+HTML card: docs/owner/morning_latest.html
+Agent: https://cursor.com/agents/bc-b11adfcd-62ca-4f59-ad16-d83bae9a7edb
+Email: NOT SENT — Automation has no email delivery tool yet.
+Connect email: https://cursor.com/automations/5e5c7662-8dce-11f1-a7d1-d6b4613131ce
