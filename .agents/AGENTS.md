@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-05 — Locked payroll keeps AP `locked_net` in sync
+Trigger `trg_sync_payroll_locked_net` sets `locked_net = ROUND(net)` on insert/update while `locked=TRUE`. Stops AP from showing a stale freeze after post-lock net corrections. Migration `20260901120000_payroll_locked_net_sync.js`.
+
+**Env vars needed:** none. Applied on backend start via `runMigrations()`.
+
 ### 2026-09-04 — PSO client/contract cleanup (GO RED)
 MD phrase: `Go red: clean PSO clients and contracts from the cleanup workbook`. Canonical client `CLI-PSO-NORTH-ZONE` / Pakistan State Oil Company Limited. `CLT-1773037649309` Ltd deactivated. 6 contracts moved onto canonical client. Conservancy GB/KPK/Punjab set Cancelled + headcount 0. 428 employee client labels Ltd→Limited. 4 people assigned (Dabeer + Zeeshan → North Zone; Arshad → Janitorial; Zubair → Operations Handling). Text relabel on bills/invoices/challans/receipts/focals/supervisor_teams. Salary/bank/payroll rows not written. Proof: `ASIL/PSO-180/25` Dabeer Ahmad client Limited, contract `CTR-PSO-NORTH-ZONE`. Audit: `audit/cutover/pso_client_contract_cleanup_report.json`.
 
