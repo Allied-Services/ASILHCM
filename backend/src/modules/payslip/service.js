@@ -504,7 +504,10 @@ async function sendPayslips(pool, deps, opts) {
                     tokenId = tid;
                     const sms = buildSmsMessage(rawToken);
                     const smsResult = await sendJazzSMS(destPhone, sms);
-                    if (smsResult && smsResult.ok === false) {
+                    if (smsResult?.skipped) {
+                        smsStatus = 'skipped';
+                        smsDetail = smsResult.reason || 'sms skipped';
+                    } else if (smsResult && smsResult.ok === false) {
                         smsStatus = 'failed';
                         smsDetail = 'sms_rejected';
                     } else {

@@ -32,6 +32,8 @@ services:
         value: asil.com.pk
       - key: JOBS_RUNNER
         value: web
+      - key: COMMUNICATIONS_ENABLED
+        value: on
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
@@ -135,6 +137,8 @@ services:
         value: asil.com.pk
       - key: JOBS_RUNNER
         value: web
+      - key: COMMUNICATIONS_ENABLED
+        value: off
       - key: DATABASE_URL
         sync: false
         # MUST be Neon `staging` branch — never production

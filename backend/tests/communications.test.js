@@ -9,9 +9,15 @@ const {
 
 describe('communications gate', () => {
     const prev = process.env.COMMUNICATIONS_ENABLED;
+    const prevNode = process.env.NODE_ENV;
+    const prevApp = process.env.APP_BASE_URL;
+    const prevBackend = process.env.BACKEND_URL;
     afterEach(() => {
         if (prev === undefined) delete process.env.COMMUNICATIONS_ENABLED;
         else process.env.COMMUNICATIONS_ENABLED = prev;
+        process.env.NODE_ENV = prevNode;
+        process.env.APP_BASE_URL = prevApp;
+        process.env.BACKEND_URL = prevBackend;
     });
 
     test('unset defaults to off', () => {
@@ -20,6 +26,24 @@ describe('communications gate', () => {
         const g = gateEmailPayload({ to: 'shezad.mumtaz@asil.com.pk', subject: 'x', html: 'y' });
         expect(g.skip).toBe(true);
         expect(g.reason).toBe('communications_off');
+        expect(gateSms().skip).toBe(true);
+    });
+
+    test('unset on live production host is on', () => {
+        delete process.env.COMMUNICATIONS_ENABLED;
+        process.env.NODE_ENV = 'production';
+        process.env.APP_BASE_URL = 'https://asilhcm.onrender.com';
+        process.env.BACKEND_URL = 'https://asilhcm.onrender.com';
+        expect(communicationsMode()).toBe('on');
+        expect(gateEmailPayload({ to: 'focal@wafi-energy.com' }).skip).toBe(false);
+        expect(gateSms().skip).toBe(false);
+    });
+
+    test('explicit off still blocks live production host', () => {
+        process.env.COMMUNICATIONS_ENABLED = 'off';
+        process.env.NODE_ENV = 'production';
+        process.env.APP_BASE_URL = 'https://asilhcm.onrender.com';
+        expect(communicationsMode()).toBe('off');
         expect(gateSms().skip).toBe(true);
     });
 
