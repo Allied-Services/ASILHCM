@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-08-29 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-09-03 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -9,7 +9,7 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid). Press Calculate on that month after this lands. Do not lock or disburse. Do not re-Calculate July Wafi on live.
+STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August payslips are being resent after the blocked send. Do not Calculate August.
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -36,7 +36,7 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 ---
 
 ## TOP LINE (for agents / morning brief)
-**Paid Days are the full calendar month.** Sundays are paid. A stored 26 is not four days unpaid. 40,000 + OT 11,154 → Gross 51,154 and PD Days 31 (August). Calculate after deploy. Do not lock or disburse. Do not re-Calculate July Wafi on live.
+**Live email and SMS are on.** August payslip send was blocked by the old off-switch (0/304). Resend after this deploy. Do not Calculate August.
 
 ---
 
@@ -69,13 +69,16 @@ STATUS: **YELLOW** — Paid Days now stay the full calendar month (Sundays paid)
 
 ## IN PROGRESS
 - BPO / PSO contract matching on staging (separate track — do not block)
+- August payslip resend (304 people) after live mail switch-on
+
+## JUST SHIPPED (2026-09-03)
+- **Live email and SMS are on** — Go red to send August payslips. Production host sends; staging stays off. Subject still says TRIAL.
 
 ## JUST SHIPPED (2026-08-29)
 - **Calendar & pay timing is optional** — Monthly Cycle → Setup: check Apply, then add a submit or approve deadline only if that contract uses one. Each deadline can be Current month or Following month. Unchecked means no deadline and no “Deadline has expired” block (Operations Handling). Wafi 18th/22nd still closes.
 - **Monthly Cycle Setup includes Attendance** — tick it on the contract pack when a machine / client file is used.
 - **Monthly Cycle → Payroll shows July claims / August sheet** — open that tab; it starts on July 2026 work.
 - **Official mailbox, no Focal/LM: submit is final** — `@wafi-energy.com` or `@asil.com.pk` with no Focal and no LM does not wait for a second approver.
-- **Live email and SMS stay off** — `COMMUNICATIONS_ENABLED` defaults to off. Do not set `on` without `Go red:`.
 
 ## JUST SHIPPED (2026-08-28)
 - **Provident Fund now deducts on the Payroll Sheet** — if the contract End of Service Benefit is Provident Fund, Calculate takes Gross ÷ 24 from the employee and matches it as employer PF (no gratuity on those people). Press Calculate on that contract’s unlocked month to refresh. Do not re-Calculate July Wafi.

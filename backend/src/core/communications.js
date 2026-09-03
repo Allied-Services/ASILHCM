@@ -1,18 +1,28 @@
 'use strict';
 
 /**
- * Live email/SMS gate for the verification window.
+ * Live email/SMS gate.
  *
  * COMMUNICATIONS_ENABLED:
- *   off        (default) — nothing is sent
+ *   off        — nothing is sent
  *   asil_only  — email only to @asil.com.pk; SMS stays off
  *   on         — unrestricted (still respect CLAIMS_ALLOW_ACTUAL_SEND etc.)
+ *
+ * Unset: local/staging stay off. Live production (asilhcm.onrender.com) is on
+ * after the 2026-09-03 Go-red to send August payslips.
  */
 
+function isLiveProductionHost() {
+    const host = `${process.env.APP_BASE_URL || ''} ${process.env.BACKEND_URL || ''}`;
+    return host.includes('://asilhcm.onrender.com');
+}
+
 function communicationsMode() {
-    const raw = String(process.env.COMMUNICATIONS_ENABLED || 'off').trim().toLowerCase();
+    const raw = String(process.env.COMMUNICATIONS_ENABLED || '').trim().toLowerCase();
     if (raw === 'true' || raw === 'on' || raw === '1' || raw === 'yes') return 'on';
     if (raw === 'asil_only' || raw === 'asil') return 'asil_only';
+    if (raw === 'off' || raw === 'false' || raw === '0' || raw === 'no') return 'off';
+    if (process.env.NODE_ENV === 'production' && isLiveProductionHost()) return 'on';
     return 'off';
 }
 
@@ -93,6 +103,7 @@ function communicationsStatus() {
 
 module.exports = {
     communicationsMode,
+    isLiveProductionHost,
     isAsilEmail,
     filterAddressList,
     gateEmailPayload,

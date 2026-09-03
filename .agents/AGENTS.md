@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-03 — Live email/SMS on (August payslip Go-red)
+`COMMUNICATIONS_ENABLED` unset now means **on** only for live production (`asilhcm.onrender.com` + `NODE_ENV=production`). Explicit `off` still blocks. Staging documented `off`. Payslip SMS skip from the gate reports `communications_off` instead of `sms_rejected`.
+
+**Env vars needed:** none required. Production default is on after this deploy. Set `COMMUNICATIONS_ENABLED=off` to kill live mail again.
+
 ### 2026-09-01 — HBL Checker Excel export + Wafi HBL bank overwrite
 Payroll Sheet **HBL → HBL** is now the HBL Checker File Summary **xlsx** (sheet `data`: TXNREFNO, BENEFNAME, BENECELL, BENEEMAIL, TRANS_AMT, BENEACNO, BENEACCTITLE, TITLESTATUS). Phones export as `03XXXXXXXXX`. Employee Information bank/contact fields are the same `employees` columns. Production GO RED overwrote 124 Wafi HBL accounts from the HBL Bank Data Update CSV.
 
