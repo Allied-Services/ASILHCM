@@ -737,6 +737,12 @@ Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency in
 - Frontend build: `npm run build` in `frontend/`.
 - Integration tests `npm run test:int` require a Neon `ci-test` branch via `TEST_DATABASE_URL` and cannot run against the local DB (the runner refuses URLs without the `ci-test` marker).
 
+### 2026-09-03 — FV payroll compute no longer blocked as “legacy sheet”
+
+`POST /api/payroll-runs/compute` treated every `payroll_engine=legacy` contract as forbidden. Rulebook spine defaulted PSO / Conservancy to `legacy` even though Fixed Value has no Payroll Sheet path. `assertRunAllowed` now allows `commercial_type=fixed_value`, service-order billing, and `CTR-PSO-*` without a stored `runs` flip. Cost-plus / Wafi still 409 `CONTRACT_ON_LEGACY_ENGINE`.
+
+**Env vars needed:** none.
+
 ### 2026-08-19 — FV month close: AP close packs, invoice Finalized, unlock code
 
 Fixed Value payroll lock now atomically creates `payroll_close_packs` + `payroll_payables` (salary, EOBI, SESSI, PF, WHT, gratuity/bonus accrual, etc.) and P&L `cost_allocations`. AP UI: **FV Close Packs** tab in `AccountsPayable.jsx`. Invoice lifecycle adds **Finalized** before Raised; P&L revenue counts Finalized+ only. Reopen payroll/invoices requires `MONTH_CLOSE_UNLOCK_CODE_HASH` (SHA-256). July PSO repair: `backend/scripts/repair_july_pso_close.js` (dry-run; `--apply`). Migration: `20260819120000_fv_month_close.js`.

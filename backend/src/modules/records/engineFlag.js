@@ -1,12 +1,20 @@
 'use strict';
 
 const { getPolicy } = require('../constraints/service');
+const { inferCommercialType } = require('./rulebook');
+
+/** Explicit `runs` wins. Fixed Value / Conservancy also compute via World B (no sheet path). */
+function effectivePayrollEngine(policy, contractId) {
+    const stored = String(policy?.payroll_engine || 'legacy').trim().toLowerCase();
+    if (stored === 'runs') return 'runs';
+    if (inferCommercialType(policy, { id: contractId }) === 'fixed_value') return 'runs';
+    return 'legacy';
+}
 
 async function getPayrollEngine(pool, contractId) {
     if (!contractId) return 'legacy';
     const policy = await getPolicy(pool, contractId);
-    const v = String(policy?.payroll_engine || 'legacy').trim().toLowerCase();
-    return v === 'runs' ? 'runs' : 'legacy';
+    return effectivePayrollEngine(policy, contractId);
 }
 
 async function enginesForEmployees(pool, employeeIds) {
@@ -59,8 +67,7 @@ async function assertRunAllowed(pool, contractId) {
         err.code = 'POLICY_MISSING';
         throw err;
     }
-    const engine = String(policy.payroll_engine || 'legacy').trim().toLowerCase();
-    if (engine !== 'runs') {
+    if (effectivePayrollEngine(policy, contractId) !== 'runs') {
         const err = new Error('This contract is on the legacy sheet engine. Do not compute a parallel run.');
         err.status = 409;
         err.code = 'CONTRACT_ON_LEGACY_ENGINE';
@@ -78,6 +85,7 @@ async function sheetEngineMap(pool, contractIds) {
 
 module.exports = {
     getPayrollEngine,
+    effectivePayrollEngine,
     enginesForEmployees,
     assertSheetWritable,
     assertRunAllowed,

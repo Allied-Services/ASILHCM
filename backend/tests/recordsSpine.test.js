@@ -90,6 +90,24 @@ describe('records spine — engine flag', () => {
         });
     });
 
+    test('assertRunAllowed allows Fixed Value even when stored engine is legacy', async () => {
+        const pool = {
+            query: jest.fn().mockResolvedValue({
+                rows: [{ payroll_engine: 'legacy', commercial_type: 'fixed_value' }],
+            }),
+        };
+        await expect(assertRunAllowed(pool, 'CTR-PSO-NORTH-ZONE')).resolves.toBeUndefined();
+    });
+
+    test('assertRunAllowed allows service-order billing as Fixed Value', async () => {
+        const pool = {
+            query: jest.fn().mockResolvedValue({
+                rows: [{ payroll_engine: 'legacy', billing_model: 'service_order_deduction' }],
+            }),
+        };
+        await expect(assertRunAllowed(pool, 'CTR-X')).resolves.toBeUndefined();
+    });
+
     test('assertRunAllowed 409 POLICY_MISSING when no policy row', async () => {
         const pool = { query: jest.fn().mockResolvedValue({ rows: [] }) };
         await expect(assertRunAllowed(pool, 'CTR-1')).rejects.toMatchObject({
