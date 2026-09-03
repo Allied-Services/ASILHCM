@@ -737,6 +737,12 @@ Durable notes for running ASIL HCM inside a Cursor Cloud Agent VM. Dependency in
 - Frontend build: `npm run build` in `frontend/`.
 - Integration tests `npm run test:int` require a Neon `ci-test` branch via `TEST_DATABASE_URL` and cannot run against the local DB (the runner refuses URLs without the `ci-test` marker).
 
+### 2026-09-03 — FV hub copy uses ASCII punctuation
+
+`FixedValueContracts.jsx` had mojibake (`â€“`, `â†’`, `Â·`) from a UTF-8/Windows-1252 mix. User-visible dashes, arrows, and step labels are now ASCII so the Fixed Value / Conservancy page renders cleanly.
+
+**Env vars needed:** none.
+
 ### 2026-09-03 — FV payroll compute no longer blocked as “legacy sheet”
 
 `POST /api/payroll-runs/compute` treated every `payroll_engine=legacy` contract as forbidden. Rulebook spine defaulted PSO / Conservancy to `legacy` even though Fixed Value has no Payroll Sheet path. `assertRunAllowed` now allows `commercial_type=fixed_value`, service-order billing, and `CTR-PSO-*` without a stored `runs` flip. Cost-plus / Wafi still 409 `CONTRACT_ON_LEGACY_ENGINE`.
