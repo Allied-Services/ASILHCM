@@ -11,8 +11,10 @@ Enterprise HCM & payroll platform for Allied Services International Limited (~50
 
 | Environment | Backend | Frontend |
 |---|---|---|
-| Production | https://asilhcm.onrender.com | https://asil-hcm-frontend.onrender.com |
+| Production | https://asilhcm.onrender.com | https://hcm.asil.com.pk |
 | Staging | https://asil-hcm-staging.onrender.com | https://asil-hcm-frontend-staging.onrender.com |
+
+Production frontend alias: `https://asil-hcm-frontend.onrender.com` (same static site; redirects to `hcm.asil.com.pk`). After deploy, set Render **asilhcm** `FRONTEND_URL=https://hcm.asil.com.pk` so login and email links skip the alias hop. Google OAuth callback stays `https://asilhcm.onrender.com/auth/google/callback`.
 
 Deploy topology and env vars: `render.yaml`, `docs/STAGING_SETUP.md`, `backend/.env.example` (authoritative env list).
 

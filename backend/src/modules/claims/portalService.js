@@ -74,7 +74,7 @@ const {
     hasSubmitDeadline,
     hasApproveDeadline,
 } = require('./claimsPolicy');
-const PRODUCTION_FRONTEND_URL = 'https://asil-hcm-frontend.onrender.com';
+const PRODUCTION_FRONTEND_URL = 'https://hcm.asil.com.pk';
 
 /** Resolve at send time — never emit localhost from a laptop .env on ACTUAL mail. */
 function claimsFrontendUrl() {

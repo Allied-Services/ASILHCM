@@ -438,7 +438,7 @@ app.get('/health/ip', requireAuth, requireRole('superadmin'), (req, res) => {
         r.on('end', () => res.json({ outbound_ip: JSON.parse(d).ip, note: 'Whitelist this IP with Jazz CMT' }));
     }).on('error', e => { console.error('[GET /health/ip]', e); res.status(500).json({ error: 'Internal server error' }); });
 });
-app.get('/', (req, res) => res.json({ name: 'ASIL HCM API', status: 'running', app: 'https://asil-hcm-frontend.onrender.com' }));
+app.get('/', (req, res) => res.json({ name: 'ASIL HCM API', status: 'running', app: 'https://hcm.asil.com.pk' }));
 
 // Temporary diagnostic ├óΓé¼ΓÇ¥ lists all contracts and their bonus_months (no auth needed, read-only)
 // SuperAdmin only diagnostic
