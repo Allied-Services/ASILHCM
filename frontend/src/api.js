@@ -54,6 +54,15 @@ export async function apiFetch(path, options = {}) {
 export const api = {
     // ── Employees ────────────────────────────────────────────────────────────
     getEmployees: () => { const c = _cacheGet('employees'); if (c) return Promise.resolve(c); return apiFetch('/api/employees').then(d => { _cacheSet('employees', d); return d; }); },
+    searchEmployeeDirectory: (params = {}) => {
+        const q = new URLSearchParams();
+        Object.entries(params).forEach(([k, v]) => {
+            if (v == null || v === '' || v === false) return;
+            q.set(k, String(v));
+        });
+        return apiFetch(`/api/employees/directory?${q.toString()}`);
+    },
+    getEmployeeDirectoryRecord: (id) => apiFetch(`/api/employees/directory/${encodeURIComponent(id)}`),
     lookupEmployee: ({ id, cnic } = {}) => {
         const q = new URLSearchParams();
         if (id) q.set('id', String(id).trim());

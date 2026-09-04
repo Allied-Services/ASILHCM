@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Users, Search, Plus, Filter, Upload, Download, CheckCircle, X,
-         ChevronDown, Mail, MessageCircle } from 'lucide-react';
+         ChevronDown, Mail, MessageCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from './api';
 import { claimsBadgeStyle } from './utils/claimsRouting';
 import EmployeeProfile from './EmployeeProfile';
@@ -8,6 +8,16 @@ import EmployeeDirectoryToolbar from './features/employees/EmployeeDirectory';
 import EmploymentOrgCascade from './EmploymentOrgCascade';
 import { normalizeAsilBu } from './orgHierarchy';
 import { isEmployeeActive, activeStatusLabel, normalizeActiveValue } from './employeeActive';
+import {
+    activeToParam, paramToActive, readDirectoryParams, writeDirectoryParams,
+    hasDirectoryQuery, loadRecentEmployees, pushRecentEmployee,
+} from './features/employees/directoryHelpers';
+
+const EMPTY_DIR = {
+    bu: '', client: '', clientId: '', contractId: '', contractName: '',
+    clientBU: '', location: '', dept: '',
+};
+const PAGE_SIZE = 50;
 
 // ── Exact columns from Master Data.csv ───────────────────────────────────────
 export const MASTER_COLUMNS = [
@@ -89,15 +99,28 @@ const FormField = ({ label, field, type = 'text', opts, form, setForm }) => (
 
 
 export default function EmployeeInformation({ user }) {
+    const boot = readDirectoryParams();
     const [emps, setEmps] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [total, setTotal] = useState(0);
+    const [page, setPage] = useState(boot.page);
+    const [browse, setBrowse] = useState(boot.browse);
+    const [hasQueried, setHasQueried] = useState(false);
+    const [elapsedMs, setElapsedMs] = useState(null);
+    const [recent, setRecent] = useState(() => loadRecentEmployees());
+    const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [search, setSearch] = useState('');
-    const [filterActive, setFilterActive] = useState('All');
-    const [filterClient, setFilterClient] = useState('All');
-    const [filterLocation, setFilterLocation] = useState('All');
-    const [filterDept, setFilterDept] = useState('All');
-    const [filterContract, setFilterContract] = useState('All');
+    const [search, setSearch] = useState(boot.q);
+    const [filterActive, setFilterActive] = useState(paramToActive(boot.active));
+    const [dirForm, setDirForm] = useState({
+        ...EMPTY_DIR,
+        bu: boot.bu,
+        client: boot.client,
+        contractId: boot.contractId,
+        clientBU: boot.clientBu,
+        location: boot.location,
+        dept: boot.dept,
+    });
+    const skipFilterQuery = useRef(true);
     const [showAdd, setShowAdd] = useState(false);
     const [addMode, setAddMode] = useState('single');
     const [form, setForm] = useState(EMPTY_FORM);
@@ -113,46 +136,108 @@ export default function EmployeeInformation({ user }) {
     const [bulkSmsMsg, setBulkSmsMsg] = useState('Dear {name}, this is a message from ASIL HR.');
     const [bulkSmsSending, setBulkSmsSending] = useState(false);
 
-    // ── Load employees + contracts from DB on mount ────────────────────────────
+    // ── Contracts for CSV import only — no roster pull on mount ───────────────
     const [contractsList, setContractsList] = useState([]);
-    const loadEmployees = () => {
+    const buildDirParams = (over = {}) => {
+        const form = over.form || dirForm;
+        const q = over.q !== undefined ? over.q : search;
+        const active = over.active !== undefined ? over.active : filterActive;
+        const pg = over.page !== undefined ? over.page : page;
+        const br = over.browse !== undefined ? over.browse : browse;
+        return {
+            q: String(q || '').trim(),
+            bu: form.bu || '',
+            client: form.client || '',
+            contractId: form.contractId || '',
+            clientBu: form.clientBU || '',
+            location: form.location || '',
+            dept: form.dept || '',
+            active: activeToParam(active),
+            page: pg,
+            browse: br,
+            limit: PAGE_SIZE,
+        };
+    };
+    const runDirectory = async (over = {}) => {
+        const params = buildDirParams(over);
+        if (!hasDirectoryQuery(params)) {
+            setHasQueried(false);
+            setEmps([]);
+            setTotal(0);
+            setElapsedMs(null);
+            writeDirectoryParams({ ...params, browse: false, page: 1 });
+            return;
+        }
         setLoading(true);
-        api.getEmployees()
-            .then(data => { setEmps(data.employees || []); setLoading(false); })
-            .catch(() => setLoading(false));
+        const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        try {
+            const data = await api.searchEmployeeDirectory({
+                q: params.q,
+                bu: params.bu,
+                client: params.client,
+                contractId: params.contractId,
+                clientBu: params.clientBu,
+                location: params.location,
+                dept: params.dept,
+                active: params.active,
+                page: params.page,
+                limit: PAGE_SIZE,
+                browse: params.browse ? '1' : undefined,
+            });
+            setEmps(data.employees || []);
+            setTotal(data.total || 0);
+            setPage(data.page || params.page);
+            setHasQueried(true);
+            const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            setElapsedMs(Math.round(t1 - t0));
+            writeDirectoryParams(params);
+        } catch (err) {
+            alert(err.message || 'Directory search failed');
+        }
+        setLoading(false);
+    };
+    const loadEmployees = () => {
+        const params = buildDirParams();
+        if (hasDirectoryQuery(params)) runDirectory(params);
     };
     useEffect(() => {
-        loadEmployees();
         api.getContracts()
             .then(list => setContractsList(Array.isArray(list) ? list : (list?.contracts || [])))
             .catch(() => {});
+        if (hasDirectoryQuery(boot) || boot.browse) {
+            runDirectory({
+                q: boot.q,
+                form: {
+                    ...EMPTY_DIR,
+                    bu: boot.bu,
+                    client: boot.client,
+                    contractId: boot.contractId,
+                    clientBU: boot.clientBu,
+                    location: boot.location,
+                    dept: boot.dept,
+                },
+                active: paramToActive(boot.active),
+                page: boot.page,
+                browse: boot.browse,
+            });
+        }
+        // initial URL hydrate only
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    useEffect(() => {
+        if (skipFilterQuery.current) {
+            skipFilterQuery.current = false;
+            return;
+        }
+        const next = buildDirParams({ form: dirForm, page: 1 });
+        if (hasDirectoryQuery(next)) runDirectory({ form: dirForm, page: 1 });
+        else if (hasQueried) runDirectory({ form: dirForm, page: 1 });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dirForm.bu, dirForm.client, dirForm.contractId, dirForm.clientBU, dirForm.location, dirForm.dept]);
+
     const secIdx = SECTIONS.indexOf(sec);
-
-    // Unique values for filter dropdowns
-    const allClients = ['All', ...new Set(emps.map(e => e.client).filter(Boolean))];
-    const allLocations = ['All', ...new Set(emps.map(e => e.location).filter(Boolean))];
-    const allDepts = ['All', ...new Set(emps.map(e => e.designation).filter(Boolean))];
-    const allContracts = ['All', ...new Set(emps.map(e => e.contractName).filter(Boolean))].sort();
-
-    const filtered = emps.filter(e => {
-        const q = search.toLowerCase();
-        const matchSearch = !search ||
-            (e.name || '').toLowerCase().includes(q) ||
-            (e.cnic || '').includes(search) ||
-            (e.id || '').toLowerCase().includes(q) ||
-            (e.client || '').toLowerCase().includes(q) ||
-            (e.designation || '').toLowerCase().includes(q);
-        const matchActive = filterActive === 'All'
-            || (filterActive === 'Active' && isEmployeeActive(e.active))
-            || (filterActive === 'Inactive' && !isEmployeeActive(e.active));
-        const matchClient = filterClient === 'All' || e.client === filterClient;
-        const matchLocation = filterLocation === 'All' || e.location === filterLocation;
-        const matchDept = filterDept === 'All' || e.designation === filterDept;
-        const matchContract = filterContract === 'All' || e.contractName === filterContract;
-        return matchSearch && matchActive && matchClient && matchLocation && matchDept && matchContract;
-    });
+    const filtered = emps;
 
     // ── Flexible CSV header lookup (case-insensitive, multi-alias) ─────────
     const getF = (obj, ...keys) => {
@@ -343,6 +428,31 @@ export default function EmployeeInformation({ user }) {
     };
 
     const closeAdd = () => { setShowAdd(false); setCsvRows([]); setCsvErr(''); setForm(EMPTY_FORM); setSec(SECTIONS[0]); if (fileRef.current) fileRef.current.value = ''; };
+
+    const openProfile = async (emp) => {
+        setRecent(pushRecentEmployee(emp));
+        try {
+            const data = await api.getEmployeeDirectoryRecord(emp.id);
+            setProfile(data.employee || emp);
+        } catch {
+            setProfile(emp);
+        }
+    };
+
+    const clearDirectory = () => {
+        setSearch('');
+        setDirForm(EMPTY_DIR);
+        setFilterActive('Active');
+        setBrowse(false);
+        setPage(1);
+        setHasQueried(false);
+        setEmps([]);
+        setTotal(0);
+        setElapsedMs(null);
+        setSelected(new Set());
+        skipFilterQuery.current = true;
+        writeDirectoryParams({ q: '', bu: '', client: '', contractId: '', clientBu: '', location: '', dept: '', active: 'yes', page: 1, browse: false });
+    };
 
     const updateEmployee = async (updated, meta = {}) => {
         const fromId = meta.previousId || updated.id;
@@ -547,7 +657,7 @@ export default function EmployeeInformation({ user }) {
         <div className="dashboard">
             <header className="header">
                 <h1>Employee Information</h1>
-                <p>Full master roster — Employment, Personal, Compliance, Salary, Family, Medical &amp; Banking.</p>
+                <p>Find people in the roster — nothing loads until you search or filter.</p>
             </header>
 
             <EmployeeDirectoryToolbar onImported={() => loadEmployees()} />
@@ -679,10 +789,33 @@ export default function EmployeeInformation({ user }) {
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ flex: 1, minWidth: '200px', display: 'flex', alignItems: 'center', background: 'var(--bg-card)', padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
                     <Search size={18} color="var(--text-muted)" style={{ marginRight: '0.5rem', flexShrink: 0 }} />
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by Name, CNIC, Employee ID, Client, or Position..." style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', outline: 'none' }} />
+                    <input
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') runDirectory({ q: search, page: 1 }); }}
+                        placeholder="Search name, employee code, or CNIC…"
+                        style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', outline: 'none' }}
+                    />
                 </div>
-                {['All', 'Active', 'Inactive'].map(f => (
-                    <button key={f} onClick={() => setFilterActive(f)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid', borderColor: filterActive === f ? 'var(--primary)' : 'var(--border)', background: filterActive === f ? 'rgba(56,189,248,0.1)' : 'var(--bg-card)', color: filterActive === f ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: filterActive === f ? 700 : 400 }}>
+                <button
+                    onClick={() => runDirectory({ q: search, page: 1 })}
+                    disabled={String(search || '').trim().length < 2 && !hasDirectoryQuery(buildDirParams({ q: search }))}
+                    style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--primary)', background: 'var(--primary)', color: 'white', cursor: 'pointer', fontWeight: 700 }}
+                >
+                    Search
+                </button>
+                <button
+                    onClick={() => { setBrowse(true); setFilterActive('Active'); runDirectory({ browse: true, active: 'Active', page: 1 }); }}
+                    style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', cursor: 'pointer', fontWeight: 600 }}
+                >
+                    Browse Active
+                </button>
+                {['Active', 'Inactive', 'All'].map(f => (
+                    <button key={f} onClick={() => {
+                        setFilterActive(f);
+                        const next = buildDirParams({ active: f, page: 1 });
+                        if (hasDirectoryQuery(next) || hasQueried) runDirectory({ active: f, page: 1 });
+                    }} style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid', borderColor: filterActive === f ? 'var(--primary)' : 'var(--border)', background: filterActive === f ? 'rgba(56,189,248,0.1)' : 'var(--bg-card)', color: filterActive === f ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: filterActive === f ? 700 : 400 }}>
                         {f}
                     </button>
                 ))}
@@ -692,41 +825,64 @@ export default function EmployeeInformation({ user }) {
                 {(user?.role === 'superadmin' || user?.role === 'operations' || user?.role === 'payroll_initiator') && (
                     <button onClick={() => { setMainView('requests'); loadChangeRequests('Pending'); }}
                         style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.4)', color: '#a78bfa', padding: '0.55rem 1.25rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
-                        📋 Pending Requests
+                        Pending Requests
                     </button>
                 )}
             </div>
 
-            {/* Filter Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                <EmploymentOrgCascade mode="filter" form={dirForm} setForm={setDirForm} compact />
+            </div>
+
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 <Filter size={15} color="var(--text-muted)" />
-                {[
-                    { label: 'Client', val: filterClient, set: setFilterClient, opts: allClients },
-                    { label: 'Location', val: filterLocation, set: setFilterLocation, opts: allLocations },
-                    { label: 'Position', val: filterDept, set: setFilterDept, opts: allDepts },
-                    { label: 'Contract', val: filterContract, set: setFilterContract, opts: allContracts },
-                ].map(f => (
-                    <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{f.label}:</span>
-                        <select value={f.val} onChange={e => f.set(e.target.value)}
-                            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '5px 10px', color: 'var(--text)', fontSize: '0.82rem', outline: 'none', maxWidth: '200px' }}>
-                            {f.opts.map(o => <option key={o}>{o}</option>)}
-                        </select>
-                    </div>
-                ))}
-                {(filterClient !== 'All' || filterLocation !== 'All' || filterDept !== 'All' || filterContract !== 'All') && (
-                    <button onClick={() => { setFilterClient('All'); setFilterLocation('All'); setFilterDept('All'); setFilterContract('All'); }}
+                {search.trim() && (
+                    <button onClick={() => { setSearch(''); if (hasQueried) runDirectory({ q: '', page: 1 }); }}
+                        style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', color: 'var(--text)', cursor: 'pointer' }}>
+                        “{search.trim()}” ×
+                    </button>
+                )}
+                {dirForm.bu && <button onClick={() => setDirForm((p) => ({ ...EMPTY_DIR, bu: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.bu} ×</button>}
+                {dirForm.client && <button onClick={() => setDirForm((p) => ({ ...p, client: '', clientId: '', contractId: '', contractName: '', clientBU: '', location: '', dept: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.client} ×</button>}
+                {dirForm.contractName && <button onClick={() => setDirForm((p) => ({ ...p, contractId: '', contractName: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.contractName} ×</button>}
+                {dirForm.clientBU && <button onClick={() => setDirForm((p) => ({ ...p, clientBU: '', dept: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.clientBU} ×</button>}
+                {dirForm.location && <button onClick={() => setDirForm((p) => ({ ...p, location: '', dept: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.location} ×</button>}
+                {dirForm.dept && <button onClick={() => setDirForm((p) => ({ ...p, dept: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.dept} ×</button>}
+                {filterActive !== 'All' && (
+                    <button onClick={() => { setFilterActive('All'); if (hasQueried) runDirectory({ active: 'All', page: 1 }); }}
+                        style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{filterActive} ×</button>
+                )}
+                {(hasQueried || dirForm.bu || dirForm.client || search.trim()) && (
+                    <button onClick={clearDirectory}
                         style={{ fontSize: '0.78rem', color: '#ef4444', background: 'transparent', border: '1px solid #ef444440', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>
-                        Clear Filters
+                        Clear
                     </button>
                 )}
                 <span style={{ marginLeft: 'auto', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                    Showing <strong>{filtered.length}</strong> of {emps.length} employees
+                    {hasQueried
+                        ? <>{total.toLocaleString()} people · page {page} of {Math.max(1, Math.ceil(total / PAGE_SIZE))}{elapsedMs != null ? ` · ${elapsedMs} ms` : ''}</>
+                        : 'No roster query yet'}
                 </span>
             </div>
 
+            {!hasQueried && !loading && recent.length > 0 && (
+                <div style={{ marginBottom: '1.25rem' }}>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.6rem' }}>Recently viewed</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.75rem' }}>
+                        {recent.map((e) => (
+                            <button key={e.id} onClick={() => openProfile(e)}
+                                style={{ textAlign: 'left', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '0.85rem 1rem', cursor: 'pointer', color: 'var(--text)' }}>
+                                <div style={{ fontWeight: 600 }}>{e.name || e.id}</div>
+                                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>{[e.client, e.location].filter(Boolean).join(' · ') || e.id}</div>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Table */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'auto' }}>
+                {hasQueried && !loading && filtered.length > 0 && (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', minWidth: '1100px' }}>
                     <thead>
                         <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-dark)' }}>
@@ -736,7 +892,7 @@ export default function EmployeeInformation({ user }) {
                                     onChange={toggleAll}
                                     style={{ cursor: 'pointer', accentColor: '#38bdf8', width: '15px', height: '15px' }} />
                             </th>
-                            {['Employee Code', 'Name', 'Client', 'Designation', 'Location', 'Province', 'Contract', 'Salary', 'Status', ''].map(h => (
+                            {['Employee Code', 'Name', 'ASIL BU', 'Client', 'Client BU', 'Department', 'Designation', 'Location', 'Contract', 'Status', ''].map(h => (
                                 <th key={h} style={{ padding: '0.9rem 1rem', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
                         </tr>
@@ -744,7 +900,7 @@ export default function EmployeeInformation({ user }) {
                     <tbody>
                         {filtered.map(emp => (
                             <tr key={emp.id}
-                                onClick={() => setProfile(emp)}
+                                onClick={() => openProfile(emp)}
                                 style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: selected.has(emp.id) ? 'rgba(56,189,248,0.05)' : 'transparent', cursor: 'pointer' }}
                                 onMouseEnter={e => { if (!selected.has(emp.id)) e.currentTarget.style.background = 'var(--bg-dark)'; }}
                                 onMouseLeave={e => { if (!selected.has(emp.id)) e.currentTarget.style.background = 'transparent'; }}>
@@ -764,9 +920,9 @@ export default function EmployeeInformation({ user }) {
                                         </div>
                                     </div>
                                 </td>
+                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{emp.bu || '—'}</td>
                                 <td style={{ padding: '0.85rem 1rem' }}>
                                     <div style={{ fontWeight: 500, lineHeight: 1.2 }}>{emp.client}</div>
-                                    <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{emp.dept}</div>
                                     {String(emp.client || '').toLowerCase().includes('wafi') && (() => {
                                         const b = claimsBadgeStyle(emp);
                                         return (
@@ -776,28 +932,21 @@ export default function EmployeeInformation({ user }) {
                                         );
                                     })()}
                                 </td>
+                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{emp.clientBU || '—'}</td>
+                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>{emp.dept || '—'}</td>
                                 <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>{emp.designation}</td>
                                 <td style={{ padding: '0.85rem 1rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{emp.location}</td>
-                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
-                                    {emp.province
-                                        ? <span style={{ background: 'rgba(56,189,248,0.1)', color: 'var(--primary)', padding: '2px 8px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600 }}>{emp.province}</span>
-                                        : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                                </td>
                                 <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap', fontSize: '0.82rem' }}>
                                     {emp.contractName
                                         ? <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{emp.contractName}</span>
                                         : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                                </td>
-                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
-                                    <div style={{ fontWeight: 600 }}>Rs. {(emp.salary || 0).toLocaleString()}</div>
-                                    {emp.lastSalary && emp.lastSalary !== emp.salary && <div style={{ color: '#22c55e', fontSize: '0.76rem' }}>↑ Rs. {emp.lastSalary.toLocaleString()}</div>}
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem' }}>
                                     <span style={{ background: isEmployeeActive(emp.active) ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: isEmployeeActive(emp.active) ? '#22c55e' : '#eab308', padding: '3px 10px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 600 }}>{activeStatusLabel(emp.active)}</span>
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem' }} onClick={e => e.stopPropagation()}>
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                        <button onClick={() => setProfile(emp)} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>View Profile</button>
+                                        <button onClick={() => openProfile(emp)} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>View Profile</button>
                                         {user?.role === 'superadmin' && (
                                             <button onClick={() => deleteEmployee(emp)} title="Delete employee" style={{ background: 'transparent', border: '1px solid #ef444460', color: '#ef4444', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' }}>🗑</button>
                                         )}
@@ -828,13 +977,37 @@ export default function EmployeeInformation({ user }) {
                         ))}
                     </tbody>
                 </table>
-                {filtered.length === 0 && (
+                )}
+                {loading && (
+                    <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading people…</div>
+                )}
+                {!loading && !hasQueried && (
                     <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                         <Users size={40} style={{ opacity: 0.3, display: 'block', margin: '0 auto 1rem' }} />
-                        <p>No employees found.</p>
+                        <p>Search by name, employee code, or CNIC — or pick an organisation filter.</p>
+                    </div>
+                )}
+                {!loading && hasQueried && filtered.length === 0 && (
+                    <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        <Users size={40} style={{ opacity: 0.3, display: 'block', margin: '0 auto 1rem' }} />
+                        <p>No people match these filters.</p>
+                        <button onClick={clearDirectory} style={{ marginTop: '0.75rem', fontSize: '0.82rem', color: '#ef4444', background: 'transparent', border: '1px solid #ef444440', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer' }}>Clear</button>
                     </div>
                 )}
             </div>
+            {hasQueried && total > PAGE_SIZE && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.75rem', marginTop: '0.75rem' }}>
+                    <button disabled={page <= 1 || loading} onClick={() => runDirectory({ page: page - 1 })}
+                        style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', borderRadius: '6px', cursor: page <= 1 ? 'default' : 'pointer' }}>
+                        <ChevronLeft size={16} /> Previous
+                    </button>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{page} / {Math.max(1, Math.ceil(total / PAGE_SIZE))}</span>
+                    <button disabled={page >= Math.ceil(total / PAGE_SIZE) || loading} onClick={() => runDirectory({ page: page + 1 })}
+                        style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}>
+                        Next <ChevronRight size={16} />
+                    </button>
+                </div>
+            )}
 
             {/* ── ADD MODAL ── */}
             {showAdd && (
