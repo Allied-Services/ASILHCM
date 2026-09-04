@@ -52,7 +52,17 @@ function uniq(arr) {
   return [...new Set(arr.filter(Boolean))].sort();
 }
 
-function MonthlyCycleSetup() {
+function canEditMonthlyCyclePack(user) {
+  return ['superadmin', 'finance_manager', 'operations'].includes(user?.role)
+    || !!(user?.permissions?.monthly_cycle?.subPerms || []).includes('edit');
+}
+
+function canAssignMonthlyCyclePeople(user) {
+  return ['superadmin', 'finance_manager', 'operations', 'payroll_initiator', 'payroll'].includes(user?.role)
+    || !!(user?.permissions?.monthly_cycle?.subPerms || []).includes('edit');
+}
+
+function MonthlyCycleSetup({ user }) {
   const [contracts, setContracts] = useState([]);
   const [contractId, setContractId] = useState('');
   const [policy, setPolicy] = useState(null);
@@ -90,7 +100,10 @@ function MonthlyCycleSetup() {
     }));
   }, [contractId]);
 
+  const canEdit = canEditMonthlyCyclePack(user);
+
   const toggleType = (typeId) => {
+    if (!canEdit) return;
     setPolicy((p) => {
       const cur = new Set(p?.enabled_types || []);
       if (cur.has(typeId)) cur.delete(typeId);
@@ -100,7 +113,7 @@ function MonthlyCycleSetup() {
   };
 
   const save = async () => {
-    if (!contractId || !policy) return;
+    if (!canEdit || !contractId || !policy) return;
     setSaving(true);
     setMsg('');
     setErr('');
@@ -366,7 +379,10 @@ function MonthlyCycleSetup() {
               Active pack for <strong>{selected.name}</strong>: {(policy.enabled_types || []).join(', ') || 'none'} · {policy.collection_mode}
             </p>
           )}
-          <button type="button" className="btn-primary" disabled={saving} onClick={save}>
+          {!canEdit && (
+            <p className="mch-muted">View only — contract pack edits need finance manager, operations, or superadmin access.</p>
+          )}
+          <button type="button" className="btn-primary" disabled={saving || !canEdit} onClick={save}>
             {saving ? 'Saving…' : 'Save contract pack'}
           </button>
         </>
@@ -375,7 +391,8 @@ function MonthlyCycleSetup() {
   );
 }
 
-function MonthlyCyclePeople() {
+function MonthlyCyclePeople({ user }) {
+  const canAssign = canAssignMonthlyCyclePeople(user);
   const [emps, setEmps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -423,6 +440,7 @@ function MonthlyCyclePeople() {
   };
 
   const assign = async () => {
+    if (!canAssign) return;
     if (!selectedIds.length) return alert('Select at least one employee.');
     const patch = { employee_ids: selectedIds };
     if (claimAuthority.trim()) patch.claim_authority = claimAuthority.trim();
@@ -492,7 +510,7 @@ function MonthlyCyclePeople() {
         <button type="button" className="btn-secondary" onClick={toggleAll}>
           {filtered.length && filtered.every((e) => selectedIds.includes(e.id)) ? 'Clear selection' : `Select all (${filtered.length})`}
         </button>
-        <button type="button" className="btn-primary" disabled={saving} onClick={assign}>
+        <button type="button" className="btn-primary" disabled={saving || !canAssign} onClick={assign}>
           {saving ? 'Saving…' : `Apply to ${selectedIds.length} selected`}
         </button>
       </div>
@@ -816,11 +834,11 @@ export default function MonthlyCycleHub({ user }) {
         </nav>
       </header>
 
-      {section === 'setup' && <MonthlyCycleSetup />}
+      {section === 'setup' && <MonthlyCycleSetup user={user} />}
       {section === 'people' && (
         <>
           <ContactsSeedBar />
-          <MonthlyCyclePeople />
+          <MonthlyCyclePeople user={user} />
         </>
       )}
       {section === 'collect' && (

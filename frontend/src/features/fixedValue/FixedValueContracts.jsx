@@ -132,7 +132,8 @@ export default function FixedValueContracts({ user }) {
 
     const canWrite = ['superadmin', 'operations', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
         .includes(user?.role);
-    const canEditContract = ['superadmin', 'operations'].includes(user?.role);
+    const canEditContract = ['superadmin', 'operations', 'finance_manager'].includes(user?.role)
+        || !!(user?.permissions?.fixed_value?.subPerms || []).includes('edit');
 
     const selectedOrder = useMemo(
         () => orders.find(o => o.site_code === siteCode) || null,
