@@ -51,11 +51,55 @@ function splitDelimitedLine(line, delim) {
     return cells;
 }
 
-function parseDelimited(text) {
+const ID_HEADERS = ['employee_id', 'asil_employee_code', 'asil_code', 'code', 'id'];
+const NAME_HEADERS = ['name', 'employee_name', 'employee'];
+const MODE_VALUE_HEADERS = {
+    full_ledger: [
+        ['present_days', 'present', 'days_present', 'paid_days'],
+        ['absent_days', 'absent', 'days_absent', 'deduction_days'],
+    ],
+    hours: [['hours', 'worked_hours', 'total_hours']],
+    days: [
+        ['present_days', 'present', 'days_present', 'paid_days'],
+        ['absent_days', 'absent', 'days_absent', 'deduction_days'],
+    ],
+    absent_only: [['absent_days', 'absent', 'days_absent', 'deduction_days']],
+};
+
+function headerLineForMode(inputMode) {
+    return templateColumns(inputMode).join(',');
+}
+
+function missingHeaderError(inputMode) {
+    const err = new Error(
+        `First row must be the header: ${headerLineForMode(inputMode)} — then add one employee per line below it.`
+    );
+    err.status = 400;
+    err.code = 'MISSING_HEADER';
+    return err;
+}
+
+function hasAnyHeader(headers, aliases) {
+    const set = new Set(headers);
+    return aliases.some((a) => set.has(a));
+}
+
+function assertCycleFileHeaders(headers, inputMode) {
+    const mode = INPUT_MODES.includes(inputMode) ? inputMode : 'full_ledger';
+    if (!hasAnyHeader(headers, ID_HEADERS) || !hasAnyHeader(headers, NAME_HEADERS)) {
+        throw missingHeaderError(mode);
+    }
+    for (const aliases of MODE_VALUE_HEADERS[mode]) {
+        if (!hasAnyHeader(headers, aliases)) throw missingHeaderError(mode);
+    }
+}
+
+function parseDelimited(text, inputMode) {
     const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
     if (!lines.length) return [];
     const delim = lines[0].includes('\t') ? '\t' : ',';
     const headers = splitDelimitedLine(lines[0], delim).map(normHeader);
+    if (inputMode != null) assertCycleFileHeaders(headers, inputMode);
     return lines.slice(1).map((line) => {
         const cells = splitDelimitedLine(line, delim);
         const obj = {};
@@ -208,9 +252,9 @@ async function matchEmployees(pool, rows, contractId) {
 
 async function createDraft(pool, { contractId, month, year, inputMode, fileName, text, createdBy }) {
     const mode = INPUT_MODES.includes(inputMode) ? inputMode : 'full_ledger';
-    const parsed = parseDelimited(text).map((r) => mapRow(r, mode));
+    const parsed = parseDelimited(text, mode).map((r) => mapRow(r, mode));
     if (!parsed.length) {
-        const err = new Error('No data rows found');
+        const err = new Error('Header found but no data rows. Add at least one employee under the header.');
         err.status = 400;
         err.code = 'EMPTY_FILE';
         throw err;
@@ -355,6 +399,8 @@ module.exports = {
     TEMPLATE_COLUMNS,
     parseDelimited,
     mapRow,
+    assertCycleFileHeaders,
+    headerLineForMode,
     templateColumns,
     buildTemplateCsv,
     templateFilename,

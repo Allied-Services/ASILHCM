@@ -6,6 +6,8 @@ const { assertSheetWritable, assertRunAllowed } = require('../src/modules/record
 const {
     parseDelimited,
     mapRow,
+    assertCycleFileHeaders,
+    headerLineForMode,
     templateColumns,
     buildTemplateCsv,
     templateFilename,
@@ -132,6 +134,32 @@ describe('records spine — machine file parse', () => {
         expect(mapped.employee_id).toBe('ASIL-1');
         expect(mapped.hours).toBe(160);
         expect(mapped.absent_days).toBe(2);
+    });
+
+    test('rejects a data line with no header for the selected mode', () => {
+        expect(() => parseDelimited('ASIL/PSO-375/25,Muhammad Masood,13,0,0', 'absent_only'))
+            .toThrow(/First row must be the header: employee_id,name,absent_days,ot2,ot3/);
+    });
+
+    test('accepts absent-only paste when the header is present', () => {
+        const rows = parseDelimited(
+            'employee_id,name,absent_days,ot2,ot3\nASIL/PSO-375/25,Muhammad Masood,13,0,0',
+            'absent_only'
+        );
+        expect(rows).toHaveLength(1);
+        expect(mapRow(rows[0], 'absent_only')).toMatchObject({
+            employee_id: 'ASIL/PSO-375/25',
+            employee_name: 'Muhammad Masood',
+            absent_days: 13,
+            ot2_hours: 0,
+            ot3_hours: 0,
+        });
+    });
+
+    test('headerLineForMode matches the on-screen template', () => {
+        expect(headerLineForMode('absent_only')).toBe('employee_id,name,absent_days,ot2,ot3');
+        expect(() => assertCycleFileHeaders(['asil_pso_375_25', 'muhammad_masood', '13'], 'absent_only'))
+            .toThrow(/First row must be the header/);
     });
 });
 
