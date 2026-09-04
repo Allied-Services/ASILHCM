@@ -24,7 +24,7 @@ export function readDirectoryParams(search = typeof window !== 'undefined' ? win
         clientBu: p.get('clientBu') || '',
         location: p.get('location') || '',
         dept: p.get('dept') || '',
-        active: p.get('active') || 'yes',
+        active: p.get('active') || 'all',
         page: Math.max(1, parseInt(p.get('page'), 10) || 1),
         browse: p.get('browse') === '1',
     };
@@ -46,7 +46,7 @@ export function writeDirectoryParams(next, search = typeof window !== 'undefined
     if (next.clientBu) p.set('clientBu', next.clientBu);
     if (next.location) p.set('location', next.location);
     if (next.dept) p.set('dept', next.dept);
-    if (next.active && next.active !== 'yes') p.set('active', next.active);
+    if (next.active && next.active !== 'all') p.set('active', next.active);
     if (next.page && next.page > 1) p.set('page', String(next.page));
     if (next.browse) p.set('browse', '1');
     const qs = p.toString();

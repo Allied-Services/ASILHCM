@@ -442,7 +442,7 @@ export default function EmployeeInformation({ user }) {
     const clearDirectory = () => {
         setSearch('');
         setDirForm(EMPTY_DIR);
-        setFilterActive('Active');
+        setFilterActive('All');
         setBrowse(false);
         setPage(1);
         setHasQueried(false);
@@ -451,7 +451,7 @@ export default function EmployeeInformation({ user }) {
         setElapsedMs(null);
         setSelected(new Set());
         skipFilterQuery.current = true;
-        writeDirectoryParams({ q: '', bu: '', client: '', contractId: '', clientBu: '', location: '', dept: '', active: 'yes', page: 1, browse: false });
+        writeDirectoryParams({ q: '', bu: '', client: '', contractId: '', clientBu: '', location: '', dept: '', active: 'all', page: 1, browse: false });
     };
 
     const updateEmployee = async (updated, meta = {}) => {
@@ -810,7 +810,7 @@ export default function EmployeeInformation({ user }) {
                 >
                     Browse Active
                 </button>
-                {['Active', 'Inactive', 'All'].map(f => (
+                {['All', 'Active', 'Inactive'].map(f => (
                     <button key={f} onClick={() => {
                         setFilterActive(f);
                         const next = buildDirParams({ active: f, page: 1 });
