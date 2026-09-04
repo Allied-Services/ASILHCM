@@ -554,6 +554,7 @@ const {
     importMasterRosterCsv,
     MASTER_ROSTER_COLUMNS,
 } = require('./src/modules/employees/masterRoster');
+const { registerEmployeeDirectoryRoutes } = require('./src/modules/employees/directory');
 
 app.get('/api/employees/lookup', requireAuth, async (req, res) => {
     try {
@@ -567,6 +568,8 @@ app.get('/api/employees/lookup', requireAuth, async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+registerEmployeeDirectoryRoutes(app, { pool, requireAuth, empFromDb });
 
 app.get('/api/employees/export', requireAuth, requireRole('superadmin', 'hr_manager', 'operations', 'operations_supervisor', 'operations_team', 'finance_manager', 'finance_approver'), async (req, res) => {
     try {
