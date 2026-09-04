@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-04 — PSO FM employees → Facilities Management (GO RED)
+MD phrase: `GO RED` move employees from ASIL BU `PSO FM` to `Facilities Management`. Production `employees.bu` only: 430 `PSO FM` + 1 inactive `PSO-FM` → 431 updated. Remaining old labels 0. Facilities Management count 11 → 442. Salary, bank, contracts, payroll rows not written. Proof: `ASIL/PSO-180/25` Dabeer Ahmad now `Facilities Management`.
+
+**Env vars needed:** none.
+
 ### 2026-09-03 — Finance manager can edit Fixed Value contracts / SO lines
 `finance_manager` (Huzaifa) can create/edit Fixed Value contracts and SO Lines. Backend `contractWriteRoles` and the FV wizard `canEditContract` now include that role. Monthly Cycle Setup/People honor the same finance-manager write access. User Management gained a `monthly_cycle` module with `edit`.
 
