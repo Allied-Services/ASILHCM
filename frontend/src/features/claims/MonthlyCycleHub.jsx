@@ -41,6 +41,24 @@ const FILE_MODE_HEADERS = {
   absent_only: 'employee_id,name,absent_days,ot2,ot3',
 };
 
+function normHeaderCell(h) {
+  return String(h || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+}
+
+function firstLineCells(text) {
+  const line = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).find((l) => l.trim()) || '';
+  return line.split(/[,\t]/).map(normHeaderCell);
+}
+
+function hasRequiredHeaders(text, headerLine) {
+  const cells = new Set(firstLineCells(text));
+  return headerLine.split(',').every((col) => cells.has(col));
+}
+
+function dataRowCount(text) {
+  return String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim()).length - 1;
+}
+
 const CLAIM_TYPE_OPTIONS = [
   { id: 'ATTENDANCE', label: 'Attendance', hint: 'Days, hours, or absent-only — used with a machine / client file' },
   { id: 'OT', label: 'Overtime' },
@@ -564,12 +582,13 @@ function MachineFileCollect() {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
   const [mode, setMode] = useState('full_ledger');
-  const [text, setText] = useState('');
+  const [text, setText] = useState(FILE_MODE_HEADERS.full_ledger);
   const [fileName, setFileName] = useState('');
   const [pack, setPack] = useState(null);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const headers = FILE_MODE_HEADERS[mode] || FILE_MODE_HEADERS.full_ledger;
 
   useEffect(() => {
     api.getContracts().then((list) => {
@@ -581,8 +600,29 @@ function MachineFileCollect() {
     }).catch((e) => setErr(e.message));
   }, []);
 
+  useEffect(() => {
+    setText((prev) => {
+      const trimmed = prev.trim();
+      const known = Object.values(FILE_MODE_HEADERS);
+      if (!trimmed || known.includes(trimmed)) return headers;
+      const first = prev.replace(/^\uFEFF/, '').split(/\r?\n/)[0]?.trim();
+      if (known.includes(first)) {
+        return [headers, ...prev.replace(/^\uFEFF/, '').split(/\r?\n/).slice(1)].join('\n');
+      }
+      return prev;
+    });
+  }, [headers]);
+
   const upload = async () => {
     if (!contractId || !text.trim()) return;
+    if (!hasRequiredHeaders(text, headers)) {
+      setErr(`First row must be the header: ${headers} — then add one employee per line below it.`);
+      return;
+    }
+    if (dataRowCount(text) < 1) {
+      setErr('Header found but no data rows. Add at least one employee under the header.');
+      return;
+    }
     setBusy(true); setErr(''); setMsg('');
     try {
       const r = await api.uploadCycleFile({
@@ -618,8 +658,6 @@ function MachineFileCollect() {
     setBusy(false);
   };
 
-  const headers = FILE_MODE_HEADERS[mode] || FILE_MODE_HEADERS.full_ledger;
-
   return (
     <div className="mch-block">
       <h3>Machine / client file</h3>
@@ -645,9 +683,28 @@ function MachineFileCollect() {
           </select>
         </label>
       </div>
+      <div className="mch-file-guide">
+        <span className="lbl">Required header for this file mode</span>
+        <div className="mch-file-header-chips">
+          {headers.split(',').map((col) => (
+            <span key={col} className="mch-file-chip">{col}</span>
+          ))}
+        </div>
+        <code className="mch-file-header-line">{headers}</code>
+        <p className="mch-file-note">
+          Line 1 must be this header. Put each employee on the lines below
+          (ID, name, then the values). A data line by itself is rejected.
+          Download Template already includes the header and roster names.
+        </p>
+      </div>
       <label className="mch-file">
         <span className="lbl">Paste CSV / TSV</span>
-        <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={headers} />
+        <textarea
+          rows={6}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={`${headers}\nASIL/CODE-001,Employee Name,…`}
+        />
       </label>
       <label>
         <span className="lbl">Or choose a file</span>

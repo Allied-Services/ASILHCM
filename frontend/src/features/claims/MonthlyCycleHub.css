@@ -222,6 +222,54 @@
   color: var(--text-muted);
 }
 
+.mch-file-guide {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.mch-file-guide .lbl {
+  display: block;
+  margin-bottom: 0.45rem;
+}
+
+.mch-file-header-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.55rem;
+}
+
+.mch-file-chip {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.mch-file-header-line {
+  display: block;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  color: #7dd3fc;
+  font-size: 0.78rem;
+  overflow-x: auto;
+}
+
+.mch-file-note {
+  margin: 0.55rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .mch-file textarea {
   width: 100%;
   background: var(--bg-dark);
@@ -229,7 +277,8 @@
   border-radius: 8px;
   color: var(--text);
   padding: 0.6rem 0.75rem;
-  font-family: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
 }
 
 .mch-close-list {
