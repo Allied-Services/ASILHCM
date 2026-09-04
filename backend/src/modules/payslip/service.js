@@ -56,7 +56,7 @@ async function recomputeBatchTotals(pool, batchId) {
 }
 
 function frontendBase() {
-    return (process.env.FRONTEND_URL || process.env.APP_BASE_URL || 'https://asilhcm.onrender.com').replace(/\/$/, '');
+    return (process.env.FRONTEND_URL || process.env.APP_BASE_URL || 'https://hcm.asil.com.pk').replace(/\/$/, '');
 }
 
 /** Public backend origin used for SMS PDF deep-links (not the SPA). */

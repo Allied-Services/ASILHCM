@@ -51,7 +51,7 @@ ${empList ? `<ul style="margin:0 0 16px;padding-left:20px;font-size:14px">${empL
 }
 
 function setupNeededLink(FRONTEND_URL) {
-    const base = String(FRONTEND_URL || 'https://asil-hcm-frontend.onrender.com').replace(/\/$/, '');
+    const base = String(FRONTEND_URL || 'https://hcm.asil.com.pk').replace(/\/$/, '');
     return `${base}/?tab=claims_portal&setup_needed=1`;
 }
 

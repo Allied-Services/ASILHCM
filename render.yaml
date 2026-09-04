@@ -23,7 +23,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: FRONTEND_URL
-        value: https://asil-hcm-frontend.onrender.com
+        value: https://hcm.asil.com.pk
       - key: BACKEND_URL
         value: https://asilhcm.onrender.com
       - key: APP_BASE_URL
