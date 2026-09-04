@@ -453,27 +453,29 @@ export default function ClaimsFillPage() {
                   />
                 )}
 
-                {experience.showOnScreen && <div className="claims-steps" role="tablist" aria-label="Claim entry steps">
-                  {wizardSteps.map((s, i) => {
-                    const count = stepCounts[s];
-                    const done = s === 'review'
-                      ? summary.totals.lineCount > 0
-                      : count > 0;
-                    return (
-                      <button
-                        key={s}
-                        type="button"
-                        role="tab"
-                        aria-selected={wizardStep === s}
-                        className={`claims-step-pill${wizardStep === s ? ' is-current' : ''}${done ? ' is-done' : ''}`}
-                        onClick={() => (s === 'review' ? goToReview() : setWizardStep(s))}
-                      >
-                        {i + 1}. {STEP_LABELS[s]}
-                        {count > 0 && s !== 'review' ? ` (${count})` : ''}
-                      </button>
-                    );
-                  })}
-                </div>
+                {experience.showOnScreen && (
+                  <div className="claims-steps" role="tablist" aria-label="Claim entry steps">
+                    {wizardSteps.map((s, i) => {
+                      const count = stepCounts[s];
+                      const done = s === 'review'
+                        ? summary.totals.lineCount > 0
+                        : count > 0;
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          role="tab"
+                          aria-selected={wizardStep === s}
+                          className={`claims-step-pill${wizardStep === s ? ' is-current' : ''}${done ? ' is-done' : ''}`}
+                          onClick={() => (s === 'review' ? goToReview() : setWizardStep(s))}
+                        >
+                          {i + 1}. {STEP_LABELS[s]}
+                          {count > 0 && s !== 'review' ? ` (${count})` : ''}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {experience.showOnScreen && wizardStep === 'ot' && (
                   <Section title="Step 1 — Overtime">
