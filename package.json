@@ -1,0 +1,12 @@
+{
+  "name": "asil-hcm",
+  "private": true,
+  "description": "ASIL HCM monorepo root — agent tooling only",
+  "scripts": {
+    "verify": "npm --prefix backend test",
+    "verify:int": "npm --prefix backend run test:int",
+    "wt": "node scripts/worktrees.js list",
+    "wt:new": "node scripts/worktrees.js new",
+    "tidy": "node scripts/worktrees.js tidy"
+  }
+}
