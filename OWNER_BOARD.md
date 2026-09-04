@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-09-03 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-09-04 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -70,6 +70,9 @@ STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August pays
 ## IN PROGRESS
 - BPO / PSO contract matching on staging (separate track — do not block)
 - August payslip resend (304 people) after live mail switch-on
+
+## JUST SHIPPED (2026-09-04)
+- **PSO people onto Facilities Management (GO RED)** — 431 people moved from old label PSO FM (1 was PSO-FM). They now sit under Facilities Management with the rest of FM. Pay, contracts, and salary not touched.
 
 ## JUST SHIPPED (2026-09-03)
 - **Live email and SMS are on** — Go red to send August payslips. Production host sends; staging stays off. Subject still says TRIAL.
