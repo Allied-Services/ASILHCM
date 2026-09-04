@@ -900,6 +900,34 @@ export const api = {
     previewFocalDigest: (year, month) => apiFetch(`/api/records/digest?year=${year}&month=${month}`),
     sendFocalDigest: (d) => apiFetch('/api/records/digest/send', { method: 'POST', body: JSON.stringify(d || {}) }),
     listCycleFiles: (q = {}) => apiFetch('/api/cycle-files?' + new URLSearchParams(q).toString()),
+    downloadCycleFileTemplate: async ({ contractId, month, year, inputMode } = {}) => {
+        const token = localStorage.getItem('asil_hcm_token');
+        const q = new URLSearchParams({
+            contractId: contractId || '',
+            month: String(month || ''),
+            year: String(year || ''),
+            input_mode: inputMode || 'full_ledger',
+        });
+        const r = await fetch(`${API}/api/cycle-files/template?${q.toString()}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || `Template download failed (HTTP ${r.status})`);
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get('Content-Disposition') || '';
+        const match = cd.match(/filename="?([^"]+)"?/i);
+        const filename = match?.[1] || `cycle_file_template.csv`;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+        return { ok: true, filename };
+    },
     uploadCycleFile: (d) => apiFetch('/api/cycle-files', { method: 'POST', body: JSON.stringify(d) }),
     getCycleFile: (id) => apiFetch(`/api/cycle-files/${id}`),
     updateCycleFileRows: (id, rows) => apiFetch(`/api/cycle-files/${id}/rows`, { method: 'PUT', body: JSON.stringify({ rows }) }),

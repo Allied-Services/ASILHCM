@@ -181,6 +181,14 @@
   display: flex;
   gap: 0.75rem;
   margin-bottom: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.mch-people-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .mch-people-table-wrap {

@@ -8,7 +8,7 @@ const {
     listRegions, upsertRegion,
 } = require('./contacts');
 const { sendFocalDigests, buildFocalDigests } = require('./digest');
-const { createDraft, getImport, listImports, updateRows, submitImport } = require('./machineFile');
+const { createDraft, getImport, listImports, updateRows, submitImport, buildCycleFileTemplate } = require('./machineFile');
 const {
     loadSheetProvenance, detectConflicts, resolveConflict,
     importPendingClaims, assertNoOpenConflicts,
@@ -116,6 +116,22 @@ function registerRecordsRoutes(app, deps) {
             res.json(await sendFocalDigests(pool, sendAppEmail, req.body || {}));
         } catch (err) {
             handleRouteError(res, 'records.digestSend', err);
+        }
+    });
+
+    app.get('/api/cycle-files/template', requireAuth, async (req, res) => {
+        try {
+            const pack = await buildCycleFileTemplate(pool, {
+                contractId: req.query.contractId || req.query.contract_id,
+                month: parseInt(req.query.month, 10),
+                year: parseInt(req.query.year, 10),
+                inputMode: req.query.input_mode || req.query.inputMode,
+            });
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${pack.filename}"`);
+            res.send(pack.csv);
+        } catch (err) {
+            handleRouteError(res, 'records.cycleFileTemplate', err);
         }
     });
 

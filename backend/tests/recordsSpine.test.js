@@ -3,7 +3,14 @@
 const { inferCommercialType, shapeRulebook, ROUTING_MODES } = require('../src/modules/records/rulebook');
 const { resolveClaimsRouting } = require('../src/modules/claims/claimsEligibility');
 const { assertSheetWritable, assertRunAllowed } = require('../src/modules/records/engineFlag');
-const { parseDelimited, mapRow } = require('../src/modules/records/machineFile');
+const {
+    parseDelimited,
+    mapRow,
+    templateColumns,
+    buildTemplateCsv,
+    templateFilename,
+    employeeActiveInPeriod,
+} = require('../src/modules/records/machineFile');
 const { assertCostPlusInvoiceAllowed, assertSoInvoiceAllowed } = require('../src/modules/records/costPlusInvoice');
 const { assertNoOpenConflicts } = require('../src/modules/records/provenance');
 
@@ -125,6 +132,85 @@ describe('records spine — machine file parse', () => {
         expect(mapped.employee_id).toBe('ASIL-1');
         expect(mapped.hours).toBe(160);
         expect(mapped.absent_days).toBe(2);
+    });
+});
+
+describe('records spine — cycle file templates', () => {
+    const people = [
+        { id: 'ASIL-1', name: 'Ali Khan' },
+        { id: 'ASIL-2', name: 'Sara, Bibi' },
+    ];
+
+    test.each([
+        ['full_ledger', ['employee_id', 'name', 'present_days', 'absent_days', 'hours', 'ot2', 'ot3']],
+        ['hours', ['employee_id', 'name', 'hours', 'ot2', 'ot3']],
+        ['days', ['employee_id', 'name', 'present_days', 'absent_days', 'ot2', 'ot3']],
+        ['absent_only', ['employee_id', 'name', 'absent_days', 'ot2', 'ot3']],
+    ])('%s template columns start with employee_id and name', (mode, cols) => {
+        expect(templateColumns(mode)).toEqual(cols);
+        expect(templateColumns(mode)[0]).toBe('employee_id');
+        expect(templateColumns(mode)[1]).toBe('name');
+    });
+
+    test('unknown mode falls back to full ledger columns', () => {
+        expect(templateColumns('nope')).toEqual(templateColumns('full_ledger'));
+    });
+
+    test('preloads employee_id and name and leaves value columns blank', () => {
+        const csv = buildTemplateCsv('hours', people);
+        const rows = parseDelimited(csv);
+        expect(rows).toHaveLength(2);
+        expect(rows[0].employee_id).toBe('ASIL-1');
+        expect(rows[0].name).toBe('Ali Khan');
+        expect(rows[0].hours).toBe('');
+        expect(rows[0].ot2).toBe('');
+        expect(mapRow(rows[0], 'hours')).toMatchObject({
+            employee_id: 'ASIL-1',
+            employee_name: 'Ali Khan',
+            hours: null,
+            ot2_hours: null,
+        });
+        expect(rows[1].name).toBe('Sara, Bibi');
+        expect(mapRow(rows[1], 'hours').employee_name).toBe('Sara, Bibi');
+    });
+
+    test('days and absent-only templates round-trip through the parser', () => {
+        const days = parseDelimited(buildTemplateCsv('days', people));
+        expect(mapRow(days[0], 'days').present_days).toBeNull();
+        const absent = parseDelimited(buildTemplateCsv('absent_only', people));
+        expect(mapRow(absent[0], 'absent_only').absent_days).toBeNull();
+        expect(mapRow(absent[0], 'absent_only').employee_id).toBe('ASIL-1');
+    });
+
+    test('filename includes mode, contract, and period', () => {
+        expect(templateFilename('CTR-WAFI', 2026, 8, 'hours')).toBe('cycle_hours_CTR-WAFI_2026-08.csv');
+    });
+
+    test('active-for-month includes joiners and mid-month leavers, excludes future joiners and prior leavers', () => {
+        expect(employeeActiveInPeriod({ active: 'Yes', doj: '2026-08-10' }, 2026, 8)).toBe(true);
+        expect(employeeActiveInPeriod({ active: 'No', last_working_day: '2026-08-12' }, 2026, 8)).toBe(true);
+        expect(employeeActiveInPeriod({ active: 'Yes', doj: '2026-09-01' }, 2026, 8)).toBe(false);
+        expect(employeeActiveInPeriod({ active: 'No', last_working_day: '2026-07-31' }, 2026, 8)).toBe(false);
+        expect(employeeActiveInPeriod({ active: 'Yes' }, 2026, 8)).toBe(true);
+        expect(employeeActiveInPeriod({ active: 'No' }, 2026, 8)).toBe(false);
+    });
+
+    test('template builder asks the roster for the selected contract and period', async () => {
+        const { listActiveEmployeesForPeriod, buildCycleFileTemplate } = require('../src/modules/records/machineFile');
+        const pool = {
+            query: jest.fn().mockResolvedValue({
+                rows: [{ id: 'ASIL-1', name: 'Ali Khan' }],
+            }),
+        };
+        const people = await listActiveEmployeesForPeriod(pool, 'CTR-1', 2026, 8);
+        expect(people).toEqual([{ id: 'ASIL-1', name: 'Ali Khan' }]);
+        expect(pool.query.mock.calls[0][1]).toEqual(['CTR-1', 2026, 8]);
+        const pack = await buildCycleFileTemplate(pool, {
+            contractId: 'CTR-1', year: 2026, month: 8, inputMode: 'days',
+        });
+        expect(pack.filename).toBe('cycle_days_CTR-1_2026-08.csv');
+        expect(pack.count).toBe(1);
+        expect(pack.csv).toContain('ASIL-1,Ali Khan');
     });
 });
 

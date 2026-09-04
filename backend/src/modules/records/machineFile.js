@@ -2,6 +2,13 @@
 
 const INPUT_MODES = ['full_ledger', 'hours', 'days', 'absent_only'];
 
+const TEMPLATE_COLUMNS = {
+    full_ledger: ['employee_id', 'name', 'present_days', 'absent_days', 'hours', 'ot2', 'ot3'],
+    hours: ['employee_id', 'name', 'hours', 'ot2', 'ot3'],
+    days: ['employee_id', 'name', 'present_days', 'absent_days', 'ot2', 'ot3'],
+    absent_only: ['employee_id', 'name', 'absent_days', 'ot2', 'ot3'],
+};
+
 function normHeader(h) {
     return String(h || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
 }
@@ -19,13 +26,38 @@ function pick(row, aliases) {
     return null;
 }
 
+function splitDelimitedLine(line, delim) {
+    const cells = [];
+    let cur = '';
+    let inQuotes = false;
+    const s = String(line || '');
+    for (let i = 0; i < s.length; i += 1) {
+        const ch = s[i];
+        if (ch === '"') {
+            if (inQuotes && s[i + 1] === '"') {
+                cur += '"';
+                i += 1;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (ch === delim && !inQuotes) {
+            cells.push(cur);
+            cur = '';
+        } else {
+            cur += ch;
+        }
+    }
+    cells.push(cur);
+    return cells;
+}
+
 function parseDelimited(text) {
     const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
     if (!lines.length) return [];
     const delim = lines[0].includes('\t') ? '\t' : ',';
-    const headers = lines[0].split(delim).map(normHeader);
+    const headers = splitDelimitedLine(lines[0], delim).map(normHeader);
     return lines.slice(1).map((line) => {
-        const cells = line.split(delim);
+        const cells = splitDelimitedLine(line, delim);
         const obj = {};
         headers.forEach((h, i) => { obj[h] = cells[i]; });
         return obj;
@@ -49,6 +81,105 @@ function mapRow(raw, inputMode) {
         ot2_hours,
         ot3_hours,
         notes: pick(raw, ['notes', 'remark', 'remarks']) || null,
+    };
+}
+
+function templateColumns(inputMode) {
+    const mode = INPUT_MODES.includes(inputMode) ? inputMode : 'full_ledger';
+    return TEMPLATE_COLUMNS[mode];
+}
+
+function csvEscape(value) {
+    const s = value == null ? '' : String(value);
+    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+}
+
+function ymd(value) {
+    if (!value) return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+    const s = String(value).trim();
+    return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null;
+}
+
+function calendarDaysInMonth(month, year) {
+    const m = Number(month);
+    const y = Number(year);
+    if (!y || !m || m < 1 || m > 12) return 0;
+    return new Date(y, m, 0).getDate();
+}
+
+/**
+ * Person belongs on the month's file if their employment window overlaps
+ * the calendar month, and they are still marked active or left during/after it.
+ */
+function employeeActiveInPeriod(emp, year, month) {
+    const dim = calendarDaysInMonth(month, year);
+    if (!dim) return false;
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(dim).padStart(2, '0')}`;
+    const doj = ymd(emp.doj);
+    const lwd = ymd(emp.last_working_day);
+    if (doj && doj > monthEnd) return false;
+    if (lwd && lwd < monthStart) return false;
+    const flag = String(emp.active == null ? 'yes' : emp.active).toLowerCase().trim();
+    if (['yes', 'true', '1'].includes(flag)) return true;
+    return !!(lwd && lwd >= monthStart);
+}
+
+function buildTemplateCsv(inputMode, employees) {
+    const cols = templateColumns(inputMode);
+    const lines = [cols.join(',')];
+    for (const e of employees || []) {
+        const cells = {
+            employee_id: e.id || e.employee_id || '',
+            name: e.name || e.employee_name || '',
+        };
+        lines.push(cols.map((c) => csvEscape(cells[c] ?? '')).join(','));
+    }
+    return `\uFEFF${lines.join('\n')}\n`;
+}
+
+function templateFilename(contractId, year, month, inputMode) {
+    const mode = INPUT_MODES.includes(inputMode) ? inputMode : 'full_ledger';
+    const mm = String(month).padStart(2, '0');
+    const safe = String(contractId || 'contract').replace(/[^a-zA-Z0-9_-]+/g, '_');
+    return `cycle_${mode}_${safe}_${year}-${mm}.csv`;
+}
+
+async function listActiveEmployeesForPeriod(pool, contractId, year, month) {
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10);
+    if (!contractId || !y || !m || m < 1 || m > 12) {
+        const err = new Error('Select a contract, month, and year first');
+        err.status = 400;
+        err.code = 'INVALID_TEMPLATE_SCOPE';
+        throw err;
+    }
+    const { rows } = await pool.query(
+        `SELECT e.id, e.name
+         FROM employees e
+         WHERE e.contract_id::text = $1
+           AND (e.doj IS NULL OR e.doj <= (make_date($2::int, $3::int, 1) + INTERVAL '1 month' - INTERVAL '1 day')::date)
+           AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($2::int, $3::int, 1))
+           AND (
+             COALESCE(LOWER(TRIM(e.active)), 'yes') IN ('yes', 'true', '1')
+             OR e.last_working_day >= make_date($2::int, $3::int, 1)
+           )
+         ORDER BY e.name`,
+        [String(contractId), y, m]
+    );
+    return rows;
+}
+
+async function buildCycleFileTemplate(pool, { contractId, year, month, inputMode }) {
+    const mode = INPUT_MODES.includes(inputMode) ? inputMode : 'full_ledger';
+    const employees = await listActiveEmployeesForPeriod(pool, contractId, year, month);
+    return {
+        filename: templateFilename(contractId, year, month, mode),
+        csv: buildTemplateCsv(mode, employees),
+        count: employees.length,
+        input_mode: mode,
     };
 }
 
@@ -221,8 +352,15 @@ async function submitImport(pool, importId, actor) {
 
 module.exports = {
     INPUT_MODES,
+    TEMPLATE_COLUMNS,
     parseDelimited,
     mapRow,
+    templateColumns,
+    buildTemplateCsv,
+    templateFilename,
+    employeeActiveInPeriod,
+    listActiveEmployeesForPeriod,
+    buildCycleFileTemplate,
     createDraft,
     getImport,
     listImports,
