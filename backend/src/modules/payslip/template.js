@@ -308,7 +308,7 @@ ${trialBannerHtml()}
 </div></body></html>`;
 }
 
-function renderEmailCoverHtml({ emp, monthName, year, frontendUrl, netPay, testRun }) {
+function renderEmailCoverHtml({ emp, monthName, year, netPay, testRun }) {
     const trial = isTrialMode()
         ? `<p style="background:#fff7ed;padding:12px 14px;border-radius:8px;color:#9a3412;border:1px solid #fdba74;"><strong>TRIAL MODE</strong> — If anything looks wrong, email <a href="mailto:${OPS_SUPPORT}">${OPS_SUPPORT}</a>.</p>`
         : '';
@@ -332,7 +332,6 @@ function renderEmailCoverHtml({ emp, monthName, year, frontendUrl, netPay, testR
   ${netLine}
   <p><strong>Password:</strong> your CNIC number (digits only, no dashes).</p>
   <p>The payslip lists earnings (including overtime and reimbursements), deductions, tax, and net payable.</p>
-  <p>Portal: <a href="${frontendUrl}" style="color:#1e3a5f;">${frontendUrl}</a></p>
   <p>Queries: <a href="mailto:${OPS_SUPPORT}">${OPS_SUPPORT}</a></p>
   <p style="margin-top:28px;">Warm regards,<br><strong>HR Department</strong><br>Allied Services International (Pvt.) Ltd.</p>
   </div>
