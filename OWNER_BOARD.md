@@ -72,6 +72,7 @@ STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August pays
 - August payslip resend (304 people) after live mail switch-on
 
 ## JUST SHIPPED (2026-09-04)
+- **PSO one company, four live contracts (GO RED)** — “Ltd” and “Limited” merged. Conservancy Gilgit / KPK / Punjab cards cancelled (they had 0 people). 428 people now say Pakistan State Oil Company Limited. Four live contracts under Facilities Management. Dabeer Ahmad + Zeeshan on North Zone. Salary, bank, payroll not touched.
 - **PSO people onto Facilities Management (GO RED)** — 431 people moved from old label PSO FM (1 was PSO-FM). They now sit under Facilities Management with the rest of FM. Pay, contracts, and salary not touched.
 
 ## JUST SHIPPED (2026-09-03)
