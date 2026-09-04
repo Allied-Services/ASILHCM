@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine, ListChecks } from 'lucide-react';
+import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine, ListChecks, Download } from 'lucide-react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import PortalClaimsHub from './PortalClaimsHub';
@@ -33,6 +33,13 @@ const INPUT_MODES = [
   { id: 'days', label: 'Days only' },
   { id: 'absent_only', label: 'Absent / deductions only' },
 ];
+
+const FILE_MODE_HEADERS = {
+  full_ledger: 'employee_id,name,present_days,absent_days,hours,ot2,ot3',
+  hours: 'employee_id,name,hours,ot2,ot3',
+  days: 'employee_id,name,present_days,absent_days,ot2,ot3',
+  absent_only: 'employee_id,name,absent_days,ot2,ot3',
+};
 
 const CLAIM_TYPE_OPTIONS = [
   { id: 'ATTENDANCE', label: 'Attendance', hint: 'Days, hours, or absent-only — used with a machine / client file' },
@@ -598,10 +605,25 @@ function MachineFileCollect() {
     setBusy(false);
   };
 
+  const downloadTemplate = async () => {
+    if (!contractId) {
+      setErr('Select a contract first.');
+      return;
+    }
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const r = await api.downloadCycleFileTemplate({ contractId, month, year, inputMode: mode });
+      setMsg(`Template downloaded (${r.filename}). Employee ID and name are prefilled for people active on this contract in ${month}/${year}.`);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const headers = FILE_MODE_HEADERS[mode] || FILE_MODE_HEADERS.full_ledger;
+
   return (
     <div className="mch-block">
       <h3>Machine / client file</h3>
-      <p className="mch-muted">Upload CSV or TSV, edit unmatched rows, then submit. Hours, days, or absent-only files are supported.</p>
+      <p className="mch-muted">Download a template for the selected file mode — employee IDs and names are already filled for people active on that contract in the selected month. Complete the blank columns, then upload.</p>
       {err && <div className="pch-err">{err}</div>}
       {msg && <div className="pch-ok">{msg}</div>}
       <div className="mch-form-grid mch-form-grid-3">
@@ -625,7 +647,7 @@ function MachineFileCollect() {
       </div>
       <label className="mch-file">
         <span className="lbl">Paste CSV / TSV</span>
-        <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="employee_id,name,present_days,absent_days,ot2,ot3" />
+        <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={headers} />
       </label>
       <label>
         <span className="lbl">Or choose a file</span>
@@ -643,6 +665,9 @@ function MachineFileCollect() {
         />
       </label>
       <div className="mch-people-actions">
+        <button type="button" className="btn-secondary" disabled={busy || !contractId} onClick={downloadTemplate}>
+          <Download size={16} /> Download Template
+        </button>
         <button type="button" className="btn-primary" disabled={busy} onClick={upload}>{busy ? 'Working…' : 'Upload draft'}</button>
         <button type="button" className="btn-secondary" disabled={busy || pack?.import?.status !== 'draft'} onClick={submit}>Submit into cycle</button>
       </div>
