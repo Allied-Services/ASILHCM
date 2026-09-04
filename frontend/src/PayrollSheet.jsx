@@ -657,6 +657,51 @@ const EditableCell = memo(function EditableCell({ empId, field, value, locked, w
     );
 });
 
+function mapSheetEmployees(list) {
+    return (list || []).map(e => {
+        const gross = parseFloat(e.salary) || 0;
+        const isFamilyName = n => n && String(n).trim() && String(n).trim() !== '0';
+        const hasSpouse = isFamilyName(e.spouseName);
+        const numChildren = [e.child1Name, e.child2Name].filter(isFamilyName).length;
+        return {
+            id: e.id, cnic: e.cnic, name: e.name,
+            designation: e.designation || '',
+            contractId:   e.contractId   || '',
+            contractName: e.contractName || '',
+            contract: e.contractName || e.clientBU || 'Standard',
+            location: e.location || '', client: e.client || '',
+            province: e.province || '',
+            gross,
+            basic:             parseFloat(e.basic) > 0 ? parseFloat(e.basic) : Math.round(gross * 0.60),
+            hra:               Math.round(gross * 0.20),
+            conveyance:        Math.round(gross * 0.10),
+            medical_allowance: Math.round(gross * 0.07),
+            other_allowances:  Math.round(gross * 0.03),
+            pf_enrolled: e.pf_enrolled || false,
+            bankAccount: e.bankAccount || '', bankName: e.bankName || '',
+            eobiNo: e.eobiNo || '', email: e.email || '',
+            contact: e.primaryContact || '',
+            doj: e.doj || '',
+            lwd: e.lastWorkingDay || '',
+            hasSpouse, numChildren: Math.min(numChildren, 2),
+        };
+    });
+}
+
+function payrollScopeQuery(filterClient, filterContract, filterLoc, contractCatalog) {
+    const q = {};
+    if (filterClient && filterClient !== 'All') q.client = filterClient;
+    if (filterLoc && filterLoc !== 'All') q.location = filterLoc;
+    if (filterContract && filterContract !== 'All') {
+        const hits = (contractCatalog || []).filter(c => c.name === filterContract);
+        const hit = (filterClient && filterClient !== 'All')
+            ? (hits.find(c => c.client === filterClient) || hits[0])
+            : hits[0];
+        if (hit?.id) q.contractId = hit.id;
+    }
+    return q;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -677,6 +722,9 @@ export default function PayrollSheet({ user }) {
     const [showImport, setShowImport] = useState(false);
     const [showRefresh, setShowRefresh] = useState(false);
     const [EMPLOYEES, setEMPLOYEES] = useState([]);
+    const [contractCatalog, setContractCatalog] = useState([]);
+    const [rosterLoading, setRosterLoading] = useState(false);
+    const [rosterError, setRosterError] = useState(null);
     const [CONTRACT_MAP, setCONTRACT_MAP] = useState({});
     // ── Lock / DB state ─────────────────────────────────────────────────────────
     const [lockedIds, setLockedIds] = useState(new Set()); // per-employee lock status
@@ -728,17 +776,6 @@ export default function PayrollSheet({ user }) {
     const [showReconPanel, setShowReconPanel] = useState(false);
     const [reconLoading, setReconLoading] = useState(false);
     const [reconError, setReconError] = useState(null);
-    // #region agent log
-    {
-        const reconBindings = {};
-        try { reconBindings.payrollRecon = typeof payrollRecon; } catch (e) { reconBindings.payrollReconErr = e.name + ': ' + e.message; }
-        try { reconBindings.setPayrollRecon = typeof setPayrollRecon; } catch (e) { reconBindings.setPayrollReconErr = e.name + ': ' + e.message; }
-        try { reconBindings.showReconPanel = typeof showReconPanel; } catch (e) { reconBindings.showReconPanelErr = e.name + ': ' + e.message; }
-        try { reconBindings.setShowReconPanel = typeof setShowReconPanel; } catch (e) { reconBindings.setShowReconPanelErr = e.name + ': ' + e.message; }
-        reconBindings.hasReconError = reconError != null;
-        fetch('http://127.0.0.1:7862/ingest/e9557106-2f42-4248-bcaf-ee841cde492e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ea0c85'},body:JSON.stringify({sessionId:'ea0c85',hypothesisId:'A',runId:'post-fix',location:'PayrollSheet.jsx:recon-bindings',message:'PayrollSheet recon identifier bindings',data:reconBindings,timestamp:Date.now()})}).catch(()=>{});
-    }
-    // #endregion
     const selectedIdsRef = useRef(selectedIds);
     useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
     const filterScopeRef = useRef([]);
@@ -765,18 +802,16 @@ export default function PayrollSheet({ user }) {
     //  but we only want it to run ONCE per month after both employees + overrides load)
     const medCleanedRef = useRef(false);
 
-    // ── Load contracts + employees + province tax rates in parallel ──
+    // Catalog only on open — do not load the full employee roster.
     useEffect(() => {
         Promise.all([
             api.getContracts(),
-            api.getEmployees(),
             api.getConfig('region_tax').catch(() => null),
-        ]).then(([ctData, empData, regRes]) => {
-            // Load province tax rates from System Config
+        ]).then(([ctData, regRes]) => {
             if (regRes?.config?.value) setPROVINCE_RATES(regRes.config.value);
 
-            // 1. Build CONTRACT_MAP first
             const map = {};
+            const catalog = [];
             const contractList = Array.isArray(ctData) ? ctData : (ctData?.contracts || []);
             contractList.forEach(ct => {
                 const cfg = {
@@ -799,48 +834,58 @@ export default function PayrollSheet({ user }) {
                 if (nameKey && (!map[nameKey] || cfg._isActive)) map[nameKey] = cfg;
                 const clientKey = ct.clientName?.toLowerCase()?.trim();
                 if (clientKey && (!map[clientKey] || cfg._isActive)) map[clientKey] = cfg;
+                catalog.push({
+                    id: ct.id,
+                    name: ct.contractName || '',
+                    client: ct.clientName || '',
+                });
             });
             setCONTRACT_MAP(map);
+            setContractCatalog(catalog);
+        }).catch(() => {});
+    }, []);
 
-            // 2. Map employees — CONTRACT_MAP is already built above
-            const mapped = (empData.employees || []).map(e => {
-                const gross = parseFloat(e.salary) || 0;
-                // Treat null, empty string, AND the literal '0' as no family data
-                // ('0' was incorrectly imported from old CSV uploads)
-                const isFamilyName = n => n && String(n).trim() && String(n).trim() !== '0';
-                const hasSpouse = isFamilyName(e.spouseName);
-                const numChildren = [e.child1Name, e.child2Name].filter(isFamilyName).length;
-
-                return {
-                    id: e.id, cnic: e.cnic, name: e.name,
-                    designation: e.designation || '',
-                    contractId:   e.contractId   || '',
-                    contractName: e.contractName || '',
-                    contract: e.contractName || e.clientBU || 'Standard',
-                    location: e.location || '', client: e.client || '',
-                    province: e.province || '',
-                    gross,
-                    basic:             parseFloat(e.basic) > 0 ? parseFloat(e.basic) : Math.round(gross * 0.60),
-                    hra:               Math.round(gross * 0.20),
-                    conveyance:        Math.round(gross * 0.10),
-                    medical_allowance: Math.round(gross * 0.07),
-                    other_allowances:  Math.round(gross * 0.03),
-                    pf_enrolled: e.pf_enrolled || false,
-                    bankAccount: e.bankAccount || '', bankName: e.bankName || '',
-                    eobiNo: e.eobiNo || '', email: e.email || '',
-                    contact: e.primaryContact || '',
-                    doj: e.doj || '',
-                    lwd: e.lastWorkingDay || '',
-                    hasSpouse, numChildren: Math.min(numChildren, 2),
-                };
-            });
+    // Load only the selected Client / Contract roster.
+    useEffect(() => {
+        if (filterClient === 'All') {
+            setEMPLOYEES([]);
+            setEngineMap({});
+            setRosterLoading(false);
+            setRosterError(null);
+            setSelectedIds(new Set());
+            return;
+        }
+        let cancelled = false;
+        setRosterLoading(true);
+        setRosterError(null);
+        const empQ = { client: filterClient };
+        if (filterContract !== 'All') {
+            const hits = contractCatalog.filter(c => c.name === filterContract);
+            const hit = hits.find(c => c.client === filterClient) || hits[0];
+            if (hit?.id) empQ.contractId = hit.id;
+        }
+        api.getEmployeesScoped(empQ).then(empData => {
+            if (cancelled) return;
+            const mapped = mapSheetEmployees(empData.employees || []);
             setEMPLOYEES(mapped);
             const cids = [...new Set(mapped.map((e) => e.contractId).filter(Boolean))];
             if (cids.length) {
-                api.getPayrollEngines(cids).then((d) => setEngineMap(d.engines || {})).catch(() => {});
+                api.getPayrollEngines(cids).then((d) => {
+                    if (!cancelled) setEngineMap(d.engines || {});
+                }).catch(() => {});
+            } else {
+                setEngineMap({});
             }
-        }).catch(() => {});
-    }, []);
+        }).catch(() => {
+            if (!cancelled) {
+                setEMPLOYEES([]);
+                setRosterError('Could not load employees for this client.');
+            }
+        }).finally(() => {
+            if (!cancelled) setRosterLoading(false);
+        });
+        return () => { cancelled = true; };
+    }, [filterClient, filterContract, contractCatalog]);
 
 
     const applyPayrollPayload = (data) => {
@@ -901,7 +946,7 @@ export default function PayrollSheet({ user }) {
         if (firstLocked?.locked_by) setLockedBy(firstLocked.locked_by);
     };
 
-    // ── Load saved payroll from DB whenever month changes ──────────────────────
+    // Load saved payroll only after a Client is chosen.
     useEffect(() => {
         const [yr, mo] = month.split('-');
         monthRef.current = month;
@@ -916,7 +961,10 @@ export default function PayrollSheet({ user }) {
         setShowReconPanel(false);
         setPayrollRecon(null);
         setReconError(null);
-        api.getPayroll(yr, mo).then(applyPayrollPayload).catch(() => {});
+        setProvenance(null);
+        if (filterClient === 'All') return;
+        const q = payrollScopeQuery(filterClient, filterContract, filterLoc, contractCatalog);
+        api.getPayroll(yr, mo, q).then(applyPayrollPayload).catch(() => {});
         api.getPayrollClaimCompare(yr, mo)
             .then(d => setClaimCompare(d?.byEmployee || {}))
             .catch(() => setClaimCompare({}));
@@ -926,7 +974,7 @@ export default function PayrollSheet({ user }) {
         api.getPayrollInvoiceStatus(yr, mo)
             .then(d => setInvoiceStatus(d || { invoicedClients: [], invoicedContracts: [] }))
             .catch(() => {});
-    }, [month]);
+    }, [month, filterClient, filterContract, filterLoc, contractCatalog]);
 
     // Keep workDaysRef in sync whenever workDays changes
     useEffect(() => { workDaysRef.current = workDays; }, [workDays]);
@@ -1022,6 +1070,10 @@ export default function PayrollSheet({ user }) {
         const visible = filterScopeRef.current;
         const unlockedIds = visible.filter(e => !lockedIds.has(e.id)).map(e => e.id);
         const lockedInView = visible.length - unlockedIds.length;
+        if (filterClient === 'All') {
+            setCalcMsg('Select a Client first — payroll no longer loads the full roster.');
+            return;
+        }
         if (!visible.length) {
             setCalcMsg('No employees in the current Client / Contract filter.');
             return;
@@ -1070,8 +1122,7 @@ export default function PayrollSheet({ user }) {
                         ? ` Merged ${result.claimsMerged} approved Portal Claims into this month.`
                         : ' Merge was on, but no approved Portal Claims settle in this pay month.')
                     : ''));
-            // Reload authoritative GET (includes locked flags)
-            const fresh = await api.getPayroll(yr, mo);
+            const fresh = await api.getPayroll(yr, mo, payrollScopeQuery(filterClient, filterContract, filterLoc, contractCatalog));
             applyPayrollPayload(fresh);
             api.getPayrollClaimCompare(yr, mo)
                 .then(d => setClaimCompare(d?.byEmployee || {}))
@@ -1321,12 +1372,13 @@ export default function PayrollSheet({ user }) {
         setSendingEmails(false);
     };
 
-    // Cascading filter lists
-    const allClients = ['All', ...new Set(EMPLOYEES.map(e => e.client))];
-    const contractPool = filterClient === 'All' ? EMPLOYEES : EMPLOYEES.filter(e => e.client === filterClient);
-    const allContracts = ['All', ...new Set(contractPool.map(e => e.contract))];
-    const locPool = filterContract === 'All' ? contractPool : contractPool.filter(e => e.contract === filterContract);
-    const allLocs = ['All', ...new Set(locPool.map(e => e.location))];
+    const allClients = ['All', ...[...new Set(contractCatalog.map(c => c.client).filter(Boolean))].sort()];
+    const contractPool = filterClient === 'All'
+        ? contractCatalog
+        : contractCatalog.filter(c => c.client === filterClient);
+    const allContracts = ['All', ...[...new Set(contractPool.map(c => c.name).filter(Boolean))].sort()];
+    const locPool = filterContract === 'All' ? EMPLOYEES : EMPLOYEES.filter(e => e.contract === filterContract);
+    const allLocs = ['All', ...new Set(locPool.map(e => e.location).filter(Boolean))];
 
     const [yr, mo] = month.split('-').map(Number);
     const monthStart = new Date(yr, mo - 1, 1);          // 1st of payroll month
@@ -1361,11 +1413,11 @@ export default function PayrollSheet({ user }) {
     const isPartiallyLocked = !isLocked && filtered.some(e => lockedIds.has(e.id));
 
     useEffect(() => {
-        if (!canSendPayslips || !month) return;
+        if (!canSendPayslips || !month || filterClient === 'All') return;
         const [yr2, mo2] = month.split('-');
         const ids = [...selectedIds];
         refreshPayslipReadiness(ids);
-    }, [month, canSendPayslips, lockedIds.size, selectedIds.size, payslipReadiness?.paid]);
+    }, [month, canSendPayslips, lockedIds.size, selectedIds.size, payslipReadiness?.paid, filterClient]);
 
     useEffect(() => {
         if (!showSendPayslips) return undefined;
@@ -1377,12 +1429,12 @@ export default function PayrollSheet({ user }) {
     }, [showSendPayslips]);
 
     useEffect(() => {
-        if (!month) return;
+        if (!month || filterClient === 'All') return;
         const [yr2, mo2] = month.split('-');
         api.getPayrollReconciliation(yr2, mo2)
             .then(setPayrollRecon)
             .catch(() => setPayrollRecon(null));
-    }, [month, lockedIds.size]);
+    }, [month, lockedIds.size, filterClient]);
 
     const loadPayrollRecon = async () => {
         const [yr2, mo2] = month.split('-');
@@ -1649,24 +1701,20 @@ export default function PayrollSheet({ user }) {
         </th>
     );
 
-    const FD = ({ label, val, set, opts }) => (
+    const FD = ({ label, val, set, opts, disabled }) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{label}:</span>
-            <select value={val} onChange={e => { set(e.target.value); if (label === 'Client') { setFilterContract('All'); setFilterLoc('All'); } if (label === 'Contract') setFilterLoc('All'); }}
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '5px 8px', color: 'var(--text)', fontSize: '0.82rem', outline: 'none', maxWidth: '180px' }}>
-                {opts.map(o => <option key={o}>{o}</option>)}
+            <select value={val} disabled={disabled} onChange={e => { set(e.target.value); if (label === 'Client') { setFilterContract('All'); setFilterLoc('All'); } if (label === 'Contract') setFilterLoc('All'); }}
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '5px 8px', color: 'var(--text)', fontSize: '0.82rem', outline: 'none', maxWidth: '180px', opacity: disabled ? 0.6 : 1 }}>
+                {opts.map(o => <option key={o} value={o}>{o === 'All' && label === 'Client' ? 'Select client…' : o}</option>)}
             </select>
         </div>
     );
-
-    // #region agent log
-    fetch('http://127.0.0.1:7862/ingest/e9557106-2f42-4248-bcaf-ee841cde492e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ea0c85'},body:JSON.stringify({sessionId:'ea0c85',hypothesisId:'C',runId:'pre-fix',location:'PayrollSheet.jsx:pre-return',message:'PayrollSheet reached JSX return',data:{month,employeeCount:EMPLOYEES.length,filteredCount:filtered.length,rowCount:rows.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     return (
         <div className="dashboard">
             <header className="header">
                 <h1>Payroll Sheet</h1>
-                <p>Edit inputs, then press Calculate / Update Payroll — only the Client / Contract / Location filter is updated. Locked rows are never overwritten.</p>
+                <p>Select a Client first — the sheet loads only that roster. Calculate updates the current filter. Locked rows are never overwritten.</p>
             </header>
 
             <div style={{ marginBottom: '1rem' }}>
@@ -1730,8 +1778,8 @@ export default function PayrollSheet({ user }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <Filter size={14} color="var(--text-muted)" />
                     <FD label="Client" val={filterClient} set={setFilterClient} opts={allClients} />
-                    <FD label="Contract" val={filterContract} set={setFilterContract} opts={allContracts} />
-                    <FD label="Location" val={filterLoc} set={setFilterLoc} opts={allLocs} />
+                    <FD label="Contract" val={filterContract} set={setFilterContract} opts={allContracts} disabled={filterClient === 'All'} />
+                    <FD label="Location" val={filterLoc} set={setFilterLoc} opts={allLocs} disabled={filterClient === 'All'} />
                     {/* Lock status filter */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Lock:</span>
@@ -1761,15 +1809,15 @@ export default function PayrollSheet({ user }) {
                     <button
                         type="button"
                         onClick={handleCalculatePayroll}
-                        disabled={isCalculating || isLocked}
-                        title={isLocked ? 'Unlock payroll before calculating — locked rows are never changed' : 'Recalculate only the employees in the current Client / Contract / Location filter. Locked rows are skipped.'}
+                        disabled={isCalculating || isLocked || filterClient === 'All' || rosterLoading}
+                        title={filterClient === 'All' ? 'Select a Client first' : isLocked ? 'Unlock payroll before calculating — locked rows are never changed' : 'Recalculate only the employees in the current Client / Contract / Location filter. Locked rows are skipped.'}
                         style={{
                             display: 'flex', alignItems: 'center', gap: '6px',
                             background: isLocked ? '#333' : '#0ea5e9',
                             border: 'none', color: 'white',
                             padding: '8px 16px', borderRadius: '8px',
-                            cursor: (isCalculating || isLocked) ? 'not-allowed' : 'pointer',
-                            fontWeight: 700, opacity: isCalculating ? 0.7 : 1,
+                            cursor: (isCalculating || isLocked || filterClient === 'All' || rosterLoading) ? 'not-allowed' : 'pointer',
+                            fontWeight: 700, opacity: (isCalculating || filterClient === 'All') ? 0.7 : 1,
                         }}
                     >
                         <Calculator size={15} />
@@ -1873,7 +1921,7 @@ export default function PayrollSheet({ user }) {
                         setOverrides({});
                         setLockedIds(new Set());
                         setLockedBy(null);
-                        api.getPayroll(yr, mo).then(data => {
+                        api.getPayroll(yr, mo, payrollScopeQuery(filterClient, filterContract, filterLoc, contractCatalog)).then(data => {
                             if (!data.rows || !data.rows.length) return;
                             const ov = {};
                             data.rows.forEach(r => { ov[r.employee_id] = { ...r }; });
@@ -2469,7 +2517,20 @@ export default function PayrollSheet({ user }) {
                 </div>
             )}
 
-            {/* Table */}
+            {filterClient === 'All' || rosterLoading || rosterError ? (
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '2.5rem 1.5rem', textAlign: 'center', marginBottom: '1.25rem' }}>
+                {rosterError ? (
+                    <p style={{ margin: 0, color: '#f87171' }}>{rosterError}</p>
+                ) : rosterLoading ? (
+                    <p style={{ margin: 0, color: 'var(--text-muted)' }}>Loading payroll for {filterClient}{filterContract !== 'All' ? ` / ${filterContract}` : ''}…</p>
+                ) : (
+                    <>
+                        <p style={{ margin: '0 0 6px', fontWeight: 700 }}>Select a Client to load payroll</p>
+                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>The sheet no longer loads all employees on open. Choose a Client (and optionally a Contract) above.</p>
+                    </>
+                )}
+            </div>
+            ) : (
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', marginBottom: '1.25rem' }}>
                 <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 280px)', position: 'relative' }}>
                     <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: '2500px' }}>
@@ -2743,6 +2804,7 @@ export default function PayrollSheet({ user }) {
                     </table>
                 </div>
             </div>
+            )}
 
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1rem 1.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 <strong>Formulas:</strong> Gross = Basic(paid) + Allowances(pro-rata) + OT | WHT = FBR 2025-26 slabs ÷ 12 |

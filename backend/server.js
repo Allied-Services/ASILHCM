@@ -614,6 +614,18 @@ app.get('/api/employees', requireAuth, async (req, res) => {
     try {
         const { archive } = await cutover.resolveArchiveMode(req, pool);
         const vis = cutover.employeeVisibilityClause('e', { archive });
+        const params = [];
+        let extra = '';
+        const client = String(req.query.client || '').trim();
+        const contractId = String(req.query.contractId || '').trim();
+        if (client && client !== 'All') {
+            params.push(client);
+            extra += ` AND LOWER(TRIM(e.client)) = LOWER(TRIM($${params.length}))`;
+        }
+        if (contractId && contractId !== 'All') {
+            params.push(contractId);
+            extra += ` AND e.contract_id = $${params.length}`;
+        }
         const { rows } = await pool.query(`
             SELECT e.*,
               COALESCE(
@@ -632,9 +644,9 @@ app.get('/api/employees', requireAuth, async (req, res) => {
                  LIMIT 1)
               ) AS contract_start_date
             FROM employees e
-            WHERE ${vis}
+            WHERE ${vis}${extra}
             ORDER BY e.name ASC
-        `);
+        `, params);
         res.json({ employees: rows.map(empFromDb), archive_mode: archive });
     } catch (err) {
         console.error('[GET /api/employees]', err);
@@ -3319,10 +3331,31 @@ app.get('/api/payroll/:year/:month', requireAuth, async (req, res) => {
         if (!archive && !cutover.periodAtOrAfterCutover(m, y, config.cutoverMonth, config.cutoverYear)) {
             return res.json({ rows: [], locked: false, archived: false, cutover_blocked: true });
         }
-        const { rows } = await pool.query(
-            'SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2',
-            [parseInt(year), parseInt(month)]
-        );
+        const client = String(req.query.client || '').trim();
+        const contractId = String(req.query.contractId || '').trim();
+        const location = String(req.query.location || '').trim();
+        const hasScope = (client && client !== 'All')
+            || (contractId && contractId !== 'All')
+            || (location && location !== 'All');
+        let sql = 'SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2';
+        const params = [parseInt(year), parseInt(month)];
+        if (hasScope) {
+            const clauses = ['pt.year = $1', 'pt.month = $2'];
+            if (client && client !== 'All') {
+                params.push(client);
+                clauses.push(`LOWER(TRIM(e.client)) = LOWER(TRIM($${params.length}))`);
+            }
+            if (contractId && contractId !== 'All') {
+                params.push(contractId);
+                clauses.push(`e.contract_id = $${params.length}`);
+            }
+            if (location && location !== 'All') {
+                params.push(location);
+                clauses.push(`e.location = $${params.length}`);
+            }
+            sql = `SELECT pt.* FROM payroll_transactions pt JOIN employees e ON e.id = pt.employee_id WHERE ${clauses.join(' AND ')}`;
+        }
+        const { rows } = await pool.query(sql, params);
         // Month is locked if ANY row for this month has been locked.
         // (rows.every would require ALL employees to be locked, which breaks per-filter locking)
         const locked = rows.some(r => r.locked);

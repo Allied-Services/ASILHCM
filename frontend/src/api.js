@@ -54,6 +54,15 @@ export async function apiFetch(path, options = {}) {
 export const api = {
     // ── Employees ────────────────────────────────────────────────────────────
     getEmployees: () => { const c = _cacheGet('employees'); if (c) return Promise.resolve(c); return apiFetch('/api/employees').then(d => { _cacheSet('employees', d); return d; }); },
+    getEmployeesScoped: (q = {}) => {
+        const params = new URLSearchParams();
+        Object.entries(q || {}).forEach(([k, v]) => {
+            if (v == null || v === '' || v === 'All') return;
+            params.set(k, String(v));
+        });
+        const qs = params.toString();
+        return apiFetch(`/api/employees${qs ? `?${qs}` : ''}`);
+    },
     searchEmployeeDirectory: (params = {}) => {
         const q = new URLSearchParams();
         Object.entries(params).forEach(([k, v]) => {
@@ -241,7 +250,15 @@ export const api = {
     getBanks:               ()       => apiFetch('/api/banks'),
 
     // ── Payroll Persistence ───────────────────────────────────────────────────
-    getPayroll:    (year, month)        => apiFetch(`/api/payroll/${year}/${month}`),
+    getPayroll:    (year, month, q = {}) => {
+        const params = new URLSearchParams();
+        Object.entries(q || {}).forEach(([k, v]) => {
+            if (v == null || v === '' || v === 'All') return;
+            params.set(k, String(v));
+        });
+        const qs = params.toString();
+        return apiFetch(`/api/payroll/${year}/${month}${qs ? `?${qs}` : ''}`);
+    },
     savePayroll:   (year, month, rows, opts = {})  => apiFetch(`/api/payroll/${year}/${month}`, { method: 'POST', body: JSON.stringify({ rows, inputsOnly: !!opts.inputsOnly }) }),
     calculatePayroll: (year, month, body = {}) => apiFetch(`/api/payroll/${year}/${month}/calculate`, { method: 'POST', body: JSON.stringify(body) }),
     getPayrollClaimCompare: (year, month) => apiFetch(`/api/payroll/${year}/${month}/claim-compare`),
