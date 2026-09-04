@@ -29,7 +29,7 @@ describe('parseDirectoryQuery', () => {
     test('refuses empty query (no q, org, or browse)', () => {
         const parsed = parseDirectoryQuery({});
         expect(parsed.allowed).toBe(false);
-        expect(parsed.active).toBe('yes');
+        expect(parsed.active).toBe('all');
         expect(parsed.limit).toBe(50);
         expect(parsed.page).toBe(1);
     });
@@ -42,6 +42,7 @@ describe('parseDirectoryQuery', () => {
     test('allows org filter or browse=1', () => {
         expect(parseDirectoryQuery({ client: 'Wafi Energy Pakistan' }).allowed).toBe(true);
         expect(parseDirectoryQuery({ browse: '1' }).allowed).toBe(true);
+        expect(parseDirectoryQuery({ active: 'all' }).allowed).toBe(false);
         expect(parseDirectoryQuery({ active: 'yes' }).allowed).toBe(false);
     });
 
@@ -72,7 +73,22 @@ describe('buildDirectorySql', () => {
         expect(sql).toMatch(/regexp_replace/);
         expect(params[0]).toBe('%42101-3344%');
         expect(params[1]).toBe('421013344%');
-        expect(sql).toMatch(/TRUE/);
+        expect(sql).not.toMatch(/last_working_day/);
+    });
+
+    test('Inactive does not require active=Yes (cutover visibility used to hide every leaver)', () => {
+        const parsed = parseDirectoryQuery({ q: 'Dabeer', active: 'no' });
+        const { sql } = buildDirectorySql(parsed, { archive: false });
+        expect(sql).toMatch(/'no','false','0','inactive'/);
+        expect(sql).not.toMatch(/IN \('yes','true','1','active',''\)/);
+        expect(sql).not.toMatch(/last_working_day/);
+    });
+
+    test('All omits the active flag filter', () => {
+        const parsed = parseDirectoryQuery({ q: 'Dabeer', active: 'all' });
+        const { sql } = buildDirectorySql(parsed, { archive: false });
+        expect(sql).not.toMatch(/'no','false','0','inactive'/);
+        expect(sql).not.toMatch(/IN \('yes','true','1','active',''\)/);
     });
 
     test('cascade filters bind bu, contract, client BU, location, dept', () => {

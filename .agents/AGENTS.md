@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-05 — Directory default All; Inactive no longer empty
+Employee Information status defaults to **All**. Inactive used the cutover “must be Active” clause and returned nobody (e.g. `ASIL/PSO-180/25` Dabeer Ahmad). Active/Inactive now filter `employees.active` only; a name/code search also skips the pre-Jul-2026 last-working-day hide.
+
+**Env vars needed:** none.
+
 ### 2026-09-05 — Locked payroll keeps AP `locked_net` in sync
 Trigger `trg_sync_payroll_locked_net` sets `locked_net = ROUND(net)` on insert/update while `locked=TRUE`. Stops AP from showing a stale freeze after post-lock net corrections. Migration `20260901120000_payroll_locked_net_sync.js`.
 
