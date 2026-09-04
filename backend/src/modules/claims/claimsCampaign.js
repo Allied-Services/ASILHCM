@@ -4,6 +4,7 @@ const {
     countEligibleEmployees,
     employeeMatchesAudience,
 } = require('./claimsEligibility');
+const { fillExperienceFromPack } = require('./claimsFillExperience');
 const { SADIA_SETUP_EMAIL } = require('../employees/contactEmails');
 const {
     stableFillerToken,
@@ -16,7 +17,7 @@ const {
 } = require('./claimsMail');
 
 function buildShortFillerInviteHtml({
-    period, employeeCount, link, fillerEmail, employees = [], routingProfile, approverSummary, roleLabel, intendedEmail,
+    period, employeeCount, link, fillerEmail, employees = [], routingProfile, approverSummary, roleLabel, intendedEmail, pack = {},
 }) {
     const claimLabel = `${period.claim_month}/${period.claim_year}`;
     const empList = (employees || [])
@@ -29,6 +30,7 @@ function buildShortFillerInviteHtml({
         : approverSummary
             ? `After you submit, <strong>${approverSummary}</strong> will review and approve.`
             : 'Your Line Manager will review after you submit.';
+    const experience = fillExperienceFromPack(pack);
     return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
 <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;background:#fff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden">
@@ -41,11 +43,13 @@ ${sampleBodyBanner(period, intendedEmail || fillerEmail, roleLabel)}
 <p style="margin:0 0 14px;font-size:15px;line-height:1.55">You are the Claim Authority for <strong>${employeeCount}</strong> employee(s).</p>
 ${empList ? `<ul style="margin:0 0 16px;padding-left:20px;font-size:14px">${empList}</ul>` : ''}
 <ol style="margin:0 0 16px;padding-left:20px;font-size:14px;line-height:1.6">
-<li>Open the secure form (no password).</li>
-<li>Download <strong>your Excel</strong> (codes prefilled) or enter on screen.</li>
+<li>Open the secure page (no password).</li>
+<li>${experience.fileOnly
+    ? 'Download <strong>your file</strong> (codes prefilled) and upload it.'
+    : 'Download <strong>your Excel</strong> (codes prefilled) or enter on screen.'}</li>
 <li>Review totals, then confirm submit. ${dest}</li>
 </ol>
-<p style="margin:0 0 18px"><a href="${link}" style="display:inline-block;background:#2563eb;color:#fff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700">Open claims form</a></p>
+<p style="margin:0 0 18px"><a href="${link}" style="display:inline-block;background:#2563eb;color:#fff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700">${experience.fileOnly ? 'Open file upload' : 'Open claims form'}</a></p>
 <p style="font-size:12px;color:#64748b;word-break:break-all">${link}</p>
 </td></tr></table></td></tr></table></body></html>`;
 }
@@ -104,14 +108,15 @@ function filterSetupNeeded(skipped, { onlyEmployeeIds } = {}) {
     return rows;
 }
 
-function buildEmployeeInviteHtml({ period, link, employeeName, employeeId, approverEmail, roleLabel, intendedEmail }) {
+function buildEmployeeInviteHtml({ period, link, employeeName, employeeId, approverEmail, roleLabel, intendedEmail, pack = {} }) {
     const claimLabel = `${period.claim_month}/${period.claim_year}`;
+    const experience = fillExperienceFromPack(pack);
     return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" style="padding:24px"><tr><td align="center">
 <table role="presentation" width="640" style="max-width:640px;background:#fff;border-radius:14px;padding:28px;border:1px solid #e2e8f0">
 ${sampleBodyBanner(period, intendedEmail, roleLabel)}
 <h2 style="margin:0 0 8px">Your claims — ${claimLabel}</h2>
-<p style="color:#334155;line-height:1.55">Hello ${employeeName || employeeId}, submit your own OT, Expense, and Medical for <strong>${claimLabel}</strong>.</p>
+<p style="color:#334155;line-height:1.55">Hello ${employeeName || employeeId}, submit your own <strong>${experience.typeList}</strong> for <strong>${claimLabel}</strong>.</p>
 <p style="color:#475569;font-size:14px">Approver: <strong>${approverEmail || 'ASIL Operations'}</strong></p>
 <p style="margin:18px 0"><a href="${link}" style="background:#2563eb;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700">Open my claims</a></p>
 <p style="font-size:12px;color:#64748b">${link}</p>
@@ -162,6 +167,10 @@ function buildInvitePayload({
     period, fillerEmail, emps, cohortType, routingProfile, roleLabel,
     FRONTEND_URL, buildFillerInviteHtml,
 }) {
+    const pack = {
+        enabled_types: emps[0]?.enabled_types,
+        collection_mode: emps[0]?.collection_mode,
+    };
     const token = stableFillerToken(period.id, fillerEmail);
     const tokenHash = hashToken(token);
     const link = `${FRONTEND_URL}/?asil_claims=fill&token=${token}`;
@@ -176,6 +185,7 @@ function buildInvitePayload({
             approverEmail: emps[0].approver_email,
             roleLabel,
             intendedEmail: fillerEmail,
+            pack,
         })
         : (buildFillerInviteHtml || buildShortFillerInviteHtml)({
             period,
@@ -187,12 +197,13 @@ function buildInvitePayload({
             approverSummary,
             roleLabel,
             intendedEmail: fillerEmail,
+            pack,
         });
     const html = typeof rawHtml === 'string'
         ? rawHtml
         : buildShortFillerInviteHtml({
             period, employeeCount: emps.length, link, fillerEmail,
-            employees: emps, routingProfile, approverSummary, roleLabel, intendedEmail: fillerEmail,
+            employees: emps, routingProfile, approverSummary, roleLabel, intendedEmail: fillerEmail, pack,
         });
     const subject = `${sampleSubjectPrefix(period, roleLabel)}ASIL Claims ${period.claim_month}/${period.claim_year} — ${emps.length} employee(s)`;
     const cc = getClaimsMonitorCc();
@@ -208,6 +219,8 @@ function mapPreviewEmployee(e) {
         contract_id: e.contract_id || '',
         contract_name: e.contract_name || e.contract_id || '',
         dept: e.dept || '',
+        enabled_types: e.enabled_types || null,
+        collection_mode: e.collection_mode || null,
         filler_email: e.filler_email || null,
         approver_email: e.approver_email || null,
         routing_profile: e.routing_profile || null,

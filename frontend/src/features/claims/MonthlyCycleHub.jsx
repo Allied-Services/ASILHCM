@@ -926,7 +926,7 @@ export default function MonthlyCycleHub({ user }) {
       {section === 'collect' && (
         <div className="mch-panel">
           <MachineFileCollect />
-          <ClaimRequestCampaign user={user} />
+          <ClaimRequestCampaign user={user} actualOnly />
         </div>
       )}
       {section === 'track' && (

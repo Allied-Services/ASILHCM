@@ -6,6 +6,7 @@
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
+const { normalizeEnabledTypes } = require('./claimsPolicy');
 
 let ExcelJS = null;
 try {
@@ -351,6 +352,7 @@ function isMeaningfulMoneyRow(row) {
 function parseMasterClaimsWorkbook(buffer, opts = {}) {
     const allowedList = opts.allowedEmployeeIds || [];
     const allowedSet = new Set(allowedList.map(normalizeEmpKey));
+    const enabledTypes = normalizeEnabledTypes(opts.enabledTypes || opts.enabled_types);
     const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
     const errors = [];
     const warnings = [];
@@ -371,9 +373,14 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
         itemsByEmployee.get(canonical).push({ ...item, _rowLabel: rowLabel });
     }
 
-    const otName = wb.SheetNames.find(n => /overtime|\bot\b/i.test(n) || /^sheet$/i.test(n)) || wb.SheetNames[0];
+    const otName = enabledTypes.includes('OT')
+        ? (wb.SheetNames.find(n => /overtime|\bot\b/i.test(n)) || null)
+        : null;
+    if (enabledTypes.includes('OT') && !otName) {
+        warnings.push('Overtime sheet not found in workbook');
+    }
     let otRow = 1;
-    for (const row of sheetToObjects(wb.Sheets[otName])) {
+    for (const row of (otName ? sheetToObjects(wb.Sheets[otName]) : [])) {
         otRow += 1;
         // Skip title / instruction rows (no employee code column value that looks like code)
         const empId = pick(row, 'ASIL Employee Code', 'Employee Code', 'Employee ID');
@@ -427,7 +434,7 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
         addItem(empId, draft, `Overtime row ${otRow}`);
     }
 
-    const expName = wb.SheetNames.find(n => /expense/i.test(n));
+    const expName = enabledTypes.includes('EXPENSE') ? wb.SheetNames.find(n => /expense/i.test(n)) : null;
     if (expName) {
         let r = 1;
         for (const row of sheetToObjects(wb.Sheets[expName])) {
@@ -458,11 +465,11 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
             }
             addItem(empId, draft, `Expense row ${r}`);
         }
-    } else {
+    } else if (enabledTypes.includes('EXPENSE')) {
         warnings.push('Expense Claims sheet not found in workbook');
     }
 
-    const medName = wb.SheetNames.find(n => /medical|ipd/i.test(n));
+    const medName = enabledTypes.includes('MEDICAL') ? wb.SheetNames.find(n => /medical|ipd/i.test(n)) : null;
     if (medName) {
         let r = 1;
         for (const row of sheetToObjects(wb.Sheets[medName])) {
@@ -494,8 +501,12 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
             }
             addItem(empId, draft, `Medical row ${r}`);
         }
-    } else {
+    } else if (enabledTypes.includes('MEDICAL')) {
         warnings.push('Medical & IPD Claims sheet not found in workbook');
+    }
+
+    if (enabledTypes.includes('ATTENDANCE') && !wb.SheetNames.find(n => /attendance/i.test(n))) {
+        warnings.push('Attendance sheet not found in workbook');
     }
 
     return { itemsByEmployee, errors, warnings, sheetNames: wb.SheetNames };
@@ -514,6 +525,14 @@ const MED_HEADERS = [
     'Date', 'ASIL Employee Code', 'Employee Name', 'Department', 'Location',
     'Line Manager Name', 'Claim Type', 'Patient Name / Relation', 'Description / Treatment Detail', 'Total Claim Amount (PKR)',
 ];
+const ATT_HEADERS = [
+    'Date', 'ASIL Employee Code', 'Employee Name', 'Department', 'Location',
+    'Line Manager Name', 'Present Days', 'Absent Days', 'Hours',
+];
+
+function typesFromOpts(opts = {}) {
+    return normalizeEnabledTypes(opts.enabledTypes || opts.enabled_types);
+}
 
 /** Data rows with formulas per employee. */
 const SLOTS_PER_EMP = 6;
@@ -535,6 +554,7 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
         : 'this claim month';
     const holidayDates = Array.isArray(opts.holidayDates) ? opts.holidayDates : [];
     const slots = opts.slotsPerEmp || SLOTS_PER_EMP;
+    const enabledTypes = typesFromOpts(opts);
 
     if (!ExcelJS) {
         return buildPersonalizedClaimsWorkbookFallback(list, opts);
@@ -569,14 +589,15 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
         `Claim month: ${monthLabel}`,
         '',
         '1. Grey columns (Employee Code, Name, Dept, Location, Manager) are prefilled for YOUR team — do not change them.',
-        '2. Overtime — fill only: Date, Nature, OT Start Time, OT End Time. Rate (2×/3×) is applied automatically per labour law.',
-        '3. OT Start / OT End = overtime hours claimed AFTER normal duty. Do NOT enter the full shift start/end (e.g. not 9:00 AM–6:00 PM).',
-        '4. OT Hours calculates automatically as OT End − OT Start. Do not type hours by hand.',
+        enabledTypes.includes('OT') ? '2. Overtime — fill only: Date, Nature, OT Start Time, OT End Time. Rate (2×/3×) is applied automatically per labour law.' : '2. Fill only the sheets included for this contract. Do not add extra claim types.',
+        enabledTypes.includes('OT') ? '3. OT Start / OT End = overtime hours claimed AFTER normal duty. Do NOT enter the full shift start/end (e.g. not 9:00 AM–6:00 PM).' : '3. Grey columns (Employee Code, Name) are prefilled — do not change them.',
+        enabledTypes.includes('ATTENDANCE') ? '4. Attendance — fill Present Days / Absent Days / Hours on the Attendance sheet. This file is stored with the upload; payroll consumption is separate.' : '4. Use the SAMPLE row under the header as your format guide.',
         '5. Use the SAMPLE row under the header as your format guide. Dates: 15-07-2026. Times: 05:00 PM and 08:00 PM.',
-        '6. Submit by day 18 of the claim month. LM approves by day 22. Approved amounts pay with the following month’s salary.',
-        '7. Only this claim month’s dates are accepted. Older months → email claims@asil.com.pk.',
-        '8. After upload: attach Expense Reimbursement and Medical supports as separate files before Submit.',
-        '9. Questions: ops-support@asil.com.pk or claims@asil.com.pk',
+        '6. Only this claim month’s dates are accepted. Older months → email claims@asil.com.pk.',
+        (enabledTypes.includes('EXPENSE') || enabledTypes.includes('MEDICAL'))
+            ? '7. After upload: attach Expense Reimbursement and Medical supports as separate files before Submit.'
+            : '7. Upload this file on the same link, then Submit.',
+        '8. Questions: ops-support@asil.com.pk or claims@asil.com.pk',
     ];
     lines.forEach((t, i) => {
         const cell = instr.getCell(i + 2, 1);
@@ -868,9 +889,10 @@ async function buildPersonalizedClaimsWorkbookAsync(employees, opts = {}) {
         return ws;
     }
 
-    addOvertimeSheet(slots);
-    addDataSheet('Expense Claims', EXP_HEADERS, slots, [1, 2, 3, 4, 5], 'I');
-    addDataSheet('Medical & IPD Claims', MED_HEADERS, slots, [1, 2, 3, 4, 5], 'J');
+    if (enabledTypes.includes('ATTENDANCE')) addDataSheet('Attendance', ATT_HEADERS, slots, [1, 2, 3, 4, 5], 'I');
+    if (enabledTypes.includes('OT')) addOvertimeSheet(slots);
+    if (enabledTypes.includes('EXPENSE')) addDataSheet('Expense Claims', EXP_HEADERS, slots, [1, 2, 3, 4, 5], 'I');
+    if (enabledTypes.includes('MEDICAL')) addDataSheet('Medical & IPD Claims', MED_HEADERS, slots, [1, 2, 3, 4, 5], 'J');
 
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf);
@@ -893,6 +915,7 @@ function buildPersonalizedClaimsWorkbookFallback(employees, opts = {}) {
         ? `${MONTH_NAMES[claimMonth] || claimMonth} ${claimYear}`
         : 'this claim month';
     const slots = opts.slotsPerEmp || SLOTS_PER_EMP;
+    const enabledTypes = typesFromOpts(opts);
 
     const wb = XLSX.utils.book_new();
     const note = [
@@ -942,21 +965,34 @@ function buildPersonalizedClaimsWorkbookFallback(employees, opts = {}) {
         return ws;
     }
 
-    XLSX.utils.book_append_sheet(
-        wb,
-        makeSheet(OT_HEADERS, slots, 'TOTAL OT HOURS — fill OT Start/End; hours = End − Start'),
-        'Overtime'
-    );
-    XLSX.utils.book_append_sheet(
-        wb,
-        makeSheet(EXP_HEADERS, slots, 'TOTAL EXPENSE AMOUNT (sum Amount column)'),
-        'Expense Claims'
-    );
-    XLSX.utils.book_append_sheet(
-        wb,
-        makeSheet(MED_HEADERS, slots, 'TOTAL MEDICAL AMOUNT (sum Amount column)'),
-        'Medical & IPD Claims'
-    );
+    if (enabledTypes.includes('ATTENDANCE')) {
+        XLSX.utils.book_append_sheet(
+            wb,
+            makeSheet(ATT_HEADERS, slots, 'ATTENDANCE — Present / Absent / Hours'),
+            'Attendance'
+        );
+    }
+    if (enabledTypes.includes('OT')) {
+        XLSX.utils.book_append_sheet(
+            wb,
+            makeSheet(OT_HEADERS, slots, 'TOTAL OT HOURS — fill OT Start/End; hours = End − Start'),
+            'Overtime'
+        );
+    }
+    if (enabledTypes.includes('EXPENSE')) {
+        XLSX.utils.book_append_sheet(
+            wb,
+            makeSheet(EXP_HEADERS, slots, 'TOTAL EXPENSE AMOUNT (sum Amount column)'),
+            'Expense Claims'
+        );
+    }
+    if (enabledTypes.includes('MEDICAL')) {
+        XLSX.utils.book_append_sheet(
+            wb,
+            makeSheet(MED_HEADERS, slots, 'TOTAL MEDICAL AMOUNT (sum Amount column)'),
+            'Medical & IPD Claims'
+        );
+    }
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 

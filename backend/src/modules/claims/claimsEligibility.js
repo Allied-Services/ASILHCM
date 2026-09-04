@@ -433,9 +433,12 @@ async function countEligibleEmployees(pool, filters = {}) {
                 e.client, e.active,
                 COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) AS location,
                 e.dept, e.salary, e.contract_id,
-                COALESCE(c.contract_name, e.contract_name) AS contract_name
+                COALESCE(c.contract_name, e.contract_name) AS contract_name,
+                pol.enabled_types AS enabled_types,
+                pol.collection_mode AS collection_mode
          FROM employees e
          LEFT JOIN contracts c ON c.id::text = e.contract_id::text
+         LEFT JOIN contract_claim_policies pol ON pol.contract_id::text = e.contract_id::text
          WHERE ${where.join(' AND ')}`,
         params
     );

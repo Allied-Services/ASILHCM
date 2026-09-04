@@ -31,10 +31,10 @@ const selectStyle = {
   padding: '7px 12px', color: 'var(--text)', fontSize: 14, minWidth: 180,
 };
 
-export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth, claimYear, hidePeriod }) {
+export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth, claimYear, hidePeriod, actualOnly = false }) {
   const [month, setMonth] = useState(() => claimMonth || 8);
   const [year, setYear] = useState(() => claimYear || 2026);
-  const [campaignMode, setCampaignMode] = useState('sample');
+  const [campaignMode, setCampaignMode] = useState(actualOnly ? 'actual' : 'sample');
   const [filterClient, setFilterClient] = useState('');
   const [filterContract, setFilterContract] = useState('');
   const [filterDept, setFilterDept] = useState('');
@@ -203,6 +203,10 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
   };
 
   const runSend = async (mode) => {
+    if (actualOnly && mode === 'sample') {
+      setErr('Monthly Cycle sends live emails only. SAMPLE is not available here.');
+      return;
+    }
     if (!selected.size) {
       setErr('Tick at least one employee, then Send.');
       return;
@@ -259,8 +263,9 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
     }}>
       <h3 style={{ margin: '0 0 4px' }}>Send claim request emails</h3>
       <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-muted)', maxWidth: 860, lineHeight: 1.5 }}>
-        Choose Client (then Contract / Department / Location if you want), then Load employees.
-        Only that slice is fetched. Tick who to send. Focals get one email for their nominated people.
+        {actualOnly
+          ? 'These emails go to the real Focal / LM addresses. Choose Client (then Contract / Department / Location if you want), Load employees, tick who to send, confirm, and Send.'
+          : 'Choose Client (then Contract / Department / Location if you want), then Load employees. Only that slice is fetched. Tick who to send. Focals get one email for their nominated people.'}
       </p>
 
       {err && <div style={{ color: '#fca5a5', marginBottom: 10 }}>{err}</div>}
@@ -280,7 +285,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
         </Field>
           </>
         )}
-        {['sample', 'actual'].map(m => (
+        {!actualOnly && ['sample', 'actual'].map(m => (
           <button key={m} type="button" onClick={() => { setCampaignMode(m); clearRoster(); }}
             style={{
               padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13, height: 38,
@@ -291,6 +296,11 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
             {m.toUpperCase()}
           </button>
         ))}
+        {actualOnly && (
+          <span style={{ fontSize: 12, color: '#86efac', paddingBottom: 8, fontWeight: 700 }}>
+            Live send
+          </span>
+        )}
         {campaignMode === 'sample' && (
           <span style={{ fontSize: 12, color: '#fcd34d', paddingBottom: 8, maxWidth: 420, lineHeight: 1.4 }}>
             SAMPLE mode — emails deliver to the test inbox only. The table shows each employee&apos;s real Focal/LM address; SAMPLE sends redirect to {gates.sampleEmail || 'CLAIMS_SAMPLE_EMAIL'}.
@@ -346,8 +356,12 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
 
       {gates && (gates.sampleEmailConfigured || gates.actualSendAllowed !== undefined) && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
-          SAMPLE inbox: {gates.sampleEmailConfigured ? gates.sampleEmail : 'not configured (CLAIMS_SAMPLE_EMAIL)'}
-          {' · '}
+          {!actualOnly && (
+            <>
+              SAMPLE inbox: {gates.sampleEmailConfigured ? gates.sampleEmail : 'not configured (CLAIMS_SAMPLE_EMAIL)'}
+              {' · '}
+            </>
+          )}
           ACTUAL send: {gates.actualSendAllowed ? 'allowed' : 'blocked until CLAIMS_ALLOW_ACTUAL_SEND=true'}
           {Array.isArray(gates.monitorCc) && gates.monitorCc.length > 0 && (
             <>
@@ -480,6 +494,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
 
           {canSend && filterClient && (
             <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              {!actualOnly && (
               <button type="button"
                 disabled={busy || !selected.size}
                 onClick={() => runSend('sample')}
@@ -491,6 +506,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
                 }}>
                 Send SAMPLE ({selected.size} employee{selected.size === 1 ? '' : 's'} → {selectedFillerCount} email{selectedFillerCount === 1 ? '' : 's'})
               </button>
+              )}
               <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <input type="checkbox" checked={confirmActual} onChange={e => setConfirmActual(e.target.checked)}
                   disabled={!gates.actualSendAllowed} />
@@ -509,7 +525,9 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
               </button>
               {!gates.actualSendAllowed && (
                 <span style={{ fontSize: 12, color: '#fca5a5' }}>
-                  ACTUAL is blocked on this server. Set CLAIMS_ALLOW_ACTUAL_SEND=true on Render after the SAMPLE looks right.
+                  {actualOnly
+                    ? 'Live send is blocked on this server until CLAIMS_ALLOW_ACTUAL_SEND=true.'
+                    : 'ACTUAL is blocked on this server. Set CLAIMS_ALLOW_ACTUAL_SEND=true on Render after the SAMPLE looks right.'}
                 </span>
               )}
             </div>

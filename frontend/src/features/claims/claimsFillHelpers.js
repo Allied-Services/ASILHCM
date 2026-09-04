@@ -12,7 +12,35 @@ export const STEP_LABELS = {
 
 const TYPE_TO_STEP = { OT: 'ot', EXPENSE: 'expense', MEDICAL: 'medical' };
 
-/** Build wizard steps from contract enabled_types (ATTENDANCE excluded until PSO phase). */
+const TYPE_LABELS = {
+  ATTENDANCE: 'Attendance',
+  OT: 'Overtime',
+  EXPENSE: 'Expense Reimbursement',
+  MEDICAL: 'Medical reimbursement',
+};
+
+/** Contract pack → fill UI (file-only vs on-screen). */
+export function fillExperienceFromPack(pack = {}) {
+  const enabledTypes = (pack.enabled_types || pack.enabledTypes || ['OT', 'EXPENSE', 'MEDICAL'])
+    .map((t) => String(t || '').trim().toUpperCase())
+    .filter(Boolean);
+  const types = enabledTypes.length ? [...new Set(enabledTypes)] : ['OT', 'EXPENSE', 'MEDICAL'];
+  const collectionMode = String(pack.collection_mode || pack.collectionMode || 'monthly_form').toLowerCase();
+  const fileOnly = collectionMode === 'machine_file';
+  return {
+    enabledTypes: types,
+    collectionMode,
+    fileOnly,
+    showOnScreen: !fileOnly,
+    typeList: types.map((t) => TYPE_LABELS[t] || t).join(', '),
+    hasAttendance: types.includes('ATTENDANCE'),
+    hasOt: types.includes('OT'),
+    hasExpense: types.includes('EXPENSE'),
+    hasMedical: types.includes('MEDICAL'),
+  };
+}
+
+/** Build wizard steps from contract enabled_types (ATTENDANCE is file-only, not an on-screen step). */
 export function buildWizardSteps(enabledTypes = ['OT', 'EXPENSE', 'MEDICAL']) {
   const types = (enabledTypes || []).map((t) => String(t || '').trim().toUpperCase());
   const steps = [];
