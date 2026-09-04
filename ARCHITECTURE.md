@@ -168,6 +168,8 @@ UI: `frontend/src/features/fixedValue/FixedValueContracts.jsx` — stepped ops w
 ### Payroll vs AP reconciliation (P4)
 `GET /api/payroll/:year/:month/reconciliation` (`backend/src/modules/payrollReconciliation/`) returns sheetTotal / lockedTotal (frozen `locked_net`) / apTotal / paidTotal plus named exception lists (unlocked, orphans, blankScope, excludedByDates, lockedNotPaid, paidNotLocked). Roles: finance_manager, finance_approver, payroll_initiator, ap_team, superadmin. Payroll Sheet shows a Locked (AP view) subtotal and Reconcile panel.
 
+While a row is `locked=TRUE`, trigger `trg_sync_payroll_locked_net` keeps `locked_net = ROUND(net)` so AP cannot drift from the locked sheet after a post-lock correction. Migration `20260901120000_payroll_locked_net_sync.js`.
+
 ---
 
 ## Further reading
