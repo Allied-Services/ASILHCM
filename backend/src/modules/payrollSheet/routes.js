@@ -30,6 +30,7 @@ function registerPayrollSheetRoutes(app, deps) {
             const result = await calculatePayrollSheet(pool, year, month, {
                 client: body.client || undefined,
                 contractId: body.contractId || body.contract_id || undefined,
+                location: body.location || undefined,
                 employeeIds: Array.isArray(body.employeeIds) ? body.employeeIds : undefined,
                 // Default sheet_inputs — recompute from current sheet (idempotent).
                 // canonical only when UI explicitly pulls approved claims.

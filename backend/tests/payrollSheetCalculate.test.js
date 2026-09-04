@@ -64,25 +64,27 @@ describe('POST /api/payroll/:year/:month/calculate — role guards', () => {
         expect(res.body.ok).toBe(true);
     });
 
-    test('403 when month locked', async () => {
+    test('does not abort the month when some other row is locked', async () => {
         const token = makeToken({ role: 'finance_proposer' });
-        // cutover loadCutoverConfig
         mockPool.query.mockResolvedValueOnce({
             rows: [
                 { key: 'cutover_period', value: JSON.stringify({ month: 7, year: 2026 }) },
                 { key: 'show_pre_cutover_archive', value: 'false' },
             ],
         });
-        // assertMonthUnlocked → locked row exists
-        mockPool.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
+        // onSheet distinct
+        mockPool.query.mockResolvedValueOnce({ rows: [{ employee_id: 'LOCKED-1' }] });
+        // loadSheetEmployees — scoped filter, no people in this client
+        mockPool.query.mockResolvedValueOnce({ rows: [] });
 
         const res = await request()
             .post(PATH)
             .set('Authorization', `Bearer ${token}`)
-            .send({ client: 'Wafi Energy Pakistan Pvt Ltd' });
+            .send({ client: 'Wafi Energy Pakistan Pvt Ltd', employeeIds: ['ASIL-PSO-375-25'] });
 
-        expect(res.status).toBe(403);
-        expect(res.body.code).toBe('PAYROLL_LOCKED');
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+        expect(res.body.updated).toBe(0);
     });
 
     test('finance_proposer allowed when unlocked and no employees', async () => {
@@ -93,8 +95,6 @@ describe('POST /api/payroll/:year/:month/calculate — role guards', () => {
                 { key: 'show_pre_cutover_archive', value: 'false' },
             ],
         });
-        // unlocked
-        mockPool.query.mockResolvedValueOnce({ rows: [] });
         // onSheet distinct
         mockPool.query.mockResolvedValueOnce({ rows: [] });
         // loadSheetEmployees

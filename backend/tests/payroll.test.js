@@ -19,7 +19,7 @@
  *      - Returns { ok, locked: false }
  *
  *   3. Upsert guard — POST /api/payroll/:year/:month
- *      - Blocked with 403 when any locked row exists for that month
+ *      - Locked rows are skipped on conflict (WHERE locked = FALSE); month is not 403'd
  *
  *   4. Reset guard — DELETE /api/payroll/:year/:month/reset
  *      - Blocked when locked rows exist
@@ -312,39 +312,36 @@ describe('PATCH /api/payroll/:year/:month/unlock', () => {
 // ═════════════════════════════════════════════════════════════════════════════
 describe('POST /api/payroll/:year/:month — locked month upsert guard', () => {
 
-  test('blocked with 403 when any locked row exists for the target month', async () => {
+  test('does not 403 the whole month when another row is locked', async () => {
     // Route used to be requireRole('finance_proposer') only; now payroll roles + payroll.edit perms
     const token = makeToken({ role: 'finance_proposer' });
-    // server.js lock check: SELECT locked FROM payroll_transactions WHERE locked=TRUE
     mockPool.query.mockResolvedValueOnce({
-      rows: [{ locked: true }], // ← month has a locked row
+      rows: [{ employee_id: 'ASIL-001' }],
       rowCount: 1,
     });
 
     const res = await request()
       .post(`/api/payroll/${TEST_YEAR}/${TEST_MONTH}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ rows: [{ employee_id: 'ASIL-001', gross: 50000 }] });
+      .send({ rows: [{ employee_id: 'ASIL-001', ov: {}, calc: {} }] });
 
-    expect(res.status).toBe(403);
-    // server.js returns { error: 'Payroll month is locked...' } or similar
-    expect(res.body.error).toBeDefined();
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    const sql = String(mockPool.query.mock.calls[0][0]);
+    expect(sql).toMatch(/WHERE COALESCE\(payroll_transactions\.locked, FALSE\) = FALSE/i);
   });
 
-  test('proceeds when no locked rows exist for the target month', async () => {
+  test('proceeds when no rows are sent', async () => {
     const token = makeToken({ role: 'finance_proposer' });
-    // Lock check returns empty (no locked rows)
-    mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    // The upsert itself
-    mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
 
     const res = await request()
       .post(`/api/payroll/${TEST_YEAR}/${TEST_MONTH}`)
       .set('Authorization', `Bearer ${token}`)
       .send({ rows: [] });
 
-    // 200 or 400 (empty rows validation) — but NOT 403
     expect(res.status).not.toBe(403);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.saved).toBe(0);
   });
 
   test('payroll_initiator can save sheet inputs', async () => {

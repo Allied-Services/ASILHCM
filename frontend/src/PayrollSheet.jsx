@@ -704,11 +704,6 @@ export default function PayrollSheet({ user }) {
     const [showSendPayslips, setShowSendPayslips] = useState(false);
     const [payslipDetailsOpen, setPayslipDetailsOpen] = useState(false);
     const [sendPayslipConfirm, setSendPayslipConfirm] = useState(false);
-    const [showPayslipTestRun, setShowPayslipTestRun] = useState(false);
-    const [payslipTestEmail, setPayslipTestEmail] = useState('shezad.mumtaz@asil.com.pk');
-    const [payslipTestPhone, setPayslipTestPhone] = useState('03008275688');
-    const [payslipTestBusy, setPayslipTestBusy] = useState(false);
-    const [payslipTestResult, setPayslipTestResult] = useState(null);
     const [showAddClaims, setShowAddClaims] = useState(false);
     const [addClaimsForm, setAddClaimsForm] = useState({
         employeeId: '', ot1Hours: 0, ot2Hours: 0, ot3Hours: 0,
@@ -746,6 +741,7 @@ export default function PayrollSheet({ user }) {
     // #endregion
     const selectedIdsRef = useRef(selectedIds);
     useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
+    const filterScopeRef = useRef([]);
     const [PROVINCE_RATES, setPROVINCE_RATES] = useState([]); // from System Config Tax by Region
     const [invoiceStatus, setInvoiceStatus] = useState({ invoicedClients: [], invoicedContracts: [] });
 
@@ -1023,42 +1019,57 @@ export default function PayrollSheet({ user }) {
 
     const handleCalculatePayroll = async () => {
         const [yr, mo] = month.split('-');
+        const visible = filterScopeRef.current;
+        const unlockedIds = visible.filter(e => !lockedIds.has(e.id)).map(e => e.id);
+        const lockedInView = visible.length - unlockedIds.length;
+        if (!visible.length) {
+            setCalcMsg('No employees in the current Client / Contract filter.');
+            return;
+        }
+        if (!unlockedIds.length) {
+            setCalcMsg('All employees in this filter are locked. Unlock payroll first — locked rows are never changed.');
+            return;
+        }
         setIsCalculating(true);
         setCalcMsg(null);
         try {
             if (typeof document !== 'undefined' && document.activeElement && typeof document.activeElement.blur === 'function') {
                 document.activeElement.blur();
             }
-            const pendingIds = Object.keys(perEmpTimers.current || {});
+            const pendingIds = unlockedIds.filter((id) => perEmpTimers.current[id]);
             pendingIds.forEach((id) => {
                 clearTimeout(perEmpTimers.current[id]);
                 delete perEmpTimers.current[id];
             });
-            if (pendingIds.length) {
-                await Promise.all(pendingIds.map((id) => persistEmployee(id)));
-            }
-            // sheet_inputs = recompute from current grid; canonical = attendance + approved claims
-            const body = { sourceMode: pullClaimsOnCalc ? 'canonical' : 'sheet_inputs' };
+            await Promise.all(unlockedIds.map((id) => persistEmployee(id)));
+            // sheet_inputs = recompute from current grid; canonical = Monthly Cycle + approved claims
+            const body = {
+                sourceMode: pullClaimsOnCalc ? 'canonical' : 'sheet_inputs',
+                employeeIds: unlockedIds,
+            };
             if (filterClient && filterClient !== 'All') body.client = filterClient;
+            if (filterLoc && filterLoc !== 'All') body.location = filterLoc;
             if (filterContract && filterContract !== 'All') {
+                const fromRow = visible.find(e => e.contractId);
                 const match = Object.values(CONTRACT_MAP).find(c => c.id === filterContract)
                     || Object.entries(CONTRACT_MAP).find(([k]) => k === filterContract.toLowerCase()?.trim());
-                const cid = match?.id || match?.[1]?.id;
+                const cid = fromRow?.contractId || match?.id || match?.[1]?.id;
                 if (cid) body.contractId = cid;
             }
             const result = await api.calculatePayroll(yr, mo, body);
             if (result.claimCompare?.byEmployee) setClaimCompare(result.claimCompare.byEmployee);
             applyPayrollPayload(result);
-            const a208 = result.anchors && Object.entries(result.anchors).find(([id]) => /SPL-208/i.test(id));
-            const a91 = result.anchors && Object.entries(result.anchors).find(([id]) => /SPL-91/i.test(id));
-            setCalcMsg(`Calculated ${result.updated || 0} employees on server.`
+            const skipped = result.skippedLocked?.length || lockedInView;
+            const scopeNote = (filterClient !== 'All' || filterContract !== 'All' || filterLoc !== 'All')
+                ? ` in this filter (${unlockedIds.length} unlocked)`
+                : '';
+            setCalcMsg(`Calculated ${result.updated || 0} employees${scopeNote}.`
+                + (skipped ? ` ${skipped} locked row(s) left unchanged.` : '')
                 + (pullClaimsOnCalc
                     ? (result.claimsMerged
                         ? ` Merged ${result.claimsMerged} approved Portal Claims into this month.`
                         : ' Merge was on, but no approved Portal Claims settle in this pay month.')
-                    : '')
-                + (a208 ? ` SPL-208 net ${Math.round(a208[1].net).toLocaleString()}` : '')
-                + (a91 ? ` · SPL-91 net ${Math.round(a91[1].net).toLocaleString()} tax ${Math.round(a91[1].wht).toLocaleString()}` : ''));
+                    : ''));
             // Reload authoritative GET (includes locked flags)
             const fresh = await api.getPayroll(yr, mo);
             applyPayrollPayload(fresh);
@@ -1310,29 +1321,6 @@ export default function PayrollSheet({ user }) {
         setSendingEmails(false);
     };
 
-    const runPayslipTestDelivery = async () => {
-        if (!payslipTestEmail?.includes('@')) return alert('Enter a valid email');
-        if (!payslipTestPhone?.trim()) return alert('Enter a phone number');
-        if (!window.confirm(`Send 5 sample July payslips to\n${payslipTestEmail}\nand SMS to ${payslipTestPhone}?`)) return;
-        setPayslipTestBusy(true);
-        setPayslipTestResult(null);
-        try {
-            const d = await api.sendPayslipTestRun({
-                email: payslipTestEmail.trim(),
-                phone: payslipTestPhone.trim(),
-            });
-            if (d.error) throw new Error(d.error);
-            setPayslipTestResult({
-                ok: true,
-                msg: `Test run done — emailed ${d.emailed || 0}/5, SMS ${d.smsed || 0}/5. Check inbox & phone.`,
-                detail: d,
-            });
-        } catch (e) {
-            setPayslipTestResult({ ok: false, msg: e.message || 'Test run failed' });
-        }
-        setPayslipTestBusy(false);
-    };
-
     // Cascading filter lists
     const allClients = ['All', ...new Set(EMPLOYEES.map(e => e.client))];
     const contractPool = filterClient === 'All' ? EMPLOYEES : EMPLOYEES.filter(e => e.client === filterClient);
@@ -1365,6 +1353,7 @@ export default function PayrollSheet({ user }) {
              (filterLockStatus === 'Unlocked' && !lockedIds.has(e.id)))
         );
     });
+    filterScopeRef.current = filtered;
 
     // isLocked = true only when ALL currently visible filtered rows are locked (and there are some)
     const isLocked = filtered.length > 0 && filtered.every(e => lockedIds.has(e.id));
@@ -1677,7 +1666,7 @@ export default function PayrollSheet({ user }) {
         <div className="dashboard">
             <header className="header">
                 <h1>Payroll Sheet</h1>
-                <p>Edit inputs, then press Calculate / Update Payroll — the server computes Net Pay and tax. Browser does not invent pay amounts.</p>
+                <p>Edit inputs, then press Calculate / Update Payroll — only the Client / Contract / Location filter is updated. Locked rows are never overwritten.</p>
             </header>
 
             <div style={{ marginBottom: '1rem' }}>
@@ -1763,8 +1752,8 @@ export default function PayrollSheet({ user }) {
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                     {isSaving && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={13} />Saving…</span>}
                     <label
-                        style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: 200 }}
-                        title="Off (default): recalculate from hours already on this sheet. On: merge approved Portal Claims that pay this month (July work → August pay)."
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: 240 }}
+                        title="Off (default): recalculate from hours already on this sheet. On: merge approved Portal Claims that pay this month, plus Monthly Cycle attendance (absent/present days, OT)."
                     >
                         <input type="checkbox" checked={pullClaimsOnCalc} onChange={e => setPullClaimsOnCalc(e.target.checked)} disabled={isCalculating || isLocked} />
                         Merge approved Portal Claims
@@ -1773,7 +1762,7 @@ export default function PayrollSheet({ user }) {
                         type="button"
                         onClick={handleCalculatePayroll}
                         disabled={isCalculating || isLocked}
-                        title={isLocked ? 'Unlock payroll before calculating' : 'Server recalculates Net Pay / Tax (browser does not compute pay)'}
+                        title={isLocked ? 'Unlock payroll before calculating — locked rows are never changed' : 'Recalculate only the employees in the current Client / Contract / Location filter. Locked rows are skipped.'}
                         style={{
                             display: 'flex', alignItems: 'center', gap: '6px',
                             background: isLocked ? '#333' : '#0ea5e9',
@@ -1845,13 +1834,6 @@ export default function PayrollSheet({ user }) {
                                             : '📧 Send Payslips'}
                             </button>
                         </>
-                    )}
-                    {isSuperAdmin && (
-                        <button type="button" onClick={() => { setShowPayslipTestRun(true); setPayslipTestResult(null); }}
-                            title="Send 5 sample July payslips to your email + SMS (QA before candidate rollout)"
-                            style={{ background: 'transparent', border: '1px solid #38bdf8', color: '#38bdf8', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
-                            July Test Run
-                        </button>
                     )}
                     {canManageLock && !isLocked && (
                         <>
@@ -2229,56 +2211,6 @@ export default function PayrollSheet({ user }) {
                                         : 'Send to all locked'}
                             </button>
                             )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* July payslip QA test-run (superadmin) */}
-            {showPayslipTestRun && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '2rem' }}>
-                    <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border)', width: '100%', maxWidth: '520px' }}>
-                        <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)' }}>
-                            <h3 style={{ margin: 0 }}>July Payslip Test Run</h3>
-                            <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                                Sends 5 sample July payslips (OT 2X/3X, reimbursements, tax, net) to your email + SMS. Not live employee payroll.
-                            </p>
-                        </div>
-                        <div style={{ padding: '1.5rem 2rem', display: 'grid', gap: '12px' }}>
-                            <label style={{ display: 'grid', gap: 4, fontSize: '0.85rem' }}>
-                                Email
-                                <input value={payslipTestEmail} onChange={e => setPayslipTestEmail(e.target.value)}
-                                    style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }} />
-                            </label>
-                            <label style={{ display: 'grid', gap: 4, fontSize: '0.85rem' }}>
-                                SMS phone
-                                <input value={payslipTestPhone} onChange={e => setPayslipTestPhone(e.target.value)}
-                                    style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }} />
-                            </label>
-                            {payslipTestResult && (
-                                <div style={{
-                                    padding: '10px 12px', borderRadius: 8, fontSize: '0.85rem',
-                                    background: payslipTestResult.ok ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
-                                    color: payslipTestResult.ok ? '#86efac' : '#fca5a5',
-                                }}>
-                                    {payslipTestResult.msg}
-                                    {payslipTestResult.ok && payslipTestResult.detail?.emailed === 0 && (
-                                        <div style={{ marginTop: 6, opacity: 0.9 }}>
-                                            If emailed=0, check Render env: RESEND_API_KEY. If SMS=0, check JAZZ_SMS_USER / JAZZ_SMS_PASS / JAZZ_HTTPS_PROXY.
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                        <div style={{ padding: '0 2rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-                            <button type="button" onClick={() => setShowPayslipTestRun(false)}
-                                style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>
-                                Close
-                            </button>
-                            <button type="button" onClick={runPayslipTestDelivery} disabled={payslipTestBusy}
-                                style={{ background: '#0ea5e9', border: 'none', color: 'white', padding: '0.7rem 1.5rem', borderRadius: '8px', cursor: payslipTestBusy ? 'not-allowed' : 'pointer', fontWeight: 700, opacity: payslipTestBusy ? 0.7 : 1 }}>
-                                {payslipTestBusy ? 'Sending…' : 'Send 5 test payslips'}
-                            </button>
                         </div>
                     </div>
                 </div>

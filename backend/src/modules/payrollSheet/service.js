@@ -159,7 +159,12 @@ function sheetCalcFromEngine(computed, ov, inputs) {
     };
 }
 
-async function loadSheetEmployees(pool, { year, month, client, contractId, employeeIds }) {
+function isPayrollRowLocked(sheet) {
+    if (!sheet) return false;
+    return sheet.locked === true || sheet.locked === 't' || String(sheet.locked).toLowerCase() === 'true';
+}
+
+async function loadSheetEmployees(pool, { year, month, client, contractId, location, employeeIds }) {
     const params = [];
     const clauses = [
         `COALESCE(LOWER(TRIM(e.active)), 'yes') IN ('yes', 'true', '1')`,
@@ -172,18 +177,24 @@ async function loadSheetEmployees(pool, { year, month, client, contractId, emplo
         params.push(contractId);
         clauses.push(`e.contract_id = $${params.length}`);
     }
+    if (location) {
+        params.push(location);
+        clauses.push(`LOWER(TRIM(e.location)) = LOWER(TRIM($${params.length}))`);
+    }
     if (employeeIds && employeeIds.length) {
         params.push(employeeIds);
         clauses.push(`e.id = ANY($${params.length}::text[])`);
     }
 
     // Prefer employees already on the sheet for this month; else active roster in filter.
+    // Any explicit scope (ids / client / contract / location) must not expand to the whole sheet.
     const { rows: onSheet } = await pool.query(
         `SELECT DISTINCT employee_id FROM payroll_transactions
          WHERE year = $1 AND month = $2`,
         [year, month],
     );
-    if (onSheet.length && !(employeeIds && employeeIds.length) && !client && !contractId) {
+    const hasScope = !!(employeeIds && employeeIds.length) || !!client || !!contractId || !!location;
+    if (onSheet.length && !hasScope) {
         params.length = 0;
         params.push(onSheet.map((r) => r.employee_id));
         clauses.length = 0;
@@ -240,7 +251,9 @@ async function loadPayrollClaimCompare(pool, year, month, opts = {}) {
  * @param {object} opts
  * @param {string} [opts.client] filter
  * @param {string} [opts.contractId] filter
- * @param {string[]} [opts.employeeIds] filter
+ * @param {string} [opts.location] filter
+ * @param {string[]} [opts.employeeIds] filter — visible Payroll Sheet rows only
+ * @param {boolean} [opts.keepSheetClaimInputs=false] if true, sheet OT/OPD/reimb win over claims
  * @param {boolean} [opts.dryRun=false]
  * canonical fills empty sheet OT/OPD/reimb from claims/attendance/hub;
  * sheet cells already > 0 (typed) always win.
@@ -267,13 +280,12 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         throw err;
     }
 
-    await assertMonthUnlocked(pool, y, m);
-
     const employees = await loadSheetEmployees(pool, {
         year: y,
         month: m,
         client: opts.client,
         contractId: opts.contractId,
+        location: opts.location,
         employeeIds: opts.employeeIds,
     });
     if (!employees.length) {
@@ -356,6 +368,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
     }
 
     const warnings = [];
+    const skippedLocked = [];
     let bonusMap = new Map();
     try {
         bonusMap = loadBonusWorkingMap() || new Map();
@@ -371,6 +384,10 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         const costs = emp.contract_costs || {};
         const financials = emp.contract_financials || {};
         const sheet = txByEmp.get(emp.id) || {};
+        if (isPayrollRowLocked(sheet)) {
+            skippedLocked.push(emp.id);
+            continue;
+        }
 
         let policy = DEFAULT_POLICY;
         if (contractId) {
@@ -421,6 +438,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             sheet,
             monthlyOv,
             attendancePaidDays: attPaidDays,
+            sourceMode,
         });
         const windowDays = paidDaysFromEmploymentWindow(y, m, emp.doj, emp.last_working_day);
         const monthDays = calendarDaysInMonth(m, y) || lastDay;
@@ -605,6 +623,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
         year: y,
         month: m,
         updated: payloads.length,
+        skippedLocked,
         dryRun: !!opts.dryRun,
         claimsMerged: sourceMode === 'canonical' ? portalByEmp.size : 0,
         claimCompare: { byEmployee: claimCompareFromPortalMap(portalByEmp) },
@@ -743,7 +762,8 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                         WHEN payroll_transactions.locked IS TRUE THEN payroll_transactions.salary_used
                         ELSE EXCLUDED.salary_used
                     END,
-                    updated_at = NOW()`
+                    updated_at = NOW()
+                 WHERE COALESCE(payroll_transactions.locked, FALSE) = FALSE`
                 : `INSERT INTO payroll_transactions (
                     month, year, employee_id, paid_days, ot2_hrs, ot3_hrs, opd_claim,
                     reimbursement, arrears, bonus_amount, special_allowance, fuel_mobile,
@@ -800,7 +820,8 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     total_invoice = EXCLUDED.total_invoice,
                     remarks = EXCLUDED.remarks,
                     computed_json = EXCLUDED.computed_json,
-                    updated_at = NOW()`,
+                    updated_at = NOW()
+                 WHERE COALESCE(payroll_transactions.locked, FALSE) = FALSE`,
             includeSalaryUsed
                 ? [
                     months, years, employeeIds, paidDays, ot2, ot3, opd,
@@ -850,7 +871,8 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                         fuel_mobile=$12, other_deduction=$13, advance_deduction=$14, loan_deduction=$15,
                         medical_ee=$16, medical_sp=$17, medical_ch1=$18, medical_ch2=$19,
                         gross=$20, net=$21, wht=$22, eobi_ee=$23, service_charges=$24,
-                        sales_tax=$25, total_invoice=$26, remarks=$27, updated_at=NOW()`,
+                        sales_tax=$25, total_invoice=$26, remarks=$27, updated_at=NOW()
+                    WHERE COALESCE(payroll_transactions.locked, FALSE) = FALSE`,
                 [
                     month, year, p.employee_id,
                     p.ov.paid_days, p.ov.ot2_hrs, p.ov.ot3_hrs, p.ov.opd_claim,
@@ -871,6 +893,7 @@ module.exports = {
     loadPayrollClaimCompare,
     claimCompareFromPortalMap,
     assertMonthUnlocked,
+    isPayrollRowLocked,
     sheetCalcFromEngine,
     resolvePayrollSheetInputs: require('./resolveInputs').resolvePayrollSheetInputs,
     resolvePayrollSheetPaidDays: require('./resolveInputs').resolvePayrollSheetPaidDays,

@@ -67,14 +67,21 @@ function resolvePayrollSheetInputs({
     return { ot1, ot2, ot3, opd, expense };
 }
 
+function hasHubAttendance(monthlyOv) {
+    return !!(monthlyOv && (monthlyOv.present_days != null || monthlyOv.absent_days != null));
+}
+
 /**
  * Paid / present days for Model A.
- * Sheet paid_days wins when set; else hub present_days; else attendance-derived.
+ * sheet_inputs: sheet paid_days wins when set; else hub; else attendance-derived.
+ * canonical (Merge approved Portal Claims): Monthly Cycle / hub attendance
+ * overrides sheet paid_days so absent-day edits load onto the sheet.
  */
 function resolvePayrollSheetPaidDays({
     sheet = {},
     monthlyOv = null,
     attendancePaidDays = 0,
+    sourceMode = 'sheet_inputs',
 }) {
     let presentDaysForModelA = null;
     let absentDaysForModelA = null;
@@ -90,7 +97,8 @@ function resolvePayrollSheetPaidDays({
         }
     }
 
-    if (sheet.paid_days != null && sheet.paid_days !== '') {
+    const hubWins = sourceMode === 'canonical' && hasHubAttendance(monthlyOv);
+    if (!hubWins && sheet.paid_days != null && sheet.paid_days !== '') {
         const spd = num(sheet.paid_days);
         // Keep explicit 0 (unpaid month) — only skip null/empty
         paidDays = spd;

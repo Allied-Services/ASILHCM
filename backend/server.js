@@ -3371,15 +3371,6 @@ app.post('/api/payroll/:year/:month', requireAuth, requirePayrollSheet(pool, 'ed
         const { year, month } = req.params;
         const { rows: incoming = [], inputsOnly = false } = req.body;
 
-        // Check if month is locked
-        const lockCheck = await pool.query(
-            'SELECT locked FROM payroll_transactions WHERE year=$1 AND month=$2 AND locked=TRUE LIMIT 1',
-            [parseInt(year), parseInt(month)]
-        );
-        if (lockCheck.rows.length > 0) {
-            return res.status(403).json({ error: 'Payroll for this month is locked. Unlock it first.' });
-        }
-
         const writeIds = incoming.map((r) => r.employee_id).filter(Boolean);
         if (writeIds.length) {
             const { assertSheetWritable } = require('./src/modules/records/engineFlag');
@@ -3415,6 +3406,7 @@ app.post('/api/payroll/:year/:month', requireAuth, requirePayrollSheet(pool, 'ed
                     fuel_mobile=$12, other_deduction=$13, advance_deduction=$14, loan_deduction=$15,
                     medical_ee=$16, medical_sp=$17, medical_ch1=$18, medical_ch2=$19,
                     ${moneySql}, remarks=$27, updated_at=NOW()
+                WHERE COALESCE(payroll_transactions.locked, FALSE) = FALSE
                 RETURNING employee_id`,
                 [
                     parseInt(month), parseInt(year), employee_id,

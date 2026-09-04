@@ -117,13 +117,48 @@ describe('resolvePayrollSheetInputs — sheet OT must survive hub zeros', () => 
 });
 
 describe('resolvePayrollSheetPaidDays', () => {
-    test('sheet paid_days wins over hub present_days', () => {
+    test('sheet_inputs: sheet paid_days wins over hub present_days', () => {
         const r = resolvePayrollSheetPaidDays({
             sheet: { paid_days: 31 },
             monthlyOv: { present_days: 2 },
             attendancePaidDays: 0,
+            sourceMode: 'sheet_inputs',
         });
         expect(r.paidDays).toBe(31);
+    });
+
+    test('canonical: Monthly Cycle absent/present days override sheet paid_days', () => {
+        const r = resolvePayrollSheetPaidDays({
+            sheet: { paid_days: 31 },
+            monthlyOv: { present_days: 25, absent_days: 5 },
+            attendancePaidDays: 0,
+            sourceMode: 'canonical',
+        });
+        expect(r.paidDays).toBe(25);
+        expect(r.presentDaysForModelA).toBe(25);
+        expect(r.absentDaysForModelA).toBe(5);
+    });
+
+    test('canonical: hub absent_days alone still apply when sheet already has paid_days', () => {
+        const r = resolvePayrollSheetPaidDays({
+            sheet: { paid_days: 30 },
+            monthlyOv: { absent_days: 3 },
+            attendancePaidDays: 0,
+            sourceMode: 'canonical',
+        });
+        expect(r.absentDaysForModelA).toBe(3);
+        expect(r.paidDays).not.toBe(30);
+    });
+});
+
+describe('isPayrollRowLocked', () => {
+    const { isPayrollRowLocked } = require('../src/modules/payrollSheet/service');
+    test('treats true / t / true-string as locked', () => {
+        expect(isPayrollRowLocked({ locked: true })).toBe(true);
+        expect(isPayrollRowLocked({ locked: 't' })).toBe(true);
+        expect(isPayrollRowLocked({ locked: 'true' })).toBe(true);
+        expect(isPayrollRowLocked({ locked: false })).toBe(false);
+        expect(isPayrollRowLocked({})).toBe(false);
     });
 });
 
