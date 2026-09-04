@@ -71,7 +71,7 @@ function registerServiceOrderRoutes(app, deps) {
         'superadmin', 'operations', 'finance_manager', 'finance_approver',
         'ar_team', 'payroll_initiator', 'payroll'
     );
-    const contractWriteRoles = requireRole('superadmin', 'operations');
+    const contractWriteRoles = requireRole('superadmin', 'operations', 'finance_manager');
 
     app.get('/api/fixed-value/contracts', requireAuth, readRoles, async (req, res) => {
         try {

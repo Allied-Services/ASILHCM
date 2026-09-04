@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-03 — Finance manager can edit Fixed Value contracts / SO lines
+`finance_manager` (Huzaifa) can create/edit Fixed Value contracts and SO Lines. Backend `contractWriteRoles` and the FV wizard `canEditContract` now include that role. Monthly Cycle Setup/People honor the same finance-manager write access. User Management gained a `monthly_cycle` module with `edit`.
+
+**Env vars needed:** none.
+
 ### 2026-09-03 — Live email/SMS on (August payslip Go-red)
 `COMMUNICATIONS_ENABLED` unset now means **on** only for live production (`asilhcm.onrender.com` + `NODE_ENV=production`). Explicit `off` still blocks. Staging documented `off`. Payslip SMS skip from the gate reports `communications_off` instead of `sms_rejected`.
 
