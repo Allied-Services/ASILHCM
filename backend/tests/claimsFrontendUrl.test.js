@@ -26,4 +26,14 @@ describe('claimsFrontendUrl', () => {
         process.env.FRONTEND_URL = 'https://example.com/';
         expect(claimsFrontendUrl()).toBe('https://example.com');
     });
+
+    test('maps the legacy production Render frontend to the canonical host', () => {
+        process.env.FRONTEND_URL = 'https://asil-hcm-frontend.onrender.com';
+        expect(claimsFrontendUrl()).toBe(CANONICAL);
+    });
+
+    test('keeps the staging Render frontend', () => {
+        process.env.FRONTEND_URL = 'https://asil-hcm-frontend-staging.onrender.com';
+        expect(claimsFrontendUrl()).toBe('https://asil-hcm-frontend-staging.onrender.com');
+    });
 });

@@ -13,6 +13,7 @@ import {
   prevStep,
   isMeaningfulOtRow,
   attachmentsForSupportType,
+  fillExperienceFromPack,
 } from './claimsFillHelpers.js';
 
 describe('claimsFillHelpers', () => {
@@ -61,6 +62,26 @@ describe('claimsFillHelpers', () => {
     ];
     assert.equal(attachmentsForSupportType(attachments, 'expense').length, 1);
     assert.equal(attachmentsForSupportType(attachments, 'medical').length, 1);
+  });
+
+  it('machine file pack is file-only and lists Attendance', () => {
+    const exp = fillExperienceFromPack({
+      enabled_types: ['ATTENDANCE', 'OT', 'EXPENSE', 'MEDICAL'],
+      collection_mode: 'machine_file',
+    });
+    assert.equal(exp.fileOnly, true);
+    assert.equal(exp.showOnScreen, false);
+    assert.equal(exp.hasAttendance, true);
+    assert.match(exp.typeList, /Attendance/);
+  });
+
+  it('monthly form pack keeps on-screen entry', () => {
+    const exp = fillExperienceFromPack({
+      enabled_types: ['OT', 'EXPENSE', 'MEDICAL'],
+      collection_mode: 'monthly_form',
+    });
+    assert.equal(exp.fileOnly, false);
+    assert.equal(exp.showOnScreen, true);
   });
 });
 

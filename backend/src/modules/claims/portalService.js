@@ -61,6 +61,7 @@ const {
     isJuly2026TrialPeriod,
 } = require('./claimsReminders');
 const { firstValidPkMobile } = require('../../../lib/sms');
+const { fillExperienceFromPack, inviteHowToHtml, inviteWhyHtml } = require('./claimsFillExperience');
 
 const FILL_OPEN_DAY = parseInt(process.env.CLAIMS_FILL_OPEN_DAY || '1', 10);
 const FILL_CLOSE_DAY = parseInt(process.env.CLAIMS_FILL_CLOSE_DAY || '18', 10);
@@ -75,12 +76,21 @@ const {
     hasApproveDeadline,
 } = require('./claimsPolicy');
 const PRODUCTION_FRONTEND_URL = 'https://hcm.asil.com.pk';
+const STAGING_FRONTEND_HOST = 'asil-hcm-frontend-staging.onrender.com';
+const LEGACY_PROD_FRONTEND_HOSTS = [
+    'asil-hcm-frontend.onrender.com',
+    'asilhcm.onrender.com',
+];
 
 /** Resolve at send time — never emit localhost from a laptop .env on ACTUAL mail. */
 function claimsFrontendUrl() {
     const raw = String(process.env.FRONTEND_URL || PRODUCTION_FRONTEND_URL).trim().replace(/\/$/, '');
-    if (/localhost|127\.0\.0\.1/i.test(raw)) return PRODUCTION_FRONTEND_URL;
-    return raw || PRODUCTION_FRONTEND_URL;
+    if (!raw || /localhost|127\.0\.0\.1/i.test(raw)) return PRODUCTION_FRONTEND_URL;
+    let host = '';
+    try { host = new URL(raw).hostname.toLowerCase(); } catch { /* keep empty */ }
+    if (host === STAGING_FRONTEND_HOST) return raw;
+    if (LEGACY_PROD_FRONTEND_HOSTS.includes(host)) return PRODUCTION_FRONTEND_URL;
+    return raw;
 }
 /** immediate | daily | day22 — when approvers get email digests */
 const APPROVER_NOTIFY_MODE = String(process.env.CLAIMS_APPROVER_NOTIFY_MODE || 'immediate').toLowerCase();
@@ -703,12 +713,16 @@ async function createCampaign(pool, {
     });
 }
 
-function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail, employees = [] }) {
+function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail, employees = [], pack = {} }) {
+    const experience = fillExperienceFromPack(pack);
     const settleLabel = `${period.settlement_month || ''}/${period.settlement_year || ''}`.replace(/^\/|\/$/g, '') || 'the following month';
     const claimLabel = `${period.claim_month}/${period.claim_year}`;
     const empList = (employees || [])
         .map(e => `<li style="margin:4px 0"><strong>${e.id || ''}</strong> — ${e.name || 'Employee'}</li>`)
         .join('');
+    const closeHint = hasSubmitDeadline(period) || period.submit_deadline_day
+        ? ` (by day ${period.submit_deadline_day || FILL_CLOSE_DAY})`
+        : '';
     return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:24px 12px">
 <tr><td align="center">
@@ -724,32 +738,21 @@ function buildFillerInviteHtml({ period, employeeCount, link, fillerEmail, emplo
     ${empList ? `<p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">Your employees</p>
     <ul style="margin:0 0 16px;padding-left:20px;color:#334155;font-size:14px;line-height:1.55">${empList}</ul>` : ''}
     <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">Why this process</p>
-    <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#475569">
-      Due to compilation errors in earlier claim cycles, we are now <strong>fully automating</strong> OT, Expense, and Medical claims
-      to avoid delays and errors when disbursing overtime and expense/medical refunds.
-    </p>
-    <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What you should do (by day ${FILL_CLOSE_DAY})</p>
-    <ol style="margin:0 0 16px;padding-left:20px;color:#334155;font-size:14px;line-height:1.6">
-      <li>Open the secure form (no password — this link is personal to you).</li>
-      <li><strong>Option A:</strong> Download <em>your</em> Excel (Code/Name already filled), complete claim columns only, and upload it.<br/>
-          <strong>Option B:</strong> Enter OT / Expense Reimbursement / Medical on screen for each employee.</li>
-      <li>Upload <strong>two separate support files</strong> if you have Expense or Medical claims:<br/>
-          (1) Expense receipts / bills &nbsp; (2) Medical receipts / prescriptions.</li>
-      <li>If there is nothing to claim for an employee, tap <strong>Confirm No Claims</strong>.</li>
-      <li>Submit — your Line Manager will review.</li>
-    </ol>
-    <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px">
+    ${inviteWhyHtml(experience)}
+    <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What you should do${closeHint}</p>
+    ${inviteHowToHtml(experience, { fillCloseDay: period.submit_deadline_day || FILL_CLOSE_DAY })}
+    ${(experience.hasExpense || experience.hasMedical) ? `<p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px">
       <strong>Important:</strong> If there are no supports for Medical and Expense claims, those refunds <strong>will not be processed</strong>.
-    </p>
+    </p>` : ''}
     <p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#0f172a">What happens next</p>
     <ul style="margin:0 0 18px;padding-left:20px;color:#475569;font-size:14px;line-height:1.6">
       <li>Line Manager approves or rejects (by day ${APPROVE_CLOSE_DAY} of the claim month).</li>
       <li>You get an email when a decision is made.</li>
       <li>Approved amounts go into payroll for <strong>${settleLabel}</strong> salary.</li>
-      <li><strong>OT tip:</strong> enter <strong>OT Start / OT End</strong> for overtime after normal duty (not the full shift). Prefer <strong>2×</strong>; <strong>3×</strong> only on gazetted public/festival holidays.</li>
+      ${experience.hasOt ? `<li><strong>OT tip:</strong> enter <strong>OT Start / OT End</strong> for overtime after normal duty (not the full shift). Prefer <strong>2×</strong>; <strong>3×</strong> only on gazetted public/festival holidays.</li>` : ''}
     </ul>
     <p style="margin:0 0 18px">
-      <a href="${link}" style="display:inline-block;background:#2563eb;color:#fff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">Open claims form</a>
+      <a href="${link}" style="display:inline-block;background:#2563eb;color:#fff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">${experience.fileOnly ? 'Open file upload' : 'Open claims form'}</a>
     </p>
     <p style="margin:0;font-size:12px;color:#64748b;word-break:break-all">If the button does not work, copy this link:<br/>${link}</p>
     <p style="margin:18px 0 0;font-size:13px;color:#475569">
@@ -1078,13 +1081,29 @@ async function saveSubmissionItems(pool, {
 
     // Intentional submit with nothing to claim → force user to use Confirm No Claims
     if (!normalized.length && !asDraft && !skipSupportCheck) {
-        const typeHint = enabledTypes.join(' / ') || 'claims';
-        return {
-            ok: false,
-            status: 400,
-            error: `No valid claim lines to submit. Add ${typeHint} with a date and hours/amount for `
-                + `${claimMonthLabel(period)}, or tap Confirm No Claims.`,
-        };
+        const saveExperience = fillExperienceFromPack(contractPolicy);
+        if (saveExperience.fileOnly && saveExperience.hasAttendance) {
+            const { rows: fileAtts } = await pool.query(
+                `SELECT category FROM portal_claim_attachments WHERE submission_id = $1`,
+                [sub.id]
+            );
+            const hasWorkbook = fileAtts.some((a) => String(a.category || '').toLowerCase() === 'excel_workbook');
+            if (!hasWorkbook) {
+                return {
+                    ok: false,
+                    status: 400,
+                    error: 'Upload the filled contract file first, or tap Confirm No Claims.',
+                };
+            }
+        } else {
+            const typeHint = enabledTypes.join(' / ') || 'claims';
+            return {
+                ok: false,
+                status: 400,
+                error: `No valid claim lines to submit. Add ${typeHint} with a date and hours/amount for `
+                    + `${claimMonthLabel(period)}, or tap Confirm No Claims.`,
+            };
+        }
     }
 
     // Require separate supports for expense and medical on Submit (not on Excel draft import)
@@ -1292,10 +1311,39 @@ async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
     const buf = Buffer.from(contentBase64, 'base64');
     if (buf.length > 12 * 1024 * 1024) return { ok: false, status: 400, error: 'File too large (max 12MB)' };
 
-    const parsed = parseMasterClaimsWorkbook(buf, { allowedEmployeeIds: allowed });
+    const importPack = await getClaimsPolicy(pool, subs[0]?.contract_id);
+    const parsed = parseMasterClaimsWorkbook(buf, {
+        allowedEmployeeIds: allowed,
+        enabledTypes: importPack.enabled_types,
+    });
     const parseErrors = parsed.errors || [];
+    const importExperience = fillExperienceFromPack(importPack);
 
     if (parsed.itemsByEmployee.size === 0) {
+        if (importExperience.hasAttendance && importExperience.fileOnly) {
+            const firstEmp = allowed[0];
+            if (firstEmp) {
+                await addAttachment(pool, {
+                    token,
+                    employeeId: firstEmp,
+                    filename: filename || 'claims_workbook.xlsx',
+                    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    contentBase64,
+                    category: 'excel_workbook',
+                }).catch(() => {});
+            }
+            return {
+                ok: true,
+                warnings: parsed.warnings,
+                parseErrors,
+                sheetNames: parsed.sheetNames,
+                results: [],
+                employeesTouched: firstEmp ? 1 : 0,
+                needsExpenseSupport: false,
+                needsMedicalSupport: false,
+                message: 'File stored. Attendance is kept with the upload. Add Overtime / Expense / Medical rows in the file if those types are enabled, then Submit.',
+            };
+        }
         const detail = parseErrors.length
             ? parseErrors.join('; ')
             : 'No claim rows found. Fill Date + Hours/Amount on the prefilled employee rows (do not change Employee Code).';
@@ -1402,7 +1450,7 @@ async function buildPersonalizedTemplateForToken(pool, token) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
     const { rows } = await pool.query(
-        `SELECT s.employee_id AS id, e.name, e.dept, e.location,
+        `SELECT s.employee_id AS id, e.name, e.dept, e.location, e.contract_id,
                 COALESCE(e.line_manager_name, '') AS line_manager_name
          FROM portal_claim_submissions s
          JOIN employees e ON e.id = s.employee_id
@@ -1410,11 +1458,14 @@ async function buildPersonalizedTemplateForToken(pool, token) {
          ORDER BY e.name`,
         [batch.id]
     );
+    const pack = await getClaimsPolicy(pool, rows[0]?.contract_id);
     const opts = {
         claimMonth: batch.claim_month,
         claimYear: batch.claim_year,
         templatePath: getMasterClaimsTemplatePath(),
         holidayDates: listGazettedHolidayDates(),
+        enabledTypes: pack.enabled_types,
+        collectionMode: pack.collection_mode,
     };
     let buf;
     try {

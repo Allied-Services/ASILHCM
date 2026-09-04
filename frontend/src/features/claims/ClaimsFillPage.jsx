@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { validateOtRowClient, otRateHintForDate } from './claimsTimeParse.js';
 import {
   buildWizardSteps,
+  fillExperienceFromPack,
   STEP_LABELS,
   nextStep,
   prevStep,
@@ -147,6 +148,10 @@ export default function ClaimsFillPage() {
   };
 
   const sub = data?.submissions?.find((s) => s.employee_id === selected);
+  const experience = useMemo(
+    () => fillExperienceFromPack(sub || data?.contractPack),
+    [sub, data?.contractPack],
+  );
   const wizardSteps = useMemo(
     () => buildWizardSteps(sub?.enabled_types || data?.contractPack?.enabled_types),
     [sub?.enabled_types, data?.contractPack?.enabled_types],
@@ -160,7 +165,10 @@ export default function ClaimsFillPage() {
   const isSelfFinalApproved = locked && ['lm_only', 'focal_only'].includes(sub?.routing_profile) && sub?.status === 'approved';
   const people = sub ? buildClaimPeopleStory(sub) : null;
   const canEdit = !locked && !fillClosed;
-  const canSubmit = !busy && canEdit && summary.supportBlockers.length === 0 && summary.totals.lineCount > 0;
+  const hasWorkbook = atts.some((a) => String(a.category || '').toLowerCase() === 'excel_workbook');
+  const fileReady = summary.totals.lineCount > 0
+    || (experience.fileOnly && experience.hasAttendance && hasWorkbook);
+  const canSubmit = !busy && canEdit && summary.supportBlockers.length === 0 && fileReady;
 
   const save = async (confirmNoClaims = false, asDraft = false) => {
     setBusy(true);
@@ -366,7 +374,7 @@ export default function ClaimsFillPage() {
       </div>
       )}
 
-      <HowItWorks templateHref={templateHref} />
+      <HowItWorks templateHref={templateHref} experience={experience} />
 
       <div ref={feedbackRef} />
       {error && <Alert tone="bad"><pre className="claims-pre">{error}</pre></Alert>}
@@ -378,16 +386,22 @@ export default function ClaimsFillPage() {
       )}
 
       <div className="claims-card">
-        <div className="claims-card-title">Option A — Excel (recommended)</div>
+        <div className="claims-card-title">
+          {experience.fileOnly ? 'Your contract file' : 'Option A — Excel (recommended)'}
+        </div>
         <p className="claims-body-sm">
-          Download <strong>your</strong> workbook — Employee Code and Name are already filled. Upload loads a <strong>draft</strong>.
-          If the file has Expense or Medical amounts, upload support files before final submit.
+          Download <strong>your</strong> workbook for <strong>{experience.typeList}</strong> — Employee Code and Name are already filled.
+          {experience.fileOnly
+            ? ' Upload the filled file, then submit. This contract does not use on-screen entry.'
+            : ' Upload loads a draft. If the file has Expense or Medical amounts, upload support files before final submit.'}
         </p>
         <div className="claims-actions">
-          <a href={templateHref} className="claims-btn-primary" download>Download my Excel (prefilled)</a>
+          <a href={templateHref} className="claims-btn-primary" download>
+            {experience.fileOnly ? 'Download my file (prefilled)' : 'Download my Excel (prefilled)'}
+          </a>
           {canEdit && (
             <label className="claims-btn-ghost claims-file-label">
-              Upload filled Excel
+              {experience.fileOnly ? 'Upload filled file' : 'Upload filled Excel'}
               <input type="file" accept=".xlsx,.xls" hidden disabled={busy} onChange={(e) => { uploadExcel(e.target.files?.[0]); e.target.value = ''; }} />
             </label>
           )}
@@ -395,7 +409,9 @@ export default function ClaimsFillPage() {
       </div>
 
       <div className="claims-card claims-card-main">
-        <div className="claims-card-title">Option B — Enter on screen (step by step)</div>
+        <div className="claims-card-title">
+          {experience.showOnScreen ? 'Option B — Enter on screen (step by step)' : 'Your employees'}
+        </div>
         <div className="claims-fill-grid">
           <aside className="claims-sidebar">
             <div className="claims-sidebar-label">YOUR EMPLOYEES</div>
@@ -432,12 +448,12 @@ export default function ClaimsFillPage() {
                   <ClaimSummaryPanel
                     summary={summary}
                     claimLabel={claimLabel}
-                    onEditStep={setWizardStep}
-                    readOnly={submittedLocked && !canEdit}
+                    onEditStep={experience.showOnScreen ? setWizardStep : undefined}
+                    readOnly={submittedLocked && !canEdit || experience.fileOnly}
                   />
                 )}
 
-                <div className="claims-steps" role="tablist" aria-label="Claim entry steps">
+                {experience.showOnScreen && <div className="claims-steps" role="tablist" aria-label="Claim entry steps">
                   {wizardSteps.map((s, i) => {
                     const count = stepCounts[s];
                     const done = s === 'review'
@@ -459,7 +475,7 @@ export default function ClaimsFillPage() {
                   })}
                 </div>
 
-                {wizardStep === 'ot' && (
+                {experience.showOnScreen && wizardStep === 'ot' && (
                   <Section title="Step 1 — Overtime">
                     <Hint>
                       Only dates in <strong>{claimLabel}</strong> are accepted.
@@ -519,7 +535,7 @@ export default function ClaimsFillPage() {
                   </Section>
                 )}
 
-                {wizardStep === 'expense' && (
+                {experience.showOnScreen && wizardStep === 'expense' && (
                   <Section title="Step 2 — Expense Reimbursement">
                     {expRows.length === 0 && <p className="claims-muted">No expense lines yet — add one if needed.</p>}
                     {expRows.map((row, i) => (
@@ -546,7 +562,7 @@ export default function ClaimsFillPage() {
                   </Section>
                 )}
 
-                {wizardStep === 'medical' && (
+                {experience.showOnScreen && wizardStep === 'medical' && (
                   <Section title="Step 3 — Medical Reimbursement">
                     {medRows.length === 0 && <p className="claims-muted">No medical lines yet — add one if needed.</p>}
                     {medRows.map((row, i) => (
@@ -574,7 +590,7 @@ export default function ClaimsFillPage() {
                   </Section>
                 )}
 
-                {wizardStep === 'supports' && (
+                {experience.showOnScreen && wizardStep === 'supports' && (
                   <Section title="Step 4 — Supports — upload matching receipts">
                     <Hint>
                       Upload support files only for claim types you entered above.
@@ -614,7 +630,7 @@ export default function ClaimsFillPage() {
                   </Section>
                 )}
 
-                {wizardStep === 'review' && (
+                {experience.showOnScreen && wizardStep === 'review' && (
                   <Section title="Step 5 — Review & Confirm">
                     <Hint>
                       Check every line below. When everything looks correct, click <strong>Confirm &amp; Submit</strong>.
@@ -646,9 +662,34 @@ export default function ClaimsFillPage() {
                   </Section>
                 )}
 
+                {experience.fileOnly && (summary.hasExpense || summary.hasMedical) && canEdit && (
+                  <Section title="Support files">
+                    <div className="claims-upload-grid">
+                      {summary.hasExpense && (
+                        <label className="claims-upload-label">
+                          Expense supports
+                          {!summary.hasExpenseSupport ? <span className="claims-required"> (required)</span> : null}
+                          <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" className="claims-file-input"
+                            onChange={(e) => { uploadSupport(e.target.files?.[0], 'expense_support'); e.target.value = ''; }} />
+                        </label>
+                      )}
+                      {summary.hasMedical && (
+                        <label className="claims-upload-label">
+                          Medical supports
+                          {!summary.hasMedicalSupport ? <span className="claims-required"> (required)</span> : null}
+                          <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" className="claims-file-input"
+                            onChange={(e) => { uploadSupport(e.target.files?.[0], 'medical_support'); e.target.value = ''; }} />
+                        </label>
+                      )}
+                    </div>
+                  </Section>
+                )}
+                {experience.fileOnly && !fileReady && canEdit && (
+                  <Alert tone="warn">Upload the filled contract file first, or tap Confirm No Claims.</Alert>
+                )}
                 {canEdit && (
                   <div className="claims-footer-actions">
-                    {wizardStep === 'review' ? (
+                    {(experience.fileOnly || wizardStep === 'review') ? (
                       <button type="button" disabled={!canSubmit} onClick={() => save(false, false)} className="claims-btn-primary">
                         Confirm &amp; Submit
                       </button>
@@ -778,13 +819,29 @@ function StepNavButtons({ step, steps, setStep, onGoReview, canEdit, nextLabel }
   );
 }
 
-function HowItWorks({ templateHref }) {
+function HowItWorks({ templateHref, experience }) {
+  const types = experience?.typeList || 'the claim types on this contract';
+  if (experience?.fileOnly) {
+    return (
+      <div className="claims-card claims-card-muted">
+        <div className="claims-card-title">How this works (simple)</div>
+        <ol className="claims-how-list">
+          <li>Download <a href={templateHref} className="claims-link">your contract file</a>. Codes and names are already filled.</li>
+          <li>Complete only <strong>{types}</strong>, then upload the same file. There is no on-screen form for this contract.</li>
+          {(experience.hasExpense || experience.hasMedical) && (
+            <li>Upload support files if you claimed Expense or Medical. Review &amp; Confirm before submit.</li>
+          )}
+          <li>Questions: <a href="mailto:ops-support@asil.com.pk" className="claims-link">ops-support@asil.com.pk</a></li>
+        </ol>
+      </div>
+    );
+  }
   return (
     <div className="claims-card claims-card-muted">
       <div className="claims-card-title">How this works (simple)</div>
       <ol className="claims-how-list">
         <li><strong>Option A:</strong> Download <a href={templateHref} className="claims-link">your Excel</a>. <strong>Option B:</strong> enter step-by-step — all lines stay visible in the summary.</li>
-        <li>Add OT, Expense, and Medical on separate steps. Click any step number to jump back.</li>
+        <li>Add {types} on separate steps. Click any step number to jump back.</li>
         <li>Upload support files if you claimed Expense or Medical, then Review &amp; Confirm before submit.</li>
         <li>Questions: <a href="mailto:ops-support@asil.com.pk" className="claims-link">ops-support@asil.com.pk</a></li>
       </ol>

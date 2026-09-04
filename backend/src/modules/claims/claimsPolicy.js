@@ -174,6 +174,7 @@ module.exports = {
     getDefaultClaimsPolicy,
     upsertClaimsPolicy,
     normalizeEnabledTypes,
+    normalizeCollectionMode,
     normalizeDeadlineMonth,
     parseOptionalDeadlineDay,
     inferCalendarApply,

@@ -159,4 +159,33 @@ describe('createCampaignAugust preview', () => {
         });
         expect(result.employees.map((e) => e.id)).toEqual(['ASIL-2']);
     });
+
+    it('machine-file pack email is file-only on the public host', async () => {
+        const { buildFillerInviteHtml } = require('../src/modules/claims/portalService');
+        countEligibleEmployees.mockResolvedValue({
+            eligible: [{
+                ...FOCAL,
+                client: 'Pakistan State Oil Company Limited',
+                contract_id: 'CTR-PSO-JAN',
+                contract_name: 'Janitorial',
+                enabled_types: ['ATTENDANCE', 'OT', 'EXPENSE', 'MEDICAL'],
+                collection_mode: 'machine_file',
+            }],
+            skipped: [],
+            rules: [],
+        });
+        const result = await createCampaignAugust(pool, {
+            period: { ...period },
+            preview: true,
+            campaignMode: 'actual',
+            FRONTEND_URL: 'https://hcm.asil.com.pk',
+            buildFillerInviteHtml,
+        });
+        const html = result.recipients[0].html;
+        expect(result.recipients[0].link).toMatch(/^https:\/\/hcm\.asil\.com\.pk\/\?asil_claims=fill/);
+        expect(html).not.toMatch(/Option B/);
+        expect(html).toMatch(/Attendance/);
+        expect(html).toMatch(/upload the same file/);
+        expect(html).toMatch(/Open file upload/);
+    });
 });
