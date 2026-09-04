@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-04 — PSO client/contract cleanup (GO RED)
+MD phrase: `Go red: clean PSO clients and contracts from the cleanup workbook`. Canonical client `CLI-PSO-NORTH-ZONE` / Pakistan State Oil Company Limited. `CLT-1773037649309` Ltd deactivated. 6 contracts moved onto canonical client. Conservancy GB/KPK/Punjab set Cancelled + headcount 0. 428 employee client labels Ltd→Limited. 4 people assigned (Dabeer + Zeeshan → North Zone; Arshad → Janitorial; Zubair → Operations Handling). Text relabel on bills/invoices/challans/receipts/focals/supervisor_teams. Salary/bank/payroll rows not written. Proof: `ASIL/PSO-180/25` Dabeer Ahmad client Limited, contract `CTR-PSO-NORTH-ZONE`. Audit: `audit/cutover/pso_client_contract_cleanup_report.json`.
+
+**Env vars needed:** none.
+
 ### 2026-09-04 — Employee Information search-first directory
 Employee Information no longer calls `GET /api/employees` on open. Cascading filters (ASIL BU → Client → Contract → Client BU → Location → Department) read org masters. `GET /api/employees/directory` returns a slim paginated list after search (2+ chars), an org filter, or Browse Active. `GET /api/employees` is unchanged for Payroll Sheet and other screens.
 
