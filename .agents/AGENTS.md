@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-05 — Payroll Sheet typed Paid Days survive Calculate
+Default Calculate (`sheet_inputs`) keeps the PD DAYS number the operator typed and prorates from it. It no longer lifts 22–27 to the calendar month or forces August back to 31 because Monthly Cycle has a blank absent row. Merge approved Portal Claims (canonical) still pulls hub attendance. Employment-window cap (join/exit) unchanged.
+
+**Env vars needed:** none.
+
 ### 2026-09-05 — Payslip email drops the portal website link
 Payslip cover email no longer includes a Portal URL. Attachment, CNIC password, and ops-support address are unchanged.
 

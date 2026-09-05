@@ -450,12 +450,19 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             });
             continue;
         }
-        const hasExplicitAbsent = absentDaysForModelA != null && absentDaysForModelA !== '';
-        if (windowDays < monthDays) {
+        const sheetHasPaidDays = sheet.paid_days != null && sheet.paid_days !== '';
+        const honorSheetPaidDays = sourceMode === 'sheet_inputs' && sheetHasPaidDays;
+        const hasExplicitAbsent = !honorSheetPaidDays
+            && absentDaysForModelA != null && absentDaysForModelA !== '';
+        if (honorSheetPaidDays) {
+            // Operator typed PD DAYS — keep it (capped by days employed this month).
+            paidDays = Math.min(num(sheet.paid_days), windowDays);
+            presentDaysForModelA = paidDays;
+        } else if (windowDays < monthDays) {
             paidDays = windowDays;
             presentDaysForModelA = windowDays;
         } else if (!hasExplicitAbsent) {
-            // Full month: calendar days (Excel). Stale 28 / weekday 26 must not stick.
+            // No typed days and no hub absent: default to the calendar month.
             paidDays = windowDays;
             if (presentDaysForModelA == null || presentDaysForModelA < windowDays) {
                 presentDaysForModelA = windowDays;
@@ -571,6 +578,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             sheetPaidDays: sheet.paid_days,
             modelABasis,
             calendarDays: lastDay,
+            honorSheetPaidDays,
         });
         const persistPaidDays = modelAFlags.persistPaidDays;
         const engineFlags = { ...modelAFlags };
