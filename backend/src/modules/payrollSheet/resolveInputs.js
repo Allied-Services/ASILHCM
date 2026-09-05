@@ -132,11 +132,14 @@ function liftPaidDaysToCalendarMonth(paidDays, calendarDays, { explicitAbsent = 
 /**
  * Model A flags for Payroll Sheet Calculate.
  *
- * Paid Days default to the calendar month (30/31). A stored 26 (weekdays)
- * is Sundays-paid, not four days unpaid — otherwise 40,000 + OT 11,154
- * becomes Gross 45,821 instead of 51,154.
+ * Default (inferred / Excel import): Paid Days are the calendar month (30/31).
+ * A stored 26 (weekdays) is Sundays-paid, not four days unpaid — otherwise
+ * 40,000 + OT 11,154 becomes Gross 45,821 instead of 51,154.
  *
- * Leave / Other Deduction cut pay. Do not shrink Paid Days for Sundays.
+ * honorSheetPaidDays (default Calculate / sheet_inputs): the PD DAYS cell is
+ * an operator input. Keep it and prorate. Do not lift 26→31 or force 31
+ * because Monthly Cycle has a blank absent row.
+ *
  * Mid-month joiners with a real short calendar count (e.g. 20) still prorate.
  */
 function resolveSheetModelAComputeInput({
@@ -147,12 +150,25 @@ function resolveSheetModelAComputeInput({
     sheetPaidDays,
     modelABasis = 30,
     calendarDays,
+    honorSheetPaidDays = false,
 }) {
     const cal = num(calendarDays, 0) || num(modelABasis, 30) || 30;
+    const hasExplicitSheet = sheetPaidDays != null && sheetPaidDays !== '';
+    if (honorSheetPaidDays && hasExplicitSheet) {
+        const capped = Math.min(Math.max(0, num(sheetPaidDays)), cal);
+        return {
+            modelA: true,
+            presentDays: capped,
+            expectedDays: cal,
+            calendarBasis: cal,
+            absentDays: Math.max(0, cal - capped),
+            persistPaidDays: capped,
+        };
+    }
     const hasExplicitAbsent = absentDaysForModelA != null && absentDaysForModelA !== '';
-    const raw = sheetPaidDays == null || sheetPaidDays === ''
-        ? num(paidDays, 0)
-        : num(sheetPaidDays);
+    const raw = hasExplicitSheet
+        ? num(sheetPaidDays)
+        : num(paidDays, 0);
     const lifted = liftPaidDaysToCalendarMonth(raw || num(paidDays, 0), cal, {
         explicitAbsent: hasExplicitAbsent,
     });

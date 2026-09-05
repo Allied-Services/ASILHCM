@@ -271,6 +271,66 @@ describe('resolveSheetModelAComputeInput — Paid Days are the calendar month', 
         expect(row.gross).toBe(Math.round(40000 * 27 / 31) + 11154);
     });
 
+    test('honorSheetPaidDays: typed 28 on August stays 28 and prorates 28/31', () => {
+        const flags = resolveSheetModelAComputeInput({
+            paidDays: 31,
+            workingDays: 26,
+            presentDaysForModelA: 31,
+            absentDaysForModelA: 0,
+            sheetPaidDays: 28,
+            modelABasis: 30,
+            calendarDays: 31,
+            honorSheetPaidDays: true,
+        });
+        expect(flags.persistPaidDays).toBe(28);
+        expect(flags.presentDays).toBe(28);
+        expect(flags.absentDays).toBe(3);
+        expect(flags.expectedDays).toBe(31);
+        const row = computePrSheetRow({
+            newSalary: 40000,
+            ot2: 0,
+            month: 8,
+            year: 2026,
+            modelA: flags.modelA,
+            presentDays: flags.presentDays,
+            expectedDays: flags.expectedDays,
+            calendarBasis: flags.calendarBasis,
+            absentDays: flags.absentDays,
+        }, OT_POLICY);
+        expect(row.salaryForDays).toBe(Math.round(40000 * 28 / 31));
+    });
+
+    test('honorSheetPaidDays: typed 26 is operator input, not weekday-lift to 31', () => {
+        const flags = resolveSheetModelAComputeInput({
+            paidDays: 31,
+            workingDays: 26,
+            presentDaysForModelA: 31,
+            absentDaysForModelA: null,
+            sheetPaidDays: 26,
+            modelABasis: 30,
+            calendarDays: 31,
+            honorSheetPaidDays: true,
+        });
+        expect(flags.persistPaidDays).toBe(26);
+        expect(flags.presentDays).toBe(26);
+        expect(flags.absentDays).toBe(5);
+    });
+
+    test('honorSheetPaidDays: hub absent_days=0 must not force Paid Days back to 31', () => {
+        const flags = resolveSheetModelAComputeInput({
+            paidDays: 31,
+            workingDays: 26,
+            presentDaysForModelA: 31,
+            absentDaysForModelA: 0,
+            sheetPaidDays: 29,
+            modelABasis: 30,
+            calendarDays: 31,
+            honorSheetPaidDays: true,
+        });
+        expect(flags.persistPaidDays).toBe(29);
+        expect(flags.presentDays).toBe(29);
+    });
+
     test('mid-month 20 calendar days prorates 20/31, not 20/26', () => {
         const flags = resolveSheetModelAComputeInput({
             paidDays: 20,

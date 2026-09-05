@@ -640,7 +640,12 @@ const EditableCell = memo(function EditableCell({ empId, field, value, locked, w
                 disabled={locked}
                 title={note || undefined}
                 onChange={e => { if (!locked) setLocalVal(e.target.value); }}
-                onBlur={e => { if (!locked) setOv(empId, field, e.target.value); }}
+                onBlur={e => {
+                    if (locked) return;
+                    const raw = e.target.value;
+                    const parsed = raw === '' ? '' : parseFloat(raw);
+                    setOv(empId, field, Number.isFinite(parsed) ? parsed : raw);
+                }}
                 style={{
                     width: w,
                     background: locked ? 'transparent' : 'rgba(56,189,248,0.07)',
