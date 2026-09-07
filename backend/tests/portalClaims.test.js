@@ -113,6 +113,27 @@ describe('portalClaims helpers', () => {
         }), true);
     });
 
+    it('August 2026 stays open on 7 Sep when contract deadline is following month even if DB close is stale', () => {
+        const { isFillClosedForPolicy } = require('../src/modules/claims/portalService');
+        const august = {
+            claim_month: 8,
+            claim_year: 2026,
+            fill_close_at: '2026-08-18T18:59:59.000Z',
+            approve_close_at: '2026-08-22T18:59:59.000Z',
+            campaign_mode: 'actual',
+        };
+        const wafiPolicy = {
+            calendar_apply: true,
+            claims_pay_timing: 'following_month',
+            submit_deadline_day: 18,
+            approve_deadline_day: 22,
+            submit_deadline_month: 'following_month',
+            approve_deadline_month: 'following_month',
+        };
+        const now = Date.parse('2026-09-07T12:00:00Z');
+        assert.equal(isFillClosedForPolicy(august, wafiPolicy, now), false);
+    });
+
     it('sendFillerBatchReminder does not mail after July fill close', async () => {
         const { sendFillerBatchReminder } = require('../src/modules/claims/portalService');
         let mailed = false;
@@ -153,6 +174,44 @@ describe('portalClaims helpers', () => {
         assert.equal(r.ok, false);
         assert.equal(r.reason, 'approve_closed');
         assert.equal(mailed, false);
+    });
+
+    it('refreshPeriodClaimWindow extends fill_closed periods and can reopen', async () => {
+        const { refreshPeriodClaimWindow, periodWindowFromClaim } = require('../src/modules/claims/portalService');
+        let updated = false;
+        const pool = {
+            query: async (sql, params) => {
+                updated = true;
+                assert.match(String(sql), /status IN \('open', 'fill_closed'\)/);
+                assert.equal(params[3], true);
+                return {
+                    rows: [{
+                        id: 3,
+                        status: 'open',
+                        fill_close_at: params[1],
+                        approve_close_at: params[2],
+                    }],
+                };
+            },
+        };
+        const w = periodWindowFromClaim(2026, 8, {
+            calendar_apply: true,
+            claims_pay_timing: 'following_month',
+            submit_deadline_day: 18,
+            approve_deadline_day: 22,
+            submit_deadline_month: 'following_month',
+            approve_deadline_month: 'following_month',
+        });
+        const period = {
+            id: 3,
+            status: 'fill_closed',
+            fill_close_at: '2026-08-18T18:59:59.000Z',
+            approve_close_at: '2026-08-22T18:59:59.000Z',
+        };
+        const out = await refreshPeriodClaimWindow(pool, period, w, { reopenIfFuture: true });
+        assert.equal(updated, true);
+        assert.equal(out.status, 'open');
+        assert.equal(out.fill_close_at, w.fillCloseAt.toISOString());
     });
 
     it('refreshOpenPeriodFillClose does not rewind a later promised close', async () => {
