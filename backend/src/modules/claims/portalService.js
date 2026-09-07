@@ -801,18 +801,111 @@ function buildApproverInviteHtml({ period, count, link, approverEmail, summaryHt
 </body></html>`;
 }
 
-async function getBatchByToken(pool, token) {
-    const h = hashToken(token);
-    const { rows } = await pool.query(
-        `SELECT b.*, p.claim_month, p.claim_year, p.settlement_month, p.settlement_year,
+const BATCH_BY_TOKEN_SELECT = `SELECT b.*, p.claim_month, p.claim_year, p.settlement_month, p.settlement_year,
                 p.fill_close_at, p.approve_close_at, p.fill_open_at, p.status AS period_status,
                 p.campaign_mode
          FROM portal_claim_batches b
-         JOIN portal_claim_periods p ON p.id = b.period_id
-         WHERE b.invite_token_hash = $1`,
+         JOIN portal_claim_periods p ON p.id = b.period_id`;
+
+async function listFillerEmailsForTokenResolve(pool) {
+    const emails = new Set();
+    const { rows: batchRows } = await pool.query(
+        `SELECT DISTINCT LOWER(TRIM(filler_email)) AS email FROM portal_claim_batches
+         WHERE filler_email IS NOT NULL AND TRIM(filler_email) <> ''`
+    );
+    for (const r of batchRows) {
+        if (r.email && r.email.includes('@')) emails.add(r.email);
+    }
+    await ensureClaimAuthorityColumn(pool);
+    const { rows: empRows } = await pool.query(
+        `SELECT DISTINCT LOWER(TRIM(claim_authority)) AS email FROM employees
+         WHERE active = TRUE AND claim_authority IS NOT NULL AND TRIM(claim_authority) <> ''
+           AND claim_authority NOT ILIKE 'self'`
+    );
+    for (const r of empRows) {
+        if (r.email && r.email.includes('@')) emails.add(r.email);
+    }
+    return [...emails];
+}
+
+/** When hash lookup misses, derive period + focal from the signed token (preview links, pre-send copies). */
+async function resolveFillerFromToken(pool, token) {
+    if (!token || String(token).length < 32) return null;
+    const { rows: periods } = await pool.query(
+        `SELECT id, claim_month, claim_year, status, campaign_mode FROM portal_claim_periods
+         WHERE claim_year >= 2026
+         ORDER BY id DESC
+         LIMIT 24`
+    );
+    const fillers = await listFillerEmailsForTokenResolve(pool);
+    for (const period of periods) {
+        for (const email of fillers) {
+            if (stableFillerToken(period.id, email) === token) {
+                return { periodId: period.id, fillerEmail: email, period };
+            }
+        }
+    }
+    return null;
+}
+
+async function provisionFillerBatch(pool, resolved, token) {
+    const { periodId, fillerEmail } = resolved;
+    const tokenHash = hashToken(token);
+    const { eligible } = await countEligibleEmployees(pool, {});
+    const emps = (eligible || []).filter(
+        (e) => String(e.filler_email || '').toLowerCase() === String(fillerEmail).toLowerCase()
+    );
+    if (!emps.length) return null;
+
+    const routingProfile = emps[0]?.routing_profile || 'focal_then_lm';
+    const cohortType = emps[0]?.cohort_type || 'focal';
+
+    const { rows: batchRows } = await pool.query(
+        `INSERT INTO portal_claim_batches
+         (period_id, filler_email, invite_token_hash, invite_sent_at, invite_delivered, status, routing_profile, cohort_type)
+         VALUES ($1,$2,$3,NOW(),FALSE,'invited',$4,$5)
+         ON CONFLICT (period_id, filler_email) DO UPDATE SET
+           invite_token_hash = EXCLUDED.invite_token_hash,
+           routing_profile = EXCLUDED.routing_profile,
+           cohort_type = EXCLUDED.cohort_type,
+           status = CASE WHEN portal_claim_batches.status IN ('submitted','no_claims') THEN portal_claim_batches.status ELSE 'invited' END
+         RETURNING id`,
+        [periodId, fillerEmail, tokenHash, routingProfile, cohortType]
+    );
+    const batchId = batchRows[0]?.id;
+    if (!batchId) return null;
+
+    for (const emp of emps) {
+        await pool.query(
+            `INSERT INTO portal_claim_submissions
+             (period_id, batch_id, employee_id, filler_email, approver_email, status, channel, routing_profile)
+             VALUES ($1,$2,$3,$4,$5,'invited','portal',$6)
+             ON CONFLICT (period_id, employee_id) DO UPDATE SET
+               batch_id = EXCLUDED.batch_id,
+               filler_email = EXCLUDED.filler_email,
+               approver_email = EXCLUDED.approver_email,
+               routing_profile = EXCLUDED.routing_profile,
+               updated_at = NOW()
+             WHERE portal_claim_submissions.status NOT IN ('approved','in_payroll')`,
+            [periodId, batchId, emp.id, fillerEmail, emp.approver_email, emp.routing_profile]
+        );
+    }
+
+    const { rows } = await pool.query(`${BATCH_BY_TOKEN_SELECT} WHERE b.id = $1`, [batchId]);
+    return rows[0] || null;
+}
+
+async function getBatchByToken(pool, token) {
+    const h = hashToken(token);
+    const { rows } = await pool.query(
+        `${BATCH_BY_TOKEN_SELECT} WHERE b.invite_token_hash = $1`,
         [h]
     );
-    return rows[0] || null;
+    if (rows[0]) return rows[0];
+
+    const resolved = await resolveFillerFromToken(pool, token);
+    if (!resolved) return null;
+    return provisionFillerBatch(pool, resolved, token);
 }
 
 async function openFillerSession(pool, token) {
@@ -3546,6 +3639,9 @@ module.exports = {
     HUZAIFA_FALLBACK,
     buildFillerInviteHtml,
     buildApproverInviteHtml,
+    resolveFillerFromToken,
+    provisionFillerBatch,
+    getBatchByToken,
     claimsFrontendUrl,
 };
 
