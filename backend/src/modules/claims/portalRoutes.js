@@ -419,6 +419,17 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
+    app.post('/api/portal-claims/admin/extend-august-window', requireAuth, requireRole('superadmin', 'finance_manager'), async (req, res) => {
+        try {
+            res.json(await portal.extendAugust2026ClaimsWindow(pool, {
+                fillDay: req.body?.fillDay,
+                approveDay: req.body?.approveDay,
+            }));
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.extendAugustWindow', err);
+        }
+    });
+
     app.get('/api/portal-claims/admin/tieout', requireAuth, requireClaimsPortal(pool, 'export', CAMPAIGN_ROLES), async (req, res) => {
         try {
             const month = parseInt(req.query.month, 10);

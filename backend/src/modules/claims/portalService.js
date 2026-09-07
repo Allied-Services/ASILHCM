@@ -354,12 +354,16 @@ function isAfterApproveClose(period, nowMs = Date.now()) {
 /** Unchecked calendar / missing deadline on a contract = no close for that contract. */
 function isFillClosedForPolicy(period, policy, nowMs = Date.now()) {
     if (!hasSubmitDeadline(policy)) return false;
-    return isAfterFillClose(period, nowMs);
+    if (isJuly2026TrialPeriod(period) && !isSamplePeriod(period)) return true;
+    const w = periodWindowFromClaim(Number(period.claim_year), Number(period.claim_month), policy);
+    return nowMs > w.fillCloseAt.getTime();
 }
 
 function isApproveClosedForPolicy(period, policy, nowMs = Date.now()) {
     if (!hasApproveDeadline(policy)) return false;
-    return isAfterApproveClose(period, nowMs);
+    if (isJuly2026TrialPeriod(period) && !isSamplePeriod(period)) return true;
+    const w = periodWindowFromClaim(Number(period.claim_year), Number(period.claim_month), policy);
+    return nowMs > w.approveCloseAt.getTime();
 }
 
 async function policiesForContractIds(pool, contractIds) {
@@ -371,16 +375,16 @@ async function policiesForContractIds(pool, contractIds) {
     return out;
 }
 
-function sessionClosedWhenEveryPolicyHasDeadline(policies, periodClosed) {
-    if (!policies.length) return periodClosed;
+function sessionClosedWhenEveryPolicyHasDeadline(policies, period, nowMs = Date.now()) {
+    if (!policies.length) return isAfterFillClose(period, nowMs);
     if (policies.some((p) => !hasSubmitDeadline(p))) return false;
-    return periodClosed;
+    return policies.every((p) => isFillClosedForPolicy(period, p, nowMs));
 }
 
-function sessionApproveClosedWhenEveryPolicyHasDeadline(policies, periodClosed) {
-    if (!policies.length) return periodClosed;
+function sessionApproveClosedWhenEveryPolicyHasDeadline(policies, period, nowMs = Date.now()) {
+    if (!policies.length) return isAfterApproveClose(period, nowMs);
     if (policies.some((p) => !hasApproveDeadline(p))) return false;
-    return periodClosed;
+    return policies.every((p) => isApproveClosedForPolicy(period, p, nowMs));
 }
 
 function formatPeriodBanner(period) {
@@ -588,25 +592,70 @@ async function getOrCreatePeriod(pool, campaignMonth, campaignYear, policyOverri
     return rows[0];
 }
 
-async function refreshOpenPeriodFillClose(pool, period, w) {
-    if (!period || period.status !== 'open') return period;
+async function refreshPeriodClaimWindow(pool, period, w, { reopenIfFuture = false } = {}) {
+    if (!period || !w) return period;
+    if (!['open', 'fill_closed'].includes(String(period.status || ''))) return period;
     const currentFill = period.fill_close_at ? new Date(period.fill_close_at).getTime() : 0;
     const currentApprove = period.approve_close_at ? new Date(period.approve_close_at).getTime() : 0;
     const nextFill = w.fillCloseAt.getTime();
     const nextApprove = w.approveCloseAt.getTime();
-    // Never pull a promised window backward (campaign/preview used to rewind 27 Aug → 17 Jul).
-    if (currentFill >= nextFill && currentApprove >= nextApprove) return period;
+    if (currentFill >= nextFill && currentApprove >= nextApprove && period.status === 'open') return period;
     const fillClose = new Date(Math.max(currentFill || 0, nextFill)).toISOString();
     const approveClose = new Date(Math.max(currentApprove || 0, nextApprove)).toISOString();
+    const reopen = reopenIfFuture && new Date(fillClose).getTime() > Date.now();
     const { rows } = await pool.query(
         `UPDATE portal_claim_periods
          SET fill_close_at = $2,
-             approve_close_at = $3
-         WHERE id = $1 AND status = 'open'
+             approve_close_at = $3,
+             status = CASE WHEN $4::boolean THEN 'open' ELSE status END
+         WHERE id = $1 AND status IN ('open', 'fill_closed')
          RETURNING *`,
-        [period.id, fillClose, approveClose]
+        [period.id, fillClose, approveClose, reopen]
     );
     return rows[0] || period;
+}
+
+async function refreshOpenPeriodFillClose(pool, period, w, opts = {}) {
+    return refreshPeriodClaimWindow(pool, period, w, opts);
+}
+
+async function mergedPeriodWindowForContracts(pool, claimYear, claimMonth, contractIds) {
+    const ids = [...new Set((contractIds || []).filter(Boolean))];
+    if (!ids.length) {
+        return periodWindowFromClaim(claimYear, claimMonth, await getDefaultClaimsPolicy(pool));
+    }
+    const policies = await policiesForContractIds(pool, ids);
+    let fillCloseAt = null;
+    let approveCloseAt = null;
+    let base = null;
+    for (const policy of policies) {
+        const w = periodWindowFromClaim(claimYear, claimMonth, policy);
+        if (!base) base = w;
+        if (!fillCloseAt || w.fillCloseAt.getTime() > fillCloseAt.getTime()) fillCloseAt = w.fillCloseAt;
+        if (!approveCloseAt || w.approveCloseAt.getTime() > approveCloseAt.getTime()) approveCloseAt = w.approveCloseAt;
+    }
+    if (!base) {
+        return periodWindowFromClaim(claimYear, claimMonth, await getDefaultClaimsPolicy(pool));
+    }
+    return { ...base, fillCloseAt, approveCloseAt };
+}
+
+async function extendAugust2026ClaimsWindow(pool, { fillDay, approveDay } = {}) {
+    const fillDayNum = fillDay != null ? Number(fillDay) : FILL_CLOSE_DAY;
+    const approveDayNum = approveDay != null ? Number(approveDay) : APPROVE_CLOSE_DAY;
+    const fillClose = pktDeadline(2026, 9, fillDayNum, 23, 59, 59);
+    const approveClose = pktDeadline(2026, 9, approveDayNum, 23, 59, 59);
+    const { rows } = await pool.query(
+        `UPDATE portal_claim_periods
+         SET fill_close_at = GREATEST(fill_close_at, $1::timestamptz),
+             approve_close_at = GREATEST(approve_close_at, $2::timestamptz),
+             status = 'open'
+         WHERE claim_month = 8 AND claim_year = 2026
+           AND COALESCE(campaign_mode, 'actual') <> 'sample'
+         RETURNING id, claim_month, claim_year, fill_close_at, approve_close_at, campaign_mode, status`,
+        [fillClose.toISOString(), approveClose.toISOString()]
+    );
+    return { ok: true, periods: rows };
 }
 
 async function extendJuly2026ClaimsWindow(pool, { fillDay = 27, approveDay = 27 } = {}) {
@@ -963,11 +1012,17 @@ async function openFillerSession(pool, token) {
 
     const { rows: periodRows } = await pool.query(`SELECT * FROM portal_claim_periods WHERE id = $1`, [batch.period_id]);
     const periodRow = periodRows[0] || {};
-    const periodClosed = isAfterFillClose({ ...batch, campaign_mode: periodRow.campaign_mode || batch.campaign_mode });
+    const periodCtx = {
+        claim_month: batch.claim_month,
+        claim_year: batch.claim_year,
+        fill_close_at: batch.fill_close_at,
+        approve_close_at: batch.approve_close_at,
+        campaign_mode: periodRow.campaign_mode || batch.campaign_mode,
+    };
     const sessionPacks = submissions.length
         ? await Promise.all(submissions.map((s) => policyForContract(s.contract_id)))
         : [defaultPack];
-    const fillClosed = sessionClosedWhenEveryPolicyHasDeadline(sessionPacks, periodClosed);
+    const fillClosed = sessionClosedWhenEveryPolicyHasDeadline(sessionPacks, periodCtx);
     const showSubmitDay = hasSubmitDeadline(defaultPack)
         ? (isJuly2026TrialPeriod(batch) ? 27 : defaultPack.submit_deadline_day)
         : null;
@@ -1397,7 +1452,13 @@ async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
         [batch.id]
     );
     const importPolicies = await policiesForContractIds(pool, subs.map((s) => s.contract_id));
-    if (sessionClosedWhenEveryPolicyHasDeadline(importPolicies, isAfterFillClose(batch))) {
+    if (sessionClosedWhenEveryPolicyHasDeadline(importPolicies, {
+        claim_month: batch.claim_month,
+        claim_year: batch.claim_year,
+        fill_close_at: batch.fill_close_at,
+        approve_close_at: batch.approve_close_at,
+        campaign_mode: batch.campaign_mode,
+    })) {
         return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
     }
     const allowed = subs.map(s => s.employee_id);
@@ -1751,7 +1812,13 @@ async function openApproverSession(pool, token) {
     const approverPolicies = await policiesForContractIds(pool, submissions.map((s) => s.contract_id));
     const approveClosed = sessionApproveClosedWhenEveryPolicyHasDeadline(
         approverPolicies,
-        isAfterApproveClose(pack),
+        {
+            claim_month: pack.claim_month,
+            claim_year: pack.claim_year,
+            fill_close_at: pack.fill_close_at,
+            approve_close_at: pack.approve_close_at,
+            campaign_mode: pack.campaign_mode,
+        },
     );
     const packMeta = {
         fromEmail: firstPending?.filler_email || null,
@@ -3335,7 +3402,13 @@ async function resendFillerInvite(pool, batchId, sendAppEmail) {
         [b.id]
     );
     const resendPolicies = await policiesForContractIds(pool, resendContracts.map((r) => r.contract_id));
-    if (sessionClosedWhenEveryPolicyHasDeadline(resendPolicies, isAfterFillClose(b))) {
+    if (sessionClosedWhenEveryPolicyHasDeadline(resendPolicies, {
+        claim_month: b.claim_month,
+        claim_year: b.claim_year,
+        fill_close_at: b.fill_close_at,
+        approve_close_at: b.approve_close_at,
+        campaign_mode: b.campaign_mode,
+    })) {
         return { ok: false, error: FILL_CLOSED_MESSAGE };
     }
     const token = stableFillerToken(b.period_id, b.filler_email);
@@ -3449,7 +3522,13 @@ async function batchSubmitAll(pool, { token, sendAppEmail }) {
         [batch.id]
     );
     const submitPolicies = await policiesForContractIds(pool, submitContractRows.map((r) => r.contract_id));
-    if (sessionClosedWhenEveryPolicyHasDeadline(submitPolicies, isAfterFillClose(batch))) {
+    if (sessionClosedWhenEveryPolicyHasDeadline(submitPolicies, {
+        claim_month: batch.claim_month,
+        claim_year: batch.claim_year,
+        fill_close_at: batch.fill_close_at,
+        approve_close_at: batch.approve_close_at,
+        campaign_mode: batch.campaign_mode,
+    })) {
         return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
     }
 
@@ -3616,6 +3695,9 @@ module.exports = {
     isFillClosedForPolicy,
     isApproveClosedForPolicy,
     refreshOpenPeriodFillClose,
+    refreshPeriodClaimWindow,
+    mergedPeriodWindowForContracts,
+    extendAugust2026ClaimsWindow,
     extendJuly2026ClaimsWindow,
     sendDeadlineExtensionNotice,
     validateOtRow,

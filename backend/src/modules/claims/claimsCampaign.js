@@ -323,6 +323,16 @@ async function createCampaignAugust(pool, {
         byFiller.get(e.filler_email).push(e);
     }
 
+    if (!preview && !dryRun && filtered.length) {
+        const { mergedPeriodWindowForContracts, refreshPeriodClaimWindow } = require('./portalService');
+        const contractIds = [...new Set(filtered.map((e) => e.contract_id).filter(Boolean))];
+        const window = await mergedPeriodWindowForContracts(pool, period.claim_year, period.claim_month, contractIds);
+        const refreshed = await refreshPeriodClaimWindow(pool, period, window, { reopenIfFuture: true });
+        if (refreshed) {
+            period = { ...period, ...refreshed, campaign_mode: period.campaign_mode };
+        }
+    }
+
     const invites = [];
     const recipients = [];
     for (const [fillerEmail, emps] of byFiller) {
