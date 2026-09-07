@@ -474,6 +474,9 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
                       <div style={{ fontSize: 12, color: '#fcd34d', marginBottom: 4 }}>Would go to {activeRecipient.fillerEmail}</div>
                     )}
                     <div style={{ fontSize: 13, marginBottom: 8 }}><strong>Subject:</strong> {activeRecipient.subject}</div>
+                    <p style={{ fontSize: 12, color: '#fcd34d', margin: '0 0 10px', lineHeight: 1.5 }}>
+                      Preview only — the magic link in this email does not work until you tick employees and click Send ACTUAL.
+                    </p>
                     <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 10px' }}>
                       {PROFILE_EXPLAIN[activeRecipient.routingProfile] || activeRecipient.roleLabel}
                       {activeEmp && selected.has(activeEmp.id)
@@ -540,6 +543,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
                   <tr style={{ borderBottom: '1px solid var(--border)' }}>
                     <th style={th}>Filler</th>
                     <th style={th}>To</th>
+                    <th style={th}>Link</th>
                     <th style={th}>Result</th>
                   </tr>
                 </thead>
@@ -548,6 +552,11 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
                     <tr key={i.fillerEmail || idx} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td style={td}>{i.fillerEmail}</td>
                       <td style={td}>{i.mailTo || '—'}</td>
+                      <td style={{ ...td, fontSize: 11, maxWidth: 280, wordBreak: 'break-all' }}>
+                        {i.link ? (
+                          <a href={i.link} target="_blank" rel="noreferrer" style={{ color: '#93c5fd' }}>{i.link}</a>
+                        ) : '—'}
+                      </td>
                       <td style={{ ...td, color: i.ok ? '#86efac' : '#fca5a5' }}>{i.ok ? 'Sent' : (i.error || 'Failed')}</td>
                     </tr>
                   ))}
