@@ -5,6 +5,7 @@ const { handleRouteError } = require('../../core/validate');
 const portal = require('./portalService');
 const { withClaimsPortalMail, getClaimsMonitorCc } = require('./claimsMail');
 const { requireClaimsPortal, CAMPAIGN_ROLES, VIEW_ROLES } = require('./claimsAccess');
+const { requireMonthlyCycle, VIEW_ROLES: MONTHLY_VIEW_ROLES } = require('./monthlyCycleAccess');
 
 function audienceFiltersFromBody(body = {}) {
     const pick = (v) => {
@@ -522,7 +523,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.get('/api/claims/policy/:contractId', requireAuth, requireRole('superadmin', 'finance_manager', 'finance_approver', 'operations', 'payroll_initiator'), async (req, res) => {
+    app.get('/api/claims/policy/:contractId', requireAuth, requireMonthlyCycle(pool, 'view', MONTHLY_VIEW_ROLES), async (req, res) => {
         try {
             const policy = await portal.getClaimsPolicy(pool, req.params.contractId);
             res.json(policy);
@@ -531,7 +532,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.put('/api/claims/policy/:contractId', requireAuth, requireRole('superadmin', 'finance_manager', 'operations'), async (req, res) => {
+    app.put('/api/claims/policy/:contractId', requireAuth, requireMonthlyCycle(pool, 'edit', ['finance_manager', 'operations']), async (req, res) => {
         try {
             const row = await portal.upsertClaimsPolicy(pool, req.params.contractId, req.body || {});
             res.json(row);
@@ -541,7 +542,9 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.post('/api/portal-claims/people/bulk-update', requireAuth, requireRole('superadmin', 'finance_manager', 'operations', 'payroll_initiator'), async (req, res) => {
+    // Monthly Cycle People assign: finance/ops/payroll roles OR User Management monthly_cycle.edit
+    // (Sadia is operations_team with custom edit — not in requireRole).
+    app.post('/api/portal-claims/people/bulk-update', requireAuth, requireMonthlyCycle(pool, 'edit'), async (req, res) => {
         try {
             const body = req.body || {};
             const employeeIds = Array.isArray(body.employee_ids) ? body.employee_ids.map(String).filter(Boolean) : [];
