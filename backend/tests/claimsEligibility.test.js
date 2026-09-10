@@ -271,4 +271,31 @@ describe('claimsEligibility rules', () => {
         expect(sql).toMatch(/e\.contract_id = \$2/);
         expect(params).toEqual(['Wafi Energy Pakistan Pvt Ltd', 'CTR-W']);
     });
+
+    test('countEligibleEmployees loads the rulebook once per contract', async () => {
+        const emp = (id) => ({
+            id,
+            name: id,
+            email: `${id}@wafi-energy.com`,
+            claim_authority: 'focal@wafi.com',
+            line_manager_email: 'lm@wafi.com',
+            client: 'Wafi Energy Pakistan Pvt Ltd',
+            active: 'Yes',
+            location: 'Karachi',
+            dept: 'Ops',
+            contract_id: 'CTR-W',
+            contract_name: 'Wafi BPO',
+        });
+        const pool = {
+            query: jest.fn()
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [emp('E1'), emp('E2')] })
+                .mockResolvedValueOnce({ rows: [{ id: 'CTR-W', contract_name: 'Wafi BPO' }] })
+                .mockResolvedValueOnce({ rows: [{}] })
+                .mockResolvedValueOnce({ rows: [{}] }),
+        };
+        const r = await countEligibleEmployees(pool, { filterClient: 'Wafi Energy Pakistan Pvt Ltd' });
+        expect(r.eligible).toHaveLength(2);
+        expect(pool.query).toHaveBeenCalledTimes(5);
+    });
 });

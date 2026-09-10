@@ -264,15 +264,61 @@ function resolveClaimsRouting(emp, rulebook) {
     };
 }
 
-async function resolveClaimsRoutingForEmployee(pool, emp) {
+async function resolveClaimsRoutingForEmployee(pool, emp, bookCache = null) {
     const { getRulebookForEmployee } = require('../records/rulebook');
     const { resolveAsilSupervisor } = require('../records/contacts');
-    const book = await getRulebookForEmployee(pool, emp);
+    const cache = bookCache || new Map();
+    const cid = String(emp.contract_id || '');
+    let book = cache.get(cid);
+    if (!book) {
+        book = await getRulebookForEmployee(pool, emp);
+        cache.set(cid, book);
+    }
     let enriched = emp;
     if (book.routing_mode === 'asil_supervisor_then_focal') {
         enriched = { ...emp, asil_site_supervisor_email: await resolveAsilSupervisor(pool, emp) };
     }
     return resolveClaimsRouting(enriched, book);
+}
+
+function toClaimAudienceRow(e, routing) {
+    return {
+        ...e,
+        filler_email: routing.fillerEmail,
+        approver_email: routing.approverEmail,
+        routing_profile: routing.profile,
+        claims_category: routing.category,
+        cohort_type: routing.initiator === 'employee' ? 'employee' : 'focal',
+    };
+}
+
+const AUDIENCE_EMPLOYEE_SQL = `
+         SELECT e.id, e.name, e.email, e.claim_authority, e.supervisor_email, e.line_manager_email,
+                e.client, e.active,
+                COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) AS location,
+                e.dept, e.salary, e.contract_id,
+                COALESCE(c.contract_name, e.contract_name) AS contract_name,
+                pol.enabled_types AS enabled_types,
+                pol.collection_mode AS collection_mode
+         FROM employees e
+         LEFT JOIN contracts c ON c.id::text = e.contract_id::text
+         LEFT JOIN contract_claim_policies pol ON pol.contract_id::text = e.contract_id::text`;
+
+/** Employees who already have a portal row — include even if they would fail the send-audience gate. */
+async function loadEmployeesAsClaimAudience(pool, ids) {
+    const unique = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
+    if (!unique.length) return [];
+    const { rows: emps } = await pool.query(
+        `${AUDIENCE_EMPLOYEE_SQL} WHERE e.id = ANY($1::text[])`,
+        [unique]
+    );
+    const cache = new Map();
+    const out = [];
+    for (const e of emps) {
+        const routing = await resolveClaimsRoutingForEmployee(pool, e, cache);
+        out.push(toClaimAudienceRow(e, routing));
+    }
+    return out;
 }
 
 function resolveClaimsCategory(emp, eligibility = { eligible: true }, rulebook) {
@@ -429,21 +475,12 @@ async function countEligibleEmployees(pool, filters = {}) {
         where.push(`COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) = $${params.length}`);
     }
     const { rows: emps } = await pool.query(
-        `SELECT e.id, e.name, e.email, e.claim_authority, e.supervisor_email, e.line_manager_email,
-                e.client, e.active,
-                COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) AS location,
-                e.dept, e.salary, e.contract_id,
-                COALESCE(c.contract_name, e.contract_name) AS contract_name,
-                pol.enabled_types AS enabled_types,
-                pol.collection_mode AS collection_mode
-         FROM employees e
-         LEFT JOIN contracts c ON c.id::text = e.contract_id::text
-         LEFT JOIN contract_claim_policies pol ON pol.contract_id::text = e.contract_id::text
-         WHERE ${where.join(' AND ')}`,
+        `${AUDIENCE_EMPLOYEE_SQL} WHERE ${where.join(' AND ')}`,
         params
     );
     const eligible = [];
     const skipped = [];
+    const bookCache = new Map();
     for (const e of emps) {
         if (!isActiveEmployee(e)) continue;
         const elig = await evaluateEmployeeEligibility(pool, e, rules);
@@ -458,7 +495,7 @@ async function countEligibleEmployees(pool, filters = {}) {
             });
             continue;
         }
-        const routing = await resolveClaimsRoutingForEmployee(pool, e);
+        const routing = await resolveClaimsRoutingForEmployee(pool, e, bookCache);
         const cat = resolveClaimsCategory(e, elig);
         if (cat.category === 'Setup needed') {
             skipped.push({
@@ -473,14 +510,7 @@ async function countEligibleEmployees(pool, filters = {}) {
             });
             continue;
         }
-        eligible.push({
-            ...e,
-            filler_email: routing.fillerEmail,
-            approver_email: routing.approverEmail,
-            routing_profile: routing.profile,
-            claims_category: cat.category,
-            cohort_type: routing.initiator === 'employee' ? 'employee' : 'focal',
-        });
+        eligible.push(toClaimAudienceRow(e, routing));
     }
     return { eligible, skipped, rules };
 }
@@ -495,6 +525,7 @@ module.exports = {
     evaluateEmployeeEligibility,
     resolveClaimsRouting,
     resolveClaimsRoutingForEmployee,
+    loadEmployeesAsClaimAudience,
     resolveClaimsCategory,
     resolveFocalEmail,
     resolveLmEmail,

@@ -64,6 +64,16 @@ describe('claimsFillHelpers', () => {
     assert.equal(attachmentsForSupportType(attachments, 'medical').length, 1);
   });
 
+  it('leaves unmatched files out of expense and medical groups', () => {
+    const attachments = [
+      { id: 1, filename: 'receipt.pdf', category: 'expense_support' },
+      { id: 3, filename: 'wrong.zip', category: 'other' },
+    ];
+    assert.equal(attachmentsForSupportType(attachments, 'expense').length, 1);
+    assert.equal(attachmentsForSupportType(attachments, 'medical').length, 0);
+    assert.equal(attachmentsForSupportType(attachments, 'workbook').length, 0);
+  });
+
   it('machine file pack is file-only and lists Attendance', () => {
     const exp = fillExperienceFromPack({
       enabled_types: ['ATTENDANCE', 'OT', 'EXPENSE', 'MEDICAL'],

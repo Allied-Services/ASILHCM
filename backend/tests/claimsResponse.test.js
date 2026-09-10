@@ -222,6 +222,7 @@ describe('listResponseBoard period match', () => {
                         campaign_month: 8, campaign_year: 2026,
                     }],
                 })
+                .mockResolvedValueOnce({ rows: [{ employee_id: 'E1' }] })
                 .mockResolvedValueOnce({
                     rows: [{
                         id: 1, employee_id: 'E1', status: 'submitted',
@@ -263,6 +264,57 @@ describe('listResponseBoard period match', () => {
         expect(r.desk_counts.pending_lm).toBe(1);
         expect(r.period_label).toMatch(/7\/2026 work/);
         expect(pool.query.mock.calls[0][1]).toEqual([7, 2026, 8, 2026]);
+    });
+
+    test('includes a filled submission even when the employee is not in eligible', async () => {
+        const extraEmp = {
+            id: 'E99',
+            name: 'Imam',
+            client: 'Wafi',
+            location: 'Karachi',
+            email: 'a@wafi-energy.com',
+            claim_authority: 'focal@wafi.com',
+            line_manager_email: 'lm@wafi.com',
+            active: 'Yes',
+            dept: 'Ops',
+            contract_id: null,
+            contract_name: null,
+        };
+        const pool = {
+            query: jest.fn()
+                .mockResolvedValueOnce({
+                    rows: [{
+                        id: 9, campaign_mode: 'actual',
+                        claim_month: 8, claim_year: 2026,
+                        settlement_month: 9, settlement_year: 2026,
+                        campaign_month: 9, campaign_year: 2026,
+                    }],
+                })
+                .mockResolvedValueOnce({ rows: [{ employee_id: 'E99' }] })
+                .mockResolvedValueOnce({ rows: [extraEmp] })
+                .mockResolvedValueOnce({
+                    rows: [{
+                        id: 1, employee_id: 'E99', status: 'submitted',
+                        filler_email: 'focal@wafi.com', approver_email: 'lm@wafi.com',
+                        routing_profile: 'focal_then_lm', channel: 'portal',
+                        batch_id: 3, period_id: 9, campaign_mode: 'actual',
+                        submitted_at: '2026-09-02T10:00:00Z', approved_at: null,
+                    }],
+                })
+                .mockResolvedValueOnce({ rows: [{
+                    submission_id: 1, claim_type: 'OT', ot_hours: 8, ot_multiplier_factor: 2, amount: 0,
+                }] })
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [] }),
+        };
+        const r = await listResponseBoard(pool, async () => ({ eligible: [] }), {
+            workMonth: 8, workYear: 2026, payMonth: 9, payYear: 2026,
+        });
+        expect(r.ok).toBe(true);
+        expect(r.people).toHaveLength(1);
+        expect(r.people[0].employee_id).toBe('E99');
+        expect(r.people[0].status).toBe('waiting_lm');
     });
 });
 

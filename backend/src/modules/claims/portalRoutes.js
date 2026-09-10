@@ -105,6 +105,19 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
+    app.delete('/api/portal-claims/fill/:token/attachment/:id', async (req, res) => {
+        try {
+            const result = await portal.removeAttachment(pool, {
+                token: req.params.token,
+                attachmentId: req.params.id,
+            });
+            if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+            res.json(result);
+        } catch (err) {
+            handleRouteError(res, 'portalClaims.attachmentDelete', err);
+        }
+    });
+
     app.post('/api/portal-claims/fill/:token/import-excel', async (req, res) => {
         try {
             const { contentBase64, filename } = req.body || {};
@@ -221,14 +234,22 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.get('/api/portal-claims/campaign/filters', requireAuth, requireClaimsPortal(pool, 'campaign', CAMPAIGN_ROLES), async (req, res) => {
+    const sendClaimFilterOptions = async (req, res, logName) => {
         try {
             const { rows } = await portal.listCampaignFilterOptions(pool);
             res.json({ rows: rows || [], gates: campaignGates() });
         } catch (err) {
-            handleRouteError(res, 'portalClaims.campaignFilters', err);
+            handleRouteError(res, logName, err);
         }
-    });
+    };
+
+    app.get('/api/portal-claims/campaign/filters', requireAuth, requireClaimsPortal(pool, 'campaign', CAMPAIGN_ROLES), (req, res) => (
+        sendClaimFilterOptions(req, res, 'portalClaims.campaignFilters')
+    ));
+
+    app.get('/api/portal-claims/admin/filters', requireAuth, requireClaimsPortal(pool, 'view', VIEW_ROLES), (req, res) => (
+        sendClaimFilterOptions(req, res, 'portalClaims.adminFilters')
+    ));
 
     app.post('/api/portal-claims/campaign', requireAuth, requireClaimsPortal(pool, 'campaign', CAMPAIGN_ROLES), async (req, res) => {
         try {

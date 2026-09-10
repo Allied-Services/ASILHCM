@@ -176,6 +176,9 @@ export default function PortalClaimsHub({
   const [rulePreview, setRulePreview] = useState(null);
   const [editingRule, setEditingRule] = useState(null);
   const [showClaimProcess, setShowClaimProcess] = useState(false);
+  const [filterRows, setFilterRows] = useState([]);
+  const [filtersReady, setFiltersReady] = useState(false);
+  const [boardLoading, setBoardLoading] = useState(true);
 
   useEffect(() => {
     if (lockSection) setSection(lockSection);
@@ -213,7 +216,9 @@ export default function PortalClaimsHub({
   };
 
   const loadBoard = useCallback(async () => {
+    if (!filtersReady) return;
     setErr('');
+    setBoardLoading(true);
     try {
       const q = {
         workMonth: String(workMonth),
@@ -229,37 +234,59 @@ export default function PortalClaimsHub({
       setSelected(new Set());
     } catch (e) {
       setErr(e.message);
+    } finally {
+      setBoardLoading(false);
     }
-  }, [workMonth, workYear, payMonth, payYear, client, contract, location]);
+  }, [filtersReady, workMonth, workYear, payMonth, payYear, client, contract, location]);
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
 
   useEffect(() => {
-    if (client || !board?.people?.length) return;
-    const wafi = [...new Set(board.people.map(p => p.client).filter(Boolean))]
-      .find(c => /wafi/i.test(c));
-    if (wafi) setClient(wafi);
-  }, [board, client]);
+    let cancelled = false;
+    api.portalClaimsFilters()
+      .then((d) => {
+        if (cancelled) return;
+        const rows = d.rows || [];
+        setFilterRows(rows);
+        setClient((prev) => {
+          if (prev) return prev;
+          const wafi = [...new Set(rows.map((r) => r.client).filter(Boolean))]
+            .find((c) => /wafi/i.test(c));
+          return wafi || prev;
+        });
+      })
+      .catch((e) => {
+        if (!cancelled) setErr(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setFiltersReady(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     api.portalClaimsEligibilityRules().then(d => setRules(d.rules || [])).catch(() => {});
   }, []);
 
   const clients = useMemo(() => {
-    const set = new Set((board?.people || []).map(p => p.client).filter(Boolean));
-    return [...set].sort();
-  }, [board]);
+    return [...new Set((filterRows || []).map((p) => p.client).filter(Boolean))].sort();
+  }, [filterRows]);
   const contracts = useMemo(() => {
     const map = new Map();
-    for (const p of board?.people || []) {
+    const rows = (filterRows || []).filter((p) => !client || p.client === client);
+    for (const p of rows) {
       if (p.contract_id) map.set(p.contract_id, p.contract_name || p.contract_id);
     }
     return [...map.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
-  }, [board]);
+  }, [filterRows, client]);
   const locations = useMemo(() => {
-    const set = new Set((board?.people || []).map(p => p.location).filter(Boolean));
+    const set = new Set((filterRows || [])
+      .filter((p) => !client || p.client === client)
+      .filter((p) => !contract || p.contract_id === contract)
+      .map((p) => p.location)
+      .filter(Boolean));
     return [...set].sort();
-  }, [board]);
+  }, [filterRows, client, contract]);
 
   // eslint-disable-next-line no-unused-vars
   const counts = board?.counts || {};
@@ -613,11 +640,11 @@ export default function PortalClaimsHub({
         </label>
         <label>
           <span className="lbl">Client</span>
-          <select value={client} onChange={e => { setClient(e.target.value); setContract(''); setLocation(''); }}>
+          <select value={client} disabled={!filtersReady} onChange={e => { setClient(e.target.value); setContract(''); setLocation(''); }}>
             <option value="">All clients</option>
             {clients.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <span className="hint">Same audience as request emails</span>
+          <span className="hint">{filtersReady ? 'Same audience as request emails' : 'Loading clients…'}</span>
         </label>
         <label>
           <span className="lbl">Contract</span>
@@ -635,7 +662,7 @@ export default function PortalClaimsHub({
         </label>
         <div>
           <span className="lbl">Audience</span>
-          <strong>{board?.audience_count ?? '…'}</strong>
+          <strong>{boardLoading ? '…' : (board?.audience_count ?? '…')}</strong>
           <span className="hint">Submit by day 18 · LM by day 22</span>
         </div>
       </div>
@@ -728,7 +755,10 @@ export default function PortalClaimsHub({
                 </tr>
               </thead>
               <tbody>
-                {people.length === 0 && (
+                {boardLoading && people.length === 0 && (
+                  <tr><td colSpan={11} className="pch-muted">Loading claims…</td></tr>
+                )}
+                {!boardLoading && people.length === 0 && (
                   <tr><td colSpan={11} className="pch-muted">No people for this filter.</td></tr>
                 )}
                 {people.map(p => (

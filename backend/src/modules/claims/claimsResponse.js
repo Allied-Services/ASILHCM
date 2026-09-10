@@ -15,6 +15,8 @@ const {
     canSelectForPayrollPush,
 } = require('./claimsDesk');
 
+const { loadEmployeesAsClaimAudience } = require('./claimsEligibility');
+
 const EPS_HRS = 0.009;
 const EPS_PKR = 0.5;
 
@@ -395,9 +397,8 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
         return { ok: false, status: 400, error: 'workMonth, workYear, payMonth, payYear required' };
     }
 
-    const { eligible } = await countEligibleEmployees(pool);
-    const audience = filterAudience(eligible, opts);
-    const ids = audience.map((e) => e.id);
+    const { eligible } = await countEligibleEmployees(pool, opts);
+    let audience = filterAudience(eligible, opts);
 
     const { rows: periods } = await pool.query(
         `SELECT id, campaign_mode, claim_month, claim_year, settlement_month, settlement_year,
@@ -410,6 +411,27 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
         [workMonth, workYear, payMonth, payYear]
     );
     const periodIds = periods.map((p) => p.id);
+
+    if (periodIds.length) {
+        const { rows: submitted } = await pool.query(
+            `SELECT DISTINCT s.employee_id
+             FROM portal_claim_submissions s
+             JOIN portal_claim_periods p ON p.id = s.period_id
+             WHERE s.period_id = ANY($1::int[])
+               AND COALESCE(p.campaign_mode, 'actual') <> 'sample'`,
+            [periodIds]
+        );
+        const have = new Set(audience.map((e) => String(e.id)));
+        const missing = [...new Set(
+            (submitted || []).map((r) => r.employee_id).filter((id) => id && !have.has(String(id)))
+        )];
+        if (missing.length) {
+            const extra = await loadEmployeesAsClaimAudience(pool, missing);
+            audience = audience.concat(filterAudience(extra, opts));
+        }
+    }
+
+    const ids = audience.map((e) => e.id);
 
     let submissions = [];
     let items = [];

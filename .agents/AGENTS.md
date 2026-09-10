@@ -310,6 +310,16 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-10 — Claim fill can remove a mistaken attachment
+Fillers (Focal / Line Manager / Employee) can Remove a support file they uploaded by mistake on the claim fill link. `DELETE /api/portal-claims/fill/:token/attachment/:id` only works for files on that fill token while the claim is still editable (not approved / fill closed). Same window as upload.
+
+**Env vars needed:** none.
+
+### 2026-09-10 — Monthly Cycle Track loads filters and filled claims
+Track Client/Contract/Location dropdowns come from `GET /api/portal-claims/admin/filters` (view), not from the full audience. The response board applies those filters in SQL, caches the contract rulebook instead of querying once per employee, and still lists anyone who already submitted for the work/pay month. Default client is Wafi when that name exists.
+
+**Env vars needed:** none.
+
 ### 2026-09-05 — Payroll Sheet typed Paid Days survive Calculate
 Default Calculate (`sheet_inputs`) keeps the PD DAYS number the operator typed and prorates from it. It no longer lifts 22–27 to the calendar month or forces August back to 31 because Monthly Cycle has a blank absent row. Merge approved Portal Claims (canonical) still pulls hub attendance. Employment-window cap (join/exit) unchanged.
 

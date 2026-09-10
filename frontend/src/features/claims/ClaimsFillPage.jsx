@@ -147,6 +147,13 @@ export default function ClaimsFillPage() {
     });
   };
 
+  const dropAttachment = (attachmentId) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      return { ...prev, attachments: (prev.attachments || []).filter((a) => a.id !== attachmentId) };
+    });
+  };
+
   const sub = data?.submissions?.find((s) => s.employee_id === selected);
   const experience = useMemo(
     () => fillExperienceFromPack(sub || data?.contractPack),
@@ -243,6 +250,27 @@ export default function ClaimsFillPage() {
       const savedAs = d.category || d.attachment?.category || category;
       setMsg(`Uploaded ${file.name} (${supportCategoryLabel(savedAs)})`);
       if (d.attachment && sub?.id) patchAttachment(d.attachment, sub.id);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeSupport = async (attachment) => {
+    if (!attachment?.id || !canEdit) return;
+    if (!window.confirm(`Remove ${attachment.filename}? You can upload a replacement afterwards.`)) return;
+    setBusy(true);
+    setError('');
+    setMsg('');
+    try {
+      const r = await fetch(`${API}/api/portal-claims/fill/${token}/attachment/${attachment.id}`, {
+        method: 'DELETE',
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Remove failed');
+      dropAttachment(attachment.id);
+      setMsg(`Removed ${attachment.filename}`);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -603,6 +631,7 @@ export default function ClaimsFillPage() {
                           : summary.hasExpense
                             ? ' You entered Expense claims — use the Expense supports upload below.'
                             : ' No Expense or Medical amounts entered — supports are not required.'}
+                      {' '}Wrong file? Remove it and upload the correct one.
                     </Hint>
                     {canEdit && (
                       <div className="claims-upload-grid">
@@ -627,7 +656,7 @@ export default function ClaimsFillPage() {
                         )}
                       </div>
                     )}
-                    <SupportFilesList summary={summary} />
+                    <SupportFilesList summary={summary} canRemove={canEdit} onRemove={removeSupport} busy={busy} />
                     <StepNavButtons step="supports" steps={wizardSteps} setStep={setWizardStep} onGoReview={goToReview} canEdit={canEdit} nextLabel="Continue to Review" />
                   </Section>
                 )}
@@ -638,7 +667,15 @@ export default function ClaimsFillPage() {
                       Check every line below. When everything looks correct, click <strong>Confirm &amp; Submit</strong>.
                       Use <strong>Save Draft</strong> if you want to come back later.
                     </Hint>
-                    <ClaimSummaryPanel summary={summary} claimLabel={claimLabel} onEditStep={setWizardStep} detailed />
+                    <ClaimSummaryPanel
+                      summary={summary}
+                      claimLabel={claimLabel}
+                      onEditStep={setWizardStep}
+                      detailed
+                      canRemove={canEdit}
+                      onRemove={removeSupport}
+                      busy={busy}
+                    />
                     {summary.supportBlockers.length > 0 && (
                       <Alert tone="warn">
                         Submit is blocked until you upload: {summary.supportBlockers.join(' · ')}.
@@ -664,26 +701,29 @@ export default function ClaimsFillPage() {
                   </Section>
                 )}
 
-                {experience.fileOnly && (summary.hasExpense || summary.hasMedical) && canEdit && (
+                {experience.fileOnly && (summary.hasExpense || summary.hasMedical || summary.attachments.length > 0) && (
                   <Section title="Support files">
-                    <div className="claims-upload-grid">
-                      {summary.hasExpense && (
-                        <label className="claims-upload-label">
-                          Expense supports
-                          {!summary.hasExpenseSupport ? <span className="claims-required"> (required)</span> : null}
-                          <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" className="claims-file-input"
-                            onChange={(e) => { uploadSupport(e.target.files?.[0], 'expense_support'); e.target.value = ''; }} />
-                        </label>
-                      )}
-                      {summary.hasMedical && (
-                        <label className="claims-upload-label">
-                          Medical supports
-                          {!summary.hasMedicalSupport ? <span className="claims-required"> (required)</span> : null}
-                          <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" className="claims-file-input"
-                            onChange={(e) => { uploadSupport(e.target.files?.[0], 'medical_support'); e.target.value = ''; }} />
-                        </label>
-                      )}
-                    </div>
+                    {canEdit && (summary.hasExpense || summary.hasMedical) && (
+                      <div className="claims-upload-grid">
+                        {summary.hasExpense && (
+                          <label className="claims-upload-label">
+                            Expense supports
+                            {!summary.hasExpenseSupport ? <span className="claims-required"> (required)</span> : null}
+                            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" className="claims-file-input"
+                              onChange={(e) => { uploadSupport(e.target.files?.[0], 'expense_support'); e.target.value = ''; }} />
+                          </label>
+                        )}
+                        {summary.hasMedical && (
+                          <label className="claims-upload-label">
+                            Medical supports
+                            {!summary.hasMedicalSupport ? <span className="claims-required"> (required)</span> : null}
+                            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.zip" className="claims-file-input"
+                              onChange={(e) => { uploadSupport(e.target.files?.[0], 'medical_support'); e.target.value = ''; }} />
+                          </label>
+                        )}
+                      </div>
+                    )}
+                    <SupportFilesList summary={summary} canRemove={canEdit} onRemove={removeSupport} busy={busy} />
                   </Section>
                 )}
                 {experience.fileOnly && !fileReady && canEdit && (
@@ -713,7 +753,7 @@ export default function ClaimsFillPage() {
   );
 }
 
-function ClaimSummaryPanel({ summary, claimLabel, onEditStep, detailed = false, readOnly = false }) {
+function ClaimSummaryPanel({ summary, claimLabel, onEditStep, detailed = false, readOnly = false, canRemove = false, onRemove, busy = false }) {
   const groups = [
     { key: 'ot', title: 'Overtime', lines: summary.otLines, step: 'ot', total: `${summary.totals.otHours}h total` },
     { key: 'exp', title: 'Expense', lines: summary.expenseLines, step: 'expense', total: `PKR ${summary.totals.expense.toLocaleString('en-PK')}` },
@@ -758,17 +798,19 @@ function ClaimSummaryPanel({ summary, claimLabel, onEditStep, detailed = false, 
         </div>
       ))}
       {detailed && (
-        <SupportFilesList summary={summary} compact />
+        <SupportFilesList summary={summary} compact canRemove={canRemove} onRemove={onRemove} busy={busy} />
       )}
     </div>
   );
 }
 
-function SupportFilesList({ summary, compact = false }) {
+function SupportFilesList({ summary, compact = false, canRemove = false, onRemove, busy = false }) {
   const expenseAtts = attachmentsForSupportType(summary.attachments, 'expense');
   const medicalAtts = attachmentsForSupportType(summary.attachments, 'medical');
   const workbookAtts = attachmentsForSupportType(summary.attachments, 'workbook');
-  const hasAny = expenseAtts.length || medicalAtts.length || workbookAtts.length;
+  const shownIds = new Set([...expenseAtts, ...medicalAtts, ...workbookAtts].map((a) => a.id));
+  const otherAtts = (summary.attachments || []).filter((a) => !shownIds.has(a.id));
+  const hasAny = expenseAtts.length || medicalAtts.length || workbookAtts.length || otherAtts.length;
   if (!hasAny) {
     return compact ? null : <p className="claims-muted claims-summary-empty">No support files uploaded yet</p>;
   }
@@ -780,7 +822,19 @@ function SupportFilesList({ summary, compact = false }) {
       </div>
       <ul className={compact ? 'claims-summary-list' : 'claims-attach-list'}>
         {files.map((a) => (
-          <li key={a.id}>{a.filename}</li>
+          <li key={a.id} className={canRemove ? 'claims-attach-item' : undefined}>
+            <span className="claims-attach-name">{a.filename}</span>
+            {canRemove && (
+              <button
+                type="button"
+                className="claims-link-btn"
+                disabled={busy}
+                onClick={() => onRemove?.(a)}
+              >
+                Remove
+              </button>
+            )}
+          </li>
         ))}
       </ul>
     </div>
@@ -791,6 +845,7 @@ function SupportFilesList({ summary, compact = false }) {
       {renderGroup('Expense supports', expenseAtts)}
       {renderGroup('Medical supports', medicalAtts)}
       {renderGroup('Excel workbook', workbookAtts)}
+      {renderGroup('Other files', otherAtts)}
     </div>
   );
 }
@@ -969,6 +1024,8 @@ const CLAIMS_FILL_CSS = `
 .claims-ot-rate-hint--sunday { background: #eff6ff; border: 1px solid #93c5fd; color: #1e40af; }
 .claims-ot-rate-hint--holiday { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; }
 .claims-attach-list, .claims-how-list { margin: 0; padding-left: 18px; color: #334155; font-size: 13px; line-height: 1.6; }
+.claims-attach-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.claims-attach-name { overflow-wrap: anywhere; }
 .claims-section { margin-top: 8px; }
 .claims-section-title { font-weight: 700; font-size: 14px; margin-bottom: 10px; }
 .claims-hint { padding: 10px 12px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; color: #334155; font-size: 13px; line-height: 1.5; margin-bottom: 10px; }

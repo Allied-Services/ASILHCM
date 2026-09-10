@@ -1440,6 +1440,36 @@ async function addAttachment(pool, { token, employeeId, filename, mimeType, cont
     return { ok: true, attachment: rows[0], category: cat };
 }
 
+async function removeAttachment(pool, { token, attachmentId }) {
+    const batch = await getBatchByToken(pool, token);
+    if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
+
+    const id = parseInt(attachmentId, 10);
+    if (!Number.isFinite(id) || id < 1) {
+        return { ok: false, status: 400, error: 'attachmentId required' };
+    }
+
+    const { rows } = await pool.query(
+        `SELECT a.id, a.filename, a.category, a.submission_id, s.status, e.contract_id
+         FROM portal_claim_attachments a
+         JOIN portal_claim_submissions s ON s.id = a.submission_id
+         JOIN employees e ON e.id = s.employee_id
+         WHERE a.id = $1 AND s.batch_id = $2`,
+        [id, batch.id]
+    );
+    const row = rows[0];
+    if (!row) return { ok: false, status: 404, error: 'Attachment not found' };
+
+    const policy = await getClaimsPolicy(pool, row.contract_id);
+    if (isFillClosedForPolicy(batch, policy)) return { ok: false, status: 403, error: FILL_CLOSED_MESSAGE };
+    if (['approved', 'in_payroll'].includes(row.status)) {
+        return { ok: false, status: 403, error: 'Locked after approval' };
+    }
+
+    await pool.query(`DELETE FROM portal_claim_attachments WHERE id = $1`, [id]);
+    return { ok: true, id: row.id, filename: row.filename, category: row.category };
+}
+
 async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
     const batch = await getBatchByToken(pool, token);
     if (!batch) return { ok: false, status: 404, error: 'Invalid link' };
@@ -3654,6 +3684,7 @@ module.exports = {
     openFillerSession,
     saveSubmissionItems,
     addAttachment,
+    removeAttachment,
     resolveSupportCategory,
     importExcelWorkbook,
     getMasterClaimsTemplatePath,
