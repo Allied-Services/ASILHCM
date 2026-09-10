@@ -14,6 +14,7 @@ import {
   isMeaningfulOtRow,
   attachmentsForSupportType,
   fillExperienceFromPack,
+  dedupeIdenticalClaimItems,
 } from './claimsFillHelpers.js';
 
 describe('claimsFillHelpers', () => {
@@ -92,6 +93,18 @@ describe('claimsFillHelpers', () => {
     });
     assert.equal(exp.fileOnly, false);
     assert.equal(exp.showOnScreen, true);
+  });
+
+  it('prepareItemsForSave drops identical expense lines so submit cannot 3x the amount', () => {
+    const expRows = [
+      { claim_type: 'EXPENSE', claim_date: '2026-08-28', amount: '2600', description: '', expense_type: 'Mobile Recharge' },
+      { claim_type: 'EXPENSE', claim_date: '2026-08-28', amount: 2600, description: '', expense_type: 'Mobile Recharge' },
+      { claim_type: 'EXPENSE', claim_date: '2026-08-28', amount: 2600, description: '', expense_type: 'Mobile Recharge' },
+      { claim_type: 'EXPENSE', claim_date: '2026-08-20', amount: '1000', description: 'Visit to CGGC Balakot ' },
+    ];
+    const items = prepareItemsForSave([], expRows, [], false);
+    assert.equal(items.length, 2);
+    assert.equal(dedupeIdenticalClaimItems(expRows).length, 2);
   });
 });
 

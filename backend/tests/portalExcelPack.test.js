@@ -35,4 +35,24 @@ describe('pack-aware claims workbook', () => {
         expect(parsed.itemsByEmployee.size).toBe(0);
         expect(parsed.errors).toEqual([]);
     });
+
+    test('parser keeps one of duplicate expense rows for the same employee/date/amount', () => {
+        const wb = XLSX.utils.book_new();
+        const rows = [
+            ['Date', 'ASIL Employee Code', 'Employee Name', 'Total Expense Amount (PKR)', 'Description of Expense'],
+            ['20-08-2026', 'ASIL-1', 'Ali', 1000, 'Fuel'],
+            ['28-08-2026', 'ASIL-1', 'Ali', 2600, 'Mobile Recharge'],
+            ['28-08-2026', 'ASIL-1', 'Ali', 2600, 'Mobile Recharge'],
+            ['28-08-2026', 'ASIL-1', 'Ali', 2600, 'Mobile Recharge'],
+        ];
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Expense Claims');
+        const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        const parsed = parseMasterClaimsWorkbook(buf, {
+            allowedEmployeeIds: ['ASIL-1'],
+            enabledTypes: ['EXPENSE'],
+        });
+        const items = parsed.itemsByEmployee.get('ASIL-1') || [];
+        expect(items.filter((i) => i.claim_type === 'EXPENSE')).toHaveLength(2);
+        expect(parsed.warnings.some((w) => /duplicate row/i.test(w))).toBe(true);
+    });
 });

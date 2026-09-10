@@ -14,7 +14,7 @@ const {
     FILL_CLOSE_DAY,
     APPROVE_CLOSE_DAY,
 } = require('../src/modules/claims/portalService');
-const { dateParseErrorMessage, toIsoDate } = require('../src/modules/claims/portalExcel');
+const { dateParseErrorMessage, toIsoDate, dedupeIdenticalClaimItems } = require('../src/modules/claims/portalExcel');
 
 describe('portalClaims helpers', () => {
     it('normalizeAuthority SELF and email', () => {
@@ -462,5 +462,28 @@ describe('portalClaims helpers', () => {
         assert.equal(aug14.errors.length, 0, aug14.errors.join('; '));
         assert.equal(aug14.factor, 3);
         assert.equal(aug14.ot_multiplier, 'Triple');
+    });
+});
+
+describe('dedupeIdenticalClaimItems', () => {
+    it('keeps one of three identical expense lines (Arsalan 3x 2600 case)', () => {
+        const rows = [
+            { claim_type: 'EXPENSE', claim_date: '2026-08-28', amount: 2600, description: null, expense_type: 'Mobile Recharge' },
+            { claim_type: 'EXPENSE', claim_date: '2026-08-28', amount: '2600.00', description: '', expense_type: 'Mobile Recharge' },
+            { claim_type: 'EXPENSE', claim_date: '2026-08-28', amount: 2600, description: null, expense_type: 'Mobile Recharge' },
+            { claim_type: 'EXPENSE', claim_date: '2026-08-20', amount: 1000, description: 'Visit to CGGC Balakot ' },
+        ];
+        const out = dedupeIdenticalClaimItems(rows);
+        assert.equal(out.length, 2);
+        assert.equal(Number(out.find((r) => Number(r.amount) === 2600).amount), 2600);
+        assert.equal(Number(out.find((r) => Number(r.amount) === 1000).amount), 1000);
+    });
+
+    it('keeps two expense lines on different dates with the same amount', () => {
+        const rows = [
+            { claim_type: 'EXPENSE', claim_date: '2026-08-25', amount: 1050, description: 'Fuel' },
+            { claim_type: 'EXPENSE', claim_date: '2026-08-27', amount: 1050, description: 'Fuel' },
+        ];
+        assert.equal(dedupeIdenticalClaimItems(rows).length, 2);
     });
 });

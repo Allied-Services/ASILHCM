@@ -345,6 +345,45 @@ function isMeaningfulMoneyRow(row) {
     return !!(date || (Number.isFinite(amt) && amt > 0) || desc || patient);
 }
 
+function claimDateKey(v) {
+    if (v == null || v === '') return '';
+    if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+    const s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    return s;
+}
+
+function claimMoneyKey(v) {
+    if (v == null || v === '') return '';
+    const n = Number(v);
+    return Number.isFinite(n) ? String(n) : String(v).trim();
+}
+
+/** Same type + date + amount/hours + description collapse to one line (stops 3x Excel retries). */
+function claimLineDedupeKey(item) {
+    const type = String(item?.claim_type || '').toUpperCase();
+    const date = claimDateKey(item?.claim_date);
+    const hours = claimMoneyKey(item?.ot_hours);
+    const amount = claimMoneyKey(item?.amount);
+    const desc = String(item?.description || item?.nature || '').trim().toLowerCase();
+    const extra = type === 'OT'
+        ? `${String(item?.ot_multiplier || '').trim().toLowerCase()}|${String(item?.time_from || '').trim()}|${String(item?.time_to || '').trim()}`
+        : `${String(item?.expense_type || '').trim().toLowerCase()}|${String(item?.patient_name || '').trim().toLowerCase()}`;
+    return `${type}|${date}|${hours}|${amount}|${desc}|${extra}`;
+}
+
+function dedupeIdenticalClaimItems(items) {
+    const seen = new Set();
+    const out = [];
+    for (const item of items || []) {
+        const key = claimLineDedupeKey(item);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(item);
+    }
+    return out;
+}
+
 /**
  * @param {Buffer} buffer
  * @param {{ allowedEmployeeIds?: string[] }} opts
@@ -507,6 +546,15 @@ function parseMasterClaimsWorkbook(buffer, opts = {}) {
 
     if (enabledTypes.includes('ATTENDANCE') && !wb.SheetNames.find(n => /attendance/i.test(n))) {
         warnings.push('Attendance sheet not found in workbook');
+    }
+
+    for (const [empId, items] of [...itemsByEmployee.entries()]) {
+        const unique = dedupeIdenticalClaimItems(items);
+        const dropped = items.length - unique.length;
+        if (dropped) {
+            warnings.push(`${empId}: ${dropped} duplicate row(s) ignored so the amount is not multiplied`);
+            itemsByEmployee.set(empId, unique);
+        }
     }
 
     return { itemsByEmployee, errors, warnings, sheetNames: wb.SheetNames };
@@ -1012,5 +1060,7 @@ module.exports = {
     formatDateDdMmYyyy,
     isMeaningfulOtRow,
     isMeaningfulMoneyRow,
+    claimLineDedupeKey,
+    dedupeIdenticalClaimItems,
     MONTH_NAMES,
 };
