@@ -1,0 +1,29 @@
+GOOD MORNING
+
+SITE: OK
+Mission: One real payroll month for the pilot — HCM matches Excel and pays correctly.
+Status: AMBER
+
+NOT FINISHED YET
+1. August payslip resend still open (live mail is on)
+2. Pilot Excel vs HCM proof still blocked — waiting on payroll CSV
+3. New pay engine still not used for real production pay
+4. This morning email still not connected to deliver
+
+NEEDS YOU TODAY
+- Payroll team Excel export for the pilot shadow month
+- Confirm August payslip resend is done (or say when to run it)
+- Connect morning email delivery on this Automation
+  https://cursor.com/automations/5e5c7662-8dce-11f1-a7d1-d6b4613131ce
+
+I SUGGEST
+- Do not Calculate August
+- Finish August payslip resend before new builds
+
+FOCUS TODAY
+Close August payslips, then unlock the pilot Excel proof. No new features today.
+
+---
+HTML card: docs/owner/morning_latest.html
+Live health: https://asilhcm.onrender.com/health → ok (commit b381976)
+Agent: https://cursor.com/agents/bc-3ad1aa8d-088c-40b9-944e-71b87eb14f2a
