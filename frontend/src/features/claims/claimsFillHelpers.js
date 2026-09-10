@@ -86,6 +86,44 @@ export function isMeaningfulMoneyRow(row) {
     || String(row.patient_name || '').trim());
 }
 
+function claimDateKey(v) {
+  if (v == null || v === '') return '';
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return s;
+}
+
+function claimMoneyKey(v) {
+  if (v == null || v === '') return '';
+  const n = Number(v);
+  return Number.isFinite(n) ? String(n) : String(v).trim();
+}
+
+export function claimLineDedupeKey(item) {
+  const type = String(item?.claim_type || '').toUpperCase();
+  const date = claimDateKey(item?.claim_date);
+  const hours = claimMoneyKey(item?.ot_hours);
+  const amount = claimMoneyKey(item?.amount);
+  const desc = String(item?.description || item?.nature || '').trim().toLowerCase();
+  const extra = type === 'OT'
+    ? `${String(item?.ot_multiplier || '').trim().toLowerCase()}|${String(item?.time_from || '').trim()}|${String(item?.time_to || '').trim()}`
+    : `${String(item?.expense_type || '').trim().toLowerCase()}|${String(item?.patient_name || '').trim().toLowerCase()}`;
+  return `${type}|${date}|${hours}|${amount}|${desc}|${extra}`;
+}
+
+export function dedupeIdenticalClaimItems(items) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items || []) {
+    const key = claimLineDedupeKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 export function syncOtHours(rows) {
   return (rows || []).map((r) => {
     const hrs = computeOtHoursFromRow(r);
@@ -105,10 +143,10 @@ export function prepareItemsForSave(otRows, expRows, medRows, confirmNoClaims, h
     if (!hint) return r;
     return { ...r, ot_multiplier: hint.rate === 'Triple' ? 'Triple' : 'Double' };
   });
-  return [...otPrepared, ...(expRows || []), ...(medRows || [])].filter((r) => {
+  return dedupeIdenticalClaimItems([...otPrepared, ...(expRows || []), ...(medRows || [])].filter((r) => {
     if (r.claim_type === 'OT') return isMeaningfulOtRow(r);
     return isMeaningfulMoneyRow(r);
-  });
+  }));
 }
 
 export const SUPPORT_CATEGORY_LABELS = {

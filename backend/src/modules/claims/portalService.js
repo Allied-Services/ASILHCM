@@ -15,6 +15,7 @@ const {
     formatDateDdMmYyyy,
     isMeaningfulOtRow,
     isMeaningfulMoneyRow,
+    dedupeIdenticalClaimItems,
     MONTH_NAMES,
 } = require('./portalExcel');
 const {
@@ -1087,6 +1088,30 @@ async function openFillerSession(pool, token) {
     };
 }
 
+async function insertClaimItems(client, submissionId, items) {
+    if (!items.length) return;
+    const cols = 13;
+    const values = [];
+    const params = [];
+    items.forEach((item, idx) => {
+        const o = idx * cols;
+        values.push(`($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},$${o + 8},$${o + 9},$${o + 10},$${o + 11},$${o + 12},$${o + 13})`);
+        params.push(
+            submissionId, item.claim_type, item.claim_date || null,
+            item.ot_hours || null, item.ot_multiplier || null, item.ot_multiplier_factor || null,
+            item.amount || null, item.description || null, item.expense_type || null,
+            item.patient_name || null, item.time_from || null, item.time_to || null, item.nature || null,
+        );
+    });
+    await client.query(
+        `INSERT INTO portal_claim_items
+         (submission_id, claim_type, claim_date, ot_hours, ot_multiplier, ot_multiplier_factor,
+          amount, description, expense_type, patient_name, time_from, time_to, nature)
+         VALUES ${values.join(',')}`,
+        params
+    );
+}
+
 async function saveSubmissionItems(pool, {
     token, employeeId, items, confirmNoClaims, skipSupportCheck = false, asDraft = false,
     sendAppEmail = null, skipRecordEmail = false,
@@ -1215,6 +1240,12 @@ async function saveSubmissionItems(pool, {
         }
     }
 
+    const beforeDedupe = normalized.length;
+    const uniqueItems = dedupeIdenticalClaimItems(normalized);
+    const droppedDuplicates = beforeDedupe - uniqueItems.length;
+    normalized.length = 0;
+    normalized.push(...uniqueItems);
+
     if (errors.length) {
         const unique = [...new Set(errors)];
         const body = unique.slice(0, 20).map((e, i) => `${i + 1}. ${e}`).join('\n');
@@ -1285,37 +1316,35 @@ async function saveSubmissionItems(pool, {
         }
     }
 
-    await pool.query(`DELETE FROM portal_claim_items WHERE submission_id = $1`, [sub.id]);
-    for (const item of normalized) {
-        await pool.query(
-            `INSERT INTO portal_claim_items
-             (submission_id, claim_type, claim_date, ot_hours, ot_multiplier, ot_multiplier_factor,
-              amount, description, expense_type, patient_name, time_from, time_to, nature)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-            [
-                sub.id, item.claim_type, item.claim_date || null,
-                item.ot_hours || null, item.ot_multiplier || null, item.ot_multiplier_factor || null,
-                item.amount || null, item.description || null, item.expense_type || null,
-                item.patient_name || null, item.time_from || null, item.time_to || null, item.nature || null,
-            ]
-        );
-    }
-
     const wantDraft = asDraft || skipSupportCheck;
     const newStatus = normalized.length
         ? (wantDraft ? 'draft' : 'submitted')
         : 'draft';
     const snapshot = normalized.length ? JSON.stringify({ items: normalized, at: new Date().toISOString() }) : null;
-    await pool.query(
-        `UPDATE portal_claim_submissions
-         SET status = $2,
-             submitted_at = CASE WHEN $2 = 'submitted' THEN NOW() ELSE submitted_at END,
-             submitted_locked_at = CASE WHEN $2 = 'submitted' THEN NOW() ELSE submitted_locked_at END,
-             submit_snapshot = CASE WHEN $2 = 'submitted' THEN $3::jsonb ELSE submit_snapshot END,
-             updated_at = NOW()
-         WHERE id = $1`,
-        [sub.id, newStatus, snapshot]
-    );
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('SELECT id FROM portal_claim_submissions WHERE id = $1 FOR UPDATE', [sub.id]);
+        await client.query(`DELETE FROM portal_claim_items WHERE submission_id = $1`, [sub.id]);
+        await insertClaimItems(client, sub.id, normalized);
+        await client.query(
+            `UPDATE portal_claim_submissions
+             SET status = $2,
+                 submitted_at = CASE WHEN $2 = 'submitted' THEN NOW() ELSE submitted_at END,
+                 submitted_locked_at = CASE WHEN $2 = 'submitted' THEN NOW() ELSE submitted_locked_at END,
+                 submit_snapshot = CASE WHEN $2 = 'submitted' THEN $3::jsonb ELSE submit_snapshot END,
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [sub.id, newStatus, snapshot]
+        );
+        await client.query('COMMIT');
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
     await refreshBatchStatus(pool, batch.id);
 
     if (newStatus === 'submitted' && sendAppEmail && !skipRecordEmail) {
@@ -1353,7 +1382,10 @@ async function saveSubmissionItems(pool, {
           + 'You will receive another email when they approve or reject it. '
           + 'Approved amounts are added to payroll and paid with the following month’s salary.';
     } else if (skipSupportCheck) {
-        message = 'Excel imported as a draft. Review the rows, then upload required Expense/Medical supports (if any) before Submit to Line Manager.';
+        message = 'Excel imported as a draft (replaces any previous upload). Review the rows, then upload required Expense/Medical supports (if any) before Submit to Line Manager.';
+        if (droppedDuplicates) {
+            message = `Excel imported as a draft. ${droppedDuplicates} duplicate row(s) were ignored so the amount is not multiplied. Review the rows, then upload required Expense/Medical supports (if any) before Submit.`;
+        }
     } else {
         message = savedLines.length
             ? `Draft saved (${savedLines.length} line${savedLines.length === 1 ? '' : 's'}). Your entries are shown below — review, then Submit when ready.`
@@ -1365,6 +1397,7 @@ async function saveSubmissionItems(pool, {
         status: finalStatus,
         submissionId: sub.id,
         itemCount: normalized.length,
+        droppedDuplicates,
         savedLines,
         message,
         notifyApprover: finalStatus === 'submitted' && APPROVER_NOTIFY_MODE === 'immediate',
@@ -1430,14 +1463,40 @@ async function addAttachment(pool, { token, employeeId, filename, mimeType, cont
     );
     const cat = resolveSupportCategory(category, typeRows.map((r) => r.claim_type));
 
-    const { rows } = await pool.query(
-        `INSERT INTO portal_claim_attachments
-         (submission_id, filename, mime_type, content_base64, byte_size, retain_until, category)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         RETURNING id, filename, mime_type, byte_size, retain_until, uploaded_at, category`,
-        [sub.id, filename, mimeType || 'application/octet-stream', contentBase64, buf.length, retainUntil.toISOString().slice(0, 10), cat]
-    );
-    return { ok: true, attachment: rows[0], category: cat };
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('SELECT id FROM portal_claim_submissions WHERE id = $1 FOR UPDATE', [sub.id]);
+        if (String(cat).toLowerCase() === 'excel_workbook') {
+            await client.query(
+                `DELETE FROM portal_claim_attachments
+                 WHERE submission_id = $1 AND LOWER(COALESCE(category, '')) = 'excel_workbook'`,
+                [sub.id]
+            );
+        } else {
+            await client.query(
+                `DELETE FROM portal_claim_attachments
+                 WHERE submission_id = $1
+                   AND LOWER(COALESCE(category, 'other')) = LOWER($2)
+                   AND LOWER(filename) = LOWER($3)`,
+                [sub.id, cat, filename]
+            );
+        }
+        const { rows } = await client.query(
+            `INSERT INTO portal_claim_attachments
+             (submission_id, filename, mime_type, content_base64, byte_size, retain_until, category)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             RETURNING id, filename, mime_type, byte_size, retain_until, uploaded_at, category`,
+            [sub.id, filename, mimeType || 'application/octet-stream', contentBase64, buf.length, retainUntil.toISOString().slice(0, 10), cat]
+        );
+        await client.query('COMMIT');
+        return { ok: true, attachment: rows[0], category: cat, replaced: true };
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
 }
 
 async function removeAttachment(pool, { token, attachmentId }) {
@@ -1612,7 +1671,10 @@ async function importExcelWorkbook(pool, { token, contentBase64, filename }) {
         message: (
             (saveErrors.length
                 ? `Imported draft for ${okResults.length} employee(s). Some rows had errors — see details. `
-                : `Imported draft for ${okResults.length} employee(s). `)
+                : `Imported draft for ${okResults.length} employee(s) (replaces any previous Excel). `)
+            + ((parsed.warnings || []).some((w) => /duplicate row/i.test(String(w)))
+                ? 'Duplicate rows were ignored so the amount is not multiplied. '
+                : '')
             + supportMsg
         ),
     };
@@ -3687,6 +3749,7 @@ module.exports = {
     removeAttachment,
     resolveSupportCategory,
     importExcelWorkbook,
+    dedupeIdenticalClaimItems,
     getMasterClaimsTemplatePath,
     buildPersonalizedTemplateForToken,
     ensureApproverPacks,

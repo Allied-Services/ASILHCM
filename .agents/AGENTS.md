@@ -315,6 +315,11 @@ Fillers (Focal / Line Manager / Employee) can Remove a support file they uploade
 
 **Env vars needed:** none.
 
+### 2026-09-10 — Portal Claims Excel re-upload no longer multiplies amounts
+Re-uploading the claims Excel replaces the draft (row lock + one stored workbook). Identical type/date/amount lines are kept once on parse, save, and submit. Same support filename is replaced, not stacked.
+
+**Env vars needed:** none.
+
 ### 2026-09-10 — Monthly Cycle Track loads filters and filled claims
 Track Client/Contract/Location dropdowns come from `GET /api/portal-claims/admin/filters` (view), not from the full audience. The response board applies those filters in SQL, caches the contract rulebook instead of querying once per employee, and still lists anyone who already submitted for the work/pay month. Default client is Wafi when that name exists.
 

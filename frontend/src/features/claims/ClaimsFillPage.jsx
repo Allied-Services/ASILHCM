@@ -171,7 +171,7 @@ export default function ClaimsFillPage() {
   const summary = buildClaimSummary({ otRows, expRows, medRows, attachments: atts, pkHolidays });
   const isSelfFinalApproved = locked && ['lm_only', 'focal_only'].includes(sub?.routing_profile) && sub?.status === 'approved';
   const people = sub ? buildClaimPeopleStory(sub) : null;
-  const canEdit = !locked && !fillClosed;
+  const canEdit = !locked && !fillClosed && !busy;
   const hasWorkbook = atts.some((a) => String(a.category || '').toLowerCase() === 'excel_workbook');
   const fileReady = summary.totals.lineCount > 0
     || (experience.fileOnly && experience.hasAttendance && hasWorkbook);
@@ -280,6 +280,12 @@ export default function ClaimsFillPage() {
 
   const uploadExcel = async (file) => {
     if (!file) return;
+    if (hasWorkbook) {
+      const ok = window.confirm(
+        'This file replaces your current draft. Duplicate rows (same date and amount) are kept once so the claim is not multiplied.',
+      );
+      if (!ok) return;
+    }
     setBusy(true);
     setError('');
     setMsg('');
@@ -297,7 +303,7 @@ export default function ClaimsFillPage() {
         throw new Error((d.error || 'Excel import failed') + (details ? `\n\n${details}` : ''));
       }
       const notes = (d.parseErrors || []).length
-        ? `\n\nPlease fix these rows and re-upload:\n${d.parseErrors.slice(0, 12).join('\n')}`
+        ? `\n\nPlease check these rows:\n${d.parseErrors.slice(0, 12).join('\n')}`
         : '';
       setMsg((d.message || 'Excel imported as draft.') + notes);
       const rr = await fetch(`${API}/api/portal-claims/fill/${token}`);
@@ -308,7 +314,10 @@ export default function ClaimsFillPage() {
         const firstOk = (d.results || []).find((x) => x.ok)?.employeeId
           || d2.submissions.find((s) => s.status === 'draft')?.employee_id
           || d2.submissions[0]?.employee_id;
-        if (firstOk) setSelected(firstOk);
+        if (firstOk) {
+          setSelected(firstOk);
+          hydrateRowsFromServer(d2, firstOk);
+        }
       }
       scrollToFeedback(feedbackRef);
     } catch (e) {
@@ -421,7 +430,7 @@ export default function ClaimsFillPage() {
           Download <strong>your</strong> workbook for <strong>{experience.typeList}</strong> — Employee Code and Name are already filled.
           {experience.fileOnly
             ? ' Upload the filled file, then submit. This contract does not use on-screen entry.'
-            : ' Upload loads a draft. If the file has Expense or Medical amounts, upload support files before final submit.'}
+            : ' Upload loads a draft and replaces any previous file. Duplicate rows are kept once. If the file has Expense or Medical amounts, upload support files before final submit.'}
         </p>
         <div className="claims-actions">
           <a href={templateHref} className="claims-btn-primary" download>
@@ -429,7 +438,9 @@ export default function ClaimsFillPage() {
           </a>
           {canEdit && (
             <label className="claims-btn-ghost claims-file-label">
-              {experience.fileOnly ? 'Upload filled file' : 'Upload filled Excel'}
+              {experience.fileOnly
+                ? (hasWorkbook ? 'Replace filled file' : 'Upload filled file')
+                : (hasWorkbook ? 'Replace Excel (replaces draft)' : 'Upload filled Excel')}
               <input type="file" accept=".xlsx,.xls" hidden disabled={busy} onChange={(e) => { uploadExcel(e.target.files?.[0]); e.target.value = ''; }} />
             </label>
           )}
@@ -884,7 +895,7 @@ function HowItWorks({ templateHref, experience }) {
         <div className="claims-card-title">How this works (simple)</div>
         <ol className="claims-how-list">
           <li>Download <a href={templateHref} className="claims-link">your contract file</a>. Codes and names are already filled.</li>
-          <li>Complete only <strong>{types}</strong>, then upload the same file. There is no on-screen form for this contract.</li>
+          <li>Complete only <strong>{types}</strong>, then upload the same file once. Re-upload replaces the draft — it does not add the amount again. There is no on-screen form for this contract.</li>
           {(experience.hasExpense || experience.hasMedical) && (
             <li>Upload support files if you claimed Expense or Medical. Review &amp; Confirm before submit.</li>
           )}
@@ -897,7 +908,7 @@ function HowItWorks({ templateHref, experience }) {
     <div className="claims-card claims-card-muted">
       <div className="claims-card-title">How this works (simple)</div>
       <ol className="claims-how-list">
-        <li><strong>Option A:</strong> Download <a href={templateHref} className="claims-link">your Excel</a>. <strong>Option B:</strong> enter step-by-step — all lines stay visible in the summary.</li>
+        <li><strong>Option A:</strong> Download <a href={templateHref} className="claims-link">your Excel</a> and upload it once (re-upload replaces the draft). <strong>Option B:</strong> enter step-by-step — all lines stay visible in the summary.</li>
         <li>Add {types} on separate steps. Click any step number to jump back.</li>
         <li>Upload support files if you claimed Expense or Medical, then Review &amp; Confirm before submit.</li>
         <li>Questions: <a href="mailto:ops-support@asil.com.pk" className="claims-link">ops-support@asil.com.pk</a></li>
