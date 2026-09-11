@@ -79,9 +79,6 @@ function registerPortalClaimsRoutes(app, deps) {
                     errors: result.errors || undefined,
                 });
             }
-            if (result.notifyApprover && result.periodId) {
-                await portal.ensureApproverPacks(pool, result.periodId, sendAppEmail, { forceEmail: true }).catch(() => {});
-            }
             res.json(result);
         } catch (err) {
             handleRouteError(res, 'portalClaims.fillSave', err);
@@ -324,8 +321,8 @@ function registerPortalClaimsRoutes(app, deps) {
                 periodId = period?.id;
             }
             if (!periodId) return res.status(400).json({ error: 'periodId or month+year required' });
-            const packs = await portal.ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail: true });
-            res.json({ packs, periodId, notifyMode: portal.APPROVER_NOTIFY_MODE });
+            const digest = await portal.sendApproverYesterdayDigests(pool, sendAppEmail, null, { periodId });
+            res.json({ packs: digest.emailed, periodId, digest, notifyMode: portal.APPROVER_NOTIFY_MODE });
         } catch (err) {
             handleRouteError(res, 'portalClaims.notifyApprovers', err);
         }
@@ -680,7 +677,7 @@ function registerPortalClaimsRoutes(app, deps) {
                 workYear: req.body?.workYear,
             };
             const results = [];
-            const periodIds = new Set();
+            const lmNotify = new Map();
             for (const row of rows) {
                 const n = portal.normalizeManualImportRow(row, defaults);
                 let r;
@@ -709,12 +706,23 @@ function registerPortalClaimsRoutes(app, deps) {
                         error: 'This row failed. The others were still processed.',
                     };
                 }
-                if (n.resubmitToLm && r.periodId) periodIds.add(r.periodId);
+                if (n.resubmitToLm && r.ok && r.periodId && r.approverEmail) {
+                    const periodId = r.periodId;
+                    const email = String(r.approverEmail).trim().toLowerCase();
+                    if (!lmNotify.has(periodId)) lmNotify.set(periodId, new Set());
+                    lmNotify.get(periodId).add(email);
+                }
                 results.push(r);
             }
-            if (!dryRun && periodIds.size) {
-                for (const periodId of periodIds) {
-                    await portal.ensureApproverPacks(pool, periodId, sendAppEmail, { forceEmail: true });
+            if (!dryRun && lmNotify.size) {
+                for (const [periodId, emails] of lmNotify) {
+                    for (const email of emails) {
+                        await portal.ensureApproverPacks(pool, periodId, sendAppEmail, {
+                            forceEmail: true,
+                            resend: true,
+                            onlyApproverEmail: email,
+                        });
+                    }
                 }
             }
             res.json({ dryRun, results, summary: portal.summarizeManualImport(results) });

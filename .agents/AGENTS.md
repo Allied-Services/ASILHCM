@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-11 — LM approval email is next-day, only if new claims yesterday
+Line Managers are not emailed when a claim is submitted. Each morning (09:00 Pakistan, cron `0 4 * * *` UTC) the job checks whether that LM received **new submitted claims yesterday** (Asia/Karachi). If yes, one pack email goes out. A quiet day (no new claims) sends nothing, even if older claims are still pending. Chase reminders and Send to LM = Y still mail immediately.
+
+**Env vars needed:** none.
+
 ### 2026-09-10 — Track Pending/Done filters; August board is August work only
 Monthly Cycle → Track defaults to **All** (submitted + No Claims were hidden behind Needs action). Pending / Done / All buckets, with Not started / Waiting fill / Waiting LM / Ready, and Done → No Claims / Approved / Rejected. Filler chips: Focal, LM, Employee. The response board now loads only `portal_claim_periods.claim_month = work month` (July-work August-campaign rows no longer leak onto the August board) and does not fall back to another work-month submission.
 

@@ -143,7 +143,7 @@ async function bootstrapRestructure(deps) {
     await scheduleJob('ar.schedules', {}, '0 4 * * *').catch(() => {});
     await scheduleJob('xero.bills.sync', {}, '0 1 * * *').catch(() => {});
     await scheduleJob('xero.ar.sync', {}, '0 2 * * *').catch(() => {});
-    await scheduleJob('portal.claims.reminders', {}, '0 9 * * *').catch(() => {});
+    await scheduleJob('portal.claims.reminders', {}, '0 4 * * *').catch(() => {});
     await scheduleJob('records.focalDigest', {}, '0 2 * * *').catch(() => {});
 
     return boss;

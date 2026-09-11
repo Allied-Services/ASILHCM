@@ -403,6 +403,104 @@ describe('portalClaims helpers', () => {
         assert.equal(n.resubmitToLm, false);
     });
 
+    it('shouldSendApproverNotifyEmail only sends reminder, resend, or digest', () => {
+        const { shouldSendApproverNotifyEmail } = require('../src/modules/claims/claimsReminders');
+        assert.equal(shouldSendApproverNotifyEmail({ pendingCount: 1, forceEmail: true }), false);
+        assert.equal(shouldSendApproverNotifyEmail({ pendingCount: 1, reminder: true }), true);
+        assert.equal(shouldSendApproverNotifyEmail({ pendingCount: 1, resend: true }), true);
+        assert.equal(shouldSendApproverNotifyEmail({ pendingCount: 1, digest: true }), true);
+        assert.equal(shouldSendApproverNotifyEmail({ pendingCount: 0, digest: true }), false);
+    });
+
+    it('ensureApproverPacks does not email an LM on submit', async () => {
+        const { ensureApproverPacks } = require('../src/modules/claims/portalService');
+        const lm = 'usman.butt@wafi-energy.com';
+        const period = { id: 11, claim_month: 8, claim_year: 2026, campaign_mode: 'actual' };
+        const pack = { id: 99, period_id: 11, approver_email: lm, invite_sent_at: null };
+        const pool = {
+            query: async (sql) => {
+                const s = String(sql);
+                if (/GROUP BY LOWER\(TRIM\(approver_email\)\)/i.test(s)) {
+                    return { rows: [{ approver_email: lm }] };
+                }
+                if (/FROM portal_claim_periods/i.test(s)) return { rows: [period] };
+                if (/FROM portal_claim_approver_packs/i.test(s) && /SELECT \*/i.test(s)) {
+                    return { rows: [] };
+                }
+                if (/INSERT INTO portal_claim_approver_packs/i.test(s)) return { rows: [{ ...pack }] };
+                if (/FROM portal_claim_submissions/i.test(s) && /status IN/i.test(s)) {
+                    return { rows: [{
+                        id: 1, status: 'submitted', filler_email: 'focal@wafi-energy.com',
+                        employee_name: 'Haseeb Ullah Khan', employee_id: 'ASIL/SPL-8/21',
+                    }] };
+                }
+                if (/FROM portal_claim_items/i.test(s)) return { rows: [] };
+                return { rows: [] };
+            },
+        };
+        let mailed = 0;
+        const first = await ensureApproverPacks(pool, 11, async () => { mailed += 1; }, {
+            forceEmail: true,
+            onlyApproverEmail: lm,
+        });
+        assert.equal(first[0].emailed, false);
+        assert.equal(mailed, 0);
+    });
+
+    it('sendApproverYesterdayDigests emails only when yesterday had new claims', async () => {
+        const { sendApproverYesterdayDigests } = require('../src/modules/claims/portalService');
+        const lm = 'usman.butt@wafi-energy.com';
+        const period = {
+            id: 11, claim_month: 8, claim_year: 2026, campaign_mode: 'actual',
+            approve_close_at: '2026-09-18T18:59:59.000Z',
+        };
+        const pack = { id: 99, period_id: 11, approver_email: lm, invite_sent_at: null };
+        const now = new Date('2026-09-11T04:00:00Z');
+        const candidate = {
+            approver_email: lm,
+            period_id: 11,
+            pending_count: 2,
+            new_yesterday: 1,
+            pack_sent_at: null,
+            pack_last_reminder: null,
+        };
+        const pool = {
+            query: async (sql) => {
+                const s = String(sql);
+                if (/new_yesterday/i.test(s)) return { rows: [candidate] };
+                if (/GROUP BY LOWER\(TRIM\(approver_email\)\)/i.test(s)) {
+                    return { rows: [{ approver_email: lm }] };
+                }
+                if (/FROM portal_claim_periods/i.test(s)) return { rows: [period] };
+                if (/FROM portal_claim_approver_packs/i.test(s) && /SELECT \*/i.test(s)) {
+                    return { rows: pack.invite_sent_at ? [pack] : [] };
+                }
+                if (/INSERT INTO portal_claim_approver_packs/i.test(s)) return { rows: [{ ...pack }] };
+                if (/FROM portal_claim_submissions/i.test(s) && /status IN/i.test(s)) {
+                    return { rows: [
+                        { id: 1, status: 'submitted', filler_email: 'focal@wafi-energy.com', employee_name: 'A', employee_id: '1' },
+                        { id: 2, status: 'submitted', filler_email: 'focal@wafi-energy.com', employee_name: 'B', employee_id: '2' },
+                    ] };
+                }
+                if (/FROM portal_claim_items/i.test(s)) return { rows: [] };
+                if (/UPDATE portal_claim_approver_packs/i.test(s)) {
+                    pack.invite_sent_at = now.toISOString();
+                    candidate.pack_sent_at = pack.invite_sent_at;
+                    return { rows: [pack], rowCount: 1 };
+                }
+                return { rows: [] };
+            },
+        };
+        const mailed = [];
+        const sendAppEmail = async (msg) => { mailed.push(msg); };
+        const first = await sendApproverYesterdayDigests(pool, sendAppEmail, null, { now });
+        const second = await sendApproverYesterdayDigests(pool, sendAppEmail, null, { now });
+        assert.equal(first.approver, 1);
+        assert.equal(second.approver, 0);
+        assert.equal(mailed.length, 1);
+        assert.match(String(mailed[0].subject), /new yesterday/i);
+    });
+
     it('applyPortalCorrection Send to LM = N replaces portal amounts and never emails', async () => {
         const { applyPortalCorrection } = require('../src/modules/claims/portalService');
         const sql = [];

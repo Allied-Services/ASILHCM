@@ -1,6 +1,58 @@
 'use strict';
 
 const REMINDER_INTERVAL_MS = 48 * 60 * 60 * 1000;
+const CLAIMS_BUSINESS_TZ = 'Asia/Karachi';
+
+function calendarDateInZone(date = new Date(), timeZone = CLAIMS_BUSINESS_TZ) {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date);
+}
+
+function addDaysYmd(ymd, days) {
+    const [y, m, d] = String(ymd).split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+function karachiYesterdayYmd(now = new Date()) {
+    return addDaysYmd(calendarDateInZone(now), -1);
+}
+
+function isTimestampOnYmd(ts, ymd, timeZone = CLAIMS_BUSINESS_TZ) {
+    if (!ts || !ymd) return false;
+    const d = ts instanceof Date ? ts : new Date(ts);
+    if (Number.isNaN(d.getTime())) return false;
+    return calendarDateInZone(d, timeZone) === ymd;
+}
+
+/**
+ * Automatic LM mail is the next-day digest (new claims yesterday).
+ * Chase reminders and admin corrections still pass reminder/resend.
+ */
+function shouldSendApproverNotifyEmail({
+    pendingCount = 0,
+    reminder = false,
+    resend = false,
+    digest = false,
+} = {}) {
+    if (Number(pendingCount) <= 0) return false;
+    return !!(reminder || resend || digest);
+}
+
+/** Next-day LM pack: only if yesterday added claims, and we have not already mailed today. */
+function shouldSendApproverYesterdayDigest({
+    pendingCount = 0,
+    newYesterdayCount = 0,
+    mailedToday = false,
+} = {}) {
+    if (Number(pendingCount) <= 0) return false;
+    if (Number(newYesterdayCount) <= 0) return false;
+    if (mailedToday) return false;
+    return true;
+}
 
 function isDueForReminder(lastReminderAt, inviteSentAt, nowMs = Date.now()) {
     const inviteMs = inviteSentAt ? new Date(inviteSentAt).getTime() : 0;
@@ -68,6 +120,18 @@ function approverReminderBanner(period, approveDay) {
 </p>`;
 }
 
+function approverYesterdayDigestBanner(newCount) {
+    const n = Number(newYesterdaySafe(newCount));
+    const label = n === 1 ? '1 new claim was submitted yesterday' : `${n} new claims were submitted yesterday`;
+    return `<p style="margin:0 0 16px;padding:14px 16px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;color:#1e3a8a;font-size:15px;line-height:1.55">
+  <strong>${label}.</strong> Open the pack to review those plus anything still waiting. No email is sent on days with no new claims.
+</p>`;
+}
+
+function newYesterdaySafe(n) {
+    const v = Number(n);
+    return Number.isFinite(v) && v > 0 ? v : 1;
+}
 
 function buildSubmitPendingSms(period, submitDay) {
     const monthLabel = deadlineMonthLabel(period);
@@ -104,12 +168,20 @@ function buildCheckEmailSms(period, { role } = {}) {
 
 module.exports = {
     REMINDER_INTERVAL_MS,
+    CLAIMS_BUSINESS_TZ,
+    calendarDateInZone,
+    addDaysYmd,
+    karachiYesterdayYmd,
+    isTimestampOnYmd,
+    shouldSendApproverNotifyEmail,
+    shouldSendApproverYesterdayDigest,
     isDueForReminder,
     isJuly2026TrialPeriod,
     deadlineMonthLabel,
     extensionNoticeBanner,
     fillerReminderBanner,
     approverReminderBanner,
+    approverYesterdayDigestBanner,
     buildSubmitPendingSms,
     buildApprovalPendingSms,
     buildSmartReminderSms,
