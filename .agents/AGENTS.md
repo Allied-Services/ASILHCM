@@ -310,6 +310,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-10 — Track Pending/Done filters; August board is August work only
+Monthly Cycle → Track defaults to **All** (submitted + No Claims were hidden behind Needs action). Pending / Done / All buckets, with Not started / Waiting fill / Waiting LM / Ready, and Done → No Claims / Approved / Rejected. Filler chips: Focal, LM, Employee. The response board now loads only `portal_claim_periods.claim_month = work month` (July-work August-campaign rows no longer leak onto the August board) and does not fall back to another work-month submission.
+
+**Env vars needed:** none.
+
 ### 2026-09-10 — Claim fill can remove a mistaken attachment
 Fillers (Focal / Line Manager / Employee) can Remove a support file they uploaded by mistake on the claim fill link. `DELETE /api/portal-claims/fill/:token/attachment/:id` only works for files on that fill token while the claim is still editable (not approved / fill closed). Same window as upload.
 

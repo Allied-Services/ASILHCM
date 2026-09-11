@@ -203,6 +203,23 @@ describe('pickSubmission', () => {
         expect(picked.id).toBe(10);
         expect(picked.status).toBe('approved');
     });
+
+    test('does not fall back to another work month', () => {
+        const picked = pickSubmission([
+            {
+                id: 10, status: 'no_claims', campaign_mode: 'actual',
+                claim_month: 7, claim_year: 2026,
+            },
+        ], { workMonth: 8, workYear: 2026 });
+        expect(picked).toBeNull();
+    });
+
+    test('keeps a row that has no claim_month once the period is already scoped', () => {
+        const picked = pickSubmission([
+            { id: 1, status: 'submitted', campaign_mode: 'actual' },
+        ], { workMonth: 8, workYear: 2026 });
+        expect(picked.id).toBe(1);
+    });
 });
 
 describe('listResponseBoard period match', () => {
@@ -263,7 +280,8 @@ describe('listResponseBoard period match', () => {
         expect(r.people[0].approver_email).toBe('lm@wafi');
         expect(r.desk_counts.pending_lm).toBe(1);
         expect(r.period_label).toMatch(/7\/2026 work/);
-        expect(pool.query.mock.calls[0][1]).toEqual([7, 2026, 8, 2026]);
+        expect(pool.query.mock.calls[0][1]).toEqual([7, 2026]);
+        expect(r.people[0].filler_role).toBe('focal');
     });
 
     test('includes a filled submission even when the employee is not in eligible', async () => {

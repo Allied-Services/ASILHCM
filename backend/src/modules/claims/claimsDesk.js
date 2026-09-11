@@ -21,7 +21,9 @@ const APPROVER_PENDING_INTERNAL = new Set(['waiting_lm', 'waiting_asil']);
 
 const CONTROL_LABEL = {
     waiting_focal: 'Waiting for Focal',
+    waiting_employee: 'Waiting for Employee',
     waiting_lm: 'Waiting for LM',
+    waiting_lm_fill: 'Waiting LM to add claims',
     final_lm_review: 'Final LM review',
     ready_for_payroll: 'Ready for Payroll',
     sent_to_payroll: 'Sent to Payroll',
@@ -35,7 +37,14 @@ const CONTROL_LABEL = {
 };
 
 const CONTROL_NEEDS_ACTION = new Set(['ready_for_payroll', 'final_lm_review', 'needs_review']);
-const CONTROL_WAITING = new Set(['waiting_focal', 'waiting_lm', 'not_invited', 'invite_sent']);
+const CONTROL_WAITING = new Set([
+    'waiting_focal',
+    'waiting_employee',
+    'waiting_lm',
+    'waiting_lm_fill',
+    'not_invited',
+    'invite_sent',
+]);
 const CONTROL_CLOSED = new Set([
     'sent_to_payroll',
     'no_claims_confirmed',
@@ -135,9 +144,9 @@ function controlStatusFromRow({
     }
 
     if (internal === 'on_sheet') return 'sent_to_payroll';
-    if (internal === 'waiting_focal' || internal === 'waiting_employee' || internal === 'waiting_fill') {
-        return 'waiting_focal';
-    }
+    if (internal === 'waiting_lm_fill') return 'waiting_lm_fill';
+    if (internal === 'waiting_employee') return 'waiting_employee';
+    if (internal === 'waiting_focal' || internal === 'waiting_fill') return 'waiting_focal';
     if (internal === 'waiting_lm' || internal === 'waiting_asil') return 'waiting_lm';
     if (internal === 'invite_sent') return 'invite_sent';
     if (internal === 'not_invited') return 'not_invited';

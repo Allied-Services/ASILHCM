@@ -118,4 +118,34 @@ describe('claims control desk', () => {
         expect(controlLabel(s)).toMatch(/Auto-closed/);
         expect(actionViewFromControl(s)).toBe('closed');
     });
+
+    test('waiting_lm_fill stays waiting, not waiting_focal', () => {
+        const s = controlStatusFromRow({
+            internalStatus: 'waiting_lm_fill',
+            submissionStatus: 'draft',
+            sample: false,
+            sheetHasValues: false,
+            amountsMatch: false,
+            portalHasValues: false,
+            lmReopenCount: 0,
+            payrollPushedAt: null,
+        });
+        expect(s).toBe('waiting_lm_fill');
+        expect(actionViewFromControl(s)).toBe('waiting');
+    });
+
+    test('waiting_employee is distinct from waiting_focal', () => {
+        const s = controlStatusFromRow({
+            internalStatus: 'waiting_employee',
+            submissionStatus: 'draft',
+            sample: false,
+            sheetHasValues: false,
+            amountsMatch: false,
+            portalHasValues: false,
+            lmReopenCount: 0,
+            payrollPushedAt: null,
+        });
+        expect(s).toBe('waiting_employee');
+        expect(actionViewFromControl(s)).toBe('waiting');
+    });
 });

@@ -42,6 +42,7 @@ const MONTHS = [
 
 const CONTROL_LABEL = {
   waiting_focal: 'Waiting for Focal',
+  waiting_employee: 'Waiting for Employee',
   waiting_lm: 'Waiting for LM',
   waiting_lm_fill: 'Waiting LM to add claims',
   final_lm_review: 'Final LM review',
@@ -55,6 +56,21 @@ const CONTROL_LABEL = {
   not_invited: 'Not invited',
   invite_sent: 'Invite sent',
 };
+
+const FILLER_LABEL = {
+  employee: 'Employee',
+  focal: 'Focal',
+  lm: 'LM',
+};
+
+const PENDING_CONTROLS = new Set([
+  'not_invited', 'invite_sent', 'waiting_focal', 'waiting_employee', 'waiting_lm_fill',
+  'waiting_lm', 'final_lm_review', 'ready_for_payroll', 'needs_review',
+]);
+const DONE_CONTROLS = new Set([
+  'sent_to_payroll', 'no_claims_confirmed', 'no_claims_auto_closed', 'no_claims_unverified', 'rejected_closed',
+]);
+
 
 const MAILER_LABEL = {
   sent: 'Sent',
@@ -102,9 +118,34 @@ function rowClass(controlStatus, open) {
   const bits = [];
   if (controlStatus === 'sent_to_payroll' || controlStatus === 'no_claims_confirmed') bits.push('is-ok');
   if (controlStatus === 'needs_review' || controlStatus === 'rejected_closed' || controlStatus === 'no_claims_auto_closed') bits.push('is-bad');
-  if (controlStatus === 'ready_for_payroll' || controlStatus === 'final_lm_review' || controlStatus === 'waiting_lm') bits.push('is-warn');
+  if (controlStatus === 'ready_for_payroll' || controlStatus === 'final_lm_review' || controlStatus === 'waiting_lm' || controlStatus === 'waiting_lm_fill') bits.push('is-warn');
   if (open) bits.push('is-open');
   return bits.join(' ');
+}
+
+function fillerRoleOf(p) {
+  if (p.filler_role) return p.filler_role;
+  const profile = String(p.routing_profile || '').toLowerCase();
+  if (profile.startsWith('employee')) return 'employee';
+  if (profile === 'lm_only') return 'lm';
+  return 'focal';
+}
+
+function isPendingRow(p) {
+  if (p.action_view === 'waiting' || p.action_view === 'needs_action') return true;
+  return PENDING_CONTROLS.has(p.control_status);
+}
+
+function isDoneRow(p) {
+  if (p.action_view === 'closed') return true;
+  return DONE_CONTROLS.has(p.control_status);
+}
+
+function bucketOf(filter) {
+  if (filter === 'payroll_desk') return 'payroll_desk';
+  if (['pending', 'waiting', 'needs_action', 'not_started', 'pending_fill', 'pending_lm', 'pending_ops'].includes(filter)) return 'pending';
+  if (['done', 'closed', 'done_no_claims', 'done_approved', 'done_rejected', 'no_claims_confirmed', 'no_claims_auto_closed', 'claims_approved'].includes(filter)) return 'done';
+  return 'all';
 }
 
 /** Focal/employee filled and submitted — waiting LM or ASIL approval. */
@@ -157,7 +198,9 @@ export default function PortalClaimsHub({
   const [location, setLocation] = useState('');
   const defaultSection = lockSection || (new URLSearchParams(window.location.search).get('setup_needed') === '1' ? 'request' : 'response');
   const [section, setSection] = useState(defaultSection);
-  const [filter, setFilter] = useState(initialFilter || 'needs_action');
+  const [filter, setFilter] = useState(initialFilter || 'all');
+  const [who, setWho] = useState('all');
+  const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(() => new Set());
   const [pushPreview, setPushPreview] = useState(null);
   const [board, setBoard] = useState(null);
@@ -290,29 +333,64 @@ export default function PortalClaimsHub({
 
   // eslint-disable-next-line no-unused-vars
   const counts = board?.counts || {};
-  const actionCounts = board?.action_counts || {};
   const controlCounts = board?.control_counts || {};
+  const allPeople = board?.people || [];
   const pipelineCounts = useMemo(() => {
-    const rows = board?.people || [];
+    const rows = allPeople;
     return {
-      submitted_by_focal: rows.filter(isSubmittedByFocal).length,
-      claims_approved: rows.filter(isClaimsApproved).length,
-      no_claims_confirmed: rows.filter(isNoClaimsConfirmed).length,
+      pending: rows.filter(isPendingRow).length,
+      done: rows.filter(isDoneRow).length,
+      not_started: rows.filter((p) => p.control_status === 'not_invited' || p.control_status === 'invite_sent').length,
+      pending_fill: rows.filter((p) => ['waiting_focal', 'waiting_employee', 'waiting_lm_fill'].includes(p.control_status)).length,
+      pending_lm: rows.filter((p) => p.control_status === 'waiting_lm' || p.control_status === 'final_lm_review').length,
+      pending_ops: rows.filter((p) => p.control_status === 'ready_for_payroll' || p.control_status === 'needs_review').length,
+      done_no_claims: rows.filter(isNoClaimsConfirmed).length,
+      done_auto_closed: rows.filter((p) => p.control_status === 'no_claims_auto_closed').length,
+      done_approved: rows.filter((p) => p.control_status === 'sent_to_payroll').length,
+      done_rejected: rows.filter((p) => p.control_status === 'rejected_closed').length,
     };
   }, [board]);
-  const people = (board?.people || []).filter((p) => {
-    if (filter === 'all') return true;
-    if (filter === 'needs_action' || filter === 'waiting' || filter === 'closed') {
-      return p.action_view === filter;
+  const people = allPeople.filter((p) => {
+    if (filter === 'all') {
+      // keep
+    } else if (filter === 'pending') {
+      if (!isPendingRow(p)) return false;
+    } else if (filter === 'done') {
+      if (!isDoneRow(p)) return false;
+    } else if (filter === 'not_started') {
+      if (p.control_status !== 'not_invited' && p.control_status !== 'invite_sent') return false;
+    } else if (filter === 'pending_fill') {
+      if (!['waiting_focal', 'waiting_employee', 'waiting_lm_fill'].includes(p.control_status)) return false;
+    } else if (filter === 'pending_lm') {
+      if (p.control_status !== 'waiting_lm' && p.control_status !== 'final_lm_review') return false;
+    } else if (filter === 'pending_ops') {
+      if (p.control_status !== 'ready_for_payroll' && p.control_status !== 'needs_review') return false;
+    } else if (filter === 'done_no_claims' || filter === 'no_claims_confirmed') {
+      if (!isNoClaimsConfirmed(p)) return false;
+    } else if (filter === 'done_approved' || filter === 'claims_approved') {
+      if (p.control_status !== 'sent_to_payroll') return false;
+    } else if (filter === 'done_rejected') {
+      if (p.control_status !== 'rejected_closed') return false;
+    } else if (filter === 'no_claims_auto_closed') {
+      if (p.control_status !== 'no_claims_auto_closed') return false;
+    } else if (filter === 'needs_action' || filter === 'waiting' || filter === 'closed') {
+      if (p.action_view !== filter) return false;
+    } else if (filter === 'submitted_by_focal') {
+      if (!isSubmittedByFocal(p)) return false;
+    } else if (filter === 'payroll_desk') {
+      if (!hasPayrollDeskRow(p)) return false;
+    } else if (p.control_status !== filter) {
+      return false;
     }
-    if (filter === 'submitted_by_focal') return isSubmittedByFocal(p);
-    if (filter === 'claims_approved') return isClaimsApproved(p);
-    if (filter === 'no_claims_confirmed') return isNoClaimsConfirmed(p);
-    if (filter === 'no_claims_auto_closed') return p.control_status === 'no_claims_auto_closed';
-    if (filter === 'payroll_desk') return hasPayrollDeskRow(p);
-    return p.control_status === filter;
+    if (who !== 'all' && fillerRoleOf(p) !== who) return false;
+    const q = search.trim().toLowerCase();
+    if (q) {
+      const hay = `${p.name || ''} ${p.employee_id || ''} ${p.location || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
   });
-  const open = (board?.people || []).find(p => p.employee_id === openId) || null;
+  const open = allPeople.find(p => p.employee_id === openId) || null;
   const visibleIds = people.map(p => p.employee_id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
   const pushIds = useMemo(() => (
@@ -337,18 +415,21 @@ export default function PortalClaimsHub({
     return { ot2, ot3, exp, med, count: pushIds.length };
   }, [pushIds, board]);
 
-  const payrollDeskCount = (board?.people || []).filter(hasPayrollDeskRow).length;
-  const chips = [
-    ['payroll_desk', `July claims / August sheet ${payrollDeskCount}`],
-    ['needs_action', `Needs action ${actionCounts.needs_action || 0}`],
-    ['waiting', `Waiting ${actionCounts.waiting || 0}`],
-    ['submitted_by_focal', `Claims Submitted by Focals ${pipelineCounts.submitted_by_focal || 0}`],
-    ['claims_approved', `Claims Approved ${pipelineCounts.claims_approved || 0}`],
-    ['no_claims_confirmed', `No Claims Confirmed ${pipelineCounts.no_claims_confirmed || 0}`],
-    ['no_claims_auto_closed', `No Claims Auto-closed ${controlCounts.no_claims_auto_closed || 0}`],
-    ['closed', `Closed ${actionCounts.closed || 0}`],
-    ['all', `All ${board?.audience_count || 0}`],
-  ];
+  const payrollDeskCount = allPeople.filter(hasPayrollDeskRow).length;
+  const activeBucket = bucketOf(filter);
+  const whoCounts = useMemo(() => {
+    const inBucket = allPeople.filter((p) => {
+      if (activeBucket === 'pending') return isPendingRow(p);
+      if (activeBucket === 'done') return isDoneRow(p);
+      return true;
+    });
+    return {
+      all: inBucket.length,
+      focal: inBucket.filter((p) => fillerRoleOf(p) === 'focal').length,
+      lm: inBucket.filter((p) => fillerRoleOf(p) === 'lm').length,
+      employee: inBucket.filter((p) => fillerRoleOf(p) === 'employee').length,
+    };
+  }, [allPeople, activeBucket]);
 
 
   const toggleOne = (id) => {
@@ -682,28 +763,88 @@ export default function PortalClaimsHub({
         <>
           <div className="pch-note is-info">
             {filter === 'payroll_desk'
-              ? 'July work claims that are approved or already on the August Payroll Sheet.'
-              : (board?.period_label || 'Who must act, what is ready for payroll, and what is closed.')}
+              ? `${MONTHS[workMonth - 1]?.[1] || workMonth} work claims that are approved or already on the ${MONTHS[payMonth - 1]?.[1] || payMonth} Payroll Sheet.`
+              : (board?.period_label || 'Pending still needs a filler, LM, or payroll push. Done is No Claims, sent to payroll, or rejected.')}
           </div>
-          <div className="pch-stats">
-            <div className="pch-stat is-warn"><strong>{pipelineCounts.submitted_by_focal || 0}</strong><span>Submitted by Focals</span></div>
-            <div className="pch-stat is-ok"><strong>{pipelineCounts.claims_approved || 0}</strong><span>Claims Approved</span></div>
-            <div className="pch-stat is-warn"><strong>{controlCounts.ready_for_payroll || 0}</strong><span>Ready for Payroll</span></div>
-            <div className="pch-stat is-warn"><strong>{controlCounts.final_lm_review || 0}</strong><span>Final LM review</span></div>
-            <div className="pch-stat"><strong>{(controlCounts.waiting_focal || 0) + (controlCounts.waiting_lm || 0) + (controlCounts.invite_sent || 0)}</strong><span>Waiting on others</span></div>
-            <div className="pch-stat is-ok"><strong>{controlCounts.sent_to_payroll || 0}</strong><span>Sent to Payroll</span></div>
-            <div className="pch-stat is-ok"><strong>{pipelineCounts.no_claims_confirmed || 0}</strong><span>No Claims Confirmed</span></div>
-            <div className="pch-stat is-bad"><strong>{controlCounts.no_claims_auto_closed || 0}</strong><span>No Claims Auto-closed</span></div>
-            {(controlCounts.no_claims_unverified || 0) > 0 && (
-              <div className="pch-stat"><strong>{controlCounts.no_claims_unverified || 0}</strong><span>No Claims (source unknown)</span></div>
-            )}
-            <div className="pch-stat is-bad"><strong>{controlCounts.needs_review || 0}</strong><span>Needs Review</span></div>
+          <div className="pch-buckets" role="tablist" aria-label="Claim progress">
+            <button type="button" className={`pch-bucket is-warn${activeBucket === 'pending' ? ' is-on' : ''}`} onClick={() => { setFilter('pending'); setWho('all'); }}>
+              <strong>{boardLoading ? '…' : pipelineCounts.pending}</strong>
+              <span>Pending</span>
+              <em>Still waiting on fill, LM, or payroll</em>
+            </button>
+            <button type="button" className={`pch-bucket is-ok${activeBucket === 'done' ? ' is-on' : ''}`} onClick={() => { setFilter('done'); setWho('all'); }}>
+              <strong>{boardLoading ? '…' : pipelineCounts.done}</strong>
+              <span>Done</span>
+              <em>No Claims, approved, or closed</em>
+            </button>
+            <button type="button" className={`pch-bucket${activeBucket === 'all' ? ' is-on' : ''}`} onClick={() => { setFilter('all'); setWho('all'); }}>
+              <strong>{boardLoading ? '…' : (board?.audience_count || 0)}</strong>
+              <span>All</span>
+              <em>Everyone in this audience</em>
+            </button>
           </div>
-          <div className="pch-chips">
-            {chips.map(([id, label]) => (
-              <button key={id} type="button" className={`pch-chip${filter === id ? ' is-on' : ''}`} onClick={() => setFilter(id)}>{label}</button>
-            ))}
-            <button type="button" className="btn-secondary" onClick={loadBoard}>Refresh</button>
+          <div className="pch-filter-bar">
+            <div className="pch-chips">
+              {activeBucket === 'pending' && (
+                <>
+                  <button type="button" className={`pch-chip${filter === 'pending' ? ' is-on' : ''}`} onClick={() => setFilter('pending')}>All pending {pipelineCounts.pending}</button>
+                  <button type="button" className={`pch-chip${filter === 'not_started' ? ' is-on' : ''}`} onClick={() => setFilter('not_started')}>Not started {pipelineCounts.not_started}</button>
+                  <button type="button" className={`pch-chip${filter === 'pending_fill' ? ' is-on' : ''}`} onClick={() => setFilter('pending_fill')}>Waiting fill {pipelineCounts.pending_fill}</button>
+                  <button type="button" className={`pch-chip${filter === 'pending_lm' ? ' is-on' : ''}`} onClick={() => setFilter('pending_lm')}>Waiting LM {pipelineCounts.pending_lm}</button>
+                  <button type="button" className={`pch-chip${filter === 'pending_ops' ? ' is-on' : ''}`} onClick={() => setFilter('pending_ops')}>Ready / review {pipelineCounts.pending_ops}</button>
+                </>
+              )}
+              {activeBucket === 'done' && (
+                <>
+                  <button type="button" className={`pch-chip${filter === 'done' ? ' is-on' : ''}`} onClick={() => setFilter('done')}>All done {pipelineCounts.done}</button>
+                  <button type="button" className={`pch-chip${filter === 'done_no_claims' ? ' is-on' : ''}`} onClick={() => setFilter('done_no_claims')}>No Claims confirmed {pipelineCounts.done_no_claims}</button>
+                  {(pipelineCounts.done_auto_closed || 0) > 0 && (
+                    <button type="button" className={`pch-chip${filter === 'no_claims_auto_closed' ? ' is-on' : ''}`} onClick={() => setFilter('no_claims_auto_closed')}>Auto-closed {pipelineCounts.done_auto_closed}</button>
+                  )}
+                  <button type="button" className={`pch-chip${filter === 'done_approved' ? ' is-on' : ''}`} onClick={() => setFilter('done_approved')}>Approved / on sheet {pipelineCounts.done_approved}</button>
+                  {(pipelineCounts.done_rejected || 0) > 0 && (
+                    <button type="button" className={`pch-chip${filter === 'done_rejected' ? ' is-on' : ''}`} onClick={() => setFilter('done_rejected')}>Rejected {pipelineCounts.done_rejected}</button>
+                  )}
+                </>
+              )}
+              {activeBucket === 'all' && (
+                <>
+                  <button type="button" className={`pch-chip${filter === 'all' ? ' is-on' : ''}`} onClick={() => setFilter('all')}>All {board?.audience_count || 0}</button>
+                  <button type="button" className={`pch-chip${filter === 'done_no_claims' ? ' is-on' : ''}`} onClick={() => setFilter('done_no_claims')}>No Claims {pipelineCounts.done_no_claims}</button>
+                  <button type="button" className={`pch-chip${filter === 'pending_lm' ? ' is-on' : ''}`} onClick={() => setFilter('pending_lm')}>Waiting LM {pipelineCounts.pending_lm}</button>
+                  <button type="button" className={`pch-chip${filter === 'done_approved' ? ' is-on' : ''}`} onClick={() => setFilter('done_approved')}>Approved {pipelineCounts.done_approved}</button>
+                </>
+              )}
+              {filter === 'payroll_desk' && (
+                <button type="button" className="pch-chip is-on">Payroll desk {payrollDeskCount}</button>
+              )}
+              <button type="button" className="btn-secondary" onClick={loadBoard}>Refresh</button>
+            </div>
+            <div className="pch-who">
+              <span className="pch-who-label">Filler</span>
+              {[
+                ['all', 'All', whoCounts.all],
+                ['focal', 'Focal', whoCounts.focal],
+                ['lm', 'LM', whoCounts.lm],
+                ['employee', 'Employee', whoCounts.employee],
+              ].filter(([id, , n]) => id === 'all' || n > 0 || who === id).map(([id, label, n]) => (
+                <button key={id} type="button" className={`pch-chip${who === id ? ' is-on' : ''}`} onClick={() => setWho(id)}>{label} {n}</button>
+              ))}
+            </div>
+            <label className="pch-search">
+              <span className="sr-only">Search</span>
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name or code…"
+              />
+            </label>
+          </div>
+          <div className="pch-showing">
+            Showing <strong>{people.length}</strong>
+            {search.trim() ? ' matching' : ''} of {board?.audience_count || 0}
+            {who !== 'all' ? ` · ${FILLER_LABEL[who] || who} fill` : ''}
           </div>
           {(controlCounts.rejected_closed || 0) > 0 && ['superadmin', 'finance_manager'].includes(user?.role) && (
             <div className="pch-note is-warn">
@@ -730,7 +871,7 @@ export default function PortalClaimsHub({
               <button type="button" className="btn-secondary" disabled={busy || !pushIds.length} onClick={() => runPushPayroll(true)}>Preview push</button>
               <button type="button" className="btn-primary" disabled={busy || !pushIds.length} onClick={() => runPushPayroll(false)}>Review and push to payroll</button>
             </div>
-            <p className="pch-muted">Tick Ready for Payroll rows, then Review and push to payroll. That writes July work onto the August Payroll Sheet. Calculate / Update Payroll afterwards to see the same OT, expense, and medical on the sheet. A previous send that did not land the numbers can be pushed again.</p>
+            <p className="pch-muted">Tick Ready for Payroll rows, then Review and push to payroll. That writes {MONTHS[workMonth - 1]?.[1] || workMonth} work onto the {MONTHS[payMonth - 1]?.[1] || payMonth} Payroll Sheet. Calculate / Update Payroll afterwards to see the same OT, expense, and medical on the sheet.</p>
           </div>
           {pushPreview && (
             <pre className="pch-note">{JSON.stringify(pushPreview.summary, null, 2)}</pre>
@@ -743,6 +884,7 @@ export default function PortalClaimsHub({
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select visible" />
                   </th>
                   <th>Employee</th>
+                  <th>Filler</th>
                   <th>OT 2x</th>
                   <th>OT 3x</th>
                   <th>Expense</th>
@@ -756,10 +898,10 @@ export default function PortalClaimsHub({
               </thead>
               <tbody>
                 {boardLoading && people.length === 0 && (
-                  <tr><td colSpan={11} className="pch-muted">Loading claims…</td></tr>
+                  <tr><td colSpan={12} className="pch-muted">Loading claims…</td></tr>
                 )}
                 {!boardLoading && people.length === 0 && (
-                  <tr><td colSpan={11} className="pch-muted">No people for this filter.</td></tr>
+                  <tr><td colSpan={12} className="pch-muted">No people for this filter.</td></tr>
                 )}
                 {people.map(p => (
                   <tr key={p.employee_id} className={rowClass(p.control_status, openId === p.employee_id)}>
@@ -776,6 +918,7 @@ export default function PortalClaimsHub({
                       {p.name}
                       <div className="pch-muted">{p.employee_id} · {p.location || '—'}</div>
                     </td>
+                    <td>{FILLER_LABEL[fillerRoleOf(p)] || 'Focal'}</td>
                     <td>{hours(p.portal?.ot2Write || p.portal?.ot2)}</td>
                     <td>{hours(p.portal?.ot3)}</td>
                     <td>{money(p.portal?.expense)}</td>
@@ -842,6 +985,8 @@ export default function PortalClaimsHub({
                 )}
                 {open.control_status === 'waiting_lm' && <div className="pch-note is-warn">Waiting on Line Manager {open.lm || ''}.</div>}
                 {open.control_status === 'waiting_focal' && <div className="pch-note is-info">Waiting on Focal {open.mailed_to || ''} to fill or finish.</div>}
+                {open.control_status === 'waiting_employee' && <div className="pch-note is-info">Waiting on Employee {open.mailed_to || ''} to fill or finish.</div>}
+                {open.control_status === 'waiting_lm_fill' && <div className="pch-note is-info">Waiting on Line Manager {open.mailed_to || ''} to fill (submit is final).</div>}
                 {open.control_status === 'invite_sent' && <div className="pch-note is-info">Invite sent to {open.mailed_to} on {formatWhen(open.sent_at)}.</div>}
                 {open.control_status === 'not_invited' && <div className="pch-note">Not invited yet — use Send invites tab.</div>}
                 {open.control_status === 'no_claims_confirmed' && (

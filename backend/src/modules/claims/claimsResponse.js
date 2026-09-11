@@ -331,6 +331,13 @@ function filterAudience(eligible, { client, contract, location, dept }) {
     });
 }
 
+function fillerRoleFromProfile(profile) {
+    const p = normalizeRouting(profile);
+    if (isEmployeeFiller(p)) return 'employee';
+    if (isLmFiller(p)) return 'lm';
+    return 'focal';
+}
+
 function pickSubmission(rows, opts = {}) {
     if (!rows || !rows.length) return null;
     const actual = rows.filter((r) => String(r.campaign_mode || '').toLowerCase() !== 'sample');
@@ -338,8 +345,13 @@ function pickSubmission(rows, opts = {}) {
     const workMonth = parseInt(opts.workMonth, 10) || 0;
     const workYear = parseInt(opts.workYear, 10) || 0;
     if (workMonth && workYear) {
-        const work = pool.filter((r) => Number(r.claim_month) === workMonth && Number(r.claim_year) === workYear);
-        if (work.length) pool = work;
+        pool = pool.filter((r) => {
+            const cm = Number(r.claim_month);
+            const cy = Number(r.claim_year);
+            if (!cm || !cy) return true;
+            return cm === workMonth && cy === workYear;
+        });
+        if (!pool.length) return null;
     }
     const itemsBySub = opts.itemsBySub;
     if (itemsBySub) {
@@ -404,11 +416,9 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
         `SELECT id, campaign_mode, claim_month, claim_year, settlement_month, settlement_year,
                 campaign_month, campaign_year
          FROM portal_claim_periods
-         WHERE (claim_month = $1 AND claim_year = $2)
-            OR (campaign_month = $1 AND campaign_year = $2)
-            OR (settlement_month = $3 AND settlement_year = $4)
-            OR (campaign_month = $3 AND campaign_year = $4)`,
-        [workMonth, workYear, payMonth, payYear]
+         WHERE claim_month = $1 AND claim_year = $2
+           AND COALESCE(campaign_mode, 'actual') <> 'sample'`,
+        [workMonth, workYear]
     );
     const periodIds = periods.map((p) => p.id);
 
@@ -607,6 +617,7 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             contract_name: e.contract_name,
             path: e.claims_category,
             routing_profile: routingProfile,
+            filler_role: fillerRoleFromProfile(routingProfile),
             mailed_to: mailedTo,
             focal_email,
             lm,
@@ -706,6 +717,7 @@ module.exports = {
     nowLabel,
     filterAudience,
     pickSubmission,
+    fillerRoleFromProfile,
     writePortalAmountsToSheet,
     listResponseBoard,
     portalToClaimAgg,
