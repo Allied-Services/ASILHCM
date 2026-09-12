@@ -8,6 +8,8 @@ const {
     writePortalAmountsToSheet,
     listResponseBoard,
     pickSubmission,
+    filterAudience,
+    fillerRoleFromProfile,
     portalToClaimAgg,
     mergeClaimAgg,
     claimAggHasValues,
@@ -219,6 +221,51 @@ describe('pickSubmission', () => {
             { id: 1, status: 'submitted', campaign_mode: 'actual' },
         ], { workMonth: 8, workYear: 2026 });
         expect(picked.id).toBe(1);
+    });
+});
+
+describe('filterAudience', () => {
+    const people = [
+        { id: 'E1', client: 'Wafi', claim_authority: 'focal.one@wafi-energy.com', line_manager_email: 'lm.one@wafi-energy.com' },
+        { id: 'E2', client: 'Wafi', claim_authority: 'focal.two@wafi-energy.com', line_manager_email: 'lm.one@wafi-energy.com' },
+        { id: 'E3', client: 'Wafi', claim_authority: 'focal.one@wafi-energy.com', line_manager_email: 'lm.two@wafi-energy.com' },
+    ];
+
+    test('keeps people under the selected Focal', () => {
+        expect(filterAudience(people, { focal: 'focal.one@wafi-energy.com' }).map((e) => e.id)).toEqual(['E1', 'E3']);
+    });
+
+    test('keeps people under the selected Line Manager', () => {
+        expect(filterAudience(people, { lm: 'lm.one@wafi-energy.com' }).map((e) => e.id)).toEqual(['E1', 'E2']);
+    });
+
+    test('intersects Focal and Line Manager', () => {
+        expect(filterAudience(people, {
+            focal: 'focal.one@wafi-energy.com',
+            lm: 'lm.one@wafi-energy.com',
+        }).map((e) => e.id)).toEqual(['E1']);
+    });
+});
+
+describe('fillerRoleFromProfile', () => {
+    test('employee routing is Employee even when a Focal exists on the roster', () => {
+        expect(fillerRoleFromProfile('employee_only')).toBe('employee');
+        expect(fillerRoleFromProfile('employee_then_lm')).toBe('employee');
+        expect(fillerRoleFromProfile('employee_then_focal')).toBe('employee');
+    });
+
+    test('employee who fills their own mailbox is Employee, not Focal', () => {
+        expect(fillerRoleFromProfile('focal_only', {
+            email: 'a.tahmeed-contractor@wafi-energy.com',
+            filler_email: 'a.tahmeed-contractor@wafi-energy.com',
+        })).toBe('employee');
+    });
+
+    test('a different Focal stays Focal', () => {
+        expect(fillerRoleFromProfile('focal_then_lm', {
+            email: 'emp@wafi-energy.com',
+            filler_email: 'focal@wafi-energy.com',
+        })).toBe('focal');
     });
 });
 

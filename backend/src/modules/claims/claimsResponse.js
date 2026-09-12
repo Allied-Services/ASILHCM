@@ -320,20 +320,40 @@ function emptyCounts() {
     };
 }
 
-function filterAudience(eligible, { client, contract, location, dept }) {
+function filterAudience(eligible, { client, contract, location, dept, focal, lm }) {
+    const wantFocal = String(focal || '').trim().toLowerCase();
+    const wantLm = String(lm || '').trim().toLowerCase();
     return (eligible || []).filter((e) => {
         if (client && String(e.client || '').toLowerCase() !== String(client).toLowerCase()) return false;
         if (contract && String(e.contract_id || '') !== String(contract)
             && String(e.contract_name || '') !== String(contract)) return false;
         if (location && String(e.location || '').toLowerCase() !== String(location).toLowerCase()) return false;
         if (dept && String(e.dept || '').toLowerCase() !== String(dept).toLowerCase()) return false;
+        if (wantFocal) {
+            const have = String(e.claim_authority || '').trim().toLowerCase();
+            if (have !== wantFocal) return false;
+        }
+        if (wantLm) {
+            const le = String(e.line_manager_email || '').trim().toLowerCase();
+            const se = String(e.supervisor_email || '').trim().toLowerCase();
+            if (le !== wantLm && se !== wantLm) return false;
+        }
         return true;
     });
 }
 
-function fillerRoleFromProfile(profile) {
+function sameEmail(a, b) {
+    const left = String(a || '').trim().toLowerCase();
+    const right = String(b || '').trim().toLowerCase();
+    return !!(left && right && left.includes('@') && left === right);
+}
+
+function fillerRoleFromProfile(profile, emp) {
     const p = normalizeRouting(profile);
     if (isEmployeeFiller(p)) return 'employee';
+    const empEmail = emp?.email;
+    const filler = emp?.filler_email || emp?.mailed_to;
+    if (sameEmail(empEmail, filler)) return 'employee';
     if (isLmFiller(p)) return 'lm';
     return 'focal';
 }
@@ -617,8 +637,12 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             contract_name: e.contract_name,
             path: e.claims_category,
             routing_profile: routingProfile,
-            filler_role: fillerRoleFromProfile(routingProfile),
+            filler_role: fillerRoleFromProfile(routingProfile, { email: e.email, filler_email: mailedTo }),
+            email: e.email || null,
             mailed_to: mailedTo,
+            claim_authority: e.claim_authority || null,
+            line_manager_email: e.line_manager_email || null,
+            line_manager_name: e.line_manager_name || null,
             focal_email,
             lm,
             approver_email,

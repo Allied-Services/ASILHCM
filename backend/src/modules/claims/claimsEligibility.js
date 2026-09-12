@@ -294,6 +294,7 @@ function toClaimAudienceRow(e, routing) {
 
 const AUDIENCE_EMPLOYEE_SQL = `
          SELECT e.id, e.name, e.email, e.claim_authority, e.supervisor_email, e.line_manager_email,
+                e.line_manager_name,
                 e.client, e.active,
                 COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) AS location,
                 e.dept, e.salary, e.contract_id,
@@ -407,6 +408,12 @@ async function previewRuleMatch(pool, ruleId) {
     return { count: matched.length, employees: matched.slice(0, 50) };
 }
 
+function audienceEmail(raw) {
+    const s = String(raw || '').trim().toLowerCase();
+    if (!s || s === 'self' || s === 'n/a' || s === 'na' || s === 'none' || !s.includes('@')) return null;
+    return s;
+}
+
 function normalizeAudienceFilters(raw = {}) {
     const client = String(raw.filterClient || raw.client || '').trim();
     const contract = String(raw.filterContract || raw.contractId || raw.contract || '').trim();
@@ -417,7 +424,17 @@ function normalizeAudienceFilters(raw = {}) {
         contract: contract || null,
         dept: dept || null,
         location: location || null,
+        focal: audienceEmail(raw.filterFocal || raw.focal),
+        lm: audienceEmail(raw.filterLm || raw.lineManager || raw.lm),
     };
+}
+
+function employeeRosterFocalEmail(e) {
+    return audienceEmail(e && e.claim_authority);
+}
+
+function employeeRosterLmEmail(e) {
+    return audienceEmail(e && e.line_manager_email) || audienceEmail(e && e.supervisor_email);
 }
 
 function employeeMatchesAudience(e, filters) {
@@ -430,10 +447,12 @@ function employeeMatchesAudience(e, filters) {
     }
     if (f.dept && String(e.dept || '') !== f.dept) return false;
     if (f.location && String(e.location || '') !== f.location) return false;
+    if (f.focal && employeeRosterFocalEmail(e) !== f.focal) return false;
+    if (f.lm && employeeRosterLmEmail(e) !== f.lm) return false;
     return true;
 }
 
-/** Distinct client / contract / dept / location rows — no routing, no email HTML. */
+/** Distinct client / contract / dept / location / Focal / LM rows — no routing, no email HTML. */
 async function listCampaignFilterOptions(pool) {
     const { rows } = await pool.query(
         `SELECT DISTINCT
@@ -441,7 +460,10 @@ async function listCampaignFilterOptions(pool) {
             e.contract_id,
             COALESCE(c.contract_name, e.contract_name) AS contract_name,
             e.dept,
-            COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) AS location
+            COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) AS location,
+            LOWER(TRIM(e.claim_authority)) AS focal_email,
+            LOWER(TRIM(COALESCE(NULLIF(TRIM(e.line_manager_email), ''), NULLIF(TRIM(e.supervisor_email), '')))) AS line_manager_email,
+            NULLIF(TRIM(e.line_manager_name), '') AS line_manager_name
          FROM employees e
          LEFT JOIN contracts c ON c.id::text = e.contract_id::text
          WHERE (e.last_working_day IS NULL OR e.last_working_day >= CURRENT_DATE)
@@ -473,6 +495,14 @@ async function countEligibleEmployees(pool, filters = {}) {
     if (f.location) {
         params.push(f.location);
         where.push(`COALESCE(NULLIF(TRIM(e.location), ''), NULLIF(TRIM(e.site), '')) = $${params.length}`);
+    }
+    if (f.focal) {
+        params.push(f.focal);
+        where.push(`LOWER(TRIM(e.claim_authority)) = $${params.length}`);
+    }
+    if (f.lm) {
+        params.push(f.lm);
+        where.push(`LOWER(TRIM(COALESCE(NULLIF(TRIM(e.line_manager_email), ''), NULLIF(TRIM(e.supervisor_email), '')))) = $${params.length}`);
     }
     const { rows: emps } = await pool.query(
         `${AUDIENCE_EMPLOYEE_SQL} WHERE ${where.join(' AND ')}`,
@@ -537,6 +567,8 @@ module.exports = {
     listCampaignFilterOptions,
     normalizeAudienceFilters,
     employeeMatchesAudience,
+    employeeRosterFocalEmail,
+    employeeRosterLmEmail,
     normalizeAuthority,
     ruleMatchesEmployee,
 };

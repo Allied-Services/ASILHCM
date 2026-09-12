@@ -255,6 +255,30 @@ describe('claimsEligibility rules', () => {
         expect(employeeMatchesAudience(emp, { filterLoc: 'Lahore' })).toBe(false);
     });
 
+    test('audience filters match roster Focal and Line Manager', () => {
+        const emp = {
+            client: 'Wafi Energy Pakistan Pvt Ltd',
+            contract_id: 'CTR-W',
+            claim_authority: 'Focal.One@wafi-energy.com',
+            line_manager_email: 'm.aamir@wafi-energy.com',
+        };
+        expect(normalizeAudienceFilters({ focal: ' Focal.One@wafi-energy.com ' }).focal).toBe('focal.one@wafi-energy.com');
+        expect(employeeMatchesAudience(emp, { focal: 'focal.one@wafi-energy.com' })).toBe(true);
+        expect(employeeMatchesAudience(emp, { focal: 'other.focal@wafi-energy.com' })).toBe(false);
+        expect(employeeMatchesAudience(emp, { lm: 'm.aamir@wafi-energy.com' })).toBe(true);
+        expect(employeeMatchesAudience(emp, { lm: 'other.lm@wafi-energy.com' })).toBe(false);
+        expect(employeeMatchesAudience({
+            ...emp,
+            line_manager_email: '',
+            supervisor_email: 'm.aamir@wafi-energy.com',
+        }, { lm: 'm.aamir@wafi-energy.com' })).toBe(true);
+        expect(employeeMatchesAudience(emp, {
+            filterClient: 'Wafi Energy Pakistan Pvt Ltd',
+            focal: 'focal.one@wafi-energy.com',
+            lm: 'm.aamir@wafi-energy.com',
+        })).toBe(true);
+    });
+
     test('countEligibleEmployees adds client/contract to the SQL', async () => {
         const pool = {
             query: jest.fn()
@@ -270,6 +294,27 @@ describe('claimsEligibility rules', () => {
         expect(sql).toMatch(/e\.client = \$1/);
         expect(sql).toMatch(/e\.contract_id = \$2/);
         expect(params).toEqual(['Wafi Energy Pakistan Pvt Ltd', 'CTR-W']);
+    });
+
+    test('countEligibleEmployees adds Focal and LM to the SQL', async () => {
+        const pool = {
+            query: jest.fn()
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [] }),
+        };
+        await countEligibleEmployees(pool, {
+            filterClient: 'Wafi Energy Pakistan Pvt Ltd',
+            focal: 'focal.one@wafi-energy.com',
+            lm: 'm.aamir@wafi-energy.com',
+        });
+        const [sql, params] = pool.query.mock.calls[1];
+        expect(sql).toMatch(/LOWER\(TRIM\(e\.claim_authority\)\) = \$2/);
+        expect(sql).toMatch(/line_manager_email/);
+        expect(params).toEqual([
+            'Wafi Energy Pakistan Pvt Ltd',
+            'focal.one@wafi-energy.com',
+            'm.aamir@wafi-energy.com',
+        ]);
     });
 
     test('countEligibleEmployees loads the rulebook once per contract', async () => {
