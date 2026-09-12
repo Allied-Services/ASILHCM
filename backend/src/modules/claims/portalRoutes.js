@@ -348,6 +348,8 @@ function registerPortalClaimsRoutes(app, deps) {
                 contract: req.query.contract || '',
                 location: req.query.location || '',
                 dept: req.query.dept || '',
+                focal: req.query.focal || '',
+                lm: req.query.lm || req.query.lineManager || '',
             });
             if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
             res.json(result);

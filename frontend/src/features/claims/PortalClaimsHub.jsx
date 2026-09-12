@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { BookOpen, X } from 'lucide-react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
@@ -63,6 +64,36 @@ const FILLER_LABEL = {
   lm: 'LM',
 };
 
+function rosterEmail(v) {
+  const s = String(v || '').trim().toLowerCase();
+  if (!s || s === 'self' || s === 'n/a' || s === 'na' || s === 'none' || !s.includes('@')) return '';
+  return s;
+}
+
+function personLabel(email, name) {
+  const e = String(email || '').trim();
+  const n = String(name || '').trim();
+  if (n && e) return `${n} (${e})`;
+  return n || e;
+}
+
+function uniquePeople(rows, emailOf, nameOf) {
+  const map = new Map();
+  for (const r of rows || []) {
+    const email = rosterEmail(emailOf(r));
+    if (!email) continue;
+    const name = String(nameOf ? nameOf(r) : '').trim();
+    const prev = map.get(email);
+    if (!prev) map.set(email, { email, name });
+    else if (!prev.name && name) prev.name = name;
+  }
+  return [...map.values()].sort((a, b) => {
+    const la = (a.name || a.email).toLowerCase();
+    const lb = (b.name || b.email).toLowerCase();
+    return la.localeCompare(lb);
+  });
+}
+
 const PENDING_CONTROLS = new Set([
   'not_invited', 'invite_sent', 'waiting_focal', 'waiting_employee', 'waiting_lm_fill',
   'waiting_lm', 'final_lm_review', 'ready_for_payroll', 'needs_review',
@@ -123,10 +154,17 @@ function rowClass(controlStatus, open) {
   return bits.join(' ');
 }
 
+function sameEmail(a, b) {
+  const left = String(a || '').trim().toLowerCase();
+  const right = String(b || '').trim().toLowerCase();
+  return !!(left && right && left.includes('@') && left === right);
+}
+
 function fillerRoleOf(p) {
-  if (p.filler_role) return p.filler_role;
   const profile = String(p.routing_profile || '').toLowerCase();
-  if (profile.startsWith('employee')) return 'employee';
+  if (p.filler_role === 'employee' || profile.startsWith('employee')) return 'employee';
+  if (sameEmail(p.email, p.mailed_to || p.filler_email)) return 'employee';
+  if (p.filler_role) return p.filler_role;
   if (profile === 'lm_only') return 'lm';
   return 'focal';
 }
@@ -196,6 +234,8 @@ export default function PortalClaimsHub({
   const [client, setClient] = useState('');
   const [contract, setContract] = useState('');
   const [location, setLocation] = useState('');
+  const [focal, setFocal] = useState('');
+  const [lm, setLm] = useState('');
   const defaultSection = lockSection || (new URLSearchParams(window.location.search).get('setup_needed') === '1' ? 'request' : 'response');
   const [section, setSection] = useState(defaultSection);
   const [filter, setFilter] = useState(initialFilter || 'all');
@@ -242,13 +282,28 @@ export default function PortalClaimsHub({
   const isSuper = user?.role === 'superadmin';
 
   useEffect(() => {
-    if (!showClaimProcess) return undefined;
+    if (!showClaimProcess && !openId) return undefined;
     const onKey = (e) => {
-      if (e.key === 'Escape') setShowClaimProcess(false);
+      if (e.key !== 'Escape') return;
+      if (showClaimProcess) setShowClaimProcess(false);
+      else setOpenId(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showClaimProcess]);
+  }, [showClaimProcess, openId]);
+
+  useEffect(() => {
+    if (!openId) return undefined;
+    const main = document.querySelector('.main-content');
+    const prevBody = document.body.style.overflow;
+    const prevMain = main ? main.style.overflow : '';
+    document.body.style.overflow = 'hidden';
+    if (main) main.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevBody;
+      if (main) main.style.overflow = prevMain;
+    };
+  }, [openId]);
 
   const setWork = (m, y) => {
     setWorkMonth(m);
@@ -272,6 +327,8 @@ export default function PortalClaimsHub({
       if (client) q.client = client;
       if (contract) q.contract = contract;
       if (location) q.location = location;
+      if (focal) q.focal = focal;
+      if (lm) q.lm = lm;
       const d = await api.portalClaimsResponse(q);
       setBoard(d);
       setSelected(new Set());
@@ -280,7 +337,7 @@ export default function PortalClaimsHub({
     } finally {
       setBoardLoading(false);
     }
-  }, [filtersReady, workMonth, workYear, payMonth, payYear, client, contract, location]);
+  }, [filtersReady, workMonth, workYear, payMonth, payYear, client, contract, location, focal, lm]);
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
 
@@ -330,6 +387,38 @@ export default function PortalClaimsHub({
       .filter(Boolean));
     return [...set].sort();
   }, [filterRows, client, contract]);
+  const orgRows = useMemo(() => {
+    return (filterRows || []).filter((p) => {
+      if (client && p.client !== client) return false;
+      if (contract && p.contract_id !== contract) return false;
+      if (location && p.location !== location) return false;
+      return true;
+    });
+  }, [filterRows, client, contract, location]);
+  const focals = useMemo(() => {
+    const rows = lm
+      ? orgRows.filter((p) => rosterEmail(p.line_manager_email) === lm)
+      : orgRows;
+    return uniquePeople(rows, (p) => p.focal_email || p.claim_authority);
+  }, [orgRows, lm]);
+  const lms = useMemo(() => {
+    const rows = focal
+      ? orgRows.filter((p) => rosterEmail(p.focal_email || p.claim_authority) === focal)
+      : orgRows;
+    return uniquePeople(rows, (p) => p.line_manager_email, (p) => p.line_manager_name);
+  }, [orgRows, focal]);
+  const focalLabel = useMemo(() => (focals.find((p) => p.email === focal) || { email: focal }).email, [focals, focal]);
+  const lmLabel = useMemo(() => {
+    const hit = lms.find((p) => p.email === lm);
+    return hit ? personLabel(hit.email, hit.name) : lm;
+  }, [lms, lm]);
+
+  useEffect(() => {
+    if (focal && !focals.some((p) => p.email === focal)) setFocal('');
+  }, [focals, focal]);
+  useEffect(() => {
+    if (lm && !lms.some((p) => p.email === lm)) setLm('');
+  }, [lms, lm]);
 
   // eslint-disable-next-line no-unused-vars
   const counts = board?.counts || {};
@@ -385,7 +474,7 @@ export default function PortalClaimsHub({
     if (who !== 'all' && fillerRoleOf(p) !== who) return false;
     const q = search.trim().toLowerCase();
     if (q) {
-      const hay = `${p.name || ''} ${p.employee_id || ''} ${p.location || ''}`.toLowerCase();
+      const hay = `${p.name || ''} ${p.employee_id || ''} ${p.location || ''} ${p.email || ''} ${p.mailed_to || ''}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -721,7 +810,7 @@ export default function PortalClaimsHub({
         </label>
         <label>
           <span className="lbl">Client</span>
-          <select value={client} disabled={!filtersReady} onChange={e => { setClient(e.target.value); setContract(''); setLocation(''); }}>
+          <select value={client} disabled={!filtersReady} onChange={e => { setClient(e.target.value); setContract(''); setLocation(''); setFocal(''); setLm(''); }}>
             <option value="">All clients</option>
             {clients.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
@@ -740,6 +829,26 @@ export default function PortalClaimsHub({
             <option value="">All locations</option>
             {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
           </select>
+        </label>
+        <label>
+          <span className="lbl">Focal</span>
+          <select value={focal} disabled={!filtersReady} onChange={e => setFocal(e.target.value)}>
+            <option value="">All focals</option>
+            {focals.map((p) => (
+              <option key={p.email} value={p.email}>{personLabel(p.email, p.name)}</option>
+            ))}
+          </select>
+          <span className="hint">People on this Focal&apos;s roster</span>
+        </label>
+        <label>
+          <span className="lbl">Line Manager</span>
+          <select value={lm} disabled={!filtersReady} onChange={e => setLm(e.target.value)}>
+            <option value="">All line managers</option>
+            {lms.map((p) => (
+              <option key={p.email} value={p.email}>{personLabel(p.email, p.name)}</option>
+            ))}
+          </select>
+          <span className="hint">People who report to this LM</span>
         </label>
         <div>
           <span className="lbl">Audience</span>
@@ -827,7 +936,7 @@ export default function PortalClaimsHub({
                 ['focal', 'Focal', whoCounts.focal],
                 ['lm', 'LM', whoCounts.lm],
                 ['employee', 'Employee', whoCounts.employee],
-              ].filter(([id, , n]) => id === 'all' || n > 0 || who === id).map(([id, label, n]) => (
+              ].map(([id, label, n]) => (
                 <button key={id} type="button" className={`pch-chip${who === id ? ' is-on' : ''}`} onClick={() => setWho(id)}>{label} {n}</button>
               ))}
             </div>
@@ -845,6 +954,8 @@ export default function PortalClaimsHub({
             Showing <strong>{people.length}</strong>
             {search.trim() ? ' matching' : ''} of {board?.audience_count || 0}
             {who !== 'all' ? ` · ${FILLER_LABEL[who] || who} fill` : ''}
+            {focal ? ` · Focal ${focalLabel}` : ''}
+            {lm ? ` · LM ${lmLabel}` : ''}
           </div>
           {(controlCounts.rejected_closed || 0) > 0 && ['superadmin', 'finance_manager'].includes(user?.role) && (
             <div className="pch-note is-warn">
@@ -918,7 +1029,12 @@ export default function PortalClaimsHub({
                       {p.name}
                       <div className="pch-muted">{p.employee_id} · {p.location || '—'}</div>
                     </td>
-                    <td>{FILLER_LABEL[fillerRoleOf(p)] || 'Focal'}</td>
+                    <td>
+                      {FILLER_LABEL[fillerRoleOf(p)] || 'Focal'}
+                      {p.mailed_to && (
+                        <div className="pch-muted">{p.mailed_to}</div>
+                      )}
+                    </td>
                     <td>{hours(p.portal?.ot2Write || p.portal?.ot2)}</td>
                     <td>{hours(p.portal?.ot3)}</td>
                     <td>{money(p.portal?.expense)}</td>
@@ -933,7 +1049,17 @@ export default function PortalClaimsHub({
                     </td>
                     <td>{p.now_label || '—'}</td>
                     <td>
-                      <button type="button" className="btn-secondary" onClick={() => setOpenId(p.employee_id)}>View</button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setOpenId(p.employee_id);
+                        }}
+                      >
+                        View
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -941,11 +1067,29 @@ export default function PortalClaimsHub({
             </table>
           </div>
 
-          {open && (
-            <div className="pch-detail">
+          {open && createPortal(
+            <div
+              className="modal-overlay pch-detail-overlay"
+              role="presentation"
+              onClick={(e) => { if (e.target === e.currentTarget) setOpenId(null); }}
+            >
+              <div
+                className="modal-box pch-detail-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="pch-person-title"
+              >
+                <div className="pch-detail-head">
+                  <div>
+                    <h3 id="pch-person-title">{open.name}</h3>
+                    <p className="pch-sub">{open.employee_id} · {open.location || '—'} · {open.path || '—'} · Filler {FILLER_LABEL[fillerRoleOf(open)] || 'Focal'}{open.mailed_to ? ` (${open.mailed_to})` : ''} · LM {open.lm || '—'}</p>
+                  </div>
+                  <button type="button" className="pch-process-x" onClick={() => setOpenId(null)} aria-label="Close person">
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="pch-detail">
               <div>
-                <h3>{open.name}</h3>
-                <p className="pch-sub">{open.employee_id} · {open.location || '—'} · {open.path || '—'} · LM {open.lm || '—'}</p>
                 <div className="pch-table-wrap">
                   <table className="pch-table">
                     <thead>
@@ -1029,9 +1173,13 @@ export default function PortalClaimsHub({
                     </button>
                   )}
                   <button type="button" className="btn-secondary" onClick={() => fillManualFrom(open)}>Manual correction</button>
+                  <button type="button" className="btn-secondary" onClick={() => setOpenId(null)}>Close</button>
                 </div>
               </div>
-            </div>
+                </div>
+              </div>
+            </div>,
+            document.body
           )}
         </>
       )}
