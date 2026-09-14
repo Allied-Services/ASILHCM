@@ -2,10 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     MapPin, Upload, CloudDownload, Calculator, FileText, Shield,
     Mail, Database, RefreshCw, AlertCircle, CheckCircle, Download,
-    ExternalLink, Layers, Play, Plus, Pencil, ClipboardCheck, Trash2,
+    ExternalLink, Layers, Play, Plus, ClipboardCheck, Trash2,
 } from 'lucide-react';
 import { api } from '../../api';
-import FixedValueContractWizard from './FixedValueContractWizard';
+import { clientContractHref, readStaffQuery } from '../../navLinks';
 import { parseAdjustmentAmount, amountLooksNegative } from './parseAdjustmentAmount';
 import './FixedValueOps.css';
 
@@ -95,7 +95,7 @@ export default function FixedValueContracts({ user }) {
     const [month, setMonth] = useState(7);
     const [year, setYear] = useState(2026);
     const [contracts, setContracts] = useState([]);
-    const [contractId, setContractId] = useState('');
+    const [contractId, setContractId] = useState(() => readStaffQuery().contract || '');
     const [orders, setOrders] = useState([]);
     const [siteCode, setSiteCode] = useState(ALL_SITES);
     const [step, setStep] = useState('period');
@@ -124,7 +124,10 @@ export default function FixedValueContracts({ user }) {
     const [registryNumberEdits, setRegistryNumberEdits] = useState({}); // { [invoiceId]: string }
     const [registryNumberSaving, setRegistryNumberSaving] = useState(null);
     const [emailResult, setEmailResult] = useState(null);
-    const [wizard, setWizard] = useState(null); // { mode: 'create'|'edit', contractId? }
+    const selectedContract = useMemo(
+        () => contracts.find((c) => c.id === contractId) || null,
+        [contracts, contractId]
+    );
     const [adjNote, setAdjNote] = useState('');
     const [adjAmount, setAdjAmount] = useState('');
     const [adjSign, setAdjSign] = useState('deduct');
@@ -132,8 +135,6 @@ export default function FixedValueContracts({ user }) {
 
     const canWrite = ['superadmin', 'operations', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
         .includes(user?.role);
-    const canEditContract = ['superadmin', 'operations', 'finance_manager'].includes(user?.role)
-        || !!(user?.permissions?.fixed_value?.subPerms || []).includes('edit');
 
     const selectedOrder = useMemo(
         () => orders.find(o => o.site_code === siteCode) || null,
@@ -655,8 +656,8 @@ export default function FixedValueContracts({ user }) {
         <div className="fv-ops">
             <div className="fv-ops-header">
                 <div>
-                    <h2>Fixed Value / Conservancy</h2>
-                    <p>Stepped monthly ops - attendance -> confirm billable services -> payroll -> invoices -> exports.</p>
+                    <h2>This month — Fixed Value / PSO</h2>
+                    <p>Monthly ops only: attendance → confirm billable services → payroll → invoices. Contract rates live under Client Information.</p>
                 </div>
                 <div className="fv-ops-period">
                     <select value={contractId} onChange={e => setContractId(e.target.value)}>
@@ -707,9 +708,10 @@ export default function FixedValueContracts({ user }) {
 
             {step === 'period' && (
                 <div className="fv-panel">
-                    <h3>1. Period & contract</h3>
+                    <h3>1. This month — period &amp; contract</h3>
                     <p className="fv-lead">
-                        Select the billing month and Fixed Value contract. Site filter narrows drill-downs;
+                        Select the billing month and Fixed Value contract. To change baseline SO rates or T&amp;Cs,
+                        open the contract under its client. Site filter narrows drill-downs;
                         contract-level CTAs (bulk attendance, entire payroll, all-site invoices) always cover every depot.
                     </p>
                     {IS_STAGING && (
@@ -728,23 +730,13 @@ export default function FixedValueContracts({ user }) {
                         <button type="button" className="btn-primary" disabled={!contractId} onClick={() => setStep('attendance')}>
                             Continue to Attendance <Play size={14} />
                         </button>
-                        {canEditContract && (
-                            <button
-                                type="button"
+                        {contractId && selectedContract?.client_id && (
+                            <a
                                 className="btn-secondary"
-                                onClick={() => setWizard({ mode: 'create' })}
+                                href={clientContractHref(selectedContract.client_id, contractId)}
                             >
-                                <Plus size={14} /> New Fixed Value Contract
-                            </button>
-                        )}
-                        {canEditContract && contractId && (
-                            <button
-                                type="button"
-                                className="btn-secondary"
-                                onClick={() => setWizard({ mode: 'edit', contractId })}
-                            >
-                                <Pencil size={14} /> Edit contract
-                            </button>
+                                Open contract under client
+                            </a>
                         )}
                         {user?.role === 'superadmin' && (
                             <button
@@ -1658,22 +1650,6 @@ export default function FixedValueContracts({ user }) {
                         EOBI/SESSI challans -> Sales tax by authority -> email focals.
                     </div>
                 </div>
-            )}
-
-            {wizard && (
-                <FixedValueContractWizard
-                    mode={wizard.mode}
-                    contractId={wizard.contractId || null}
-                    onClose={() => setWizard(null)}
-                    onSaved={async (result) => {
-                        const id = result?.contract?.id || wizard.contractId;
-                        setWizard(null);
-                        await loadContracts();
-                        if (id) setContractId(id);
-                        await loadOrders();
-                        setMsg(`Contract ${id} saved`);
-                    }}
-                />
             )}
         </div>
     );

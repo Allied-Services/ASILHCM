@@ -154,7 +154,7 @@ const ContractOps = () => {
         <div className="animate-fade-in">
             <div className="page-header">
                 <h1 className="page-title">Contract Policies & Onboarding</h1>
-                <p className="page-subtitle">Configure contract constraints and onboarding checklists</p>
+                <p className="page-subtitle">This tab is retired from the default menu. Rate cards and OT caps live on Client Information → Contracts. Claims routing lives on Monthly Cycle → Setup.</p>
             </div>
 
             {msg && <div className="glass-card" style={{ color: 'var(--success)', marginBottom: '1rem' }}>{msg}</div>}
@@ -193,7 +193,7 @@ const ContractOps = () => {
                         <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
                             <h3 style={{ marginBottom: '1rem' }}>Contract Rulebook</h3>
                             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-                                Commercial type, Focal, and payroll engine. Full pack + routing live on Monthly Cycle Setup.
+                                Prefer Monthly Cycle → Setup for the rulebook. Saving here still works for legacy bookmarks.
                             </p>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
                                 <label>Commercial type
