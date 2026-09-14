@@ -196,6 +196,9 @@ function App() {
       const keep = new URLSearchParams();
       if (params.get('tab')) keep.set('tab', params.get('tab'));
       if (params.get('setup_needed')) keep.set('setup_needed', params.get('setup_needed'));
+      if (params.get('client')) keep.set('client', params.get('client'));
+      if (params.get('contract')) keep.set('contract', params.get('contract'));
+      if (params.get('section')) keep.set('section', params.get('section'));
       const qs = keep.toString();
       window.history.replaceState({}, '', qs ? `/?${qs}` : '/');
     }
@@ -361,7 +364,7 @@ function App() {
     allowedTabs = ROLE_NAV[role] || [];
   }
 
-  const HIDDEN_LEGACY_NAV = new Set(['email_claims', 'wafi_claims', 'claims_queue']);
+  const HIDDEN_LEGACY_NAV = new Set(['email_claims', 'wafi_claims', 'claims_queue', 'contract_ops']);
   const visibleTabs = allowedTabs.filter((t) => !HIDDEN_LEGACY_NAV.has(t));
 
   // Auto-redirect to first allowed tab if current tab not accessible.
@@ -442,7 +445,10 @@ function App() {
           <nav className="nav-menu">
             {NAV.map(n => (
               <button key={n.key} className={`nav-item ${effectiveTab === n.key ? 'active' : ''}`}
-                onClick={() => setActiveTab(n.key)}>
+                onClick={() => {
+                  setActiveTab(n.key);
+                  window.history.replaceState({}, '', `/?tab=${n.key}`);
+                }}>
                 {n.icon}{n.label}
               </button>
             ))}
