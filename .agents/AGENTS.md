@@ -316,6 +316,11 @@ New User Management role `monthly_cycle` (**Monthly Cycle**) can upload/submit c
 
 **Env vars needed:** none.
 
+### 2026-09-15 — Monthly Cycle file submit writes SO shortages
+Collect submit now stores `absent_days` on `monthly_attendance_overrides` and, for Fixed Value / Conservancy, rebuilds that month’s `so_deductions` (`attendance_ledger`) from the file. Invoice preview no longer needs Fixed Value **Compute ALL**. FV attendance status treats `cycle_machine_file` as done.
+
+**Env vars needed:** none.
+
 ### 2026-09-11 — LM approval email is next-day, only if new claims yesterday
 Line Managers are not emailed when a claim is submitted. Each morning (09:00 Pakistan, cron `0 4 * * *` UTC) the job checks whether that LM received **new submitted claims yesterday** (Asia/Karachi). If yes, one pack email goes out. A quiet day (no new claims) sends nothing, even if older claims are still pending. Chase reminders and Send to LM = Y still mail immediately.
 

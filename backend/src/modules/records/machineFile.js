@@ -1,5 +1,7 @@
 'use strict';
 
+const { syncSoDeductionsFromCycleRows } = require('../serviceOrders/cycleAttendanceSync');
+
 const INPUT_MODES = ['full_ledger', 'hours', 'days', 'absent_only'];
 
 const TEMPLATE_COLUMNS = {
@@ -337,6 +339,28 @@ async function updateRows(pool, importId, edits) {
     return getImport(pool, importId);
 }
 
+/** Conservancy invoices use a 30-day month. Derive the missing side when the file only has one. */
+function resolveAttendanceDays(row, inputMode, monthDays = 30) {
+    const days = Number(monthDays) || 30;
+    let present = row?.present_days != null && row.present_days !== '' ? Number(row.present_days) : null;
+    let absent = row?.absent_days != null && row.absent_days !== '' ? Number(row.absent_days) : null;
+    if (!Number.isFinite(present)) present = null;
+    if (!Number.isFinite(absent)) absent = null;
+    if (inputMode === 'absent_only' && absent != null && present == null) {
+        present = days - absent;
+    }
+    if (inputMode === 'hours' && row?.hours != null && present == null) {
+        const hours = Number(row.hours);
+        if (Number.isFinite(hours)) present = hours / 8;
+    }
+    if (absent == null && present != null) absent = Math.max(0, days - present);
+    if (present == null && absent != null) present = Math.max(0, days - absent);
+    return {
+        present,
+        absent: absent == null ? 0 : Math.max(0, absent),
+    };
+}
+
 async function submitImport(pool, importId, actor) {
     const pack = await getImport(pool, importId);
     if (pack.import.status !== 'draft') {
@@ -355,43 +379,66 @@ async function submitImport(pool, importId, actor) {
     const month = pack.import.period_month;
     const year = pack.import.period_year;
     const mode = pack.import.input_mode;
-    for (const r of pack.rows) {
-        let present = r.present_days;
-        let absent = r.absent_days;
-        if (mode === 'absent_only' && absent != null && present == null) {
-            present = 30 - Number(absent);
-        }
-        if (mode === 'hours' && r.hours != null && present == null) {
-            present = Number(r.hours) / 8;
-        }
-        await pool.query(
-            `INSERT INTO monthly_attendance_overrides
-                (employee_id, period_month, period_year, present_days, ot2_hours, ot3_hours, source)
-             VALUES ($1,$2,$3,$4,$5,$6,'cycle_machine_file')
-             ON CONFLICT (employee_id, period_month, period_year) DO UPDATE SET
-                present_days = COALESCE(EXCLUDED.present_days, monthly_attendance_overrides.present_days),
-                ot2_hours = COALESCE(EXCLUDED.ot2_hours, monthly_attendance_overrides.ot2_hours),
-                ot3_hours = COALESCE(EXCLUDED.ot3_hours, monthly_attendance_overrides.ot3_hours),
-                source = 'cycle_machine_file'`,
-            [r.employee_id, month, year, present, r.ot2_hours, r.ot3_hours]
-        ).catch(async () => {
-            await pool.query(
+    const contractId = pack.import.contract_id;
+    const resolved = [];
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const overrideValues = [];
+        const overrideParams = [];
+        pack.rows.forEach((r, i) => {
+            const days = resolveAttendanceDays(r, mode);
+            const o = i * 8;
+            overrideValues.push(
+                `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},'cycle_machine_file',$${o + 8},NOW())`
+            );
+            overrideParams.push(
+                r.employee_id, month, year, days.present, days.absent,
+                r.ot2_hours, r.ot3_hours, actor || null
+            );
+            resolved.push({
+                employeeId: r.employee_id,
+                presentDays: days.present,
+                absentDays: days.absent,
+            });
+        });
+        if (overrideValues.length) {
+            await client.query(
                 `INSERT INTO monthly_attendance_overrides
-                    (employee_id, period_month, period_year, present_days, ot2_hours, ot3_hours)
-                 VALUES ($1,$2,$3,$4,$5,$6)
+                    (employee_id, period_month, period_year, present_days, absent_days,
+                     ot2_hours, ot3_hours, source, updated_by, updated_at)
+                 VALUES ${overrideValues.join(',')}
                  ON CONFLICT (employee_id, period_month, period_year) DO UPDATE SET
                     present_days = COALESCE(EXCLUDED.present_days, monthly_attendance_overrides.present_days),
+                    absent_days = EXCLUDED.absent_days,
                     ot2_hours = COALESCE(EXCLUDED.ot2_hours, monthly_attendance_overrides.ot2_hours),
-                    ot3_hours = COALESCE(EXCLUDED.ot3_hours, monthly_attendance_overrides.ot3_hours)`,
-                [r.employee_id, month, year, present, r.ot2_hours, r.ot3_hours]
+                    ot3_hours = COALESCE(EXCLUDED.ot3_hours, monthly_attendance_overrides.ot3_hours),
+                    source = 'cycle_machine_file',
+                    updated_by = EXCLUDED.updated_by,
+                    updated_at = NOW()`
+                , overrideParams
             );
+        }
+        const soSync = await syncSoDeductionsFromCycleRows(client, {
+            contractId,
+            month,
+            year,
+            actor,
+            rows: resolved,
         });
+        await client.query(
+            `UPDATE cycle_file_imports SET status = 'submitted', submitted_at = NOW() WHERE id = $1`,
+            [importId]
+        );
+        await client.query('COMMIT');
+        const out = await getImport(pool, importId);
+        return { ...out, so_sync: soSync };
+    } catch (err) {
+        try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+        throw err;
+    } finally {
+        client.release();
     }
-    await pool.query(
-        `UPDATE cycle_file_imports SET status = 'submitted', submitted_at = NOW() WHERE id = $1`,
-        [importId]
-    );
-    return getImport(pool, importId);
 }
 
 module.exports = {
@@ -412,4 +459,5 @@ module.exports = {
     listImports,
     updateRows,
     submitImport,
+    resolveAttendanceDays,
 };

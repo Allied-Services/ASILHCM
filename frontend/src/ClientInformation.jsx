@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Building, Search, Plus, MapPin, Users, X, Phone, Mail, FileText, ChevronLeft, Edit2, Trash2, CheckCircle, AlertCircle, Save, BarChart2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from './api';
 import { ASIL_BUS, normalizeAsilBu } from './orgHierarchy';
+import { isFixedValueService, monthlyCycleSetupHref, readStaffQuery } from './navLinks';
+import FixedValueBaselineChapter from './features/fixedValue/FixedValueBaselineChapter';
+import ContractRatePolicyChapter from './features/contracts/ContractRatePolicyChapter';
 
 // ── Sample Data ──────────────────────────────────────────────────────────────
 const SERVICE_TYPES = [
@@ -131,11 +134,8 @@ function LeavePolicyEditor({ contractId }) {
     );
 }
 
-function ClaimsPolicyEditor({ contractId }) {
+function ClaimsPackSummary({ contractId }) {
     const [policy, setPolicy] = useState(null);
-    const [saving, setSaving] = useState(false);
-    const [savedMsg, setSavedMsg] = useState('');
-
     useEffect(() => {
         let cancelled = false;
         api.getClaimsPolicy(contractId).then(d => { if (!cancelled) setPolicy(d); }).catch(() => {});
@@ -143,119 +143,20 @@ function ClaimsPolicyEditor({ contractId }) {
     }, [contractId]);
 
     if (!policy) return null;
-
-    const toggleType = (typeId) => {
-        setPolicy((p) => {
-            const cur = new Set(p?.enabled_types || []);
-            if (cur.has(typeId)) cur.delete(typeId);
-            else cur.add(typeId);
-            return { ...p, enabled_types: [...cur] };
-        });
-    };
-
-    const save = async () => {
-        setSaving(true); setSavedMsg('');
-        try {
-            const saved = await api.updateClaimsPolicy(contractId, policy);
-            setPolicy(saved);
-            setSavedMsg('Saved.');
-        } catch (err) { setSavedMsg('Save failed: ' + err.message); }
-        setSaving(false);
-    };
+    const types = (policy.enabled_types || []).join(', ') || 'none';
 
     return (
         <div style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '10px', padding: '1rem', marginTop: '1rem' }}>
-            <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#818cf8', marginBottom: '0.75rem' }}>Monthly Cycle / Claims Policy</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                {['OT', 'EXPENSE', 'MEDICAL'].map((t) => (
-                    <label key={t} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem' }}>
-                        <input type="checkbox" checked={(policy.enabled_types || []).includes(t)} onChange={() => toggleType(t)} />
-                        {t === 'OT' ? 'Overtime' : t === 'EXPENSE' ? 'Expense' : 'Medical'}
-                    </label>
-                ))}
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', marginBottom: '0.75rem' }}>
-                <input type="checkbox" checked={!!policy.calendar_apply} onChange={e => setPolicy(p => ({
-                    ...p,
-                    calendar_apply: e.target.checked,
-                    ...(e.target.checked ? {} : { submit_deadline_day: null, approve_deadline_day: null }),
-                }))} />
-                Apply calendar &amp; pay timing
-            </label>
-            {policy.calendar_apply && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
-                <FRow label="When claims pay">
-                    <select value={policy.claims_pay_timing || 'following_month'} onChange={e => setPolicy(p => ({ ...p, claims_pay_timing: e.target.value }))}
-                        style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }}>
-                        <option value="following_month">Following month salary (Wafi default)</option>
-                        <option value="same_month">Same month salary</option>
-                    </select>
-                </FRow>
-                <FRow label="Submit deadline">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
-                        <input type="checkbox" checked={policy.submit_deadline_day != null} onChange={e => setPolicy(p => ({
-                            ...p,
-                            submit_deadline_day: e.target.checked ? (p.submit_deadline_day || 18) : null,
-                            submit_deadline_month: p.submit_deadline_month || 'following_month',
-                        }))} />
-                        Add deadline
-                    </label>
-                    {policy.submit_deadline_day != null && (
-                        <>
-                            <FInput type="number" value={policy.submit_deadline_day} onChange={e => setPolicy(p => ({ ...p, submit_deadline_day: parseInt(e.target.value, 10) || 18 }))} ph="18" />
-                            <select value={policy.submit_deadline_month || 'following_month'} onChange={e => setPolicy(p => ({ ...p, submit_deadline_month: e.target.value }))}
-                                style={{ width: '100%', marginTop: '0.35rem', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }}>
-                                <option value="current_month">Current month</option>
-                                <option value="following_month">Following month</option>
-                            </select>
-                        </>
-                    )}
-                </FRow>
-                <FRow label="Approve deadline">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
-                        <input type="checkbox" checked={policy.approve_deadline_day != null} onChange={e => setPolicy(p => ({
-                            ...p,
-                            approve_deadline_day: e.target.checked ? (p.approve_deadline_day || 22) : null,
-                            approve_deadline_month: p.approve_deadline_month || 'following_month',
-                        }))} />
-                        Add deadline
-                    </label>
-                    {policy.approve_deadline_day != null && (
-                        <>
-                            <FInput type="number" value={policy.approve_deadline_day} onChange={e => setPolicy(p => ({ ...p, approve_deadline_day: parseInt(e.target.value, 10) || 22 }))} ph="22" />
-                            <select value={policy.approve_deadline_month || 'following_month'} onChange={e => setPolicy(p => ({ ...p, approve_deadline_month: e.target.value }))}
-                                style={{ width: '100%', marginTop: '0.35rem', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }}>
-                                <option value="current_month">Current month</option>
-                                <option value="following_month">Following month</option>
-                            </select>
-                        </>
-                    )}
-                </FRow>
-            </div>
-            )}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem' }}>
-                <FRow label="Collection mode">
-                    <select value={policy.collection_mode || 'monthly_form'} onChange={e => setPolicy(p => ({ ...p, collection_mode: e.target.value }))}
-                        style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-dark)', color: 'var(--text)' }}>
-                        <option value="monthly_form">Monthly form</option>
-                        <option value="machine_file">Machine file</option>
-                        <option value="daily_marks">Daily marks</option>
-                        <option value="mixed">Mixed</option>
-                    </select>
-                </FRow>
-                <FRow label="Reviewer step">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.35rem' }}>
-                        <input type="checkbox" checked={!!policy.reviewer_required} onChange={e => setPolicy(p => ({ ...p, reviewer_required: e.target.checked }))} />
-                        Require separate reviewer
-                    </label>
-                </FRow>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.75rem' }}>
-                <button type="button" onClick={save} disabled={saving} className="btn-secondary" style={{ padding: '0.5rem 1rem' }}>{saving ? 'Saving…' : 'Save Claims Policy'}</button>
-                {savedMsg && <span style={{ fontSize: '0.78rem', color: savedMsg.startsWith('Save failed') ? '#ef4444' : '#22c55e' }}>{savedMsg}</span>}
-            </div>
+            <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#818cf8', marginBottom: '0.5rem' }}>Monthly Cycle pack</div>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                Enabled types: <strong style={{ color: 'var(--text)' }}>{types}</strong>
+                {policy.collection_mode ? ` · ${policy.collection_mode}` : ''}
+            </p>
+            <a href={monthlyCycleSetupHref(contractId)} className="btn-secondary" style={{ display: 'inline-block', padding: '0.5rem 1rem', textDecoration: 'none' }}>
+                Open Monthly Cycle Setup
+            </a>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                Wafi: July claims submitted by 18 July → paid with August salary. Also editable under Monthly Cycle → Setup.
+                Claim types, routing, and deadlines are edited only in Monthly Cycle → Setup.
             </div>
         </div>
     );
@@ -315,7 +216,7 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                         <FRow label="Client Focal Email"><FInput value={c.clientFocalEmail || ''} onChange={e => set('clientFocalEmail', e.target.value)} ph="client@company.com" /></FRow>
                     </div>
                     {contract?.id && <LeavePolicyEditor contractId={contract.id} />}
-                    {contract?.id && <ClaimsPolicyEditor contractId={contract.id} />}
+                    {contract?.id && <ClaimsPackSummary contractId={contract.id} />}
                 </div>
 
                 {/* Per-Head Costs */}
@@ -507,6 +408,17 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                         );
                     })()}
                 </div>
+
+                {contract?.id && isFixedValueService(c.serviceType) && (
+                    <FixedValueBaselineChapter
+                        contractId={contract.id}
+                        clientId={currentClientId}
+                        contractName={c.contractName}
+                        startDate={c.startDate}
+                        endDate={c.endDate}
+                    />
+                )}
+                {contract?.id && <ContractRatePolicyChapter contractId={contract.id} />}
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
                     <button onClick={onCancel} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.75rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
@@ -925,8 +837,8 @@ function ContractBidPanel({ contract }) {
 }
 
 // ── Client Profile View ──────────────────────────────────────────────────────
-function ClientProfile({ client, onChange, onBack, allClients = [], onContractReassigned }) {
-    const [tab, setTab] = useState('overview');
+function ClientProfile({ client, onChange, onBack, allClients = [], onContractReassigned, initialContractId }) {
+    const [tab, setTab] = useState(initialContractId ? 'contracts' : 'overview');
     const [editContract, setEditContract] = useState(null);
     const [viewContract, setViewContract] = useState(null);
     const [bidContract,  setBidContract]  = useState(null);
@@ -948,6 +860,15 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
     const [newLoc, setNewLoc] = useState({ name: '', province: '', contract_id: '' });
     const [newDept, setNewDept] = useState({ name: '', bu_id: '', location_id: '' });
     const [orgError, setOrgError] = useState('');
+
+    useEffect(() => {
+        if (!initialContractId) return;
+        const ct = (client.contracts || []).find((c) => c.id === initialContractId);
+        if (ct) {
+            setTab('contracts');
+            setEditContract(ct);
+        }
+    }, [initialContractId, client.id]);
 
     const loadBUs = async () => {
         setBuLoading(true);
@@ -1215,6 +1136,14 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                                     <button onClick={() => setEditContract(ct)} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         <Edit2 size={14} /> Edit
                                     </button>
+                                    {isFixedValueService(ct.serviceType) && (
+                                        <button onClick={() => setEditContract(ct)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                            Edit service orders
+                                        </button>
+                                    )}
+                                    <a href={monthlyCycleSetupHref(ct.id)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', textDecoration: 'none' }}>
+                                        Monthly Cycle
+                                    </a>
                                     <button onClick={() => deleteContract(ct.id)} style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         <Trash2 size={14} />
                                     </button>
@@ -1597,6 +1526,7 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
 
 // ── Main ClientInformation ───────────────────────────────────────────────────
 export default function ClientInformation() {
+    const deepLink = readStaffQuery();
     const [clients, setClients] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -1621,6 +1551,12 @@ export default function ClientInformation() {
 
     // ── Load clients from DB on mount ─────────────────────────────────────
     useEffect(() => { loadClients(); }, []);
+
+    useEffect(() => {
+        if (!deepLink.client || !clients.length || selected) return;
+        const match = clients.find((c) => c.id === deepLink.client);
+        if (match) setSelected(match);
+    }, [clients, deepLink.client, selected]);
 
     const updateClient = async (updated) => {
         setClients(p => p.map(c => c.id === updated.id ? updated : c));
@@ -1677,7 +1613,7 @@ export default function ClientInformation() {
         } catch (err) { alert('Save failed: ' + err.message); }
     };
 
-    if (selected) return <ClientProfile client={selected} onChange={updateClient} onBack={() => setSelected(null)} allClients={clients.filter(c => c.isActive !== false)} onContractReassigned={loadClients} />;
+    if (selected) return <ClientProfile client={selected} onChange={updateClient} onBack={() => setSelected(null)} allClients={clients.filter(c => c.isActive !== false)} onContractReassigned={loadClients} initialContractId={deepLink.contract} />;
 
     const filtered = clients
         .filter(c => showInactive ? true : c.isActive !== false)

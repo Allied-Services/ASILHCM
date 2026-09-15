@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine, ListChecks, Download } from 'lucide-react';
 import { api } from '../../api';
+import { clientContractHref, isFixedValueService, readStaffQuery } from '../../navLinks';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import PortalClaimsHub from './PortalClaimsHub';
 import './PortalClaimsHub.css';
@@ -89,7 +90,7 @@ function canAssignMonthlyCyclePeople(user) {
 
 function MonthlyCycleSetup({ user }) {
   const [contracts, setContracts] = useState([]);
-  const [contractId, setContractId] = useState('');
+  const [contractId, setContractId] = useState(() => readStaffQuery().contract || '');
   const [policy, setPolicy] = useState(null);
   const [rulebook, setRulebook] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -103,6 +104,8 @@ function MonthlyCycleSetup({ user }) {
         id: c.id,
         name: c.contractName || c.contract_name || c.id,
         client: c.clientName || c.client || '',
+        clientId: c.clientId || c.client_id || '',
+        serviceType: c.serviceType || c.service_type || '',
       })).sort((a, b) => String(a.name).localeCompare(String(b.name))));
     }).catch((e) => setErr(e.message));
   }, []);
@@ -160,6 +163,7 @@ function MonthlyCycleSetup({ user }) {
   };
 
   const selected = contracts.find((c) => c.id === contractId);
+  const isFv = isFixedValueService(selected?.serviceType, rulebook?.commercial_type);
 
   return (
     <div className="mch-panel">
@@ -399,6 +403,24 @@ function MonthlyCycleSetup({ user }) {
             />
             <span>Require separate reviewer step (only then is Reviewer used)</span>
           </label>
+          {selected && (
+            <div className="mch-block">
+              <h3>Commercial record</h3>
+              <p className="mch-muted">
+                Line rates and T&amp;Cs are not a monthly task. They live on the client contract.
+              </p>
+              <div className="mch-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <a className="btn-secondary" href={clientContractHref(selected.clientId, selected.id)}>
+                  Open contract record
+                </a>
+                {isFv && selected.clientId && (
+                  <a className="btn-secondary" href={`${clientContractHref(selected.clientId, selected.id)}&chapter=so`}>
+                    Edit service-order rates
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
           {selected && (
             <p className="mch-muted">
               Active pack for <strong>{selected.name}</strong>: {(policy.enabled_types || []).join(', ') || 'none'} · {policy.collection_mode}
@@ -640,7 +662,13 @@ function MachineFileCollect() {
     try {
       const r = await api.submitCycleFile(pack.import.id);
       setPack(r);
-      setMsg('Submitted into Monthly Cycle attendance.');
+      const sync = r?.so_sync;
+      const soNote = sync && Number(sync.deductions) >= 0 && !sync.skipped?.some((s) => s.reason === 'no_service_orders')
+        ? ` SO shortages updated: ${sync.deductions} line(s)`
+          + (sync.errors?.length ? `, ${sync.errors.length} unmatched` : '')
+          + '.'
+        : '.';
+      setMsg(`Submitted into Monthly Cycle attendance.${soNote}`);
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -661,7 +689,7 @@ function MachineFileCollect() {
   return (
     <div className="mch-block">
       <h3>Machine / client file</h3>
-      <p className="mch-muted">Download a template for the selected file mode — employee IDs and names are already filled for people active on that contract in the selected month. Complete the blank columns, then upload.</p>
+      <p className="mch-muted">Download a template for the selected file mode — employee IDs and names are already filled for people active on that contract in the selected month. Complete the blank columns, then upload. For Fixed Value / Conservancy, Submit also writes this month&apos;s SO shortage rows so invoices do not need Compute ALL.</p>
       {err && <div className="pch-err">{err}</div>}
       {msg && <div className="pch-ok">{msg}</div>}
       <div className="mch-form-grid mch-form-grid-3">
@@ -880,7 +908,10 @@ function ContactsSeedBar() {
 }
 
 export default function MonthlyCycleHub({ user }) {
-  const [section, setSection] = useState('track');
+  const [section, setSection] = useState(() => {
+    const q = readStaffQuery();
+    return q.section || (q.contract ? 'setup' : 'track');
+  });
   const [manualSeed, setManualSeed] = useState(null);
   const [comms, setComms] = useState(null);
 

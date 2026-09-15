@@ -6,6 +6,7 @@ const { applyAttendance } = require('./attendanceIngest');
 const { computeSoInvoice, persistSoInvoice, listDeductions } = require('./billing');
 const { assertContractConfirmations } = require('./billableConfirmations');
 const { activeEmployeeSqlClause } = require('../../core/employeeActive');
+const { CYCLE_AND_FV_ATTENDANCE_SOURCES } = require('./cycleAttendanceSync');
 
 /**
  * Drive-pull + apply attendance for every service order under a contract.
@@ -167,12 +168,12 @@ async function attendanceStatusBySite(pool, { contractId, month, year }) {
              FROM monthly_attendance_overrides o
              JOIN employees e ON e.id = o.employee_id
              WHERE o.period_month = $1 AND o.period_year = $2
-               AND o.source = 'fv_conservancy_attendance'
+               AND o.source = ANY($5::text[])
                AND (e.site = $3 OR e.location ILIKE $4)
                AND ${activeEmployeeSqlClause('e', {
                    lwdFloorSql: `make_date($2::int, $1::int, 1)`,
                })}`,
-            [month, year, so.site_code, `%${so.site_code}%`]
+            [month, year, so.site_code, `%${so.site_code}%`, CYCLE_AND_FV_ATTENDANCE_SOURCES]
         );
         out.push({
             siteCode: so.site_code,

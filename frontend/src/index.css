@@ -375,6 +375,24 @@ body {
   background: var(--primary-hover);
 }
 
+.btn-secondary {
+  background: var(--bg-dark);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+a.btn-primary,
+a.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
 /* Animations */
 @keyframes fadeIn {
   from {

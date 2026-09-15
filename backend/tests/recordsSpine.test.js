@@ -12,6 +12,7 @@ const {
     buildTemplateCsv,
     templateFilename,
     employeeActiveInPeriod,
+    resolveAttendanceDays,
 } = require('../src/modules/records/machineFile');
 const { assertCostPlusInvoiceAllowed, assertSoInvoiceAllowed } = require('../src/modules/records/costPlusInvoice');
 const { assertNoOpenConflicts } = require('../src/modules/records/provenance');
@@ -160,6 +161,19 @@ describe('records spine — machine file parse', () => {
         expect(headerLineForMode('absent_only')).toBe('employee_id,name,absent_days,ot2,ot3');
         expect(() => assertCycleFileHeaders(['asil_pso_375_25', 'muhammad_masood', '13'], 'absent_only'))
             .toThrow(/First row must be the header/);
+    });
+
+    test('resolveAttendanceDays persists absent and derives the missing side', () => {
+        expect(resolveAttendanceDays({ present_days: 28, absent_days: 2 }, 'full_ledger'))
+            .toEqual({ present: 28, absent: 2 });
+        expect(resolveAttendanceDays({ present_days: 28 }, 'days'))
+            .toEqual({ present: 28, absent: 2 });
+        expect(resolveAttendanceDays({ absent_days: 13 }, 'absent_only'))
+            .toEqual({ present: 17, absent: 13 });
+        expect(resolveAttendanceDays({ hours: 160 }, 'hours'))
+            .toEqual({ present: 20, absent: 10 });
+        expect(resolveAttendanceDays({}, 'full_ledger'))
+            .toEqual({ present: null, absent: 0 });
     });
 });
 
