@@ -130,7 +130,9 @@ function sheetCalcFromEngine(computed, ov, inputs) {
         splAllow: num(inputs.specialAllowance != null ? inputs.specialAllowance : ov.special_allowance),
         fuelMob: num(inputs.fuelMobile != null ? inputs.fuelMobile : ov.fuel_mobile),
         grossMonthly: num(computed.gross),
-        taxableMonthly: Math.max(0, num(computed.gross) - num(computed.bonusDisbursed)),
+        taxableMonthly: computed.taxableMonthly != null
+            ? num(computed.taxableMonthly)
+            : Math.max(0, num(computed.gross) - num(computed.bonusDisbursed)),
         incomeTax: num(computed.wht),
         eobi_ee: num(computed.eobiEmployee),
         pfEE: num(computed.pfDeduction),

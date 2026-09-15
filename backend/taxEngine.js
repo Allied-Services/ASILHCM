@@ -117,23 +117,40 @@ function calculateMonthlyIncomeTax(monthlyGross, monthlyOPD = 0, monthlyReimb = 
 }
 
 /**
- * Payroll Sheet monthly WHT — owner rule (Wafi BPO / headcount contracts).
- * Annualize recurring monthly pay only: salary (prorated) + OT + allowances in gross,
- * but exclude the bonus disbursement lump (taxed at FY-end or separation on YTD).
- * OPD, reimbursements, and arrears remain non-taxable in the payment month.
+ * Payroll Sheet monthly WHT.
+ * Annualize recurring pay (OT / allowances can lift the base) but never tax below
+ * the contractual monthly salary. A 1-day absence must not drop a Rs. 55,000
+ * employee from PKR 50 to PKR 32. Bonus, OPD, reimbursements, and same-month
+ * arrears stay out of the monthly annualisation base.
  *
  * @param {number} grossMonthly - Full cash gross including bonus lump
  * @param {number} [bonusDisbursement=0] - July/annual bonus paid this month (excluded from WHT base)
  * @param {number} [opd=0]
  * @param {number} [expense=0]
  * @param {number} [arrears=0]
+ * @param {number} [contractualSalary=0] - Appointment / master salary (WHT floor)
  */
-function calculatePayrollSheetMonthlyIncomeTax(grossMonthly, bonusDisbursement = 0, opd = 0, expense = 0, arrears = 0) {
+function calculatePayrollSheetMonthlyIncomeTax(
+    grossMonthly,
+    bonusDisbursement = 0,
+    opd = 0,
+    expense = 0,
+    arrears = 0,
+    contractualSalary = 0,
+) {
     const recurringGross = Math.max(
         0,
         (parseFloat(grossMonthly) || 0) - (parseFloat(bonusDisbursement) || 0),
     );
-    return Math.round(calculateMonthlyIncomeTax(recurringGross, opd, expense, arrears));
+    const afterNonTaxable = Math.max(
+        0,
+        recurringGross
+        - (parseFloat(opd) || 0)
+        - (parseFloat(expense) || 0)
+        - (parseFloat(arrears) || 0),
+    );
+    const salaryFloor = Math.max(0, parseFloat(contractualSalary) || 0);
+    return Math.round(calculateMonthlyIncomeTax(Math.max(salaryFloor, afterNonTaxable)));
 }
 
 /** @deprecated Use calculatePayrollSheetMonthlyIncomeTax */

@@ -1,6 +1,7 @@
 'use strict';
 
 const { computeRunForContract } = require('../src/modules/payrollrun/service');
+const { computePrSheetRow } = require('../src/payroll/prSheetEngine');
 
 function makePolicy(overrides = {}) {
     return {
@@ -423,5 +424,53 @@ describe('FV PSO payroll compute', () => {
         expect(rows).toHaveLength(1);
         expect(calls.some((q) => q.includes('fv_conservancy_attendance'))).toBe(false);
         expect(calls.some((q) => q.includes('e.contract_id = $1 OR e.contract_name = $1'))).toBe(true);
+    });
+
+    test('ASIL/PSO-056/25 — August 1-day absence keeps WHT at PKR 50 on 55,000 salary', async () => {
+        const emp = makeEmployee('ASIL/PSO-056/25', { name: 'M Rasab', salary: 55000 });
+        const state = {
+            employees: [emp],
+            overrides: [{
+                employee_id: emp.id,
+                period_month: 8,
+                period_year: 2026,
+                present_days: 30,
+                absent_days: 1,
+                source: 'fv_conservancy_attendance',
+            }],
+            deductions: [],
+            claims: [],
+            attendance: [],
+            runId: 0,
+            insertedRows: [],
+        };
+        const pool = buildMockPool(state);
+        const result = await computeRunForContract(pool, {
+            contractId: 'CTR-PSO-NORTH-ZONE',
+            month: 8,
+            year: 2026,
+        });
+        expect(result.ok).toBe(true);
+        const row = result.rows[0];
+        expect(row.computed.salaryForDays).toBe(Math.round(55000 * 30 / 31));
+        expect(row.computed.wht).toBe(50);
+        expect(row.computed.taxableMonthly).toBe(55000);
+    });
+});
+
+describe('FV WHT floor on contractual salary', () => {
+    test('1-day absence on 55,000 does not drop tax from 50 to 32', () => {
+        const row = computePrSheetRow({
+            newSalary: 55000,
+            month: 8,
+            year: 2026,
+            modelA: true,
+            absentDays: 1,
+            presentDays: 30,
+            expectedDays: 31,
+        }, { standard_month_days: 31 });
+        expect(row.salaryForDays).toBe(53226);
+        expect(row.wht).toBe(50);
+        expect(row.taxableMonthly).toBe(55000);
     });
 });
