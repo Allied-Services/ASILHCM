@@ -2,6 +2,11 @@
 
 const { computePrSheetRow, computeMedicalCoverage, resolvePayrollSheetBonus } = require('../../payroll/prSheetEngine');
 const { loadBonusWorkingMap } = require('../../payroll/julyBonusAccrual');
+const {
+    previousPeriod,
+    clearCarriedForwardArrears,
+    stripCarriedForwardArrears,
+} = require('../../payroll/oneTimePayCarryForward');
 const { getPolicy } = require('../constraints/service');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { provinceSalesTaxRate } = require('../../core/regionTax');
@@ -463,20 +468,33 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
     const empIds = employees.map((e) => e.id);
     const attByEmp = new Map();
     const ovByEmp = new Map();
+    const prevOvByEmp = new Map();
     const dedByEmp = new Map();
     const claimsByEmp = new Map();
     if (empIds.length) {
+        await clearCarriedForwardArrears(pool, { employeeIds: empIds, month, year })
+            .catch((err) => console.error('[payrollrun.compute] clear carried-forward arrears', err));
         const allAtt = await loadAttendanceBatch(pool, empIds, startDate, endStr);
         for (const r of allAtt) {
             if (!attByEmp.has(r.employee_id)) attByEmp.set(r.employee_id, []);
             attByEmp.get(r.employee_id).push(r);
         }
+        const prev = previousPeriod(month, year);
         const { rows: allOv } = await pool.query(
             `SELECT * FROM monthly_attendance_overrides
-             WHERE employee_id = ANY($1::text[]) AND period_month = $2 AND period_year = $3`,
-            [empIds, month, year]
+             WHERE employee_id = ANY($1::text[])
+               AND (
+                 (period_month = $2 AND period_year = $3)
+                 OR (period_month = $4 AND period_year = $5)
+               )`,
+            [empIds, month, year, prev?.month || 0, prev?.year || 0]
         ).catch(() => ({ rows: [] }));
-        for (const r of allOv) ovByEmp.set(r.employee_id, r);
+        for (const r of allOv) {
+            const sameMonth = Number(r.period_month) === Number(month)
+                && Number(r.period_year) === Number(year);
+            if (sameMonth) ovByEmp.set(r.employee_id, r);
+            else prevOvByEmp.set(r.employee_id, r);
+        }
         const { rows: allDed } = await pool.query(
             `SELECT DISTINCT ON (employee_id) employee_id, days_absent
              FROM so_deductions
@@ -503,7 +521,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
 
     for (const emp of employees) {
         const att = attByEmp.get(emp.id) || [];
-        const ov = ovByEmp.get(emp.id);
+        const ov = stripCarriedForwardArrears(ovByEmp.get(emp.id), prevOvByEmp.get(emp.id));
         let presentDaysForModelA = null;
         let absentDaysForModelA = null;
         let overrideWorkingDays = null;

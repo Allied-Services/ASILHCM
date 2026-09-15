@@ -85,6 +85,29 @@ function buildMockPool(state) {
             if (q.includes('FROM attendance_records') && q.includes('employee_id = ANY')) {
                 return { rows: state.attendance || [] };
             }
+            if (q.includes('UPDATE monthly_attendance_overrides') && q.includes('cur.arrears = prev.arrears')) {
+                const ids = params[0] || [];
+                const month = Number(params[1]);
+                const year = Number(params[2]);
+                const prevMonth = Number(params[3]);
+                const prevYear = Number(params[4]);
+                const prevByEmp = new Map(
+                    (state.overrides || [])
+                        .filter((r) => Number(r.period_month) === prevMonth && Number(r.period_year) === prevYear)
+                        .map((r) => [r.employee_id, r])
+                );
+                let cleared = 0;
+                for (const r of state.overrides || []) {
+                    if (!ids.includes(r.employee_id)) continue;
+                    if (Number(r.period_month) !== month || Number(r.period_year) !== year) continue;
+                    const prev = prevByEmp.get(r.employee_id);
+                    if (prev && Number(r.arrears) > 0 && Number(r.arrears) === Number(prev.arrears)) {
+                        r.arrears = 0;
+                        cleared += 1;
+                    }
+                }
+                return { rows: [], rowCount: cleared };
+            }
             if (q.includes('FROM monthly_attendance_overrides') && q.includes('employee_id = ANY')) {
                 return { rows: state.overrides || [] };
             }
@@ -300,6 +323,83 @@ describe('FV PSO payroll compute', () => {
             .map(([sql]) => String(sql).replace(/\s+/g, ' '))
             .filter((q) => q.includes('FROM employees e'));
         expect(empQueries.some((q) => q.includes('fv_conservancy_attendance'))).toBe(true);
+    });
+
+    test('keeps this-month arrears when the previous month did not have the same amount', async () => {
+        const emp = makeEmployee('ASIL-FV-ARR-NEW');
+        const state = {
+            employees: [emp],
+            overrides: [{
+                employee_id: emp.id,
+                period_month: 8,
+                period_year: 2026,
+                present_days: 30,
+                absent_days: 0,
+                arrears: 3200,
+                source: 'cycle_machine_file',
+            }],
+            deductions: [],
+            claims: [],
+            attendance: [],
+            runId: 0,
+            insertedRows: [],
+        };
+        const pool = buildMockPool(state);
+
+        const result = await computeRunForContract(pool, {
+            contractId: 'CTR-PSO-NORTH-ZONE',
+            month: 8,
+            year: 2026,
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.rows[0].inputs.arrears).toBe(3200);
+        expect(result.rows[0].computed.arrears).toBe(3200);
+    });
+
+    test('drops arrears that are only a copy of the previous month', async () => {
+        const emp = makeEmployee('ASIL-FV-ARR-COPY', { salary: 47000 });
+        const state = {
+            employees: [emp],
+            overrides: [
+                {
+                    employee_id: emp.id,
+                    period_month: 7,
+                    period_year: 2026,
+                    present_days: 27,
+                    absent_days: 0,
+                    arrears: 4548,
+                    source: 'fv_conservancy_attendance',
+                },
+                {
+                    employee_id: emp.id,
+                    period_month: 8,
+                    period_year: 2026,
+                    present_days: 30,
+                    absent_days: 0,
+                    arrears: 4548,
+                    source: 'cycle_machine_file',
+                },
+            ],
+            deductions: [],
+            claims: [],
+            attendance: [],
+            runId: 0,
+            insertedRows: [],
+        };
+        const pool = buildMockPool(state);
+
+        const result = await computeRunForContract(pool, {
+            contractId: 'CTR-PSO-NORTH-ZONE',
+            month: 8,
+            year: 2026,
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.rows[0].inputs.arrears).toBeFalsy();
+        expect(result.rows[0].computed.arrears).toBe(0);
+        expect(state.overrides.find((r) => r.period_month === 8).arrears).toBe(0);
+        expect(state.overrides.find((r) => r.period_month === 7).arrears).toBe(4548);
     });
 
     test('non-FV contracts keep strict contract_id employee filter', async () => {

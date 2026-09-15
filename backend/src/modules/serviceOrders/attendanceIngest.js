@@ -1,6 +1,7 @@
 'use strict';
 
 const { absenceDeductionAmount } = require('./sitesMeta');
+const { clearCarriedForwardArrears } = require('../../payroll/oneTimePayCarryForward');
 const { getServiceOrder } = require('./crud');
 const {
     normalizeDesignation,
@@ -49,6 +50,7 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
     const lines = so.lines || [];
     const client = await pool.connect();
     const summary = { overrides: 0, deductions: 0, skipped: [], errors: [] };
+    const touchedEmployeeIds = [];
 
     try {
         await client.query('BEGIN');
@@ -112,6 +114,7 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
                 ]
             );
             summary.overrides += 1;
+            touchedEmployeeIds.push(employeeId);
             if (absentDays <= 0) continue;
 
             const match = findLineForDesignation(lines, row.designation, { siteCode: so.site_code });
@@ -139,6 +142,14 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
                 ]
             );
             summary.deductions += 1;
+        }
+
+        if (touchedEmployeeIds.length) {
+            await clearCarriedForwardArrears(client, {
+                employeeIds: [...new Set(touchedEmployeeIds)],
+                month,
+                year,
+            });
         }
 
         await client.query('COMMIT');
