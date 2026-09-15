@@ -55,8 +55,8 @@ export const calcWHT = (annual) => {
     return Math.round((616000 + (annual - 4100000) * 0.35) / 12);
 };
 
-// Payroll Sheet WHT: exclude bonus disbursement lump from annualization base.
-export const calcPayrollSheetWHT = (grossMonthly, bonusDisbursement, opd, expense, arrears) => {
+// Payroll Sheet WHT: exclude bonus/OPD/reimb/arrears; never tax below contractual salary.
+export const calcPayrollSheetWHT = (grossMonthly, bonusDisbursement, opd, expense, arrears, contractualSalary) => {
     const taxable = Math.max(
         0,
         (parseFloat(grossMonthly) || 0)
@@ -65,7 +65,8 @@ export const calcPayrollSheetWHT = (grossMonthly, bonusDisbursement, opd, expens
         - (parseFloat(expense) || 0)
         - (parseFloat(arrears) || 0),
     );
-    return calcWHT(taxable * 12);
+    const floor = Math.max(0, parseFloat(contractualSalary) || 0);
+    return calcWHT(Math.max(floor, taxable) * 12);
 };
 /** @deprecated Use calcPayrollSheetWHT */
 export const calcJuly2026WafiWHT = calcPayrollSheetWHT;
@@ -195,7 +196,12 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
 
     // Taxable income EXCLUDES OPD, expense reimbursements, same-month arrears,
     // and the bonus disbursement lump (monthly payroll never annualizes bonus).
-    const incomeTax = calcPayrollSheetWHT(grossMonthly, bonusDisbursed, opdClaim, reimb, arrears);
+    const incomeTax = calcPayrollSheetWHT(grossMonthly, bonusDisbursed, opdClaim, reimb, arrears, grossSalary);
+    const taxableMonthly = Math.max(
+        grossSalary,
+        Math.max(0, grossMonthly - bonusDisbursed - opdClaim - reimb - arrears),
+    );
+    const annualIncome = taxableMonthly * 12;
     const eobi = calcEOBI_fn(null, null, cfg.eobi_min_wage);
 
     // ——— EOSB ———————————————————————————————————————————————————————————————

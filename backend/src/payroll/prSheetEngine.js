@@ -287,13 +287,21 @@ function computePrSheetRow(input, policy = {}) {
     const grossForTPC = grossComponents;
     const gross = grossComponents + bonusDisbursed;
 
-    // Monthly payroll always annualizes recurring pay only — bonus is taxed at FY-end.
+    // Monthly payroll annualizes recurring pay (OT can lift) but never below contractual salary.
+    // Absence must not cut WHT (ASIL/PSO-056/25: 55,000 → PKR 50, not 32 on 30/31).
     const usePayrollSheetTax = input.excludeBonusFromWht !== false
         || input.julyWafiTax === true;
+    const recurringTaxable = Math.max(
+        0,
+        gross - bonusDisbursed - opd - expense - Math.round(arrears),
+    );
+    const taxableMonthly = usePayrollSheetTax
+        ? Math.max(Math.max(0, salary), recurringTaxable)
+        : Math.max(0, gross - opd - expense - Math.round(arrears));
     const whtExact = input.wht != null
         ? Number(input.wht)
         : (usePayrollSheetTax
-            ? calculatePayrollSheetMonthlyIncomeTax(gross, bonusDisbursed, opd, expense, Math.round(arrears))
+            ? calculatePayrollSheetMonthlyIncomeTax(gross, bonusDisbursed, opd, expense, Math.round(arrears), salary)
             : calculateMonthlyIncomeTax(gross, opd, expense, Math.round(arrears)));
     const wht = Math.round(whtExact);
     const eobiPeriod = {
@@ -374,6 +382,7 @@ function computePrSheetRow(input, policy = {}) {
         paidDays,
         workingDays,
         gross,
+        taxableMonthly,
         wht,
         pfDeduction,
         eobiEmployee: eobi.employeeShare,

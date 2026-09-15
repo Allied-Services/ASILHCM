@@ -29,4 +29,12 @@ describe('Payroll Sheet monthly WHT (bonus lump excluded)', () => {
         expect(calculateJuly2026WafiMonthlyIncomeTax(90100, 41214, 0, 0, 0))
             .toBe(calculatePayrollSheetMonthlyIncomeTax(90100, 41214, 0, 0, 0));
     });
+
+    test('ASIL/PSO-056/25 — absence does not cut WHT below tax on contractual 55,000', () => {
+        const prorated = Math.round(55000 * 30 / 31);
+        expect(prorated).toBe(53226);
+        expect(calculatePayrollSheetMonthlyIncomeTax(prorated, 0, 0, 0, 0)).toBe(32);
+        expect(calculatePayrollSheetMonthlyIncomeTax(prorated, 0, 0, 0, 0, 55000)).toBe(50);
+        expect(calculatePayrollSheetMonthlyIncomeTax(55000, 0, 0, 0, 0, 55000)).toBe(50);
+    });
 });
