@@ -1,6 +1,7 @@
 'use strict';
 
 const { syncSoDeductionsFromCycleRows } = require('../serviceOrders/cycleAttendanceSync');
+const { clearCarriedForwardArrears } = require('../../payroll/oneTimePayCarryForward');
 
 const INPUT_MODES = ['full_ledger', 'hours', 'days', 'absent_only'];
 
@@ -429,6 +430,11 @@ async function submitImport(pool, importId, actor) {
                     updated_at = NOW()`
                 , overrideParams
             );
+            await clearCarriedForwardArrears(client, {
+                employeeIds: resolved.map((r) => r.employeeId),
+                month,
+                year,
+            });
         }
         let soSync = { deductions: 0, skipped: [], errors: [], cleared: 0 };
         try {
