@@ -130,7 +130,7 @@ export default function FixedValueContracts({ user }) {
     const [adjSign, setAdjSign] = useState('deduct');
     const [adjLineId, setAdjLineId] = useState('');
 
-    const canWrite = ['superadmin', 'operations', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
+    const canWrite = ['superadmin', 'operations', 'monthly_cycle', 'finance_manager', 'finance_approver', 'ar_team', 'payroll_initiator', 'payroll']
         .includes(user?.role);
     const canEditContract = ['superadmin', 'operations', 'finance_manager'].includes(user?.role)
         || !!(user?.permissions?.fixed_value?.subPerms || []).includes('edit');

@@ -3,10 +3,11 @@
 const VIEW_ROLES = [
     'superadmin', 'finance_manager', 'finance_approver',
     'payroll_initiator', 'payroll',
-    'operations_supervisor', 'operations', 'hr_manager',
+    'operations_supervisor', 'operations', 'monthly_cycle', 'hr_manager',
 ];
 const CAMPAIGN_ROLES = [
-    'superadmin', 'finance_manager', 'finance_approver', 'operations_supervisor',
+    'superadmin', 'finance_manager', 'finance_approver',
+    'operations_supervisor', 'operations', 'monthly_cycle',
 ];
 
 function parsePermissions(raw) {

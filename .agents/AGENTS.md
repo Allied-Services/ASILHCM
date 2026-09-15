@@ -258,6 +258,7 @@ Eleven roles are defined. When adding a new feature, the authorization decision 
 | `procurement_approver` | Approves procurement bills |
 | `procurement_proposer` | Creates procurement bills |
 | `operations` | Read/operational access to HR data |
+| `monthly_cycle` | Run Monthly Cycle: attendance, claims, invoices (no payroll lock / AP) |
 
 **Admin endpoints** (`/api/admin/*`) require `requireRole('superadmin')`. This is not currently enforced for all admin routes — do not create new admin endpoints without this guard.
 
@@ -309,6 +310,11 @@ A task is NOT complete until:
 ## SECTION 10 — Claude Code Session Changelog
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
+
+### 2026-09-15 — Monthly Cycle operator role (Obaid)
+New User Management role `monthly_cycle` (**Monthly Cycle**) can upload/submit cycle attendance, add/correct claims, send claim requests, raise the cost-plus invoice, and write the PSO control panel. Same cycle writes now also succeed for `operations` (JWT-only `requireRole` was rejecting a stale token after the role dropdown already said Operations). Cycle-file / month-close writes use `requireMonthlyCycle` (DB lookup). Claims campaign + manual override include `operations` and `monthly_cycle`. Does not grant payroll lock or AP confirm.
+
+**Env vars needed:** none.
 
 ### 2026-09-11 — LM approval email is next-day, only if new claims yesterday
 Line Managers are not emailed when a claim is submitted. Each morning (09:00 Pakistan, cron `0 4 * * *` UTC) the job checks whether that LM received **new submitted claims yesterday** (Asia/Karachi). If yes, one pack email goes out. A quiet day (no new claims) sends nothing, even if older claims are still pending. Chase reminders and Send to LM = Y still mail immediately.

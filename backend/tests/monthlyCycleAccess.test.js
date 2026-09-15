@@ -16,6 +16,7 @@ describe('canAccessMonthlyCycle', () => {
     test('finance/ops/payroll roles can edit without custom permissions', () => {
         expect(canAccessMonthlyCycle({ role: 'finance_manager' }, 'edit')).toBe(true);
         expect(canAccessMonthlyCycle({ role: 'operations' }, 'edit')).toBe(true);
+        expect(canAccessMonthlyCycle({ role: 'monthly_cycle' }, 'edit')).toBe(true);
         expect(canAccessMonthlyCycle({ role: 'payroll_initiator' }, 'edit')).toBe(true);
         expect(canAccessMonthlyCycle({ role: 'payroll' }, 'edit')).toBe(true);
     });

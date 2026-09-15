@@ -4,6 +4,7 @@
 const EDIT_ROLES = [
     'finance_manager',
     'operations',
+    'monthly_cycle',
     'payroll_initiator',
     'payroll',
 ];
@@ -13,6 +14,7 @@ const VIEW_ROLES = [
     'finance_approver',
     'operations',
     'operations_supervisor',
+    'monthly_cycle',
     'payroll_initiator',
     'payroll',
 ];
