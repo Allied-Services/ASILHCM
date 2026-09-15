@@ -252,6 +252,7 @@ export default function PortalClaimsHub({
   const [ov, setOv] = useState({
     employeeId: '', month: start.payMonth, year: start.payYear,
     ot1Hours: 0, ot2Hours: 0, ot3Hours: 0, expenseAmount: 0, medicalAmount: 0,
+    arrearsAmount: 0, deductionAmount: 0, specialAllowanceAmount: 0,
     mode: 'add', reason: '', resubmitToLm: true,
   });
   const [ovPreview, setOvPreview] = useState(null);
@@ -551,6 +552,9 @@ export default function PortalClaimsHub({
       ot3Hours: p.portal?.ot3 || 0,
       expenseAmount: p.portal?.expense || 0,
       medicalAmount: p.portal?.medical || 0,
+      arrearsAmount: p.portal?.arrears || 0,
+      deductionAmount: p.portal?.deduction || 0,
+      specialAllowanceAmount: p.portal?.specialAllowance || 0,
       mode: 'add',
       resubmitToLm: true,
     };
@@ -1099,6 +1103,9 @@ export default function PortalClaimsHub({
                         <th>OT 3x hrs</th>
                         <th>Medical PKR</th>
                         <th>Expense PKR</th>
+                        <th>Arrears</th>
+                        <th>Deduction</th>
+                        <th>Spl Allow</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1108,6 +1115,9 @@ export default function PortalClaimsHub({
                         <td>{hours(open.portal?.ot3)}</td>
                         <td>{money(open.portal?.medical)}</td>
                         <td>{money(open.portal?.expense)}</td>
+                        <td>{money(open.portal?.arrears)}</td>
+                        <td>{money(open.portal?.deduction)}</td>
+                        <td>{money(open.portal?.specialAllowance)}</td>
                       </tr>
                       <tr className={open.status === 'on_sheet' ? 'is-ok' : open.status === 'other_data' ? 'is-bad' : ''}>
                         <td>Payroll Sheet ({MONTHS[payMonth - 1][1]})</td>
@@ -1115,6 +1125,9 @@ export default function PortalClaimsHub({
                         <td>{hours(open.sheet?.ot3)}</td>
                         <td>{money(open.sheet?.medical)}</td>
                         <td>{money(open.sheet?.expense)}</td>
+                        <td>{money(open.sheet?.arrears)}</td>
+                        <td>{money(open.sheet?.deduction)}</td>
+                        <td>{money(open.sheet?.specialAllowance)}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1201,8 +1214,9 @@ export default function PortalClaimsHub({
             Work month above is the <strong>claim month</strong> you are correcting
             (July work, payable with August salary). This replaces Portal Claims for that work month.
             It does <strong>not</strong> change the already-paid July salary sheet.
-            Default: send each line back to the Line Manager. Uncheck only for a direct
+            Default: send OT / Expense / Medical back to the Line Manager. Uncheck only for a direct
             {' '}{MONTHS[payMonth - 1]?.[1] || 'next-month'} Payroll Sheet write.
+            Arrears, Deductions, and Special Allowance write to that pay-month sheet now.
           </p>
           <div className="pch-form">
             <label className="pch-span">
@@ -1233,6 +1247,15 @@ export default function PortalClaimsHub({
             <label><span>Medical / OPD (PKR)</span>
               <input type="number" step="0.01" value={ov.medicalAmount} onChange={e => setOv(o => ({ ...o, medicalAmount: e.target.value }))} />
             </label>
+            <label><span>Arrears (PKR)</span>
+              <input type="number" step="0.01" value={ov.arrearsAmount} onChange={e => setOv(o => ({ ...o, arrearsAmount: e.target.value }))} />
+            </label>
+            <label><span>Deductions (PKR)</span>
+              <input type="number" step="0.01" value={ov.deductionAmount} onChange={e => setOv(o => ({ ...o, deductionAmount: e.target.value }))} />
+            </label>
+            <label><span>Special Allowance (PKR)</span>
+              <input type="number" step="0.01" value={ov.specialAllowanceAmount} onChange={e => setOv(o => ({ ...o, specialAllowanceAmount: e.target.value }))} />
+            </label>
             {!ov.resubmitToLm && (
               <label><span>Payroll mode</span>
                 <select value={ov.mode} onChange={e => setOv(o => ({ ...o, mode: e.target.value }))}>
@@ -1257,7 +1280,7 @@ export default function PortalClaimsHub({
 
           <h3 style={{ marginTop: 24 }}>Bulk CSV upload</h3>
           <p className="pch-sub">
-            Columns: Code, Emp Name, OT (1X), OT (x2), OT (x3), OPD, Exp, Work Month, Work Year, Reason, Send to LM?
+            Columns: Code, Emp Name, OT (1X), OT (x2), OT (x3), OPD, Exp, Arrears, Deduction, Special Allowance, Work Month, Work Year, Reason, Send to LM?
             Save as CSV (not .xlsx). Work month defaults to the filter above when omitted.
             Send to LM = Y replaces the work-month portal claim and emails the LM to re-approve.
             Send to LM = N replaces the portal claim only — no Focal or LM email, no July salary change.

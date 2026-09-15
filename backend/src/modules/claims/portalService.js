@@ -53,6 +53,14 @@ const {
     portalHasValues,
     amountsMatch,
 } = require('./claimsResponse');
+const {
+    PAYROLL_ADJUSTMENT_TYPES,
+    parsePayrollAdjustments,
+    hasPayrollAdjustments,
+    applyAdjustmentMode,
+    replaceAdjustmentDelta,
+    isPayrollAdjustmentType,
+} = require('./payrollAdjustments');
 const { planChase, planSmartReminder } = require('./claimsChase');
 const {
     isDueForReminder,
@@ -1186,7 +1194,7 @@ async function saveSubmissionItems(pool, {
         const type = String(raw.claim_type || '').toUpperCase();
         const rowTag = raw._rowLabel || null;
 
-        if (type && !enabledTypes.includes(type)) {
+        if (type && !enabledTypes.includes(type) && !isPayrollAdjustmentType(type)) {
             errors.push(`${rowTag || type}: ${type} claims are not enabled for this contract`);
             continue;
         }
@@ -1243,6 +1251,20 @@ async function saveSubmissionItems(pool, {
                     patient_name: raw.patient_name || null,
                 });
             }
+        } else if (isPayrollAdjustmentType(type)) {
+            if (!isMeaningfulMoneyRow(raw)) continue;
+            const label = rowTag || `${type} line`;
+            const v = validateExpenseOrMedicalRow(raw, period, type);
+            if (v.errors.length) {
+                errors.push(...v.errors.map(e => `${label}: ${e}`));
+            } else {
+                normalized.push({
+                    claim_type: type,
+                    claim_date: v.claim_date,
+                    amount: v.amount,
+                    description: raw.description || null,
+                });
+            }
         }
     }
 
@@ -1251,6 +1273,25 @@ async function saveSubmissionItems(pool, {
     const droppedDuplicates = beforeDedupe - uniqueItems.length;
     normalized.length = 0;
     normalized.push(...uniqueItems);
+
+    const haveAdj = new Set(normalized.filter((i) => isPayrollAdjustmentType(i.claim_type)).map((i) => i.claim_type));
+    const { rows: keepAdj } = await pool.query(
+        `SELECT claim_type, claim_date, amount, description
+         FROM portal_claim_items
+         WHERE submission_id = $1 AND COALESCE(active, TRUE) = TRUE
+           AND claim_type = ANY($2::text[])`,
+        [sub.id, PAYROLL_ADJUSTMENT_TYPES]
+    );
+    for (const row of keepAdj || []) {
+        if (haveAdj.has(row.claim_type)) continue;
+        normalized.push({
+            claim_type: row.claim_type,
+            claim_date: row.claim_date,
+            amount: row.amount,
+            description: row.description || null,
+        });
+        haveAdj.add(row.claim_type);
+    }
 
     if (errors.length) {
         const unique = [...new Set(errors)];
@@ -2829,11 +2870,56 @@ async function exportClaimsPayrollTieout(pool, month, year) {
 
 async function getPayrollSnapshot(pool, employeeId, month, year) {
     const { rows } = await pool.query(
-        `SELECT ot2_hrs, ot3_hrs, opd_claim, reimbursement, locked
+        `SELECT ot2_hrs, ot3_hrs, opd_claim, reimbursement, arrears, other_deduction, special_allowance, locked
          FROM payroll_transactions WHERE employee_id = $1 AND month = $2 AND year = $3`,
         [employeeId, month, year]
     );
-    return rows[0] || { ot2_hrs: 0, ot3_hrs: 0, opd_claim: 0, reimbursement: 0, locked: false };
+    return rows[0] || {
+        ot2_hrs: 0, ot3_hrs: 0, opd_claim: 0, reimbursement: 0,
+        arrears: 0, other_deduction: 0, special_allowance: 0, locked: false,
+    };
+}
+
+async function syncPayrollAdjustmentsOnSheet(pool, {
+    employeeId, month, year, previous = {}, next = {}, mode = 'replace_delta', isSuperadmin = false,
+}) {
+    const prev = parsePayrollAdjustments(previous);
+    const nxt = parsePayrollAdjustments(next);
+    if (!hasPayrollAdjustments(prev) && !hasPayrollAdjustments(nxt)) {
+        return { wrote: false };
+    }
+    const before = await getPayrollSnapshot(pool, employeeId, month, year);
+    if (before.locked && !isSuperadmin) {
+        return { wrote: false, blocked: 'PAYROLL_LOCKED', before };
+    }
+    let after;
+    if (mode === 'replace_delta') {
+        after = {
+            arrears: replaceAdjustmentDelta(before.arrears, prev.arrears, nxt.arrears),
+            other_deduction: replaceAdjustmentDelta(before.other_deduction, prev.deduction, nxt.deduction),
+            special_allowance: replaceAdjustmentDelta(before.special_allowance, prev.specialAllowance, nxt.specialAllowance),
+        };
+    } else {
+        after = {
+            arrears: applyAdjustmentMode(before.arrears, nxt.arrears, mode),
+            other_deduction: applyAdjustmentMode(before.other_deduction, nxt.deduction, mode),
+            special_allowance: applyAdjustmentMode(before.special_allowance, nxt.specialAllowance, mode),
+        };
+    }
+    if (!hasPayrollAdjustments(nxt) && mode === 'add') {
+        return { wrote: false, before, after };
+    }
+    await pool.query(
+        `INSERT INTO payroll_transactions (employee_id, month, year, arrears, other_deduction, special_allowance)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (employee_id, month, year) DO UPDATE SET
+           arrears = EXCLUDED.arrears,
+           other_deduction = EXCLUDED.other_deduction,
+           special_allowance = EXCLUDED.special_allowance,
+           updated_at = NOW()`,
+        [employeeId, month, year, after.arrears, after.other_deduction, after.special_allowance]
+    );
+    return { wrote: true, before, after };
 }
 
 const TEMPLATE_EXAMPLE_CODE = 'ASIL/SPL-001';
@@ -2938,6 +3024,11 @@ function normalizeManualImportRow(row, defaults = {}) {
         ot3Hours: parseClaimsNumber(importCell(row, 'ot3Hours', 'OT (x3)', 'OT (X3)', 'OT 3X Hours')),
         expenseAmount: parseClaimsNumber(importCell(row, 'expenseAmount', 'Exp', 'Expense Amount')),
         medicalAmount: parseClaimsNumber(importCell(row, 'medicalAmount', 'OPD', 'Medical Amount')),
+        arrearsAmount: parseClaimsNumber(importCell(row, 'arrearsAmount', 'Arrears', 'Arrear')),
+        deductionAmount: parseClaimsNumber(importCell(row, 'deductionAmount', 'Deduction', 'Deductions', 'Other Deduction')),
+        specialAllowanceAmount: parseClaimsNumber(importCell(
+            row, 'specialAllowanceAmount', 'Special Allowance', 'Spl Allow', 'Special Allow'
+        )),
         reason: String(importCell(row, 'reason', 'Reason') || 'CSV manual upload').trim(),
         resubmitToLm,
         mode,
@@ -2978,6 +3069,9 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     ot3Hours = 0,
     expenseAmount = 0,
     medicalAmount = 0,
+    arrearsAmount = 0,
+    deductionAmount = 0,
+    specialAllowanceAmount = 0,
     reason,
     createdBy,
     dryRun = false,
@@ -3015,6 +3109,7 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     const o3 = roundHrs(ot3Hours);
     const exp = Math.round(parseClaimsNumber(expenseAmount) * 100) / 100;
     const med = Math.round(parseClaimsNumber(medicalAmount) * 100) / 100;
+    const adj = parsePayrollAdjustments({ arrearsAmount, deductionAmount, specialAllowanceAmount });
     const claimDate = `${wy}-${String(wm).padStart(2, '0')}-28`;
     const correctionNote = `[ASIL correction] ${String(reason).trim()}`;
     const previousStatus = sub?.status || null;
@@ -3026,6 +3121,9 @@ async function applyPortalCorrection(pool, sendAppEmail, {
         : (resubmitToLm && previousStatus === 'approved')
             ? ` Existing approved ${wm}/${wy} claim will be replaced and sent back to the Line Manager.`
             : '';
+    const adjNote = hasPayrollAdjustments(adj)
+        ? ` Arrears / Deductions / Special Allowance write to the ${settleLabel} Payroll Sheet now.`
+        : '';
     const dryWarning = resubmitToLm
         ? (approverEmail
             ? `Will replace the ${wm}/${wy} portal claim (payable ${settleLabel}) and email ${approverEmail} for Line Manager re-approval.`
@@ -3052,8 +3150,11 @@ async function applyPortalCorrection(pool, sendAppEmail, {
                 ot3Hours: o3,
                 expenseAmount: exp,
                 medicalAmount: med,
+                arrearsAmount: adj.arrears,
+                deductionAmount: adj.deduction,
+                specialAllowanceAmount: adj.specialAllowance,
             },
-            warning: dryWarning + payrollWarning,
+            warning: dryWarning + adjNote + payrollWarning,
         };
     }
 
@@ -3069,6 +3170,13 @@ async function applyPortalCorrection(pool, sendAppEmail, {
         submissionId = ins[0].id;
     }
 
+    const { rows: prevItemRows } = await pool.query(
+        `SELECT claim_type, amount FROM portal_claim_items
+         WHERE submission_id = $1 AND COALESCE(active, TRUE) = TRUE`,
+        [submissionId]
+    );
+    const prevAdj = portalAmountsFromItems(prevItemRows);
+
     await pool.query(`UPDATE portal_claim_items SET active = FALSE WHERE submission_id = $1`, [submissionId]);
 
     const inserts = [];
@@ -3077,6 +3185,9 @@ async function applyPortalCorrection(pool, sendAppEmail, {
     if (o3 > 0) inserts.push(['OT', o3, 'Triple', 3]);
     if (exp > 0) inserts.push(['EXPENSE', exp, null, null]);
     if (med > 0) inserts.push(['MEDICAL', med, null, null]);
+    if (adj.arrears > 0) inserts.push(['ARREARS', adj.arrears, null, null]);
+    if (adj.deduction > 0) inserts.push(['DEDUCTION', adj.deduction, null, null]);
+    if (adj.specialAllowance > 0) inserts.push(['SPECIAL_ALLOWANCE', adj.specialAllowance, null, null]);
 
     for (const [claimType, val, multLabel, factor] of inserts) {
         if (claimType === 'OT') {
@@ -3135,6 +3246,20 @@ async function applyPortalCorrection(pool, sendAppEmail, {
         lmNotified = (packs || []).some((p) => p.count > 0);
     }
 
+    const adjWrite = await syncPayrollAdjustmentsOnSheet(pool, {
+        employeeId: resolvedId,
+        month: period.settlement_month,
+        year: period.settlement_year,
+        previous: prevAdj,
+        next: adj,
+        mode: 'replace_delta',
+    });
+    const adjMsg = adjWrite.wrote
+        ? ` Arrears / Deductions / Special Allowance updated on the ${settleLabel} Payroll Sheet.`
+        : (adjWrite.blocked === 'PAYROLL_LOCKED'
+            ? ` Payroll ${settleLabel} is locked — arrears / deductions / special allowance were not written.`
+            : '');
+
     return {
         ok: true,
         path: 'portal',
@@ -3147,12 +3272,13 @@ async function applyPortalCorrection(pool, sendAppEmail, {
         submissionId,
         approverEmail: resubmitToLm ? (approverEmail || null) : null,
         lmNotified,
-        warning: payrollWarning.trim() || null,
-        message: resubmitToLm
+        adjustments: adjWrite.wrote ? adjWrite.after : null,
+        warning: (payrollWarning + adjMsg).trim() || null,
+        message: (resubmitToLm
             ? (lmNotified
                 ? `${wm}/${wy} claim replaced and sent to ${approverEmail} for re-approval (payable ${settleLabel}).`
                 : `${wm}/${wy} claim replaced — waiting for Line Manager approval (payable ${settleLabel}).`)
-            : `${wm}/${wy} portal claim replaced (payable ${settleLabel}). No Focal or LM email.`,
+            : `${wm}/${wy} portal claim replaced (payable ${settleLabel}). No Focal or LM email.`) + adjMsg,
     };
 }
 
@@ -3160,6 +3286,7 @@ async function applyManualOverride(pool, {
     employeeId, month, year,
     ot1Hours = 0, ot2Hours = 0, ot3Hours = 0,
     expenseAmount = 0, medicalAmount = 0,
+    arrearsAmount = 0, deductionAmount = 0, specialAllowanceAmount = 0,
     mode, reason, createdBy, dryRun = false, isSuperadmin = false,
 }) {
     if (!reason || !String(reason).trim()) return { ok: false, status: 400, error: 'Reason is required', employeeId };
@@ -3197,6 +3324,7 @@ async function applyManualOverride(pool, {
     const o3 = Number(ot3Hours) || 0;
     const exp = Number(expenseAmount) || 0;
     const med = Number(medicalAmount) || 0;
+    const adj = parsePayrollAdjustments({ arrearsAmount, deductionAmount, specialAllowanceAmount });
     const ot2Write = o2 + o1 * 0.5;
 
     if (mode === 'add') {
@@ -3205,15 +3333,24 @@ async function applyManualOverride(pool, {
             ot3_hrs: Number(before.ot3_hrs || 0) + o3,
             opd_claim: Number(before.opd_claim || 0) + med,
             reimbursement: Number(before.reimbursement || 0) + exp,
+            arrears: applyAdjustmentMode(before.arrears, adj.arrears, 'add'),
+            other_deduction: applyAdjustmentMode(before.other_deduction, adj.deduction, 'add'),
+            special_allowance: applyAdjustmentMode(before.special_allowance, adj.specialAllowance, 'add'),
         };
     } else if (mode === 'replace') {
-        after = { ot2_hrs: ot2Write, ot3_hrs: o3, opd_claim: med, reimbursement: exp };
+        after = {
+            ot2_hrs: ot2Write, ot3_hrs: o3, opd_claim: med, reimbursement: exp,
+            arrears: adj.arrears, other_deduction: adj.deduction, special_allowance: adj.specialAllowance,
+        };
     } else if (mode === 'remove') {
         after = {
             ot2_hrs: Math.max(0, Number(before.ot2_hrs || 0) - ot2Write),
             ot3_hrs: Math.max(0, Number(before.ot3_hrs || 0) - o3),
             opd_claim: Math.max(0, Number(before.opd_claim || 0) - med),
             reimbursement: Math.max(0, Number(before.reimbursement || 0) - exp),
+            arrears: applyAdjustmentMode(before.arrears, adj.arrears, 'remove'),
+            other_deduction: applyAdjustmentMode(before.other_deduction, adj.deduction, 'remove'),
+            special_allowance: applyAdjustmentMode(before.special_allowance, adj.specialAllowance, 'remove'),
         };
     }
 
@@ -3224,20 +3361,31 @@ async function applyManualOverride(pool, {
     if (dryRun) {
         return {
             ok: true, dryRun: true, employeeId: resolvedId, before, after, warning,
-            preview: { employeeId: resolvedId, month, year, mode, ot1Hours: o1, ot2Hours: o2, ot3Hours: o3, expenseAmount: exp, medicalAmount: med },
+            preview: {
+                employeeId: resolvedId, month, year, mode,
+                ot1Hours: o1, ot2Hours: o2, ot3Hours: o3, expenseAmount: exp, medicalAmount: med,
+                arrearsAmount: adj.arrears, deductionAmount: adj.deduction, specialAllowanceAmount: adj.specialAllowance,
+            },
         };
     }
 
     await pool.query(
-        `INSERT INTO payroll_transactions (employee_id, month, year, ot2_hrs, ot3_hrs, opd_claim, reimbursement)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `INSERT INTO payroll_transactions
+         (employee_id, month, year, ot2_hrs, ot3_hrs, opd_claim, reimbursement, arrears, other_deduction, special_allowance)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (employee_id, month, year) DO UPDATE SET
            ot2_hrs = EXCLUDED.ot2_hrs,
            ot3_hrs = EXCLUDED.ot3_hrs,
            opd_claim = EXCLUDED.opd_claim,
            reimbursement = EXCLUDED.reimbursement,
+           arrears = EXCLUDED.arrears,
+           other_deduction = EXCLUDED.other_deduction,
+           special_allowance = EXCLUDED.special_allowance,
            updated_at = NOW()`,
-        [resolvedId, month, year, after.ot2_hrs, after.ot3_hrs, after.opd_claim, after.reimbursement]
+        [
+            resolvedId, month, year, after.ot2_hrs, after.ot3_hrs, after.opd_claim, after.reimbursement,
+            after.arrears, after.other_deduction, after.special_allowance,
+        ]
     );
 
     const { rows: logRows } = await pool.query(
@@ -3311,6 +3459,30 @@ async function applyManualOverride(pool, {
                 [submissionId, claimDate, med, note]
             );
         }
+        if (adj.arrears > 0) {
+            await pool.query(
+                `INSERT INTO portal_claim_items
+                 (submission_id, claim_type, claim_date, amount, active, description)
+                 VALUES ($1,'ARREARS',$2,$3,TRUE,$4)`,
+                [submissionId, claimDate, adj.arrears, note]
+            );
+        }
+        if (adj.deduction > 0) {
+            await pool.query(
+                `INSERT INTO portal_claim_items
+                 (submission_id, claim_type, claim_date, amount, active, description)
+                 VALUES ($1,'DEDUCTION',$2,$3,TRUE,$4)`,
+                [submissionId, claimDate, adj.deduction, note]
+            );
+        }
+        if (adj.specialAllowance > 0) {
+            await pool.query(
+                `INSERT INTO portal_claim_items
+                 (submission_id, claim_type, claim_date, amount, active, description)
+                 VALUES ($1,'SPECIAL_ALLOWANCE',$2,$3,TRUE,$4)`,
+                [submissionId, claimDate, adj.specialAllowance, note]
+            );
+        }
     }
 
     return { ok: true, employeeId: resolvedId, override: logRows[0], before, after, warning, notifyEmails: MANUAL_OVERRIDE_NOTIFY };
@@ -3320,7 +3492,9 @@ async function notifyManualOverride(sendAppEmail, payload) {
     if (!sendAppEmail || !MANUAL_OVERRIDE_NOTIFY.length) return;
     const {
         employeeId, month, year, mode, reason, createdBy,
-        ot1Hours, ot2Hours, ot3Hours, expenseAmount, medicalAmount, before, after, warning,
+        ot1Hours, ot2Hours, ot3Hours, expenseAmount, medicalAmount,
+        arrearsAmount, deductionAmount, specialAllowanceAmount,
+        before, after, warning,
     } = payload;
     const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;background:#f8fafc;color:#0f172a">
 <div style="max-width:640px;margin:auto;background:#fff;border-radius:12px;padding:24px;border:1px solid #e2e8f0">
@@ -3334,6 +3508,7 @@ async function notifyManualOverride(sendAppEmail, payload) {
     <tr><td style="padding:6px 0;color:#64748b">Reason</td><td style="padding:6px 0">${String(reason || '').replace(/</g, '&lt;')}</td></tr>
     <tr><td style="padding:6px 0;color:#64748b">OT 1× / 2× / 3×</td><td style="padding:6px 0">${ot1Hours} / ${ot2Hours} / ${ot3Hours} hrs</td></tr>
     <tr><td style="padding:6px 0;color:#64748b">Expense / Medical</td><td style="padding:6px 0">${expenseAmount} / ${medicalAmount}</td></tr>
+    <tr><td style="padding:6px 0;color:#64748b">Arrears / Deduction / Spl Allow</td><td style="padding:6px 0">${arrearsAmount || 0} / ${deductionAmount || 0} / ${specialAllowanceAmount || 0}</td></tr>
     <tr><td style="padding:6px 0;color:#64748b">Payroll before</td><td style="padding:6px 0;font-family:monospace;font-size:12px">${JSON.stringify(before)}</td></tr>
     <tr><td style="padding:6px 0;color:#64748b">Payroll after</td><td style="padding:6px 0;font-family:monospace;font-size:12px">${JSON.stringify(after)}</td></tr>
   </table>

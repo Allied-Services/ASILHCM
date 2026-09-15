@@ -760,7 +760,9 @@ export default function PayrollSheet({ user }) {
     const [showAddClaims, setShowAddClaims] = useState(false);
     const [addClaimsForm, setAddClaimsForm] = useState({
         employeeId: '', ot1Hours: 0, ot2Hours: 0, ot3Hours: 0,
-        expenseAmount: 0, medicalAmount: 0, mode: 'add', reason: '',
+        expenseAmount: 0, medicalAmount: 0,
+        arrearsAmount: 0, deductionAmount: 0, specialAllowanceAmount: 0,
+        mode: 'add', reason: '',
     });
     const [addClaimsMsg, setAddClaimsMsg] = useState('');
 
@@ -1739,6 +1741,9 @@ export default function PayrollSheet({ user }) {
                             <input type="number" placeholder="OT3" value={addClaimsForm.ot3Hours} onChange={e => setAddClaimsForm(f => ({ ...f, ot3Hours: e.target.value }))} />
                             <input type="number" placeholder="Expense" value={addClaimsForm.expenseAmount} onChange={e => setAddClaimsForm(f => ({ ...f, expenseAmount: e.target.value }))} />
                             <input type="number" placeholder="Medical" value={addClaimsForm.medicalAmount} onChange={e => setAddClaimsForm(f => ({ ...f, medicalAmount: e.target.value }))} />
+                            <input type="number" placeholder="Arrears" value={addClaimsForm.arrearsAmount} onChange={e => setAddClaimsForm(f => ({ ...f, arrearsAmount: e.target.value }))} />
+                            <input type="number" placeholder="Deduction" value={addClaimsForm.deductionAmount} onChange={e => setAddClaimsForm(f => ({ ...f, deductionAmount: e.target.value }))} />
+                            <input type="number" placeholder="Special Allow" value={addClaimsForm.specialAllowanceAmount} onChange={e => setAddClaimsForm(f => ({ ...f, specialAllowanceAmount: e.target.value }))} />
                             <select value={addClaimsForm.mode} onChange={e => setAddClaimsForm(f => ({ ...f, mode: e.target.value }))}>
                                 <option value="add">Add</option>
                                 {isSuperAdmin && <option value="replace">Replace</option>}

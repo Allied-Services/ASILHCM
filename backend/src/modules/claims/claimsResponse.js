@@ -16,6 +16,7 @@ const {
 } = require('./claimsDesk');
 
 const { loadEmployeesAsClaimAudience } = require('./claimsEligibility');
+const { roundMoney } = require('./payrollAdjustments');
 
 const EPS_HRS = 0.009;
 const EPS_PKR = 0.5;
@@ -35,6 +36,9 @@ function portalAmountsFromItems(items) {
     let ot3 = 0;
     let expense = 0;
     let medical = 0;
+    let arrears = 0;
+    let deduction = 0;
+    let specialAllowance = 0;
     for (const i of items || []) {
         if (i.claim_type === 'OT') {
             const h = num(i.ot_hours);
@@ -46,6 +50,12 @@ function portalAmountsFromItems(items) {
             expense += num(i.amount);
         } else if (i.claim_type === 'MEDICAL') {
             medical += num(i.amount);
+        } else if (i.claim_type === 'ARREARS') {
+            arrears += num(i.amount);
+        } else if (i.claim_type === 'DEDUCTION') {
+            deduction += num(i.amount);
+        } else if (i.claim_type === 'SPECIAL_ALLOWANCE') {
+            specialAllowance += num(i.amount);
         }
     }
     return {
@@ -55,6 +65,9 @@ function portalAmountsFromItems(items) {
         ot2Write: roundHrs(ot2 + (ot1 * 0.5)),
         expense: Math.round(expense * 100) / 100,
         medical: Math.round(medical * 100) / 100,
+        arrears: roundMoney(arrears),
+        deduction: roundMoney(deduction),
+        specialAllowance: roundMoney(specialAllowance),
     };
 }
 
@@ -64,6 +77,9 @@ function sheetAmounts(row) {
         ot3: num(row && row.ot3_hrs),
         medical: num(row && row.opd_claim),
         expense: num(row && row.reimbursement),
+        arrears: num(row && row.arrears),
+        deduction: num(row && row.other_deduction),
+        specialAllowance: num(row && row.special_allowance),
         locked: !!(row && row.locked),
     };
 }
@@ -76,7 +92,9 @@ function sheetHasValues(sheet) {
 function portalHasValues(portal) {
     const p = portal || {};
     return num(p.ot2Write) > EPS_HRS || num(p.ot3) > EPS_HRS
-        || num(p.medical) > EPS_PKR || num(p.expense) > EPS_PKR;
+        || num(p.medical) > EPS_PKR || num(p.expense) > EPS_PKR
+        || num(p.arrears) > EPS_PKR || num(p.deduction) > EPS_PKR
+        || num(p.specialAllowance) > EPS_PKR;
 }
 
 /** Sheet / engine claim bag. OT1 is folded into OT2 at half (World A has no ot1 column). */
@@ -88,6 +106,9 @@ function portalToClaimAgg(portal) {
         ot3: num(p.ot3),
         opd: num(p.medical),
         expense: num(p.expense),
+        arrears: num(p.arrears),
+        otherDeduction: num(p.deduction),
+        specialAllowance: num(p.specialAllowance),
     };
 }
 
@@ -99,6 +120,9 @@ function foldOt1IntoOt2(agg) {
         ot3: num(a.ot3),
         opd: num(a.opd),
         expense: num(a.expense),
+        arrears: num(a.arrears),
+        otherDeduction: num(a.otherDeduction),
+        specialAllowance: num(a.specialAllowance),
         claimIds: a.claimIds || [],
     };
 }
@@ -112,6 +136,9 @@ function mergeClaimAgg(a, b) {
         ot3: Math.max(x.ot3, y.ot3),
         opd: Math.max(x.opd, y.opd),
         expense: Math.max(x.expense, y.expense),
+        arrears: Math.max(x.arrears, y.arrears),
+        otherDeduction: Math.max(x.otherDeduction, y.otherDeduction),
+        specialAllowance: Math.max(x.specialAllowance, y.specialAllowance),
         claimIds: [...(x.claimIds || []), ...(y.claimIds || [])],
     };
 }
@@ -119,7 +146,9 @@ function mergeClaimAgg(a, b) {
 function claimAggHasValues(agg) {
     const a = agg || {};
     return num(a.ot1) > EPS_HRS || num(a.ot2) > EPS_HRS || num(a.ot3) > EPS_HRS
-        || num(a.opd) > EPS_PKR || num(a.expense) > EPS_PKR;
+        || num(a.opd) > EPS_PKR || num(a.expense) > EPS_PKR
+        || num(a.arrears) > EPS_PKR || num(a.otherDeduction) > EPS_PKR
+        || num(a.specialAllowance) > EPS_PKR;
 }
 
 /**
@@ -385,11 +414,14 @@ function pickSubmission(rows, opts = {}) {
 
 async function writePortalAmountsToSheet(pool, { employeeId, month, year, portal, replace = false }) {
     const { rows } = await pool.query(
-        `SELECT ot2_hrs, ot3_hrs, opd_claim, reimbursement, locked
+        `SELECT ot2_hrs, ot3_hrs, opd_claim, reimbursement, arrears, other_deduction, special_allowance, locked
          FROM payroll_transactions WHERE employee_id = $1 AND month = $2 AND year = $3`,
         [employeeId, month, year]
     );
-    const before = rows[0] || { ot2_hrs: 0, ot3_hrs: 0, opd_claim: 0, reimbursement: 0, locked: false };
+    const before = rows[0] || {
+        ot2_hrs: 0, ot3_hrs: 0, opd_claim: 0, reimbursement: 0,
+        arrears: 0, other_deduction: 0, special_allowance: 0, locked: false,
+    };
     if (before.locked) {
         return { wrotePayroll: false, blocked: 'PAYROLL_LOCKED', before, portal };
     }
@@ -403,19 +435,28 @@ async function writePortalAmountsToSheet(pool, { employeeId, month, year, portal
     const ot3 = num(portal && portal.ot3);
     const exp = num(portal && portal.expense);
     const med = num(portal && portal.medical);
-    if (!ot2Write && !ot3 && !exp && !med) {
+    const arrears = num(before.arrears) > EPS_PKR ? num(before.arrears) : num(portal && portal.arrears);
+    const deduction = num(before.other_deduction) > EPS_PKR ? num(before.other_deduction) : num(portal && portal.deduction);
+    const specialAllowance = num(before.special_allowance) > EPS_PKR
+        ? num(before.special_allowance)
+        : num(portal && portal.specialAllowance);
+    if (!ot2Write && !ot3 && !exp && !med && !(arrears || deduction || specialAllowance)) {
         return { wrotePayroll: false, blocked: null, before, portal };
     }
     await pool.query(
-        `INSERT INTO payroll_transactions (employee_id, month, year, ot2_hrs, ot3_hrs, opd_claim, reimbursement)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `INSERT INTO payroll_transactions
+         (employee_id, month, year, ot2_hrs, ot3_hrs, opd_claim, reimbursement, arrears, other_deduction, special_allowance)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (employee_id, month, year) DO UPDATE SET
            ot2_hrs = EXCLUDED.ot2_hrs,
            ot3_hrs = EXCLUDED.ot3_hrs,
            opd_claim = EXCLUDED.opd_claim,
            reimbursement = EXCLUDED.reimbursement,
+           arrears = EXCLUDED.arrears,
+           other_deduction = EXCLUDED.other_deduction,
+           special_allowance = EXCLUDED.special_allowance,
            updated_at = NOW()`,
-        [employeeId, month, year, ot2Write, ot3, med, exp]
+        [employeeId, month, year, ot2Write, ot3, med, exp, arrears, deduction, specialAllowance]
     );
     return { wrotePayroll: true, blocked: null, before, portal };
 }
@@ -529,7 +570,8 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
 
     const { rows: sheetRows } = ids.length
         ? await pool.query(
-            `SELECT employee_id, ot2_hrs, ot3_hrs, opd_claim, reimbursement, locked
+            `SELECT employee_id, ot2_hrs, ot3_hrs, opd_claim, reimbursement,
+                    arrears, other_deduction, special_allowance, locked
              FROM payroll_transactions
              WHERE month = $1 AND year = $2 AND employee_id = ANY($3::text[])`,
             [payMonth, payYear, ids]
@@ -691,12 +733,18 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
                 ot2Write: portal.ot2Write,
                 medical: portal.medical,
                 expense: portal.expense,
+                arrears: portal.arrears,
+                deduction: portal.deduction,
+                specialAllowance: portal.specialAllowance,
             },
             sheet: {
                 ot2: sheet.ot2,
                 ot3: sheet.ot3,
                 medical: sheet.medical,
                 expense: sheet.expense,
+                arrears: sheet.arrears,
+                deduction: sheet.deduction,
+                specialAllowance: sheet.specialAllowance,
                 locked: sheet.locked,
             },
             match: amountsMatch(portal, sheetRow),

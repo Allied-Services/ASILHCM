@@ -193,10 +193,16 @@ function formatClaimSummary(portal, opts = {}) {
     const ot3 = num(p.ot3);
     const med = num(p.medical);
     const exp = num(p.expense);
+    const arrears = num(p.arrears);
+    const deduction = num(p.deduction);
+    const specialAllowance = num(p.specialAllowance);
     if (ot2 > EPS_HRS) parts.push(`OT2 ${(Math.round(ot2 * 100) / 100).toFixed(2)}h`);
     if (ot3 > EPS_HRS) parts.push(`OT3 ${(Math.round(ot3 * 100) / 100).toFixed(2)}h`);
     if (med > EPS_PKR) parts.push(`Med ${Math.round(med).toLocaleString('en-PK')}`);
     if (exp > EPS_PKR) parts.push(`Exp ${Math.round(exp).toLocaleString('en-PK')}`);
+    if (arrears > EPS_PKR) parts.push(`Arrears ${Math.round(arrears).toLocaleString('en-PK')}`);
+    if (deduction > EPS_PKR) parts.push(`Ded ${Math.round(deduction).toLocaleString('en-PK')}`);
+    if (specialAllowance > EPS_PKR) parts.push(`Spl Allow ${Math.round(specialAllowance).toLocaleString('en-PK')}`);
     return parts.length ? parts.join(' · ') : '—';
 }
 

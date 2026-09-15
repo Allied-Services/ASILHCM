@@ -31,6 +31,21 @@ describe('portalAmountsFromItems', () => {
         expect(p.ot2Write).toBe(10);
         expect(p.expense).toBe(2400);
         expect(p.medical).toBe(1800);
+        expect(p.arrears).toBe(0);
+        expect(p.deduction).toBe(0);
+        expect(p.specialAllowance).toBe(0);
+    });
+
+    test('maps arrears, deduction, and special allowance amounts', () => {
+        const p = portalAmountsFromItems([
+            { claim_type: 'ARREARS', amount: 4500 },
+            { claim_type: 'DEDUCTION', amount: 800 },
+            { claim_type: 'SPECIAL_ALLOWANCE', amount: 1500 },
+        ]);
+        expect(p.arrears).toBe(4500);
+        expect(p.deduction).toBe(800);
+        expect(p.specialAllowance).toBe(1500);
+        expect(p.expense).toBe(0);
     });
 });
 
@@ -153,7 +168,7 @@ describe('writePortalAmountsToSheet', () => {
         });
         expect(r.wrotePayroll).toBe(true);
         expect(r.blocked).toBeNull();
-        expect(pool.query.mock.calls[1][1]).toEqual(['ASIL-W-0911', 8, 2026, 8, 0, 0, 2400]);
+        expect(pool.query.mock.calls[1][1]).toEqual(['ASIL-W-0911', 8, 2026, 8, 0, 0, 2400, 0, 0, 0]);
     });
 
     test('matching sheet is already applied, not blocked', async () => {
@@ -182,7 +197,7 @@ describe('writePortalAmountsToSheet', () => {
         expect(r.wrotePayroll).toBe(true);
         expect(r.blocked).toBeNull();
         expect(pool.query).toHaveBeenCalledTimes(2);
-        expect(pool.query.mock.calls[1][1]).toEqual(['ASIL-W-1042', 8, 2026, 8, 0, 0, 2400]);
+        expect(pool.query.mock.calls[1][1]).toEqual(['ASIL-W-1042', 8, 2026, 8, 0, 0, 2400, 0, 0, 0]);
     });
 });
 
