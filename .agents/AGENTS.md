@@ -179,7 +179,7 @@ Before considering a backend route complete, verify all of the following:
 ### 3.2 Tax & Payroll Calculations
 - **Always** use `taxEngine.js` for WHT and SESSI calculations. Never inline slab logic.
 - **Always** use `payrollUtils.js` for frontend payroll computation helpers.
-- Pakistan statutory constants (EOBI: Rs. 400 flat, Gratuity: 1/26 x basic x years, min 1 year) must not be changed without confirming the legal source.
+- Pakistan statutory constants (EOBI: 1% EE / 5% ER of **contract** `eobi_min_wage`, default Rs. 40,000; Gratuity: 1/26 x basic x years, min 1 year) must not be changed without confirming the legal source.
 - The payslip salary split (60% Basic / 20% HRA / 10% Conv / 7% Medical / 3% Other) is currently **hardcoded**. Do not change it without a dedicated task to make it configurable.
 
 ### 3.3 Canonical Data Sources
@@ -310,6 +310,11 @@ A task is NOT complete until:
 ## SECTION 10 — Claude Code Session Changelog
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
+
+### 2026-09-15 — Contract Rulebook EOBI minimum wage
+Employee EOBI is no longer a national Aug-2026 flip to Rs. 430. `contract_policies.eobi_min_wage` on Monthly Cycle → Setup (and Contract Ops) is 1% EE / 5% ER. Unset = Rs. 40,000 (Punjab / KPK → 400 / 2,000). Sindh / Karachi / Wafi contracts seed to 43,000 (430 / 2,150). Payroll Sheet and payroll-run Calculate read the contract field. Locked rows are not rewritten.
+
+**Env vars needed:** none. Run `npm run migrate` on the deploy target.
 
 ### 2026-09-15 — Monthly Cycle re-submit no longer 500s
 `cycle_file_imports` allows only one `submitted` row per contract/month. A second Collect submit (after today’s earlier North Zone file) hit that unique key and returned Internal Server Error. Submit now replaces the previous submitted file, collapses duplicate employee rows, and does not fail the whole submit if SO shortage matching throws.

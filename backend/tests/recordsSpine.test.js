@@ -36,7 +36,21 @@ describe('records spine — rulebook', () => {
         const book = shapeRulebook({ id: 'CTR-1', contract_name: 'Wafi' }, {}, {});
         expect(book.payroll_engine).toBe('legacy');
         expect(book.routing_mode).toBe('auto');
+        expect(book.eobi_min_wage).toBeNull();
+        expect(book.eobi_employee).toBe(400);
+        expect(book.eobi_employer).toBe(2000);
         expect(ROUTING_MODES).toContain('employee_then_focal');
+    });
+
+    test('shapeRulebook derives EOBI from contract min wage', () => {
+        const book = shapeRulebook(
+            { id: 'CTR-1', contract_name: 'Wafi' },
+            { eobi_min_wage: 43000 },
+            {}
+        );
+        expect(book.eobi_min_wage).toBe(43000);
+        expect(book.eobi_employee).toBe(430);
+        expect(book.eobi_employer).toBe(2150);
     });
 });
 

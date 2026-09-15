@@ -69,24 +69,13 @@ export const calcPayrollSheetWHT = (grossMonthly, bonusDisbursement, opd, expens
 };
 /** @deprecated Use calcPayrollSheetWHT */
 export const calcJuly2026WafiWHT = calcPayrollSheetWHT;
-export const eobiRatesForPeriod = (year, month) => {
-    const y = Number(year);
-    const m = Number(month);
-    if (y > 2026 || (y === 2026 && m >= 8)) {
-        return { employee: 430, employer: 2150 };
-    }
-    return { employee: 400, employer: 2000 };
+export const eobiRatesFromMinWage = (minWage) => {
+    const mw = Number(minWage);
+    if (!mw || mw <= 0) return { employee: 400, employer: 2000, minWage: 40000 };
+    return { minWage: mw, employee: Math.round(mw * 0.01), employer: Math.round(mw * 0.05) };
 };
-export const calcEOBI_fn = (year, month) => {
-    if (year == null || month == null) {
-        if (typeof window !== 'undefined' && window.__payrollMonth) {
-            const [py, pm] = String(window.__payrollMonth).split('-').map(Number);
-            return eobiRatesForPeriod(py, pm);
-        }
-        return { employee: 400, employer: 2000 };
-    }
-    return eobiRatesForPeriod(year, month);
-};
+export const eobiRatesForPeriod = (year, month, minWage) => eobiRatesFromMinWage(minWage);
+export const calcEOBI_fn = (year, month, minWage) => eobiRatesFromMinWage(minWage);
 // PF: 1/24th of Gross Salary (â‰ˆ 4.166%) â€” both EE and ER
 export const calcPF_fn = (gross, enrolled) => enrolled ? Math.round(parseFloat(gross || 0) / 24) : 0;
 // Gratuity monthly accrual: 1/12th of CONTRACTUAL BASE SALARY (â‰ˆ 8.33%) â€” Employer cost only, per EOB Ord 1968
@@ -207,7 +196,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
     // Taxable income EXCLUDES OPD, expense reimbursements, same-month arrears,
     // and the bonus disbursement lump (monthly payroll never annualizes bonus).
     const incomeTax = calcPayrollSheetWHT(grossMonthly, bonusDisbursed, opdClaim, reimb, arrears);
-    const eobi = calcEOBI_fn();
+    const eobi = calcEOBI_fn(null, null, cfg.eobi_min_wage);
 
     // ——— EOSB ———————————————————————————————————————————————————————————————
     const eosbType   = cfg.eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
@@ -259,7 +248,7 @@ export const calcEmployeeRow = (emp, ov, cfg, workDays, provinceRates = []) => {
         pd, ot2hrs, ot3hrs, ot2Amount, ot3Amount, basicPaid, hraPaid, convPaid, medPaid, otherPaid,
         otAmount, opdClaim, reimb, arrears, splAllow: effectiveSplAllow, fuelMob, absenceDeduction, absentDays,
         grossMonthly, taxableMonthly, annualIncome,
-        incomeTax, eobi_ee: eobi.employee, pfEE, otherDed, advanceDed, loanDed,
+        incomeTax, eobi_ee: eobi.employee, eobi_min_wage: eobi.minWage, pfEE, otherDed, advanceDed, loanDed,
         totalDeductions, netPay, eobi_er: eobi.employer, sessi, eduCess,
         bonusAmount: bonusDisbursed, bonusAccrual, bonusDisbursed,
         gratuity, pfER, lifeIns, medEE, medSP, medCh1, medCh2, totalMedical, overhead,

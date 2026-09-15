@@ -135,7 +135,8 @@ async function upsertPolicy(pool, data) {
                 proration_basis = $33,
                 ot_applicable_tiers = COALESCE($34::text[], ot_applicable_tiers),
                 sales_tax_rate = COALESCE($35::numeric, sales_tax_rate),
-                sales_tax_exempt = $36
+                sales_tax_exempt = $36,
+                eobi_min_wage = COALESCE($37::numeric, eobi_min_wage)
              WHERE id = $1
              RETURNING *`,
             [
@@ -165,6 +166,7 @@ async function upsertPolicy(pool, data) {
                 data.ot_applicable_tiers || ['2x', '3x'],
                 data.sales_tax_rate ?? null,
                 !!data.sales_tax_exempt,
+                data.eobi_min_wage ?? null,
             ]
         );
         return rows[0];

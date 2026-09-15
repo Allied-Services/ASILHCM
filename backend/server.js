@@ -3689,7 +3689,14 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
         const [empRes, payRes, contractRes, regionTaxRes] = await Promise.all([
             pool.query('SELECT * FROM employees ORDER BY name'),
             pool.query('SELECT * FROM payroll_transactions WHERE year=$1 AND month=$2', [yrInt, moInt]),
-            pool.query('SELECT id, contract_name, financials, costs FROM contracts'),
+            pool.query(`SELECT c.id, c.contract_name, c.financials, c.costs, p.eobi_min_wage
+             FROM contracts c
+             LEFT JOIN LATERAL (
+                SELECT eobi_min_wage FROM contract_policies
+                WHERE contract_id = c.id
+                ORDER BY effective_from DESC, id DESC
+                LIMIT 1
+             ) p ON TRUE`),
             pool.query("SELECT value FROM system_config WHERE key='region_tax'").catch(() => ({ rows: [] })),
         ]);
         // Province tax rates from System Config (Tax by Region), falls back to statutory defaults
@@ -3719,6 +3726,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             emp._overhead_per_employee = parseFloat(costs.overhead_per_employee || 0);
             emp._svc_pct      = parseFloat(fin.service_charges_pct || 0);
             emp._sales_tax_pct= parseFloat(fin.wht_pct || 0);
+            emp._eobi_min_wage = ct?.eobi_min_wage != null ? parseFloat(ct.eobi_min_wage) : null;
         });
 
         const payMap = {};
@@ -3809,7 +3817,11 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             const wht = (pay != null && pay.wht != null && pay.wht !== '')
                 ? Math.round(parseFloat(pay.wht) || 0)
                 : whtCalc(grossM * 12);
-            const eobi_ee  = 400, eobi_er = 2000;
+            const eobiRates = calculateEOBI({ eobiMinWage: emp._eobi_min_wage });
+            const eobi_ee = (pay != null && pay.eobi_ee != null && pay.eobi_ee !== '')
+                ? Math.round(parseFloat(pay.eobi_ee) || 0)
+                : eobiRates.employeeShare;
+            const eobi_er = eobiRates.employerShare;
             // Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝ EOSB: PF and Gratuity are MUTUALLY EXCLUSIVE Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ mirrors frontend exactly Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝Γö£├│╬ô├ç┬Ñ╬ô├⌐┬╝
             // Source of truth: contract costs.eosb_type ('Provident Fund' | 'Gratuity' | 'None')
             const eosbType       = emp._eosb_type || (emp.pf_enrolled ? 'Provident Fund' : 'None');
@@ -3910,7 +3922,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Gross Monthly':    c.grossM,
                     // Employee Deductions
                     'Income Tax (WHT)':         c.wht,
-                    'EOBI Employee (Rs.400)':   c.eobi_ee,
+                    'EOBI Employee':            c.eobi_ee,
                     'PF Employee Deduction':    c.pfDed,
                     'Advance Deduction':        c.advDed,
                     'Loan Deduction':           c.loanDed,
@@ -3918,7 +3930,7 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Total Deductions':         c.totalDed,
                     'Net Pay to Employee':      c.netPay,
                     // Employer Costs
-                    'EOBI Employer (Rs.2000)':  c.eobi_er,
+                    'EOBI Employer':            c.eobi_er,
                     'PF Employer Contribution': c.pfER,
                     'Gratuity Accrual':         c.gratuity,
                     'SESSI':                    c.sessi,
@@ -3988,11 +4000,15 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
             filename = `WHT_Returns_${year}-${String(month).padStart(2,'0')}.csv`;
 
         } else if (type === 'eobi') {
-            rows = empRes.rows.map(emp => ({
-                'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
-                'CNIC': cnic(emp), 'EOBI No': emp.eobi_no || emp.eobino || '',
-                'EOBI Employee (Rs.400)': 400, 'EOBI Employer (Rs.2000)': 2000,
-                'Total EOBI': 2400 }));
+            rows = empRes.rows.map(emp => {
+                const c = calcRow(emp, payMap[emp.id]);
+                return {
+                    'Month': monthLabel, 'Employee ID': emp.id, 'Name': emp.name,
+                    'CNIC': cnic(emp), 'EOBI No': emp.eobi_no || emp.eobino || '',
+                    'EOBI Employee': c.eobi_ee, 'EOBI Employer': c.eobi_er,
+                    'Total EOBI': c.eobi_ee + c.eobi_er,
+                };
+            });
             filename = `EOBI_${year}-${String(month).padStart(2,'0')}.csv`;
 
         } else if (type === 'sessi') {

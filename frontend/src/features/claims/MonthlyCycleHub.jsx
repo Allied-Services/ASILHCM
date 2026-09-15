@@ -74,6 +74,16 @@ const COLLECTION_MODES = [
   { id: 'mixed', label: 'Mixed (site decides later)' },
 ];
 
+const EOBI_WAGE_PRESETS = [
+  { id: 'sindh', label: 'Sindh 43,000', value: 43000 },
+  { id: 'punjab_kpk', label: 'Punjab & KPK 40,000', value: 40000 },
+];
+
+function eobiFromMinWage(minWage) {
+  const mw = Number(minWage) > 0 ? Number(minWage) : 40000;
+  return { mw, ee: Math.round(mw * 0.01), er: Math.round(mw * 0.05) };
+}
+
 function uniq(arr) {
   return [...new Set(arr.filter(Boolean))].sort();
 }
@@ -273,6 +283,38 @@ function MonthlyCycleSetup({ user }) {
                       <option key={m.id} value={m.id}>{m.label}</option>
                     ))}
                   </select>
+                </label>
+                <label>
+                  <span className="lbl">EOBI minimum wage</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={rulebook.eobi_min_wage ?? ''}
+                    onChange={(e) => setRulebook((r) => ({
+                      ...r,
+                      eobi_min_wage: e.target.value === '' ? null : Number(e.target.value),
+                    }))}
+                    placeholder="40000"
+                  />
+                  <span className="mch-chip-row">
+                    {EOBI_WAGE_PRESETS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={`mch-chip${Number(rulebook.eobi_min_wage) === p.value ? ' is-on' : ''}`}
+                        onClick={() => setRulebook((r) => ({ ...r, eobi_min_wage: p.value }))}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </span>
+                  <span className="mch-hint">
+                    Employee deduction Rs. {eobiFromMinWage(rulebook.eobi_min_wage).ee.toLocaleString()}
+                    {' · '}
+                    Employer Rs. {eobiFromMinWage(rulebook.eobi_min_wage).er.toLocaleString()}
+                    {rulebook.eobi_min_wage == null ? ' (default 40,000)' : ''}
+                  </span>
                 </label>
               </div>
             </div>

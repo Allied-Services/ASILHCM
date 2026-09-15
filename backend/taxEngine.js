@@ -4,12 +4,29 @@
  * Taxable income = Gross - OPD Claims - Expense Reimbursements
  */
 
-// EOBI is a flat statutory amount (1% EE / 5% ER of the notified minimum wage).
-// Through Jul 2026: min wage Rs. 40,000 → EE 400 / ER 2,000
-// From Aug 2026:    min wage Rs. 43,000 → EE 430 / ER 2,150
+// EOBI is 1% EE / 5% ER of the contract Rulebook minimum wage.
+// Unset contract wage falls back to Rs. 40,000 → EE 400 / ER 2,000 (Punjab / KPK).
+// Sindh contracts set eobi_min_wage = 43,000 → EE 430 / ER 2,150.
 const EOBI_RATES_PRE_AUG_2026 = { employeeShare: 400, employerShare: 2000, minWage: 40000 };
 const EOBI_RATES_FROM_AUG_2026 = { employeeShare: 430, employerShare: 2150, minWage: 43000 };
-const EOBI_MIN_WAGE = EOBI_RATES_FROM_AUG_2026.minWage;
+const EOBI_MIN_WAGE = EOBI_RATES_PRE_AUG_2026.minWage;
+
+function parseEobiMinWage(value) {
+    if (value == null || value === '') return null;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n;
+}
+
+function eobiRatesFromMinWage(minWage) {
+    const mw = parseEobiMinWage(minWage);
+    if (!mw) return { ...EOBI_RATES_PRE_AUG_2026 };
+    return {
+        minWage: mw,
+        employeeShare: Math.round(mw * 0.01),
+        employerShare: Math.round(mw * 0.05),
+    };
+}
 
 function resolveEobiPeriod(period) {
     if (!period || typeof period !== 'object') return null;
@@ -19,25 +36,25 @@ function resolveEobiPeriod(period) {
     return { year, month };
 }
 
+/** @deprecated National Aug-2026 flip removed — EOBI is contract min-wage now. */
 function eobiAppliesAug2026Revision(year, month) {
     return Number(year) > 2026 || (Number(year) === 2026 && Number(month) >= 8);
 }
 
 /**
- * Period-aware EOBI rates. No period (or a legacy numeric salary arg) keeps
- * the pre-Aug 2026 amounts so historical tests and July recalcs stay put.
+ * Contract-aware EOBI rates. `period.eobiMinWage` / `eobi_min_wage` wins.
+ * No wage (or a legacy numeric salary arg) keeps Rs. 40,000 / 400 / 2,000.
  */
 function eobiRatesForPeriod(period) {
-    const p = resolveEobiPeriod(period);
-    if (p && eobiAppliesAug2026Revision(p.year, p.month)) {
-        return { ...EOBI_RATES_FROM_AUG_2026 };
-    }
-    return { ...EOBI_RATES_PRE_AUG_2026 };
+    const override = period && typeof period === 'object'
+        ? (period.eobiMinWage ?? period.eobi_min_wage)
+        : null;
+    return eobiRatesFromMinWage(override);
 }
 
 /**
  * Calculates EOBI employee and employer shares.
- * @param {object} [period] - { year, month }. A number (legacy gross) is ignored.
+ * @param {object} [period] - { year, month, eobiMinWage }. A number (legacy gross) is ignored.
  */
 function calculateEOBI(period) {
     const rates = eobiRatesForPeriod(period);
@@ -164,6 +181,8 @@ function calculatePF(grossSalary, enrolled = false) {
 module.exports = {
     calculateEOBI,
     eobiRatesForPeriod,
+    eobiRatesFromMinWage,
+    parseEobiMinWage,
     eobiAppliesAug2026Revision,
     EOBI_RATES_PRE_AUG_2026,
     EOBI_RATES_FROM_AUG_2026,

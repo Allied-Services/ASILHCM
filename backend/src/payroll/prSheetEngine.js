@@ -299,6 +299,8 @@ function computePrSheetRow(input, policy = {}) {
     const eobiPeriod = {
         year: input.year ?? input.periodYear,
         month: input.month ?? input.periodMonth,
+        eobiMinWage: input.eobiMinWage ?? input.eobi_min_wage
+            ?? policy.eobi_min_wage ?? policy.eobiMinWage,
     };
     const eobi = input.eobiEmployee != null
         ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI(eobiPeriod).employerShare }

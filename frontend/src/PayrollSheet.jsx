@@ -172,7 +172,7 @@ function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
                     </S>
                     <S title="Employee Deductions" color="#f43f5e">
                         <R label="Income Tax (WHT)" formula={`Taxable Annual Rs.${fmt(calc.taxableMonthly*12)} → FBR 2025-26 ÷ 12`} value={calc.incomeTax} color="#f43f5e" />
-                        <R label="EOBI Employee — Fixed" formula="1% × Rs. 40,000 (statutory minimum wage)" value={calc.eobi_ee} />
+                        <R label="EOBI Employee — Fixed" formula={`1% × Rs. ${(calc.eobi_min_wage || cfg.eobi_min_wage || (calc.eobi_ee ? calc.eobi_ee * 100 : 40000)).toLocaleString()} (contract minimum wage)`} value={calc.eobi_ee} />
                         {(calc.pfEE > 0 || cfg.eosb_type === 'Provident Fund' || emp.pf_enrolled) && <R label="PF Employee (Gross ÷ 24)" formula={`${fmt(emp.gross || 0)} ÷ 24`} value={calc.pfEE} />}
                         {calc.advanceDed > 0 && <R label="Advance Recovery" value={calc.advanceDed} />}
                         {calc.loanDed > 0 && <R label="Loan Installment" value={calc.loanDed} />}
@@ -181,7 +181,7 @@ function BreakdownPanel({ emp, calc, cfg, workDays, onClose }) {
                     </S>
                     <S title="Employer Add-ons (Billed to Client)" color="#a78bfa">
                         <R label="Gross Monthly (pass-through)" value={calc.grossMonthly} />
-                        <R label="EOBI Employer — Fixed" formula="5% × Rs. 40,000 (statutory minimum wage)" value={calc.eobi_er} />
+                        <R label="EOBI Employer — Fixed" formula={`5% × Rs. ${(calc.eobi_min_wage || cfg.eobi_min_wage || (calc.eobi_er ? calc.eobi_er * 20 : 40000)).toLocaleString()} (contract minimum wage)`} value={calc.eobi_er} />
                         {calc.sessi > 0
                             ? <R label={`SESSI (6% — gross Rs.${fmt(calc.grossMonthly)} < 45,000)`} formula={`6% × ${fmt(calc.grossMonthly)}`} value={calc.sessi} />
                             : <R label="SESSI — Exempt (gross ≥ Rs. 45,000)" formula="Not applicable" value={0} muted />}
@@ -2813,7 +2813,7 @@ export default function PayrollSheet({ user }) {
 
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1rem 1.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 <strong>Formulas:</strong> Gross = Basic(paid) + Allowances(pro-rata) + OT | WHT = FBR 2025-26 slabs ÷ 12 |
-                EOBI = Flat <strong>Rs. 400 (EE) / Rs. 2,000 (ER)</strong> for all employees |
+                EOBI = <strong>1% / 5% of the contract minimum wage</strong> (Monthly Cycle → Setup; default Rs. 40,000) |
                 SESSI = <strong>6% of gross</strong>, only where gross &lt; Rs. 45,000 (exempt above) |
                 PF = Gross ÷ 24 (EE &amp; ER, when PF scheme) | <strong>Gratuity = Base Salary ÷ 12</strong> (8.33% of contractual base, EOB Ord 1968 — NOT inflated by OT) |
                 Total Payroll Cost = Gross + employer obligations | Service Charges on Total Payroll Cost | Sales Tax on (Total Payroll Cost + Service Charges). Click <strong>Verify</strong> on any row for full step-by-step breakdown.
