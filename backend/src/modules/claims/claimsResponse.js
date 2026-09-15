@@ -86,7 +86,8 @@ function sheetAmounts(row) {
 
 function sheetHasValues(sheet) {
     const s = sheetAmounts(sheet);
-    return s.ot2 > EPS_HRS || s.ot3 > EPS_HRS || s.medical > EPS_PKR || s.expense > EPS_PKR;
+    return s.ot2 > EPS_HRS || s.ot3 > EPS_HRS || s.medical > EPS_PKR || s.expense > EPS_PKR
+        || s.arrears > EPS_PKR || s.deduction > EPS_PKR || s.specialAllowance > EPS_PKR;
 }
 
 function portalHasValues(portal) {
@@ -218,7 +219,10 @@ function amountsMatch(portal, sheet) {
     return Math.abs(num(p.ot2Write) - s.ot2) <= EPS_HRS
         && Math.abs(num(p.ot3) - s.ot3) <= EPS_HRS
         && Math.abs(num(p.medical) - s.medical) <= EPS_PKR
-        && Math.abs(num(p.expense) - s.expense) <= EPS_PKR;
+        && Math.abs(num(p.expense) - s.expense) <= EPS_PKR
+        && Math.abs(num(p.arrears) - s.arrears) <= EPS_PKR
+        && Math.abs(num(p.deduction) - s.deduction) <= EPS_PKR
+        && Math.abs(num(p.specialAllowance) - s.specialAllowance) <= EPS_PKR;
 }
 
 function normalizeRouting(profile) {

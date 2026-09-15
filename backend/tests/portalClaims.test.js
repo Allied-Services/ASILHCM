@@ -613,6 +613,58 @@ describe('portalClaims helpers', () => {
         assert.match(r.message, /Payroll Sheet/i);
     });
 
+    it('applyPortalCorrection writes a PSO deduction onto Fixed Value monthly overrides', async () => {
+        const { applyPortalCorrection } = require('../src/modules/claims/portalService');
+        const sql = [];
+        const pool = {
+            query: async (text, vals) => {
+                sql.push({ text: String(text).replace(/\s+/g, ' ').trim(), vals });
+                if (/FROM employees/i.test(text)) {
+                    return {
+                        rows: [{
+                            id: 'ASIL/PSO-040/25',
+                            name: 'Qudrat Ullah Khan',
+                            contract_id: 'CTR-PSO-NORTH-ZONE',
+                            claim_authority: null,
+                            line_manager_email: null,
+                            email: null,
+                        }],
+                    };
+                }
+                if (/FROM portal_claim_periods/i.test(text) || /INSERT INTO portal_claim_periods/i.test(text)) {
+                    return { rows: [{ id: 9, claim_month: 8, claim_year: 2026, settlement_month: 9, settlement_year: 2026, status: 'open' }] };
+                }
+                if (/FROM portal_claim_submissions/i.test(text)) return { rows: [] };
+                if (/INSERT INTO portal_claim_submissions/i.test(text)) return { rows: [{ id: 88 }] };
+                if (/FROM portal_claim_items/i.test(text)) return { rows: [] };
+                if (/FROM payroll_transactions/i.test(text)) {
+                    return { rows: [{ arrears: 0, other_deduction: 0, special_allowance: 0, locked: false }] };
+                }
+                if (/FROM monthly_attendance_overrides/i.test(text)) {
+                    return { rows: [{ arrears: 0, other_deduction: 0, special_allowance: 0 }] };
+                }
+                if (/FROM payroll_runs/i.test(text)) return { rows: [] };
+                return { rows: [], rowCount: 1 };
+            },
+        };
+        const r = await applyPortalCorrection(pool, async () => {}, {
+            employeeId: 'ASIL/PSO-040/25',
+            workMonth: 8,
+            workYear: 2026,
+            deductionAmount: 23300,
+            reason: 'Obaid correction',
+            createdBy: 'obaid.rana@asil.com.pk',
+            dryRun: false,
+            resubmitToLm: false,
+        });
+        assert.equal(r.ok, true);
+        const ovWrite = sql.find((s) => /INSERT INTO monthly_attendance_overrides/i.test(s.text));
+        assert.ok(ovWrite, 'expected monthly_attendance_overrides write for PSO');
+        assert.ok(ovWrite.vals.includes(23300));
+        assert.ok(ovWrite.vals.includes(8));
+        assert.match(r.message, /Fixed Value Payroll/i);
+    });
+
     it('validateOtRow upgrades gazetted holiday Double input to Triple', () => {
         const period = { claim_month: 8, claim_year: 2026 };
         const aug14 = validateOtRow({

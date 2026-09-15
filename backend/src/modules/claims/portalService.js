@@ -55,11 +55,13 @@ const {
 } = require('./claimsResponse');
 const {
     PAYROLL_ADJUSTMENT_TYPES,
+    num,
     parsePayrollAdjustments,
     hasPayrollAdjustments,
     applyAdjustmentMode,
     replaceAdjustmentDelta,
     isPayrollAdjustmentType,
+    looksLikeFixedValueEmployee,
 } = require('./payrollAdjustments');
 const { planChase, planSmartReminder } = require('./claimsChase');
 const {
@@ -2445,12 +2447,20 @@ async function pushSelectedToPayroll(pool, opts, actorEmail) {
                 [sub.id, actorEmail || 'asil']
             );
             await client.query('COMMIT');
+            const fvWrite = await syncPortalAmountsOnFixedValue(pool, {
+                employeeId: sub.employee_id,
+                month: workMonth,
+                year: workYear,
+                portal,
+                updatedBy: actorEmail,
+            });
             results.push({
                 employee_id: employeeId,
-                outcome: inject.wrotePayroll ? 'sent' : 'nothing_to_write',
+                outcome: inject.wrotePayroll || fvWrite.wrote ? 'sent' : 'nothing_to_write',
                 ok: true,
                 submission_id: sub.id,
                 wrotePayroll: !!inject.wrotePayroll,
+                wroteFixedValue: !!fvWrite.wrote,
                 month,
                 year,
             });
@@ -2922,6 +2932,132 @@ async function syncPayrollAdjustmentsOnSheet(pool, {
     return { wrote: true, before, after };
 }
 
+async function employeeUsesFixedValuePayroll(pool, emp) {
+    if (looksLikeFixedValueEmployee(emp)) return true;
+    const contractId = emp && (emp.contract_id || emp.contractId);
+    if (!contractId || !pool) return false;
+    try {
+        const { isFixedValueContract } = require('../payrollClose/service');
+        return await isFixedValueContract(pool, contractId);
+    } catch (err) {
+        console.error('[portalClaims.fvDetect]', err);
+        return false;
+    }
+}
+
+async function readMonthlyOverrideSnapshot(pool, employeeId, month, year) {
+    const { rows } = await pool.query(
+        `SELECT arrears, other_deduction, special_allowance, ot2_hours, ot3_hours, opd, expense
+         FROM monthly_attendance_overrides
+         WHERE employee_id = $1 AND period_month = $2 AND period_year = $3`,
+        [employeeId, month, year]
+    );
+    return rows[0] || {
+        arrears: 0, other_deduction: 0, special_allowance: 0,
+        ot2_hours: 0, ot3_hours: 0, opd: 0, expense: 0,
+    };
+}
+
+async function writeFixedValueOverride(pool, {
+    employeeId, month, year, arrears, otherDeduction, specialAllowance,
+    ot2Hours, ot3Hours, opd, expense, updatedBy,
+}) {
+    const { upsertMonthlyHubOverride, OMIT } = require('../attendance/monthlyHub');
+    return upsertMonthlyHubOverride(pool, {
+        employeeId,
+        month,
+        year,
+        arrears: arrears == null ? OMIT : arrears,
+        otherDeduction: otherDeduction == null ? OMIT : otherDeduction,
+        specialAllowance: specialAllowance == null ? OMIT : specialAllowance,
+        ot2Hours: ot2Hours == null ? OMIT : ot2Hours,
+        ot3Hours: ot3Hours == null ? OMIT : ot3Hours,
+        opd: opd == null ? OMIT : opd,
+        expense: expense == null ? OMIT : expense,
+        updatedBy: updatedBy || 'monthly-cycle-correction',
+        recomputeDraft: true,
+    });
+}
+
+/** Corrections / push write the sheet; Fixed Value payroll reads monthly_attendance_overrides. */
+async function syncPayrollAdjustmentsOnFixedValue(pool, {
+    employee, employeeId, month, year, previous = {}, next = {}, mode = 'replace_delta', updatedBy,
+}) {
+    const emp = employee || { id: employeeId };
+    if (!await employeeUsesFixedValuePayroll(pool, emp)) {
+        return { wrote: false, skipped: 'not_fv' };
+    }
+    const resolvedId = emp.id || employeeId;
+    const prev = parsePayrollAdjustments(previous);
+    const nxt = parsePayrollAdjustments(next);
+    if (!hasPayrollAdjustments(prev) && !hasPayrollAdjustments(nxt)) {
+        return { wrote: false, skipped: 'no_adjustments' };
+    }
+    try {
+        const before = await readMonthlyOverrideSnapshot(pool, resolvedId, month, year);
+        let after;
+        if (mode === 'replace_delta') {
+            after = {
+                arrears: replaceAdjustmentDelta(before.arrears, prev.arrears, nxt.arrears),
+                otherDeduction: replaceAdjustmentDelta(before.other_deduction, prev.deduction, nxt.deduction),
+                specialAllowance: replaceAdjustmentDelta(before.special_allowance, prev.specialAllowance, nxt.specialAllowance),
+            };
+        } else {
+            after = {
+                arrears: applyAdjustmentMode(before.arrears, nxt.arrears, mode),
+                otherDeduction: applyAdjustmentMode(before.other_deduction, nxt.deduction, mode),
+                specialAllowance: applyAdjustmentMode(before.special_allowance, nxt.specialAllowance, mode),
+            };
+        }
+        const written = await writeFixedValueOverride(pool, {
+            employeeId: resolvedId,
+            month,
+            year,
+            arrears: after.arrears,
+            otherDeduction: after.otherDeduction,
+            specialAllowance: after.specialAllowance,
+            updatedBy,
+        });
+        return { wrote: true, before, after, payrollSync: written && written.payrollSync };
+    } catch (err) {
+        console.error('[portalClaims.syncFvAdjustments]', resolvedId, err);
+        return { wrote: false, error: 'fv_sync_failed' };
+    }
+}
+
+async function syncPortalAmountsOnFixedValue(pool, {
+    employee, employeeId, month, year, portal = {}, updatedBy,
+}) {
+    const emp = employee || { id: employeeId };
+    if (!await employeeUsesFixedValuePayroll(pool, emp)) {
+        return { wrote: false, skipped: 'not_fv' };
+    }
+    const resolvedId = emp.id || employeeId;
+    const p = portal || {};
+    if (!portalHasValues(p)) {
+        return { wrote: false, skipped: 'no_values' };
+    }
+    try {
+        const written = await writeFixedValueOverride(pool, {
+            employeeId: resolvedId,
+            month,
+            year,
+            arrears: num(p.arrears),
+            otherDeduction: num(p.deduction),
+            specialAllowance: num(p.specialAllowance),
+            ot2Hours: num(p.ot2Write || p.ot2),
+            ot3Hours: num(p.ot3),
+            opd: num(p.medical),
+            expense: num(p.expense),
+            updatedBy,
+        });
+        return { wrote: true, payrollSync: written && written.payrollSync };
+    } catch (err) {
+        console.error('[portalClaims.syncFvPortal]', resolvedId, err);
+        return { wrote: false, error: 'fv_sync_failed' };
+    }
+}
+
 const TEMPLATE_EXAMPLE_CODE = 'ASIL/SPL-001';
 const EMPLOYEE_CODE_ALIASES = {
     'ASILFM/SPL/304/21': 'ASIL/SPL-304/21',
@@ -3122,7 +3258,8 @@ async function applyPortalCorrection(pool, sendAppEmail, {
             ? ` Existing approved ${wm}/${wy} claim will be replaced and sent back to the Line Manager.`
             : '';
     const adjNote = hasPayrollAdjustments(adj)
-        ? ` Arrears / Deductions / Special Allowance write to the ${settleLabel} Payroll Sheet now.`
+        ? ` Arrears / Deductions / Special Allowance write to the ${settleLabel} Payroll Sheet now`
+            + (looksLikeFixedValueEmployee(emp) ? ` and to Fixed Value Payroll for ${wm}/${wy}.` : '.')
         : '';
     const dryWarning = resubmitToLm
         ? (approverEmail
@@ -3254,11 +3391,25 @@ async function applyPortalCorrection(pool, sendAppEmail, {
         next: adj,
         mode: 'replace_delta',
     });
+    const fvWrite = await syncPayrollAdjustmentsOnFixedValue(pool, {
+        employee: emp,
+        employeeId: resolvedId,
+        month: wm,
+        year: wy,
+        previous: prevAdj,
+        next: adj,
+        mode: 'replace_delta',
+        updatedBy: createdBy,
+    });
     const adjMsg = adjWrite.wrote
         ? ` Arrears / Deductions / Special Allowance updated on the ${settleLabel} Payroll Sheet.`
         : (adjWrite.blocked === 'PAYROLL_LOCKED'
             ? ` Payroll ${settleLabel} is locked — arrears / deductions / special allowance were not written.`
             : '');
+    const fvMsg = fvWrite.wrote
+        ? ` Fixed Value Payroll ${wm}/${wy} also updated`
+            + (fvWrite.payrollSync && fvWrite.payrollSync.recomputed ? ' and the draft run was recalculated.' : '.')
+        : '';
 
     return {
         ok: true,
@@ -3273,17 +3424,19 @@ async function applyPortalCorrection(pool, sendAppEmail, {
         approverEmail: resubmitToLm ? (approverEmail || null) : null,
         lmNotified,
         adjustments: adjWrite.wrote ? adjWrite.after : null,
-        warning: (payrollWarning + adjMsg).trim() || null,
+        fixedValue: fvWrite.wrote ? fvWrite.after : null,
+        warning: (payrollWarning + adjMsg + fvMsg).trim() || null,
         message: (resubmitToLm
             ? (lmNotified
                 ? `${wm}/${wy} claim replaced and sent to ${approverEmail} for re-approval (payable ${settleLabel}).`
                 : `${wm}/${wy} claim replaced — waiting for Line Manager approval (payable ${settleLabel}).`)
-            : `${wm}/${wy} portal claim replaced (payable ${settleLabel}). No Focal or LM email.`) + adjMsg,
+            : `${wm}/${wy} portal claim replaced (payable ${settleLabel}). No Focal or LM email.`) + adjMsg + fvMsg,
     };
 }
 
 async function applyManualOverride(pool, {
     employeeId, month, year,
+    workMonth, workYear,
     ot1Hours = 0, ot2Hours = 0, ot3Hours = 0,
     expenseAmount = 0, medicalAmount = 0,
     arrearsAmount = 0, deductionAmount = 0, specialAllowanceAmount = 0,
@@ -3485,7 +3638,35 @@ async function applyManualOverride(pool, {
         }
     }
 
-    return { ok: true, employeeId: resolvedId, override: logRows[0], before, after, warning, notifyEmails: MANUAL_OVERRIDE_NOTIFY };
+    const fvMonth = saneClaimMonth(workMonth) || month;
+    const fvYear = saneClaimYear(workYear) || year;
+    const fvWrite = await syncPortalAmountsOnFixedValue(pool, {
+        employee: emp,
+        employeeId: resolvedId,
+        month: fvMonth,
+        year: fvYear,
+        portal: {
+            ot2Write,
+            ot3: o3,
+            expense: exp,
+            medical: med,
+            arrears: after.arrears,
+            deduction: after.other_deduction,
+            specialAllowance: after.special_allowance,
+        },
+        updatedBy: createdBy,
+    });
+
+    return {
+        ok: true,
+        employeeId: resolvedId,
+        override: logRows[0],
+        before,
+        after,
+        warning,
+        notifyEmails: MANUAL_OVERRIDE_NOTIFY,
+        fixedValue: fvWrite.wrote ? { month: fvMonth, year: fvYear } : null,
+    };
 }
 
 async function notifyManualOverride(sendAppEmail, payload) {

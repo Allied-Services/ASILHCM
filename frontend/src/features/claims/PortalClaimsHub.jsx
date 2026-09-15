@@ -209,7 +209,9 @@ function hasPayrollDeskRow(p) {
   const sheet = p.sheet || {};
   const portal = p.portal || {};
   return [sheet.ot2, sheet.ot3, sheet.medical, sheet.expense, sheet.reimb,
-    portal.ot2, portal.ot3, portal.expense, portal.medical]
+    sheet.arrears, sheet.deduction, sheet.specialAllowance,
+    portal.ot2, portal.ot3, portal.expense, portal.medical,
+    portal.arrears, portal.deduction, portal.specialAllowance]
     .some((n) => Number(n) > 0);
 }
 
@@ -986,7 +988,7 @@ export default function PortalClaimsHub({
               <button type="button" className="btn-secondary" disabled={busy || !pushIds.length} onClick={() => runPushPayroll(true)}>Preview push</button>
               <button type="button" className="btn-primary" disabled={busy || !pushIds.length} onClick={() => runPushPayroll(false)}>Review and push to payroll</button>
             </div>
-            <p className="pch-muted">Tick Ready for Payroll rows, then Review and push to payroll. That writes {MONTHS[workMonth - 1]?.[1] || workMonth} work onto the {MONTHS[payMonth - 1]?.[1] || payMonth} Payroll Sheet. Calculate / Update Payroll afterwards to see the same OT, expense, and medical on the sheet.</p>
+            <p className="pch-muted">Tick Ready for Payroll rows, then Review and push to payroll. That writes {MONTHS[workMonth - 1]?.[1] || workMonth} OT / expense / medical onto the {MONTHS[payMonth - 1]?.[1] || payMonth} Payroll Sheet, and onto Fixed Value Payroll for the work month. Arrears / Deductions / Special Allowance already write when you Commit on Corrections — you do not need to push those again. Greyed boxes are not Ready for Payroll yet (still with Focal / LM, or already sent).</p>
           </div>
           {pushPreview && (
             <pre className="pch-note">{JSON.stringify(pushPreview.summary, null, 2)}</pre>

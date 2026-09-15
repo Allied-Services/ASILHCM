@@ -23,8 +23,8 @@ describe('claimsDesk', () => {
 
     test('formatClaimSummary joins OT and amounts', () => {
         const s = formatClaimSummary({ ot2Write: 8, ot3: 2, medical: 1200, expense: 500 });
-        expect(s).toMatch(/OT2 8h/);
-        expect(s).toMatch(/OT3 2h/);
+        expect(s).toMatch(/OT2 8.00h/);
+        expect(s).toMatch(/OT3 2.00h/);
         expect(s).toMatch(/Med/);
         expect(s).toMatch(/Exp/);
     });

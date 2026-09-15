@@ -42,6 +42,17 @@ function isPayrollAdjustmentType(type) {
     return PAYROLL_ADJUSTMENT_TYPES.includes(String(type || '').toUpperCase());
 }
 
+/** PSO / Conservancy / Fixed Value — payroll runs read monthly_attendance_overrides, not the sheet. */
+function looksLikeFixedValueEmployee(emp = {}) {
+    const id = String(emp.id || emp.employeeId || emp.employee_id || '');
+    const contractId = String(emp.contract_id || emp.contractId || '');
+    const serviceType = String(emp.service_type || emp.serviceType || '');
+    return /^ASIL\/PSO[-/]/i.test(id)
+        || /^CTR-PSO-/i.test(contractId)
+        || /fixed value/i.test(serviceType)
+        || /conservancy/i.test(serviceType);
+}
+
 module.exports = {
     PAYROLL_ADJUSTMENT_TYPES,
     num,
@@ -51,4 +62,5 @@ module.exports = {
     applyAdjustmentMode,
     replaceAdjustmentDelta,
     isPayrollAdjustmentType,
+    looksLikeFixedValueEmployee,
 };
