@@ -361,6 +361,23 @@ function resolveAttendanceDays(row, inputMode, monthDays = 30) {
     };
 }
 
+/** Last row for an employee wins. Bulk ON CONFLICT cannot update the same key twice. */
+function collapseRowsByEmployee(rows, inputMode) {
+    const byId = new Map();
+    for (const r of rows || []) {
+        if (!r?.employee_id) continue;
+        const days = resolveAttendanceDays(r, inputMode);
+        byId.set(r.employee_id, {
+            employeeId: r.employee_id,
+            presentDays: days.present,
+            absentDays: days.absent,
+            ot2Hours: r.ot2_hours,
+            ot3Hours: r.ot3_hours,
+        });
+    }
+    return [...byId.values()];
+}
+
 async function submitImport(pool, importId, actor) {
     const pack = await getImport(pool, importId);
     if (pack.import.status !== 'draft') {
@@ -380,27 +397,21 @@ async function submitImport(pool, importId, actor) {
     const year = pack.import.period_year;
     const mode = pack.import.input_mode;
     const contractId = pack.import.contract_id;
-    const resolved = [];
+    const resolved = collapseRowsByEmployee(pack.rows, mode);
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
         const overrideValues = [];
         const overrideParams = [];
-        pack.rows.forEach((r, i) => {
-            const days = resolveAttendanceDays(r, mode);
+        resolved.forEach((r, i) => {
             const o = i * 8;
             overrideValues.push(
                 `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},'cycle_machine_file',$${o + 8},NOW())`
             );
             overrideParams.push(
-                r.employee_id, month, year, days.present, days.absent,
-                r.ot2_hours, r.ot3_hours, actor || null
+                r.employeeId, month, year, r.presentDays, r.absentDays,
+                r.ot2Hours, r.ot3Hours, actor || null
             );
-            resolved.push({
-                employeeId: r.employee_id,
-                presentDays: days.present,
-                absentDays: days.absent,
-            });
         });
         if (overrideValues.length) {
             await client.query(
@@ -419,13 +430,31 @@ async function submitImport(pool, importId, actor) {
                 , overrideParams
             );
         }
-        const soSync = await syncSoDeductionsFromCycleRows(client, {
-            contractId,
-            month,
-            year,
-            actor,
-            rows: resolved,
-        });
+        let soSync = { deductions: 0, skipped: [], errors: [], cleared: 0 };
+        try {
+            soSync = await syncSoDeductionsFromCycleRows(client, {
+                contractId,
+                month,
+                year,
+                actor,
+                rows: resolved,
+            });
+        } catch (err) {
+            console.error('[cycle-file.submit so_sync]', err);
+            soSync = {
+                deductions: 0,
+                skipped: [],
+                errors: [{ reason: 'sync_failed' }],
+                cleared: 0,
+            };
+        }
+        // Only one submitted file per contract/month (UNIQUE status). Replace the last one.
+        await client.query(
+            `DELETE FROM cycle_file_imports
+             WHERE contract_id = $1 AND period_month = $2 AND period_year = $3
+               AND status = 'submitted' AND id <> $4`,
+            [contractId, month, year, importId]
+        );
         await client.query(
             `UPDATE cycle_file_imports SET status = 'submitted', submitted_at = NOW() WHERE id = $1`,
             [importId]
@@ -460,4 +489,5 @@ module.exports = {
     updateRows,
     submitImport,
     resolveAttendanceDays,
+    collapseRowsByEmployee,
 };

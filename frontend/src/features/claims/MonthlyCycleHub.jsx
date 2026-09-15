@@ -689,7 +689,7 @@ function MachineFileCollect() {
   return (
     <div className="mch-block">
       <h3>Machine / client file</h3>
-      <p className="mch-muted">Download a template for the selected file mode — employee IDs and names are already filled for people active on that contract in the selected month. Complete the blank columns, then upload. For Fixed Value / Conservancy, Submit also writes this month&apos;s SO shortage rows so invoices do not need Compute ALL.</p>
+      <p className="mch-muted">Download a template for the selected file mode — employee IDs and names are already filled for people active on that contract in the selected month. Complete the blank columns, then upload. For Fixed Value / Conservancy, Submit also writes this month&apos;s SO shortage rows so invoices do not need Compute ALL. Submit again replaces the previous file for this contract and month.</p>
       {err && <div className="pch-err">{err}</div>}
       {msg && <div className="pch-ok">{msg}</div>}
       <div className="mch-form-grid mch-form-grid-3">

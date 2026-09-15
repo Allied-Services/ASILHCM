@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-15 — Monthly Cycle re-submit no longer 500s
+`cycle_file_imports` allows only one `submitted` row per contract/month. A second Collect submit (after today’s earlier North Zone file) hit that unique key and returned Internal Server Error. Submit now replaces the previous submitted file, collapses duplicate employee rows, and does not fail the whole submit if SO shortage matching throws.
+
+**Env vars needed:** none.
+
 ### 2026-09-15 — Monthly Cycle operator role (Obaid)
 New User Management role `monthly_cycle` (**Monthly Cycle**) can upload/submit cycle attendance, add/correct claims, send claim requests, raise the cost-plus invoice, and write the PSO control panel. Same cycle writes now also succeed for `operations` (JWT-only `requireRole` was rejecting a stale token after the role dropdown already said Operations). Cycle-file / month-close writes use `requireMonthlyCycle` (DB lookup). Claims campaign + manual override include `operations` and `monthly_cycle`. Does not grant payroll lock or AP confirm.
 

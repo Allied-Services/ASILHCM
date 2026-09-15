@@ -82,35 +82,46 @@ async function syncSoDeductionsFromCycleRows(pool, {
         const absentDays = Math.max(0, Number(row.absentDays) || 0);
         if (absentDays <= 0) continue;
 
-        const so = findServiceOrderForEmployee(orders, emp);
-        if (!so) {
-            summary.errors.push({
+        try {
+            const so = findServiceOrderForEmployee(orders, emp);
+            if (!so) {
+                summary.errors.push({
+                    employeeId: emp.id,
+                    reason: 'no_matching_site',
+                    site: emp.site,
+                });
+                continue;
+            }
+            const lines = Array.isArray(so.lines)
+                ? so.lines
+                : (typeof so.lines === 'string' ? JSON.parse(so.lines || '[]') : []);
+            const match = findLineForDesignation(lines, emp.designation, { siteCode: so.site_code });
+            if (!match) {
+                summary.errors.push({
+                    employeeId: emp.id,
+                    reason: 'no_matching_line',
+                    designation: emp.designation,
+                    site: so.site_code,
+                });
+                continue;
+            }
+            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays);
+            if (!Number.isFinite(amount) || amount <= 0) continue;
+            insertRows.push({
+                serviceOrderId: so.id,
+                lineId: match.line.id,
                 employeeId: emp.id,
-                reason: 'no_matching_site',
-                site: emp.site,
+                absentDays: Math.min(absentDays, 9999.99),
+                amount,
             });
-            continue;
-        }
-        const lines = Array.isArray(so.lines) ? so.lines : [];
-        const match = findLineForDesignation(lines, emp.designation, { siteCode: so.site_code });
-        if (!match) {
+        } catch (err) {
+            console.error('[cycleAttendanceSync] employee', emp.id, err);
             summary.errors.push({
                 employeeId: emp.id,
-                reason: 'no_matching_line',
+                reason: 'match_failed',
                 designation: emp.designation,
-                site: so.site_code,
             });
-            continue;
         }
-        const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays);
-        if (amount <= 0) continue;
-        insertRows.push({
-            serviceOrderId: so.id,
-            lineId: match.line.id,
-            employeeId: emp.id,
-            absentDays,
-            amount,
-        });
     }
 
     if (insertRows.length) {
