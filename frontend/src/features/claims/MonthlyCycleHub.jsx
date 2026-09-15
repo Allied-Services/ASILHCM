@@ -662,7 +662,13 @@ function MachineFileCollect() {
     try {
       const r = await api.submitCycleFile(pack.import.id);
       setPack(r);
-      setMsg('Submitted into Monthly Cycle attendance.');
+      const sync = r?.so_sync;
+      const soNote = sync && Number(sync.deductions) >= 0 && !sync.skipped?.some((s) => s.reason === 'no_service_orders')
+        ? ` SO shortages updated: ${sync.deductions} line(s)`
+          + (sync.errors?.length ? `, ${sync.errors.length} unmatched` : '')
+          + '.'
+        : '.';
+      setMsg(`Submitted into Monthly Cycle attendance.${soNote}`);
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -683,7 +689,7 @@ function MachineFileCollect() {
   return (
     <div className="mch-block">
       <h3>Machine / client file</h3>
-      <p className="mch-muted">Download a template for the selected file mode — employee IDs and names are already filled for people active on that contract in the selected month. Complete the blank columns, then upload.</p>
+      <p className="mch-muted">Download a template for the selected file mode — employee IDs and names are already filled for people active on that contract in the selected month. Complete the blank columns, then upload. For Fixed Value / Conservancy, Submit also writes this month&apos;s SO shortage rows so invoices do not need Compute ALL.</p>
       {err && <div className="pch-err">{err}</div>}
       {msg && <div className="pch-ok">{msg}</div>}
       <div className="mch-form-grid mch-form-grid-3">

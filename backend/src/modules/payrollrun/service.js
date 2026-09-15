@@ -362,7 +362,7 @@ async function loadEmployeesForPayrollRun(pool, { contractId, month, year, polic
                  WHERE mao.employee_id = e.id
                    AND mao.period_month = $2
                    AND mao.period_year = $3
-                   AND mao.source = 'fv_conservancy_attendance'
+                   AND mao.source IN ('fv_conservancy_attendance', 'cycle_machine_file')
                )
                AND NOT EXISTS (
                  SELECT 1 FROM service_orders so_other
@@ -513,7 +513,7 @@ async function computeRunForContract(pool, { contractId, month, year, workingDay
             }
             if (ov.absent_days != null) {
                 absentDaysForModelA = Number(ov.absent_days);
-            } else if (ov.source === 'fv_conservancy_attendance') {
+            } else if (ov.source === 'fv_conservancy_attendance' || ov.source === 'cycle_machine_file') {
                 // Conservancy: wages deduct sheet absences; missing row ⇒ 0 absent
                 absentDaysForModelA = dedByEmp.has(emp.id) ? dedByEmp.get(emp.id) : 0;
             }
