@@ -71,6 +71,9 @@ STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August pays
 - BPO / PSO contract matching on staging (separate track — do not block)
 - August payslip resend (304 people) after live mail switch-on
 
+## JUST SHIPPED (2026-09-15)
+- **Contract Service Orders page is clean** — North Zone `chapter=so` opens depots and line rates first. Details / Costs / Rates stay on their own tabs. Live totals still 10,732,648.00 / 1,717,223.68 / 12,449,871.68. No pay change.
+
 ## JUST SHIPPED (2026-09-04)
 - **Monthly Cycle claim emails** — Collect send is live-only (no SAMPLE on that tab). The contract pack picks the file vs on-screen path. PSO machine-file focals get the contract file only, not the Wafi step-by-step form. New links use hcm.asil.com.pk even if the server still has the old Render address.
 - **PSO one company, four live contracts (GO RED)** — “Ltd” and “Limited” merged. Conservancy Gilgit / KPK / Punjab cards cancelled (they had 0 people). 428 people now say Pakistan State Oil Company Limited. Four live contracts under Facilities Management. Dabeer Ahmad + Zeeshan on North Zone. Salary, bank, payroll not touched.
