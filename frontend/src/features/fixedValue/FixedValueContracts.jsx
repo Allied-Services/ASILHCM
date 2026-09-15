@@ -786,7 +786,9 @@ export default function FixedValueContracts({ user }) {
                     <h3>2. Attendance</h3>
                     <p className="fv-lead">
                         Primary CTA pulls every depot sheet from Drive and applies present/absent into
-                        <code> monthly_attendance_overrides</code> + absence deductions. Per-site upload remains secondary.
+                        <code> monthly_attendance_overrides</code> + absence deductions.
+                        Monthly Cycle Collect submit does the same for this contract (no second Compute ALL).
+                        Per-site upload remains secondary.
                     </p>
                     <div className="fv-actions">
                         <button type="button" className="btn-primary" disabled={loading || !canWrite || !orders.length} onClick={handleBulkAttendance}>
