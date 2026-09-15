@@ -55,6 +55,7 @@ const ALL_ROLES = [
   'procurement_approver',
   'procurement_proposer',
   'operations',
+  'monthly_cycle',
 ];
 
 // ═════════════════════════════════════════════════════════════════════════════

@@ -39,6 +39,20 @@ describe('canAccessAttendance', () => {
         expect(canAccessAttendance(user, 'export')).toBe(true);
     });
 
+    test('monthly_cycle and operations can write the monthly hub', () => {
+        const writeRoles = [
+            'hr_manager', 'finance_manager', 'superadmin', 'admin',
+            'operations', 'payroll_initiator', 'monthly_cycle',
+        ];
+        expect(canAccessAttendance({ role: 'monthly_cycle' }, 'hub_write', writeRoles)).toBe(true);
+        expect(canAccessAttendance({ role: 'operations' }, 'hub_write', writeRoles)).toBe(true);
+        expect(canAccessAttendance({ role: 'operations_team' }, 'hub_write', writeRoles)).toBe(false);
+        expect(canAccessAttendance({
+            role: 'operations_team',
+            permissions: { attendance: { access: true, subPerms: ['view', 'mark_attendance'] } },
+        }, 'hub_write', writeRoles)).toBe(false);
+    });
+
     test('operations_team without attendance rights cannot export', () => {
         expect(canAccessAttendance({ role: 'operations_team' }, 'export')).toBe(false);
         expect(canAccessAttendance({

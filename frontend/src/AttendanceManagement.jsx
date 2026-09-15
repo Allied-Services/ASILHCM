@@ -860,7 +860,7 @@ export default function AttendanceManagement({ user }) {
 
   const canIntake = isAdmin || hasAttPerm('mark_attendance', ['operations']);
 
-  const canMonthly = isAdmin || user?.role === 'payroll_initiator' || hasAttPerm('mark_attendance', ['operations']);
+  const canMonthly = isAdmin || ['payroll_initiator', 'monthly_cycle'].includes(user?.role) || hasAttPerm('mark_attendance', ['operations', 'monthly_cycle']);
 
   const TABS = [
     ...(canMark ? [{ key:'mark', label:'📋 Daily Marking' }] : []),

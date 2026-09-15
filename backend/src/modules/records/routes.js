@@ -18,10 +18,11 @@ const { getMonthClose } = require('./monthClose');
 const { generateCostPlusInvoiceFromSheet, assertSoInvoiceAllowed } = require('./costPlusInvoice');
 const { statutoryFilesFromSnapshot } = require('./statutoryFiles');
 const { createClosePackFromSheet } = require('../payrollClose/service');
+const { requireMonthlyCycle } = require('../claims/monthlyCycleAccess');
 
 function registerRecordsRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail, logAudit } = deps;
-    const writeRoles = requireRole('superadmin', 'finance_manager', 'operations', 'payroll_initiator');
+    const writeRoles = requireMonthlyCycle(pool, 'edit');
 
     app.get('/api/records/communications', requireAuth, async (_req, res) => {
         res.json(communicationsStatus());

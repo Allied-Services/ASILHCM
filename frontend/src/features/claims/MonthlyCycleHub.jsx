@@ -79,12 +79,12 @@ function uniq(arr) {
 }
 
 function canEditMonthlyCyclePack(user) {
-  return ['superadmin', 'finance_manager', 'operations'].includes(user?.role)
+  return ['superadmin', 'finance_manager', 'operations', 'monthly_cycle'].includes(user?.role)
     || !!(user?.permissions?.monthly_cycle?.subPerms || []).includes('edit');
 }
 
 function canAssignMonthlyCyclePeople(user) {
-  return ['superadmin', 'finance_manager', 'operations', 'payroll_initiator', 'payroll'].includes(user?.role)
+  return ['superadmin', 'finance_manager', 'operations', 'monthly_cycle', 'payroll_initiator', 'payroll'].includes(user?.role)
     || !!(user?.permissions?.monthly_cycle?.subPerms || []).includes('edit');
 }
 

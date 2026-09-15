@@ -353,7 +353,7 @@ app.post('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req,
         if (!email || !isValidDomain) {
             return res.status(400).json({ error: isSupervisorRole ? 'A valid email is required for supervisor role' : `Email must be @${ALLOWED_DOMAIN}` });
         }
-        const VALID_ROLES = ['superadmin','operations','operations_supervisor','operations_team','procurement_proposer','procurement_approver',
+        const VALID_ROLES = ['superadmin','operations','operations_supervisor','operations_team','monthly_cycle','procurement_proposer','procurement_approver',
             'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator','payroll',
             'procurement_manager','procurement','finance_manager','supervisor','hr_manager','admin','bizdev','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
@@ -375,7 +375,7 @@ app.post('/api/users', requireAuth, requireRole(...USER_MGMT_ROLES), async (req,
 app.patch('/api/users/:id/role', requireAuth, requireRole(...USER_MGMT_ROLES), async (req, res) => {
     try {
         const { role } = req.body;
-        const VALID_ROLES = ['superadmin','operations','operations_supervisor','operations_team','procurement_proposer','procurement_approver',
+        const VALID_ROLES = ['superadmin','operations','operations_supervisor','operations_team','monthly_cycle','procurement_proposer','procurement_approver',
             'finance_proposer','finance_approver','ap_team','ar_team','payroll_initiator','payroll',
             'procurement_manager','procurement','finance_manager','supervisor','hr_manager','admin','bizdev','pending'];
         if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });

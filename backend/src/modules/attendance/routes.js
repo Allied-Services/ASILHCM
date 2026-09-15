@@ -27,6 +27,10 @@ function registerAttendanceIntakeRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail, sendJazzSMS } = deps;
     const hubRead = requireAttendanceAccess(pool, 'view', HUB_READ_ROLES);
     const hubExport = requireAttendanceAccess(pool, 'export', HUB_READ_ROLES);
+    const hubWrite = requireAttendanceAccess(pool, 'hub_write', [
+        'hr_manager', 'finance_manager', 'superadmin', 'admin',
+        'operations', 'payroll_initiator', 'monthly_cycle',
+    ]);
 
     app.get('/api/attendance/parser-profiles', requireAuth, requireRole('superadmin', 'operations', 'supervisor'), async (req, res) => {
         try {
@@ -103,7 +107,7 @@ function registerAttendanceIntakeRoutes(app, deps) {
         }
     });
 
-    app.post('/api/attendance/monthly-hub/import', requireAuth, requireRole('hr_manager', 'finance_manager', 'superadmin', 'admin', 'operations'), async (req, res) => {
+    app.post('/api/attendance/monthly-hub/import', requireAuth, hubWrite, async (req, res) => {
         try {
             const month = parseInt(req.body.month, 10);
             const year = parseInt(req.body.year, 10);
@@ -122,7 +126,7 @@ function registerAttendanceIntakeRoutes(app, deps) {
         }
     });
 
-    app.post('/api/attendance/monthly-hub/override', requireAuth, requireRole('hr_manager', 'finance_manager', 'superadmin', 'admin', 'operations', 'payroll_initiator'), async (req, res) => {
+    app.post('/api/attendance/monthly-hub/override', requireAuth, hubWrite, async (req, res) => {
         try {
             const month = parseInt(req.body.month, 10);
             const year = parseInt(req.body.year, 10);
@@ -163,7 +167,7 @@ function registerAttendanceIntakeRoutes(app, deps) {
         }
     });
 
-    app.post('/api/attendance/monthly-hub/clear', requireAuth, requireRole('hr_manager', 'finance_manager', 'superadmin', 'admin', 'operations', 'payroll_initiator'), async (req, res) => {
+    app.post('/api/attendance/monthly-hub/clear', requireAuth, hubWrite, async (req, res) => {
         try {
             const month = parseInt(req.body.month, 10);
             const year = parseInt(req.body.year, 10);

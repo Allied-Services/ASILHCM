@@ -4,7 +4,7 @@ const path = require('path');
 const { handleRouteError } = require('../../core/validate');
 const portal = require('./portalService');
 const { withClaimsPortalMail, getClaimsMonitorCc } = require('./claimsMail');
-const { requireClaimsPortal, CAMPAIGN_ROLES, VIEW_ROLES } = require('./claimsAccess');
+const { requireClaimsPortal, canAccessClaimsPortal, CAMPAIGN_ROLES, VIEW_ROLES } = require('./claimsAccess');
 const { requireMonthlyCycle, VIEW_ROLES: MONTHLY_VIEW_ROLES } = require('./monthlyCycleAccess');
 
 function audienceFiltersFromBody(body = {}) {
@@ -31,19 +31,7 @@ function campaignGates() {
 }
 
 function hasManualOverridePerm(user) {
-    if (!user) return false;
-    if (user.role === 'superadmin') return true;
-    if (['finance_manager', 'finance_approver', 'operations_supervisor'].includes(user.role)) return true;
-    let perms = user.permissions;
-    if (typeof perms === 'string') {
-        try { perms = JSON.parse(perms); } catch { perms = null; }
-    }
-    if (perms && typeof perms === 'object') {
-        const m = perms.claims_portal || perms.payroll || {};
-        if (Array.isArray(m) && m.includes('claims_manual_override')) return true;
-        if (m.claims_manual_override) return true;
-    }
-    return false;
+    return canAccessClaimsPortal(user, 'claims_manual_override', CAMPAIGN_ROLES);
 }
 
 function registerPortalClaimsRoutes(app, deps) {
@@ -552,7 +540,7 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.put('/api/claims/policy/:contractId', requireAuth, requireMonthlyCycle(pool, 'edit', ['finance_manager', 'operations']), async (req, res) => {
+    app.put('/api/claims/policy/:contractId', requireAuth, requireMonthlyCycle(pool, 'edit', ['finance_manager', 'operations', 'monthly_cycle']), async (req, res) => {
         try {
             const row = await portal.upsertClaimsPolicy(pool, req.params.contractId, req.body || {});
             res.json(row);
@@ -604,11 +592,8 @@ function registerPortalClaimsRoutes(app, deps) {
     });
 
     // ── Manual ADD OT / CLAIMS ────────────────────────────────────────────────
-    app.post('/api/portal-claims/manual-override', requireAuth, async (req, res) => {
+    app.post('/api/portal-claims/manual-override', requireAuth, requireClaimsPortal(pool, 'claims_manual_override', CAMPAIGN_ROLES), async (req, res) => {
         try {
-            if (!hasManualOverridePerm(req.user)) {
-                return res.status(403).json({ error: 'Missing permission: claims_manual_override' });
-            }
             const body = req.body || {};
             if (body.resubmitToLm) {
                 const result = await portal.applyPortalCorrection(pool, sendAppEmail, {
@@ -667,11 +652,8 @@ function registerPortalClaimsRoutes(app, deps) {
         }
     });
 
-    app.post('/api/portal-claims/manual-override/import', requireAuth, async (req, res) => {
+    app.post('/api/portal-claims/manual-override/import', requireAuth, requireClaimsPortal(pool, 'claims_manual_override', CAMPAIGN_ROLES), async (req, res) => {
         try {
-            if (!hasManualOverridePerm(req.user)) {
-                return res.status(403).json({ error: 'Missing permission: claims_manual_override' });
-            }
             const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
             const dryRun = !!req.body?.dryRun;
             const defaults = {

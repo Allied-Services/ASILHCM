@@ -250,7 +250,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
   };
 
   const canSend = !!user && (
-    ['superadmin', 'finance_manager', 'finance_approver', 'operations_supervisor'].includes(user.role)
+    ['superadmin', 'finance_manager', 'finance_approver', 'operations_supervisor', 'operations', 'monthly_cycle'].includes(user.role)
     || !!(user.permissions?.claims_portal?.subPerms || []).includes('campaign')
     || (Array.isArray(user.permissions?.claims_portal) && user.permissions.claims_portal.includes('campaign'))
   );

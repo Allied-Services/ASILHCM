@@ -64,11 +64,12 @@ function registerServiceOrderRoutes(app, deps) {
     const { pool, requireAuth, requireRole, sendAppEmail, logAudit } = deps;
     const readRoles = requireRole(
         'superadmin', 'operations', 'operations_supervisor', 'operations_team',
+        'monthly_cycle',
         'finance_manager', 'finance_approver', 'finance_proposer',
         'ar_team', 'payroll_initiator', 'payroll'
     );
     const writeRoles = requireRole(
-        'superadmin', 'operations', 'finance_manager', 'finance_approver',
+        'superadmin', 'operations', 'monthly_cycle', 'finance_manager', 'finance_approver',
         'ar_team', 'payroll_initiator', 'payroll'
     );
     const contractWriteRoles = requireRole('superadmin', 'operations', 'finance_manager');

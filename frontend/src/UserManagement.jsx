@@ -16,6 +16,7 @@ const ROLE_META = {
   operations:            { label: 'Operations',            color: '#3b82f6', bg: 'rgba(59,130,246,0.12)', desc: 'Manages employee data and client information.' },
   operations_supervisor: { label: 'Ops Supervisor',        color: '#2563eb', bg: 'rgba(37,99,235,0.12)', desc: 'Operations oversight plus BD pipeline.' },
   operations_team:       { label: 'Operations Team',       color: '#3b82f6', bg: 'rgba(59,130,246,0.12)', desc: 'Day-to-day operations and attendance.' },
+  monthly_cycle:         { label: 'Monthly Cycle',         color: '#0d9488', bg: 'rgba(13,148,136,0.12)', desc: 'Run the month: attendance, claims, and invoices. No payroll lock or AP.' },
   procurement_proposer:  { label: 'Procurement Proposer', color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)', desc: 'Creates bills, registers vendors, manages inventory.' },
   procurement_approver:  { label: 'Procurement Approver', color: '#6366f1', bg: 'rgba(99,102,241,0.12)', desc: 'Approves procurement bills and vendor entries.' },
   procurement_manager:   { label: 'Procurement Manager',  color: '#7c3aed', bg: 'rgba(124,58,237,0.12)', desc: 'Full procurement oversight including AP.' },
@@ -151,6 +152,7 @@ const ROLE_NAV_SET = {
   operations:            ['employee','documents','client','fixed_value','attendance','maintenance','claims_portal','monthly_cycle'],
   operations_supervisor: ['employee','documents','client','fixed_value','attendance','maintenance','claims_portal','monthly_cycle'],
   operations_team:       ['employee','documents','client','fixed_value','attendance','maintenance','claims_portal','monthly_cycle'],
+  monthly_cycle:         ['monthly_cycle','claims_portal','fixed_value','attendance','employee','client'],
   procurement_proposer:  ['billing','vendor','inventory'],
   procurement_approver:  ['billing','vendor','inventory'],
   procurement_manager:   ['billing','vendor','inventory','ap','maintenance'],
@@ -276,6 +278,7 @@ const ROLE_SUB_PERMS = {
     monthly_cycle: ['view','edit'],
     attendance: ['view','mark_attendance','approve_leave','team_setup'],
     maintenance: ['view','create'],
+    claims_portal: ['view','campaign','export','claims_manual_override'],
   },
   operations_supervisor: {
     employee:  ['view','create','edit'],
@@ -293,6 +296,14 @@ const ROLE_SUB_PERMS = {
     monthly_cycle: ['view'],
     attendance: ['view','mark_attendance'],
     maintenance: ['view','create'],
+  },
+  monthly_cycle: {
+    monthly_cycle: ['view','edit'],
+    claims_portal: ['view','campaign','export','claims_manual_override'],
+    fixed_value: ['view','edit'],
+    attendance: ['view','mark_attendance'],
+    employee: ['view'],
+    client: ['view'],
   },
   procurement: {
     billing:   ['view','create','edit','approve','mark_paid'],
