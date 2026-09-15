@@ -29,6 +29,13 @@ describe('claimsDesk', () => {
         expect(s).toMatch(/Exp/);
     });
 
+    test('formatClaimSummary includes payroll adjustments', () => {
+        const s = formatClaimSummary({ arrears: 4500, deduction: 800, specialAllowance: 1500 });
+        expect(s).toMatch(/Arrears/);
+        expect(s).toMatch(/Ded/);
+        expect(s).toMatch(/Spl Allow/);
+    });
+
     test('computeLastActivity picks the newest event', () => {
         const a = computeLastActivity({
             batch: { invite_opened_at: '2026-08-10T10:00:00Z' },

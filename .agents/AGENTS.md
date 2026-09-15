@@ -331,6 +331,11 @@ New User Management role `monthly_cycle` (**Monthly Cycle**) can upload/submit c
 
 **Env vars needed:** none.
 
+### 2026-09-15 — Monthly Cycle Corrections can add arrears / deductions / special allowance
+Corrections (and the Payroll Sheet ADD form / CSV) now accept **Arrears**, **Deductions** (`other_deduction`), and **Special Allowance**. They store as portal items (`ARREARS` / `DEDUCTION` / `SPECIAL_ALLOWANCE`) and write those columns on the pay-month Payroll Sheet. Re-commit replaces the previous correction amount instead of stacking it. OT / Expense / Medical still follow Send to LM. Calculate merge fills empty sheet cells from approved portal adjustments.
+
+**Env vars needed:** none.
+
 ### 2026-09-15 — Monthly Cycle file submit writes SO shortages
 Collect submit now stores `absent_days` on `monthly_attendance_overrides` and, for Fixed Value / Conservancy, rebuilds that month’s `so_deductions` (`attendance_ledger`) from the file. Invoice preview no longer needs Fixed Value **Compute ALL**. FV attendance status treats `cycle_machine_file` as done.
 

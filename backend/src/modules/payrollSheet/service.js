@@ -473,7 +473,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             paidDays = Math.min(Number(paidDays) || 0, windowDays);
         }
 
-        let { ot1, ot2, ot3, opd, expense } = resolvePayrollSheetInputs({
+        let { ot1, ot2, ot3, opd, expense, arrears, specialAllowance, otherDeduction } = resolvePayrollSheetInputs({
             sheet,
             attOt,
             monthlyOv,
@@ -491,11 +491,8 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             ot3 = 0;
         }
 
-        const arrears = num(sheet.arrears);
         const fuelMobile = num(sheet.fuel_mobile);
         // other_deduction only — advance/loan applied once in sheetCalcFromEngine
-        const otherDeduction = num(sheet.other_deduction);
-        let specialAllowance = num(sheet.special_allowance);
 
         let salary = num(emp.salary);
         try {
@@ -604,7 +601,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             bonus_amount: bonusDisbursement,
             special_allowance: specialAllowance,
             fuel_mobile: fuelMobile,
-            other_deduction: num(sheet.other_deduction),
+            other_deduction: otherDeduction,
             advance_deduction: num(sheet.advance_deduction),
             loan_deduction: num(sheet.loan_deduction),
             medical_ee: num(sheet.medical_ee),

@@ -363,6 +363,23 @@ describe('portalClaims helpers', () => {
         assert.equal(n.resubmitToLm, true);
         assert.equal(n.ot2Hours, 4);
         assert.equal(n.medicalAmount, 500);
+        assert.equal(n.arrearsAmount, 0);
+        assert.equal(n.deductionAmount, 0);
+        assert.equal(n.specialAllowanceAmount, 0);
+    });
+
+    it('normalizeManualImportRow reads arrears, deduction, and special allowance', () => {
+        const { normalizeManualImportRow } = require('../src/modules/claims/portalService');
+        const n = normalizeManualImportRow({
+            Code: 'ASIL/SPL-91/21',
+            Arrears: '4,500',
+            Deduction: '800',
+            'Special Allowance': '1,500',
+            'Send to LM?': 'N',
+        }, { workMonth: 7, workYear: 2026 });
+        assert.equal(n.arrearsAmount, 4500);
+        assert.equal(n.deductionAmount, 800);
+        assert.equal(n.specialAllowanceAmount, 1500);
     });
 
     it('normalizeManualImportRow reads quoted Excel headers and Send to LM = N', () => {
@@ -547,6 +564,53 @@ describe('portalClaims helpers', () => {
         assert.ok(sql.some((s) => /SET status = 'approved'/i.test(s)));
         assert.ok(!sql.some((s) => /SET status = 'submitted'/i.test(s)));
         assert.match(r.message, /No Focal or LM email/i);
+    });
+
+    it('applyPortalCorrection writes arrears as a portal item and onto the pay-month sheet', async () => {
+        const { applyPortalCorrection } = require('../src/modules/claims/portalService');
+        const sql = [];
+        const pool = {
+            query: async (text, vals) => {
+                sql.push({ text: String(text).replace(/\s+/g, ' ').trim(), vals });
+                if (/FROM employees/i.test(text)) {
+                    return { rows: [{ id: 'ASIL/SPL-400/21', name: 'Mohsin', claim_authority: null, line_manager_email: null, email: 'x@wafi-energy.com' }] };
+                }
+                if (/FROM portal_claim_periods/i.test(text) || /INSERT INTO portal_claim_periods/i.test(text)) {
+                    return { rows: [{ id: 9, claim_month: 7, claim_year: 2026, settlement_month: 8, settlement_year: 2026, status: 'open' }] };
+                }
+                if (/FROM portal_claim_submissions/i.test(text)) {
+                    return { rows: [] };
+                }
+                if (/INSERT INTO portal_claim_submissions/i.test(text)) {
+                    return { rows: [{ id: 77 }] };
+                }
+                if (/FROM portal_claim_items/i.test(text)) return { rows: [] };
+                if (/FROM payroll_transactions/i.test(text)) {
+                    return { rows: [{ arrears: 0, other_deduction: 0, special_allowance: 0, locked: false }] };
+                }
+                return { rows: [], rowCount: 1 };
+            },
+        };
+        const r = await applyPortalCorrection(pool, async () => {}, {
+            employeeId: 'ASIL/SPL-400/21',
+            workMonth: 7,
+            workYear: 2026,
+            arrearsAmount: 4500,
+            deductionAmount: 800,
+            specialAllowanceAmount: 1500,
+            reason: 'August corrections',
+            createdBy: 'test',
+            dryRun: false,
+            resubmitToLm: false,
+        });
+        assert.equal(r.ok, true);
+        assert.ok(sql.some((s) => /INSERT INTO portal_claim_items/i.test(s.text) && s.vals && s.vals.includes('ARREARS')));
+        assert.ok(sql.some((s) => /INSERT INTO portal_claim_items/i.test(s.text) && s.vals && s.vals.includes('DEDUCTION')));
+        assert.ok(sql.some((s) => /INSERT INTO portal_claim_items/i.test(s.text) && s.vals && s.vals.includes('SPECIAL_ALLOWANCE')));
+        const payWrite = sql.find((s) => /INSERT INTO payroll_transactions/i.test(s.text) && /arrears/i.test(s.text));
+        assert.ok(payWrite);
+        assert.deepEqual(payWrite.vals.slice(-3), [4500, 800, 1500]);
+        assert.match(r.message, /Payroll Sheet/i);
     });
 
     it('validateOtRow upgrades gazetted holiday Double input to Triple', () => {

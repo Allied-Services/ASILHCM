@@ -89,6 +89,34 @@ describe('resolvePayrollSheetInputs — sheet OT must survive hub zeros', () => 
         expect(r.expense).toBe(2200);
     });
 
+    test('canonical: empty sheet fills arrears, deduction, and special allowance', () => {
+        const r = resolvePayrollSheetInputs({
+            sheet: { ot2_hrs: 0, arrears: 0, other_deduction: 0, special_allowance: 0 },
+            attOt: {},
+            monthlyOv: null,
+            claimAgg: { arrears: 4500, otherDeduction: 800, specialAllowance: 1500 },
+            hasClaims: true,
+            sourceMode: 'canonical',
+        });
+        expect(r.arrears).toBe(4500);
+        expect(r.otherDeduction).toBe(800);
+        expect(r.specialAllowance).toBe(1500);
+    });
+
+    test('canonical: typed sheet arrears win over claim', () => {
+        const r = resolvePayrollSheetInputs({
+            sheet: { arrears: 2000, other_deduction: 0, special_allowance: 0 },
+            attOt: {},
+            monthlyOv: null,
+            claimAgg: { arrears: 4500, otherDeduction: 800, specialAllowance: 1500 },
+            hasClaims: true,
+            sourceMode: 'canonical',
+        });
+        expect(r.arrears).toBe(2000);
+        expect(r.otherDeduction).toBe(800);
+        expect(r.specialAllowance).toBe(1500);
+    });
+
     test('sheet_inputs: ignores hub/claims and uses sheet only', () => {
         const r = resolvePayrollSheetInputs({
             sheet: { ot2_hrs: 9, ot3_hrs: 6, reimbursement: 20000 },

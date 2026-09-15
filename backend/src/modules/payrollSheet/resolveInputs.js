@@ -41,12 +41,18 @@ function resolvePayrollSheetInputs({
     const sheetOt3 = positiveOrZero(sheet.ot3_hrs);
     const sheetOpd = num(sheet.opd_claim);
     const sheetExpense = num(sheet.reimbursement);
+    const sheetArrears = num(sheet.arrears);
+    const sheetSpecial = num(sheet.special_allowance);
+    const sheetDeduction = num(sheet.other_deduction);
 
     let ot1 = sheetOt1;
     let ot2 = sheetOt2;
     let ot3 = sheetOt3;
     let opd = sheetOpd;
     let expense = sheetExpense;
+    let arrears = sheetArrears;
+    let specialAllowance = sheetSpecial;
+    let otherDeduction = sheetDeduction;
 
     if (sourceMode === 'canonical') {
         const hubOt1 = monthlyOv ? positiveOrZero(monthlyOv.ot1_hours) : 0;
@@ -60,11 +66,14 @@ function resolvePayrollSheetInputs({
         if (hasClaims) {
             if (!(sheetOpd > 0)) opd = num(claimAgg.opd);
             if (!(sheetExpense > 0)) expense = num(claimAgg.expense);
+            if (!(sheetArrears > 0)) arrears = num(claimAgg.arrears);
+            if (!(sheetSpecial > 0)) specialAllowance = num(claimAgg.specialAllowance);
+            if (!(sheetDeduction > 0)) otherDeduction = num(claimAgg.otherDeduction);
         }
     }
     // sheet_inputs: keep sheet columns only (idempotent recompute)
 
-    return { ot1, ot2, ot3, opd, expense };
+    return { ot1, ot2, ot3, opd, expense, arrears, specialAllowance, otherDeduction };
 }
 
 function hasHubAttendance(monthlyOv) {

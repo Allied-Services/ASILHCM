@@ -605,6 +605,9 @@ function registerPortalClaimsRoutes(app, deps) {
                     ot3Hours: body.ot3Hours,
                     expenseAmount: body.expenseAmount,
                     medicalAmount: body.medicalAmount,
+                    arrearsAmount: body.arrearsAmount,
+                    deductionAmount: body.deductionAmount,
+                    specialAllowanceAmount: body.specialAllowanceAmount,
                     reason: body.reason,
                     createdBy: req.user?.email || req.user?.username || 'user',
                     dryRun: !!body.dryRun,
@@ -621,6 +624,9 @@ function registerPortalClaimsRoutes(app, deps) {
                 ot3Hours: body.ot3Hours,
                 expenseAmount: body.expenseAmount,
                 medicalAmount: body.medicalAmount,
+                arrearsAmount: body.arrearsAmount,
+                deductionAmount: body.deductionAmount,
+                specialAllowanceAmount: body.specialAllowanceAmount,
                 mode: body.mode || 'add',
                 reason: body.reason,
                 createdBy: req.user?.email || req.user?.username || 'user',
@@ -638,6 +644,9 @@ function registerPortalClaimsRoutes(app, deps) {
                     ot3Hours: body.ot3Hours,
                     expenseAmount: body.expenseAmount,
                     medicalAmount: body.medicalAmount,
+                    arrearsAmount: body.arrearsAmount,
+                    deductionAmount: body.deductionAmount,
+                    specialAllowanceAmount: body.specialAllowanceAmount,
                     mode: body.mode || 'add',
                     reason: body.reason,
                     createdBy: req.user?.email || req.user?.username || 'user',
@@ -675,6 +684,9 @@ function registerPortalClaimsRoutes(app, deps) {
                         ot3Hours: n.ot3Hours,
                         expenseAmount: n.expenseAmount,
                         medicalAmount: n.medicalAmount,
+                        arrearsAmount: n.arrearsAmount,
+                        deductionAmount: n.deductionAmount,
+                        specialAllowanceAmount: n.specialAllowanceAmount,
                         reason: n.reason,
                         createdBy: req.user?.email || 'import',
                         dryRun,
@@ -718,8 +730,8 @@ function registerPortalClaimsRoutes(app, deps) {
     // Public CSV template (no secrets) — avoids Unauthorized when opened in a new tab without JWT
     app.get('/api/portal-claims/manual-override/template', (req, res) => {
         const csv = [
-            'Code,Emp Name,OT (1X),OT (x2),OT (x3),OPD,Exp,Exp Bills Status,Absents,Work Month,Work Year,Reason,Send to LM?,Replace Existing?',
-            'ASIL/SPL-001,Example Employee,0,4,0,0,0,,0,7,2026,Manual upload correction,Y,N',
+            'Code,Emp Name,OT (1X),OT (x2),OT (x3),OPD,Exp,Arrears,Deduction,Special Allowance,Exp Bills Status,Absents,Work Month,Work Year,Reason,Send to LM?,Replace Existing?',
+            'ASIL/SPL-001,Example Employee,0,4,0,0,0,0,0,0,,0,7,2026,Manual upload correction,Y,N',
         ].join('\n');
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename=manual_claims_upload_template.csv');
