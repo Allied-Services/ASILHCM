@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Building, Search, Plus, MapPin, Users, X, Phone, Mail, FileText, ChevronLeft, Edit2, Trash2, CheckCircle, AlertCircle, Save, BarChart2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from './api';
 import { ASIL_BUS, normalizeAsilBu } from './orgHierarchy';
-import { isFixedValueService, monthlyCycleSetupHref, readStaffQuery } from './navLinks';
+import { isFixedValueService, monthlyCycleSetupHref, normalizeContractChapter, readStaffQuery, writeContractChapter } from './navLinks';
+import './features/fixedValue/FixedValueOps.css';
 import FixedValueBaselineChapter from './features/fixedValue/FixedValueBaselineChapter';
 import ContractRatePolicyChapter from './features/contracts/ContractRatePolicyChapter';
 
@@ -56,9 +57,9 @@ const ST_CLR = { Active: '#22c55e', Expiring: '#eab308', Expired: '#ef4444', Can
 const EMP_COUNTS = { 'CLT-001': 30, 'CLT-002': 8, 'CLT-003': 0 };
 
 // ── Reusable helpers ─────────────────────────────────────────────────────────
-const Overlay = ({ children, wide = false }) => (
+const Overlay = ({ children, wide = false, xl = false }) => (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: '1.5rem', overflowY: 'auto' }}>
-        <div style={{ background: 'var(--bg-card)', borderRadius: '16px', width: '100%', maxWidth: wide ? '1100px' : '680px', border: '1px solid var(--border)', marginBottom: '2rem' }}>{children}</div>
+        <div style={{ background: 'var(--bg-card)', borderRadius: '16px', width: '100%', maxWidth: xl ? '1280px' : wide ? '1100px' : '680px', border: '1px solid var(--border)', marginBottom: '2rem' }}>{children}</div>
     </div>
 );
 
@@ -162,8 +163,22 @@ function ClaimsPackSummary({ contractId }) {
     );
 }
 
-function ContractEditor({ contract, onSave, onCancel, allClients = [], currentClientId }) {
+function ContractEditor({ contract, onSave, onCancel, allClients = [], currentClientId, initialChapter = 'details' }) {
     const [c, setC] = useState({ ...EMPTY_CONTRACT, ...contract, costs: { ...EMPTY_CONTRACT.costs, ...(contract?.costs || {}) }, financials: { ...EMPTY_CONTRACT.financials, ...(contract?.financials || {}) }, assignedClientId: currentClientId });
+    const hasSo = !!(contract?.id && isFixedValueService(c.serviceType));
+    const [chapter, setChapter] = useState(() => normalizeContractChapter(initialChapter, { hasSo }));
+
+    useEffect(() => {
+        const next = normalizeContractChapter(initialChapter, { hasSo });
+        setChapter(next);
+        writeContractChapter(next);
+    }, [initialChapter, contract?.id, hasSo]);
+
+    const goChapter = (next) => {
+        const resolved = normalizeContractChapter(next, { hasSo });
+        setChapter(resolved);
+        writeContractChapter(resolved);
+    };
 
     const set = (path, val) => {
         if (path.includes('.')) {
@@ -182,12 +197,32 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
         ['courier', 'Approximate Monthly Courier Cost'],
     ];
 
-    return (
-        <Overlay wide={true}>
-            <ModalHeader title={contract?.id ? `Edit Contract: ${contract.id}` : 'New Contract'} sub="Define all costs, financials and billing parameters for this contract" onClose={onCancel} />
-            <div style={{ padding: '2rem', overflowY: 'auto', maxHeight: '75vh' }}>
+    const chapterTabs = [
+        { id: 'details', label: 'Details' },
+        { id: 'costs', label: 'Costs & benefits' },
+        ...(hasSo ? [{ id: 'so', label: 'Service orders' }] : []),
+        ...(contract?.id ? [{ id: 'rates', label: 'Rates & OT' }] : []),
+    ];
+    const chapterSub = {
+        details: 'Name, dates, focals, and leave.',
+        costs: 'Bonus, benefits, tax, and billing.',
+        so: 'Depots and agreed monthly line rates.',
+        rates: 'Cost-plus designation rates and OT caps.',
+    };
 
-                {/* Basic Info */}
+    return (
+        <Overlay wide={true} xl={chapter === 'so'}>
+            <ModalHeader title={contract?.id ? `Edit Contract: ${contract.id}` : 'New Contract'} sub={chapterSub[chapter] || 'Contract record'} onClose={onCancel} />
+            <nav className="ce-chapters">
+                {chapterTabs.map((tab) => (
+                    <button key={tab.id} type="button" className={`ce-chapter${chapter === tab.id ? ' active' : ''}`} onClick={() => goChapter(tab.id)}>
+                        {tab.label}
+                    </button>
+                ))}
+            </nav>
+            <div className="ce-body">
+
+                {chapter === 'details' && (
                 <div style={{ background: 'var(--bg-dark)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
                     <h3 style={{ margin: '0 0 1.25rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>Contract Details</h3>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
@@ -218,8 +253,9 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                     {contract?.id && <LeavePolicyEditor contractId={contract.id} />}
                     {contract?.id && <ClaimsPackSummary contractId={contract.id} />}
                 </div>
+                )}
 
-                {/* Per-Head Costs */}
+                {chapter === 'costs' && (<>
                 <div style={{ background: 'var(--bg-dark)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
                     <h3 style={{ margin: '0 0 1.25rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>Operational Costs (PKR)</h3>
 
@@ -408,8 +444,9 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                         );
                     })()}
                 </div>
+                </>)}
 
-                {contract?.id && isFixedValueService(c.serviceType) && (
+                {chapter === 'so' && hasSo && (
                     <FixedValueBaselineChapter
                         contractId={contract.id}
                         clientId={currentClientId}
@@ -418,15 +455,16 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                         endDate={c.endDate}
                     />
                 )}
-                {contract?.id && <ContractRatePolicyChapter contractId={contract.id} />}
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                {chapter === 'rates' && contract?.id && <ContractRatePolicyChapter contractId={contract.id} />}
+            </div>
+            {(chapter === 'details' || chapter === 'costs') && (
+                <div className="ce-footer">
                     <button onClick={onCancel} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '0.75rem 1.5rem', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
                     <button onClick={() => onSave(c)} style={{ background: 'var(--primary)', border: 'none', color: 'white', padding: '0.75rem 2rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Save size={16} /> Save Contract
                     </button>
                 </div>
-            </div>
+            )}
         </Overlay>
     );
 }
@@ -837,9 +875,10 @@ function ContractBidPanel({ contract }) {
 }
 
 // ── Client Profile View ──────────────────────────────────────────────────────
-function ClientProfile({ client, onChange, onBack, allClients = [], onContractReassigned, initialContractId }) {
+function ClientProfile({ client, onChange, onBack, allClients = [], onContractReassigned, initialContractId, initialChapter }) {
     const [tab, setTab] = useState(initialContractId ? 'contracts' : 'overview');
     const [editContract, setEditContract] = useState(null);
+    const [editChapter, setEditChapter] = useState(() => normalizeContractChapter(initialChapter));
     const [viewContract, setViewContract] = useState(null);
     const [bidContract,  setBidContract]  = useState(null);
     const [showAddContact, setShowAddContact] = useState(false);
@@ -867,8 +906,9 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
         if (ct) {
             setTab('contracts');
             setEditContract(ct);
+            setEditChapter(normalizeContractChapter(initialChapter, { hasSo: isFixedValueService(ct.serviceType) }));
         }
-    }, [initialContractId, client.id]);
+    }, [initialContractId, initialChapter, client.id]);
 
     const loadBUs = async () => {
         setBuLoading(true);
@@ -957,6 +997,7 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                 onChange({ ...client, contracts: client.contracts.filter(c => c.id !== ct.id) });
                 if (onContractReassigned) onContractReassigned();
                 setEditContract(null);
+                writeContractChapter(null);
                 return;
             } catch (err) { alert('Reassign failed: ' + err.message); return; }
         }
@@ -969,6 +1010,7 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
         }
         onChange(updated);
         setEditContract(null);
+        writeContractChapter(null);
     };
 
     const deleteContract = async (id) => {
@@ -1104,7 +1146,7 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
             {tab === 'contracts' && (
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.25rem' }}>
-                        <button onClick={() => setEditContract({ ...EMPTY_CONTRACT })} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--primary)', color: 'white', border: 'none', padding: '0.7rem 1.25rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                        <button onClick={() => { setEditChapter('details'); setEditContract({ ...EMPTY_CONTRACT }); writeContractChapter(null); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--primary)', color: 'white', border: 'none', padding: '0.7rem 1.25rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                             <Plus size={16} /> New Contract
                         </button>
                     </div>
@@ -1133,11 +1175,11 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
                                     <button onClick={() => setViewContract(viewContract?.id === ct.id ? null : ct)} style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
                                         {viewContract?.id === ct.id ? '▲ Collapse' : '▼ Expand'}
                                     </button>
-                                    <button onClick={() => setEditContract(ct)} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <button onClick={() => { setEditChapter('details'); setEditContract(ct); writeContractChapter('details'); }} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         <Edit2 size={14} /> Edit
                                     </button>
                                     {isFixedValueService(ct.serviceType) && (
-                                        <button onClick={() => setEditContract(ct)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                        <button onClick={() => { setEditChapter('so'); setEditContract(ct); writeContractChapter('so'); }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
                                             Edit service orders
                                         </button>
                                     )}
@@ -1203,7 +1245,7 @@ function ClientProfile({ client, onChange, onBack, allClients = [], onContractRe
             )}
 
             {/* Contract Editor Modal */}
-            {editContract && <ContractEditor contract={editContract} onSave={saveContract} onCancel={() => setEditContract(null)} allClients={allClients} currentClientId={client.id} />}
+            {editContract && <ContractEditor contract={editContract} onSave={saveContract} onCancel={() => { setEditContract(null); writeContractChapter(null); }} allClients={allClients} currentClientId={client.id} initialChapter={editChapter} />}
 
             {/* Business Units Tab */}
             {tab === 'business units' && (
@@ -1613,7 +1655,7 @@ export default function ClientInformation() {
         } catch (err) { alert('Save failed: ' + err.message); }
     };
 
-    if (selected) return <ClientProfile client={selected} onChange={updateClient} onBack={() => setSelected(null)} allClients={clients.filter(c => c.isActive !== false)} onContractReassigned={loadClients} initialContractId={deepLink.contract} />;
+    if (selected) return <ClientProfile client={selected} onChange={updateClient} onBack={() => setSelected(null)} allClients={clients.filter(c => c.isActive !== false)} onContractReassigned={loadClients} initialContractId={deepLink.contract} initialChapter={deepLink.chapter} />;
 
     const filtered = clients
         .filter(c => showInactive ? true : c.isActive !== false)

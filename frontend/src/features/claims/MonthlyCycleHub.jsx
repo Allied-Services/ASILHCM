@@ -414,7 +414,7 @@ function MonthlyCycleSetup({ user }) {
                   Open contract record
                 </a>
                 {isFv && selected.clientId && (
-                  <a className="btn-secondary" href={`${clientContractHref(selected.clientId, selected.id)}&chapter=so`}>
+                  <a className="btn-secondary" href={clientContractHref(selected.clientId, selected.id, 'so')}>
                     Edit service-order rates
                   </a>
                 )}
