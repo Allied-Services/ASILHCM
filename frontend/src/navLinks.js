@@ -29,8 +29,25 @@ export function isFixedValueService(serviceType, commercialType) {
     || st.includes('coro');
 }
 
-export function clientContractHref(clientId, contractId) {
-  return staffHref('client', { client: clientId, contract: contractId });
+export function normalizeContractChapter(raw, { hasSo = true } = {}) {
+  const v = String(raw || '').toLowerCase().replace(/_/g, '-');
+  if (v === 'so' || v === 'service-orders' || v === 'service-order') return hasSo ? 'so' : 'details';
+  if (v === 'costs' || v === 'cost') return 'costs';
+  if (v === 'rates' || v === 'rate') return 'rates';
+  if (v === 'details' || v === 'detail') return 'details';
+  return 'details';
+}
+
+export function writeContractChapter(chapter) {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  if (chapter && chapter !== 'details') url.searchParams.set('chapter', chapter);
+  else url.searchParams.delete('chapter');
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+export function clientContractHref(clientId, contractId, chapter) {
+  return staffHref('client', { client: clientId, contract: contractId, chapter });
 }
 
 export function monthlyCycleSetupHref(contractId) {
