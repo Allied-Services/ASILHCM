@@ -1025,10 +1025,6 @@ export default function MonthlyCycleHub({ user }) {
           lockSection="response"
           hideSectionNav
           initialFilter="payroll_desk"
-          initialWorkMonth={7}
-          initialWorkYear={2026}
-          initialPayMonth={8}
-          initialPayYear={2026}
         />
       )}
       {section === 'close' && <MonthClosePanel />}

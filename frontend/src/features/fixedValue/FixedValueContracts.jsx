@@ -92,8 +92,9 @@ const PRINT_FORMATS = [
 
 export default function FixedValueContracts({ user }) {
     const now = new Date();
-    const [month, setMonth] = useState(7);
-    const [year, setYear] = useState(2026);
+    const work = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const [month, setMonth] = useState(work.getMonth() + 1);
+    const [year, setYear] = useState(work.getFullYear());
     const [contracts, setContracts] = useState([]);
     const [contractId, setContractId] = useState(() => readStaffQuery().contract || '');
     const [orders, setOrders] = useState([]);

@@ -6,6 +6,7 @@ const {
     applyAdjustmentMode,
     replaceAdjustmentDelta,
     isPayrollAdjustmentType,
+    looksLikeFixedValueEmployee,
 } = require('../src/modules/claims/payrollAdjustments');
 
 describe('payrollAdjustments', () => {
@@ -45,5 +46,12 @@ describe('payrollAdjustments', () => {
         expect(isPayrollAdjustmentType('deduction')).toBe(true);
         expect(isPayrollAdjustmentType('SPECIAL_ALLOWANCE')).toBe(true);
         expect(isPayrollAdjustmentType('EXPENSE')).toBe(false);
+    });
+
+    test('looksLikeFixedValueEmployee matches PSO / FV contracts', () => {
+        expect(looksLikeFixedValueEmployee({ id: 'ASIL/PSO-040/25' })).toBe(true);
+        expect(looksLikeFixedValueEmployee({ contract_id: 'CTR-PSO-NORTH-ZONE' })).toBe(true);
+        expect(looksLikeFixedValueEmployee({ service_type: 'Fixed Value' })).toBe(true);
+        expect(looksLikeFixedValueEmployee({ id: 'ASIL/SPL-400/21' })).toBe(false);
     });
 });

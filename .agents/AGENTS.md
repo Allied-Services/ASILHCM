@@ -331,6 +331,11 @@ New User Management role `monthly_cycle` (**Monthly Cycle**) can upload/submit c
 
 **Env vars needed:** none.
 
+### 2026-09-15 — Corrections write Fixed Value payroll; Monthly Cycle Payroll uses current month
+PSO / Fixed Value payroll reads `monthly_attendance_overrides`, not the Payroll Sheet. Corrections (Arrears / Deductions / Special Allowance) now write that override for the **work month** and recompute a draft run. Monthly Cycle → Payroll no longer opens July 2026 — it uses the current work/pay period so Ready rows can be ticked and pushed. Push also copies approved amounts onto the FV override.
+
+**Env vars needed:** none.
+
 ### 2026-09-15 — Monthly Cycle Corrections can add arrears / deductions / special allowance
 Corrections (and the Payroll Sheet ADD form / CSV) now accept **Arrears**, **Deductions** (`other_deduction`), and **Special Allowance**. They store as portal items (`ARREARS` / `DEDUCTION` / `SPECIAL_ALLOWANCE`) and write those columns on the pay-month Payroll Sheet. Re-commit replaces the previous correction amount instead of stacking it. OT / Expense / Medical still follow Send to LM. Calculate merge fills empty sheet cells from approved portal adjustments.
 

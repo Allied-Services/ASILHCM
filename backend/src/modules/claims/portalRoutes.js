@@ -619,6 +619,8 @@ function registerPortalClaimsRoutes(app, deps) {
                 employeeId: body.employeeId,
                 month: parseInt(body.month, 10),
                 year: parseInt(body.year, 10),
+                workMonth: parseInt(body.workMonth || body.month, 10),
+                workYear: parseInt(body.workYear || body.year, 10),
                 ot1Hours: body.ot1Hours,
                 ot2Hours: body.ot2Hours,
                 ot3Hours: body.ot3Hours,

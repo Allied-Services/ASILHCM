@@ -59,6 +59,7 @@ describe('sheet compare', () => {
         expect(sheetHasValues({ ot2_hrs: 6, ot3_hrs: 0, opd_claim: 0, reimbursement: 0 })).toBe(true);
         expect(sheetHasValues({ ot2_hrs: 0, ot3_hrs: 0, opd_claim: 1200, reimbursement: 0 })).toBe(true);
         expect(sheetHasValues({ ot2_hrs: 0, ot3_hrs: 0, opd_claim: 0, reimbursement: 900 })).toBe(true);
+        expect(sheetHasValues({ other_deduction: 23300 })).toBe(true);
     });
 
     test('match uses the 1x→ot2Write mapping', () => {
