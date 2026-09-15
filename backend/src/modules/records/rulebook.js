@@ -2,6 +2,7 @@
 
 const { getPolicy, upsertPolicy } = require('../constraints/service');
 const { getClaimsPolicy, upsertClaimsPolicy } = require('../claims/claimsPolicy');
+const { eobiRatesFromMinWage, parseEobiMinWage } = require('../../../taxEngine');
 
 const COMMERCIAL_TYPES = ['cost_plus', 'fixed_value'];
 const ENGINES = ['legacy', 'runs'];
@@ -28,8 +29,14 @@ function inferCommercialType(policy, contract) {
     return 'cost_plus';
 }
 
+function resolveEobiMinWage(policy) {
+    return parseEobiMinWage(policy?.eobi_min_wage ?? policy?.eobiMinWage);
+}
+
 function shapeRulebook(contract, policy, claims) {
     const commercial_type = inferCommercialType(policy, contract);
+    const eobiMinWage = resolveEobiMinWage(policy);
+    const eobi = eobiRatesFromMinWage(eobiMinWage);
     return {
         contract_id: contract.id,
         contract_name: contract.contract_name,
@@ -58,6 +65,9 @@ function shapeRulebook(contract, policy, claims) {
         medical_in_cost: policy?.medical_in_cost !== false,
         employer_pf_in_cost: policy?.employer_pf_in_cost !== false,
         sessi_basis: policy?.sessi_basis || 'salary_45k',
+        eobi_min_wage: eobiMinWage,
+        eobi_employee: eobi.employeeShare,
+        eobi_employer: eobi.employerShare,
         allied_contract_focal_email: policy?.allied_contract_focal_email || contract.allied_focal_email || null,
         dedicated_payroll_resource_email:
             policy?.dedicated_payroll_resource_email
@@ -110,6 +120,9 @@ async function saveRulebook(pool, contractId, body, actor) {
         throw err;
     }
     const payrollResource = String(body.dedicated_payroll_resource_email || focal).trim().toLowerCase();
+    const eobiMinWage = body.eobi_min_wage !== undefined
+        ? parseEobiMinWage(body.eobi_min_wage)
+        : current.eobi_min_wage;
 
     const policyRow = await upsertPolicy(pool, {
         contract_id: contractId,
@@ -139,6 +152,7 @@ async function saveRulebook(pool, contractId, body, actor) {
         ot_applicable_tiers: body.ot_applicable_tiers || current.ot_applicable_tiers,
         sales_tax_rate: body.sales_tax_rate != null ? body.sales_tax_rate : current.sales_tax_rate,
         sales_tax_exempt: body.sales_tax_exempt != null ? !!body.sales_tax_exempt : current.sales_tax_exempt,
+        eobi_min_wage: eobiMinWage,
     });
 
     if (body.claims) {
@@ -168,7 +182,8 @@ async function saveRulebook(pool, contractId, body, actor) {
                 proration_basis = $11,
                 ot_applicable_tiers = $12,
                 sales_tax_rate = COALESCE($13, sales_tax_rate),
-                sales_tax_exempt = COALESCE($14, sales_tax_exempt)
+                sales_tax_exempt = COALESCE($14, sales_tax_exempt),
+                eobi_min_wage = $15
              WHERE id = $1`,
             [
                 policyRow.id, commercial, engine, focal, payrollResource, routing,
@@ -180,6 +195,7 @@ async function saveRulebook(pool, contractId, body, actor) {
                 body.ot_applicable_tiers || current.ot_applicable_tiers,
                 body.sales_tax_rate != null ? body.sales_tax_rate : null,
                 body.sales_tax_exempt != null ? !!body.sales_tax_exempt : null,
+                eobiMinWage,
             ]
         );
     }

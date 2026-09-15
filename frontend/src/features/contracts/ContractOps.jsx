@@ -3,6 +3,16 @@ import { api } from '../../api';
 
 const BUDGET_CATEGORIES = ['supplies', 'maintenance', 'utilities', 'travel', 'other'];
 
+const EOBI_WAGE_PRESETS = [
+    { id: 'sindh', label: 'Sindh 43,000', value: 43000 },
+    { id: 'punjab_kpk', label: 'Punjab & KPK 40,000', value: 40000 },
+];
+
+function eobiFromMinWage(minWage) {
+    const mw = Number(minWage) > 0 ? Number(minWage) : 40000;
+    return { ee: Math.round(mw * 0.01), er: Math.round(mw * 0.05) };
+}
+
 const ContractOps = () => {
     const [contracts, setContracts] = useState([]);
     const [selectedContract, setSelectedContract] = useState('');
@@ -213,6 +223,44 @@ const ContractOps = () => {
                                 </label>
                                 <label>Dedicated Payroll Resource
                                     <input value={rulebook.dedicated_payroll_resource_email || ''} onChange={e => setRulebook(r => ({ ...r, dedicated_payroll_resource_email: e.target.value }))} style={inputStyle} />
+                                </label>
+                                <label>EOBI minimum wage
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="1000"
+                                        value={rulebook.eobi_min_wage ?? ''}
+                                        onChange={e => setRulebook(r => ({
+                                            ...r,
+                                            eobi_min_wage: e.target.value === '' ? null : Number(e.target.value),
+                                        }))}
+                                        placeholder="40000"
+                                        style={inputStyle}
+                                    />
+                                    <span style={{ display: 'flex', gap: '0.4rem', marginTop: 6, flexWrap: 'wrap' }}>
+                                        {EOBI_WAGE_PRESETS.map((p) => (
+                                            <button
+                                                key={p.id}
+                                                type="button"
+                                                className="btn-secondary"
+                                                style={{
+                                                    padding: '0.25rem 0.65rem',
+                                                    fontSize: '0.75rem',
+                                                    borderColor: Number(rulebook.eobi_min_wage) === p.value
+                                                        ? 'rgba(56, 189, 248, 0.55)'
+                                                        : undefined,
+                                                }}
+                                                onClick={() => setRulebook(r => ({ ...r, eobi_min_wage: p.value }))}
+                                            >
+                                                {p.label}
+                                            </button>
+                                        ))}
+                                    </span>
+                                    <span style={{ display: 'block', marginTop: 6, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        Employee deduction Rs. {eobiFromMinWage(rulebook.eobi_min_wage).ee.toLocaleString()}
+                                        {' · '}
+                                        Employer Rs. {eobiFromMinWage(rulebook.eobi_min_wage).er.toLocaleString()}
+                                    </span>
                                 </label>
                             </div>
                             <button
