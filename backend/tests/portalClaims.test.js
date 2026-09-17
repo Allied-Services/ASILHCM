@@ -665,6 +665,38 @@ describe('portalClaims helpers', () => {
         assert.match(r.message, /Fixed Value Payroll/i);
     });
 
+    it('pushSelectedToPayroll lets a recruiter close PSO people with no Wafi claims', async () => {
+        const { pushSelectedToPayroll } = require('../src/modules/claims/portalService');
+        const sql = [];
+        const query = async (text, vals) => {
+            sql.push({ text: String(text).replace(/\s+/g, ' ').trim(), vals });
+            if (/FROM employees/i.test(text)) {
+                return { rows: [{ id: 'ASIL/PSO-001/25', name: 'Abbas', contract_id: 'CTR-PSO-NORTH-ZONE' }] };
+            }
+            if (/FROM contract_claim_policies/i.test(text)) return { rows: [] };
+            if (/FROM portal_claim_submissions/i.test(text)) return { rows: [] };
+            if (/FROM portal_claim_periods/i.test(text) || /INSERT INTO portal_claim_periods/i.test(text)) {
+                return { rows: [{ id: 11, claim_month: 8, claim_year: 2026, settlement_month: 9, settlement_year: 2026 }] };
+            }
+            if (/INSERT INTO portal_claim_submissions/i.test(text)) return { rows: [{ id: 501 }] };
+            return { rows: [], rowCount: 1 };
+        };
+        const pool = {
+            query,
+            connect: async () => ({ query, release() {} }),
+        };
+        const r = await pushSelectedToPayroll(pool, {
+            employeeIds: ['ASIL/PSO-001/25'],
+            workMonth: 8,
+            workYear: 2026,
+            dryRun: false,
+        }, 'obaid.rana@asil.com.pk');
+        assert.equal(r.ok, true);
+        assert.equal(r.results[0].outcome, 'sent');
+        assert.equal(r.results[0].operatorClose, true);
+        assert.ok(sql.some((s) => /INSERT INTO portal_claim_submissions/i.test(s.text) && /operator_push/i.test(s.text)));
+    });
+
     it('validateOtRow upgrades gazetted holiday Double input to Triple', () => {
         const period = { claim_month: 8, claim_year: 2026 };
         const aug14 = validateOtRow({

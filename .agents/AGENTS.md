@@ -331,6 +331,11 @@ New User Management role `monthly_cycle` (**Monthly Cycle**) can upload/submit c
 
 **Env vars needed:** none.
 
+### 2026-09-15 — PSO recruiter can push payroll without Wafi LM claims
+Fixed Value / PSO (and machine-file or OT-only packs) are not Wafi. Monthly Cycle → Payroll lets the recruiter tick people who were only Invite sent / not invited and Review and push. That closes the board (`operator_push`) and writes any OT / deduction onto FV. Expense / Medical LM approval still applies on Wafi monthly-form contracts.
+
+**Env vars needed:** none.
+
 ### 2026-09-15 — Corrections write Fixed Value payroll; Monthly Cycle Payroll uses current month
 PSO / Fixed Value payroll reads `monthly_attendance_overrides`, not the Payroll Sheet. Corrections (Arrears / Deductions / Special Allowance) now write that override for the **work month** and recompute a draft run. Monthly Cycle → Payroll no longer opens July 2026 — it uses the current work/pay period so Ready rows can be ticked and pushed. Push also copies approved amounts onto the FV override.
 

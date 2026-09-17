@@ -2272,7 +2272,7 @@ async function importIfSheetEmpty(pool, { employeeId, workMonth, workYear }) {
     return { ok: true, wrotePayroll: !!payWrite.wrotePayroll, portal, month, year };
 }
 
-const { formatClaimSummary } = require('./claimsDesk');
+const { formatClaimSummary, usesOperatorPayrollClose } = require('./claimsDesk');
 
 function buildAugustReopenEmailHtml({ period, subs, itemsBySub, link, approverEmail }) {
     const rows = (subs || []).map((sub) => {
@@ -2321,6 +2321,58 @@ function buildAugustReopenEmailHtml({ period, subs, itemsBySub, link, approverEm
 </body></html>`;
 }
 
+async function loadEmployeeForOperatorPush(pool, employeeId) {
+    const emp = await findEmployeeByCode(pool, employeeId);
+    if (!emp) return null;
+    const policy = await getClaimsPolicy(pool, emp.contract_id).catch(() => ({}));
+    return {
+        ...emp,
+        enabled_types: policy.enabled_types,
+        collection_mode: policy.collection_mode,
+    };
+}
+
+async function markOperatorPushed(client, {
+    employeeId, workMonth, workYear, actorEmail, existingSub,
+}) {
+    let submissionId = existingSub && existingSub.id;
+    let periodId = existingSub && existingSub.period_id;
+    if (!periodId) {
+        const period = await getOrCreatePeriodForClaimMonth(client, workMonth, workYear);
+        periodId = period.id;
+    }
+    if (!submissionId) {
+        const { rows } = await client.query(
+            `INSERT INTO portal_claim_submissions
+             (period_id, employee_id, filler_email, approver_email, status, channel, submitted_at, approved_at, payroll_pushed_at, payroll_pushed_by)
+             VALUES ($1,$2,$3,$4,'in_payroll','operator_push',NOW(),NOW(),NOW(),$5)
+             ON CONFLICT (period_id, employee_id) DO UPDATE SET
+               status = 'in_payroll',
+               channel = 'operator_push',
+               approved_at = COALESCE(portal_claim_submissions.approved_at, NOW()),
+               payroll_pushed_at = NOW(),
+               payroll_pushed_by = EXCLUDED.payroll_pushed_by,
+               updated_at = NOW()
+             RETURNING id`,
+            [periodId, employeeId, actorEmail || 'operator', actorEmail || 'operator', actorEmail || 'asil']
+        );
+        submissionId = rows[0] && rows[0].id;
+    } else {
+        await client.query(
+            `UPDATE portal_claim_submissions
+             SET status = 'in_payroll',
+                 channel = COALESCE(NULLIF(channel, ''), 'operator_push'),
+                 approved_at = COALESCE(approved_at, NOW()),
+                 payroll_pushed_at = NOW(),
+                 payroll_pushed_by = $2,
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [submissionId, actorEmail || 'asil']
+        );
+    }
+    return { submissionId, periodId };
+}
+
 async function pushSelectedToPayroll(pool, opts, actorEmail) {
     const employeeIds = Array.isArray(opts.employeeIds)
         ? opts.employeeIds.map((x) => String(x)).filter(Boolean)
@@ -2347,12 +2399,14 @@ async function pushSelectedToPayroll(pool, opts, actorEmail) {
                 [employeeId, workMonth, workYear]
             );
             const sub = subs[0];
-            if (!sub) {
+            const emp = await loadEmployeeForOperatorPush(client, employeeId);
+            const operatorClose = !!(emp && usesOperatorPayrollClose(emp));
+            if (!sub && !operatorClose) {
                 await client.query('ROLLBACK');
                 results.push({ employee_id: employeeId, outcome: 'not_found', ok: false });
                 continue;
             }
-            if (sub.status !== 'approved' && sub.status !== 'in_payroll') {
+            if (sub && sub.status !== 'approved' && sub.status !== 'in_payroll' && !operatorClose) {
                 await client.query('ROLLBACK');
                 results.push({
                     employee_id: employeeId,
@@ -2360,6 +2414,54 @@ async function pushSelectedToPayroll(pool, opts, actorEmail) {
                     ok: false,
                     status: sub.status,
                     submission_id: sub.id,
+                });
+                continue;
+            }
+            if (operatorClose && (!sub || (sub.status !== 'approved' && sub.status !== 'in_payroll'))) {
+                if (dryRun) {
+                    await client.query('ROLLBACK');
+                    results.push({
+                        employee_id: employeeId,
+                        outcome: 'ready',
+                        ok: true,
+                        operatorClose: true,
+                        status: sub ? sub.status : 'invite_sent',
+                    });
+                    continue;
+                }
+                const marked = await markOperatorPushed(client, {
+                    employeeId: emp.id,
+                    workMonth,
+                    workYear,
+                    actorEmail,
+                    existingSub: sub,
+                });
+                let portal = {};
+                if (marked.submissionId) {
+                    const { rows: items } = await client.query(
+                        `SELECT * FROM portal_claim_items WHERE submission_id = $1 AND active = TRUE`,
+                        [marked.submissionId]
+                    );
+                    portal = portalAmountsFromItems(items);
+                }
+                await client.query('COMMIT');
+                const fvWrite = portalHasValues(portal)
+                    ? await syncPortalAmountsOnFixedValue(pool, {
+                        employee: emp,
+                        employeeId: emp.id,
+                        month: workMonth,
+                        year: workYear,
+                        portal,
+                        updatedBy: actorEmail,
+                    })
+                    : { wrote: false };
+                results.push({
+                    employee_id: emp.id,
+                    outcome: 'sent',
+                    ok: true,
+                    operatorClose: true,
+                    submission_id: marked.submissionId,
+                    wroteFixedValue: !!fvWrite.wrote,
                 });
                 continue;
             }
