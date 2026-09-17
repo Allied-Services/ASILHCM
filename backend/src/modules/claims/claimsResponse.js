@@ -13,6 +13,7 @@ const {
     emptyControlCounts,
     emptyActionCounts,
     canSelectForPayrollPush,
+    usesOperatorPayrollClose,
 } = require('./claimsDesk');
 
 const { loadEmployeesAsClaimAudience } = require('./claimsEligibility');
@@ -712,7 +713,10 @@ async function listResponseBoard(pool, countEligibleEmployees, opts) {
             control_status,
             control_label,
             action_view,
-            can_push_payroll: canSelectForPayrollPush(control_status),
+            operator_payroll_close: usesOperatorPayrollClose(e),
+            can_push_payroll: canSelectForPayrollPush(control_status, {
+                operatorClose: usesOperatorPayrollClose(e),
+            }),
             lm_reopen_count: sub ? num(sub.lm_reopen_count) : 0,
             payroll_pushed_at: sub ? sub.payroll_pushed_at : null,
             payroll_pushed_by: sub ? sub.payroll_pushed_by : null,

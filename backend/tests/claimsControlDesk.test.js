@@ -4,6 +4,7 @@ const {
     controlStatusFromRow,
     actionViewFromControl,
     canSelectForPayrollPush,
+    usesOperatorPayrollClose,
     controlLabel,
 } = require('../src/modules/claims/claimsDesk');
 
@@ -147,5 +148,19 @@ describe('claims control desk', () => {
         });
         expect(s).toBe('waiting_employee');
         expect(actionViewFromControl(s)).toBe('waiting');
+    });
+
+    test('PSO / Fixed Value uses operator payroll close, not Wafi LM approval', () => {
+        expect(usesOperatorPayrollClose({ id: 'ASIL/PSO-040/25', contract_id: 'CTR-PSO-NORTH-ZONE' })).toBe(true);
+        expect(usesOperatorPayrollClose({ collection_mode: 'machine_file' })).toBe(true);
+        expect(usesOperatorPayrollClose({ enabled_types: ['OT', 'ATTENDANCE'] })).toBe(true);
+        expect(usesOperatorPayrollClose({ id: 'ASIL/SPL-400/21', enabled_types: ['OT', 'EXPENSE', 'MEDICAL'] })).toBe(false);
+    });
+
+    test('recruiter can tick invite-sent PSO rows; already sent stays blocked', () => {
+        expect(canSelectForPayrollPush('invite_sent', { operatorClose: true })).toBe(true);
+        expect(canSelectForPayrollPush('not_invited', { operatorClose: true })).toBe(true);
+        expect(canSelectForPayrollPush('sent_to_payroll', { operatorClose: true })).toBe(false);
+        expect(canSelectForPayrollPush('invite_sent')).toBe(false);
     });
 });
