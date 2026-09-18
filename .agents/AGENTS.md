@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-18 — One Payroll Sheet: PSO can be paid from the Sheet
+Locked PSO Sheet rows already sit in the AP payroll queue, HBL exports and payslip send (those paths read locked `payroll_transactions`, not a Wafi-only list). Bank files now refuse a missing account or 03 mobile (`422 BANK_DETAILS_INCOMPLETE`). Review Desk, Payroll Sheet and AP show who is incomplete. AP confirm is not rewritten.
+
+**Env vars needed:** none.
+
 ### 2026-09-18 — One Payroll Sheet: PSO machine file lands on the Sheet
 Machine-file submit now writes paid days and OT onto `payroll_transactions` (locked rows skipped) and dual-writes a typed `payroll_input_ledger`. Calculate uses declared cycle attendance instead of leftover calendar 31. Sheet writes are allowed for every contract (`CONTRACT_ON_RUNS_ENGINE` retired). Lock/unlock accept `contractId` so Wafi and PSO can close separately. PSO contracts are forced to `collection_mode=machine_file`. Monthly Cycle has a Review Desk (stage filters, Excel, intervene with reason, Lock / Push).
 

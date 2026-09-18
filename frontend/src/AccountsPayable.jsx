@@ -592,6 +592,11 @@ function PayrollQueuePanel() {
                                                         </button>
                                                     )}
                                                 </div>
+                                                {(detail.bank_readiness?.incomplete > 0) && (
+                                                    <div style={{ marginBottom: '10px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', color: '#f59e0b', fontSize: '0.82rem' }}>
+                                                        {detail.bank_readiness.incomplete} people in this batch are missing a bank account or 03 mobile. The HBL file will refuse them until Employee Information is complete.
+                                                    </div>
+                                                )}
                                                 <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border)' }}>
                                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                                                         <thead style={{ background: 'var(--bg-dark)' }}>
@@ -620,8 +625,8 @@ function PayrollQueuePanel() {
                                                                     </td>
                                                                     <td style={{ padding: '7px 10px', fontWeight: 600, color: '#f0f4f8' }}>{emp.name}</td>
                                                                     <td style={{ padding: '7px 10px', color: '#64748b', fontSize: '0.78rem', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.contract_name || emp.client || '—'}</td>
-                                                                    <td style={{ padding: '7px 10px', color: '#64748b' }}>{emp.bank_name || '—'}</td>
-                                                                    <td style={{ padding: '7px 10px', color: '#64748b', fontFamily: 'monospace', fontSize: '0.78rem' }}>{emp.bank_account || '—'}</td>
+                                                                    <td style={{ padding: '7px 10px', color: emp.bank_ready === false ? '#f59e0b' : '#64748b' }}>{emp.bank_name || '—'}</td>
+                                                                    <td style={{ padding: '7px 10px', color: emp.bank_ready === false ? '#f59e0b' : '#64748b', fontFamily: 'monospace', fontSize: '0.78rem' }} title={(emp.bank_issues || []).join(', ')}>{emp.bank_account || '—'}</td>
                                                                     <td style={{ padding: '7px 10px' }}>
                                                                         <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '3px 8px', borderRadius: '12px', whiteSpace: 'nowrap', background: emp.paid ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)', color: emp.paid ? '#22c55e' : '#f59e0b' }}>
                                                                             {emp.paid ? 'Paid' : 'Pending'}

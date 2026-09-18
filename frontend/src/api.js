@@ -271,6 +271,15 @@ export const api = {
     },
     intervenePayrollInput: (body) => apiFetch('/api/payroll-inputs/intervene', { method: 'POST', body: JSON.stringify(body || {}) }),
     getPayrollClaimCompare: (year, month) => apiFetch(`/api/payroll/${year}/${month}/claim-compare`),
+    getPayrollBankReadiness: (year, month, q = {}) => {
+        const params = new URLSearchParams();
+        Object.entries(q || {}).forEach(([k, v]) => {
+            if (v == null || v === '' || v === 'All') return;
+            params.set(k, String(v));
+        });
+        const qs = params.toString();
+        return apiFetch(`/api/payroll/${year}/${month}/bank-readiness${qs ? `?${qs}` : ''}`);
+    },
     lockPayroll:   (year, month, employeeIds, opts = {}) => apiFetch(`/api/payroll/${year}/${month}/lock`,   { method: 'PATCH', body: JSON.stringify({ employee_ids: employeeIds || [], contractId: opts.contractId || opts.contract_id || undefined }) }),
     unlockPayroll: (year, month, employeeIds, opts = {}) => apiFetch(`/api/payroll/${year}/${month}/unlock`, { method: 'PATCH', body: JSON.stringify({ employee_ids: employeeIds || [], contractId: opts.contractId || opts.contract_id || undefined }) }),
     resetPayroll:  (year, month, password)    => apiFetch(`/api/payroll/${year}/${month}`,        { method: 'DELETE', body: JSON.stringify({ password }) }),

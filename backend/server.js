@@ -13,6 +13,7 @@ const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratu
 const { readPayrollSnapshot, exportRowFromSnapshot } = require('./src/payroll/snapshotView');
 const { buildHblSameCheckerRow, buildHblSameCheckerXlsx, isHblSameBank } = require('./src/payroll/hblSameExport');
 const { buildHblOtherRow, buildHblOtherXlsx } = require('./src/payroll/hblOtherExport');
+const { assessBankReadiness, incompleteBankPayload, summarizeEmployees } = require('./src/payroll/bankReadiness');
 const { startEmailClaimsService, triggerManualPoll } = require('./emailClaimsService');
 const wafiClaims = require('./wafiClaimsService');
 const { startWafiClaimsService, triggerWafiManualPoll, getLastPollAt, createGmailClient, buildConfirmationHtml, createGmailDraft, reprocessSession } = wafiClaims;
@@ -3983,7 +3984,10 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
 
         } else if (type === 'hbl_same') {
             // HBL Checker File Summary Excel — locked HBL holders only
-            const hblRows = bankEmps.filter(isHBL).map((emp) => {
+            const hblEmps = bankEmps.filter(isHBL);
+            const incomplete = hblEmps.filter((emp) => !assessBankReadiness(emp).ok);
+            if (incomplete.length) return res.status(422).json(incompleteBankPayload(incomplete));
+            const hblRows = hblEmps.map((emp) => {
                 const c = calcRow(emp, payMap[emp.id]);
                 return buildHblSameCheckerRow(emp, c.netPay, monthAbbr, yr2);
             });
@@ -3995,7 +3999,10 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
 
         } else if (type === 'hbl_other') {
             // HBL Other-bank IBFT Excel — locked non-HBL holders only
-            const otherRows = bankEmps.filter(e => !isHBL(e)).map((emp) => {
+            const otherEmps = bankEmps.filter(e => !isHBL(e));
+            const incomplete = otherEmps.filter((emp) => !assessBankReadiness(emp).ok);
+            if (incomplete.length) return res.status(422).json(incompleteBankPayload(incomplete));
+            const otherRows = otherEmps.map((emp) => {
                 const c = calcRow(emp, payMap[emp.id]);
                 return buildHblOtherRow(emp, c.netPay, monthAbbr, yr2);
             });
@@ -4561,6 +4568,7 @@ app.get('/api/ap/payroll-queue/:year/:month', requireAuth, requireRole('ap_team'
         if (filterContract) { params.push(filterContract); where += ` AND COALESCE(pt.contract_name, e.contract_name)=$${params.length}`; }
         const { rows } = await pool.query(`
             SELECT pt.*, e.name, e.bank_name, e.bank_account, e.account_title, e.location,
+                   e.primary_contact,
                    COALESCE(pt.locked_net, ROUND(pt.net)) AS locked_net,
                    COALESCE(pt.client, e.client) AS client,
                    COALESCE(pt.contract_name, e.contract_name) AS contract_name,
@@ -4583,7 +4591,15 @@ app.get('/api/ap/payroll-queue/:year/:month', requireAuth, requireRole('ap_team'
         if (filterClient) { batchParams.push(filterClient); batchQuery += ` AND COALESCE(client,'')=$${batchParams.length}`; }
         if (filterContract) { batchParams.push(filterContract); batchQuery += ` AND COALESCE(contract_name,'')=$${batchParams.length}`; }
         const batch = await pool.query(batchQuery, batchParams);
-        res.json({ employees: rows, batch: batch.rows[0] || null });
+        const employees = rows.map((r) => {
+            const bank = assessBankReadiness(r);
+            return { ...r, bank_ready: bank.ok, bank_issues: bank.issues };
+        });
+        res.json({
+            employees,
+            batch: batch.rows[0] || null,
+            bank_readiness: summarizeEmployees(rows),
+        });
     } catch (err) { console.error('[GET /api/ap/payroll-queue/:year/:month]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 

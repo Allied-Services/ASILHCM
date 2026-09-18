@@ -419,9 +419,24 @@ function ExportMenu({ month, isLocked, filterClient, filterContract, filterLoc, 
             const res = await fetch(`${API_URL}/api/payroll/${yr}/${mo}/export?${params.toString()}`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
-            if (!res.ok) { alert('Export failed: ' + res.status); return; }
-            // Handle JSON message (e.g. no locked rows)
             const ct = res.headers.get('content-type') || '';
+            if (!res.ok) {
+                if (ct.includes('application/json')) {
+                    const d = await res.json();
+                    if (d.code === 'BANK_DETAILS_INCOMPLETE') {
+                        const names = (d.employees || []).slice(0, 8).map((e) =>
+                            `${e.name || e.id}: ${(e.labels || e.issues || []).join(', ')}`
+                        ).join('\n');
+                        alert(`${d.error}\n\n${names}${(d.incomplete || 0) > 8 ? `\n…and ${d.incomplete - 8} more` : ''}`);
+                        return;
+                    }
+                    alert(d.error || d.msg || `Export failed: ${res.status}`);
+                    return;
+                }
+                alert('Export failed: ' + res.status);
+                return;
+            }
+            // Handle JSON message (e.g. no locked rows)
             if (ct.includes('application/json')) {
                 const d = await res.json();
                 alert(d.msg || d.message || 'No data to export.');
@@ -752,6 +767,7 @@ export default function PayrollSheet({ user }) {
     const [bulkSMSMsg, setBulkSMSMsg] = useState('');
     const [bulkSMSSending, setBulkSMSSending] = useState(false);
     const [bulkSMSResult, setBulkSMSResult] = useState(null);
+    const [bankReadiness, setBankReadiness] = useState(null);
     const [payslipReadiness, setPayslipReadiness] = useState(null);
     const [payslipMonthReadiness, setPayslipMonthReadiness] = useState(null);
     const [showSendPayslips, setShowSendPayslips] = useState(false);
@@ -1418,6 +1434,18 @@ export default function PayrollSheet({ user }) {
     const isLocked = filtered.length > 0 && filtered.every(e => lockedIds.has(e.id));
     // Partial lock = some but not all locked in current view
     const isPartiallyLocked = !isLocked && filtered.some(e => lockedIds.has(e.id));
+
+    useEffect(() => {
+        if (!month || filterClient === 'All') {
+            setBankReadiness(null);
+            return;
+        }
+        const [y, m] = month.split('-');
+        api.getPayrollBankReadiness(y, m, {
+            client: filterClient,
+            contract: filterContract !== 'All' ? filterContract : undefined,
+        }).then(setBankReadiness).catch(() => setBankReadiness(null));
+    }, [month, filterClient, filterContract, lockedIds.size]);
 
     useEffect(() => {
         if (!canSendPayslips || !month || filterClient === 'All') return;
@@ -2325,6 +2353,15 @@ export default function PayrollSheet({ user }) {
                         <strong>Payroll Locked</strong> — All {filtered.length} employees in this view have been sent to the bank.
                         {lockedBy && <span style={{ opacity: 0.8 }}> Locked by {lockedBy}.</span>}
                         {' '}No edits allowed. Click <strong>Unlock</strong> to re-open this batch.
+                    </span>
+                </div>
+            )}
+            {bankReadiness && bankReadiness.incomplete > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '10px', padding: '0.75rem 1.25rem', marginBottom: '1.25rem' }}>
+                    <AlertCircle size={16} color="#f59e0b" />
+                    <span style={{ fontSize: '0.88rem', color: '#f59e0b' }}>
+                        <strong>Bank file blocked</strong> — {bankReadiness.incomplete} of {bankReadiness.ready + bankReadiness.incomplete} people on this view are missing a bank account or a 03 mobile.
+                        Fix them in Employee Information before HBL → HBL or HBL → Other Banks will download.
                     </span>
                 </div>
             )}

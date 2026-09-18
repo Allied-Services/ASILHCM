@@ -26,6 +26,13 @@ describe('GET /api/ap/payroll-queue SQL shape', () => {
         expect(block).toMatch(/unpaid_net_pay/);
     });
 
+    test('includes every locked sheet row — no Wafi-only client filter', () => {
+        expect(block).toMatch(/FROM payroll_transactions pt/i);
+        expect(block).toMatch(/pt\.locked=TRUE/);
+        expect(block).not.toMatch(/wafi/i);
+        expect(block).not.toMatch(/client\s+ILIKE/i);
+    });
+
     test('batch_count correlates on CTE aliases, not raw pt/e columns under GROUP BY', () => {
         expect(block).toMatch(/COALESCE\(pb\.client,\s*''\)\s*=\s*COALESCE\(l\.client,\s*''\)/);
         expect(block).toMatch(/COALESCE\(pb\.contract_name,\s*''\)\s*=\s*COALESCE\(l\.contract_name,\s*''\)/);

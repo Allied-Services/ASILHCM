@@ -1,5 +1,7 @@
 'use strict';
 
+const { assessBankReadiness } = require('../../payroll/bankReadiness');
+
 const ITEM_TYPES = [
     'ATTENDANCE', 'OT', 'EXPENSE', 'MEDICAL',
     'DEDUCTION', 'ARREARS', 'SPECIAL_ALLOWANCE',
@@ -186,6 +188,10 @@ async function listDesk(pool, {
                 e.client,
                 e.location,
                 e.designation,
+                e.bank_name,
+                e.bank_account,
+                e.account_title,
+                e.primary_contact,
                 pt.locked,
                 pt.paid_days AS sheet_paid_days,
                 pt.ot2_hrs AS sheet_ot2,
@@ -204,6 +210,7 @@ async function listDesk(pool, {
     const people = new Map();
     for (const r of rows) {
         if (!people.has(r.employee_id)) {
+            const bank = assessBankReadiness(r);
             people.set(r.employee_id, {
                 employeeId: r.employee_id,
                 name: r.name,
@@ -215,6 +222,9 @@ async function listDesk(pool, {
                 sheetPaidDays: r.sheet_paid_days,
                 sheetOt2: r.sheet_ot2,
                 sheetNet: r.sheet_net,
+                bankReady: bank.ok,
+                bankIssues: bank.issues,
+                bankLabels: bank.labels,
                 items: [],
             });
         }
@@ -233,11 +243,13 @@ async function listDesk(pool, {
             updatedAt: r.updated_at,
         });
     }
+    const peopleList = [...people.values()];
     return {
         workMonth: wm,
         workYear: wy,
-        people: [...people.values()],
-        count: people.size,
+        people: peopleList,
+        count: peopleList.length,
+        bankIncomplete: peopleList.filter((p) => p.bankReady === false).length,
     };
 }
 
