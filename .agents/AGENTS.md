@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-18 — One Payroll Sheet: PSO machine file lands on the Sheet
+Machine-file submit now writes paid days and OT onto `payroll_transactions` (locked rows skipped) and dual-writes a typed `payroll_input_ledger`. Calculate uses declared cycle attendance instead of leftover calendar 31. Sheet writes are allowed for every contract (`CONTRACT_ON_RUNS_ENGINE` retired). Lock/unlock accept `contractId` so Wafi and PSO can close separately. PSO contracts are forced to `collection_mode=machine_file`. Monthly Cycle has a Review Desk (stage filters, Excel, intervene with reason, Lock / Push).
+
+**Env vars needed:** none. Run `npm run migrate` on the deploy target.
+
 ### 2026-09-18 — One rulebook: PSO payroll scope + declared inputs
 Fixed Value payroll now includes only `employees.contract_id` for the selected contract — attendance overrides / `so_deductions` no longer pull Janitorial or Ops Handling onto North Zone. Monthly Cycle attendance counts as done for invoicing (no Drive re-pull gate). Claim types are declared per contract; unset no longer inherits Wafi OT/Expense/Medical. Deductions / arrears / special allowance are occasional corrections. Operator payroll close follows declared types, not employee-code regex. Month Invoices is the default invoice screen; Fixed Value / PSO stays on `?tab=fixed_value`.
 

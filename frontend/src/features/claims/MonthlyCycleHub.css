@@ -337,6 +337,47 @@
   font-size: 0.72rem;
 }
 
+.mch-error {
+  color: #f87171;
+}
+
+.review-desk-table-wrap {
+  overflow: auto;
+  margin-top: 0.75rem;
+}
+
+.review-desk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.review-desk-table th,
+.review-desk-table td {
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--border, #2a3140);
+  text-align: left;
+  vertical-align: top;
+}
+
+.review-desk-drawer {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border, #2a3140);
+  border-radius: 8px;
+}
+
+.review-desk-drawer label {
+  display: block;
+  margin: 0.6rem 0;
+}
+
+.review-desk-drawer textarea,
+.review-desk-drawer input {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
 @media (max-width: 900px) {
   .mch-form-grid-2,
   .mch-form-grid-3 {

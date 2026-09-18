@@ -90,16 +90,14 @@ describe('records spine — routing modes a–g', () => {
 });
 
 describe('records spine — engine flag', () => {
-    test('assertSheetWritable 409 when contract is on runs', async () => {
+    test('assertSheetWritable allows runs-engine people — one Payroll Sheet', async () => {
         const pool = {
             query: jest.fn().mockResolvedValue({
                 rows: [{ employee_id: 'E1', contract_id: 'CTR-R', payroll_engine: 'runs', name: 'A' }],
             }),
         };
-        await expect(assertSheetWritable(pool, ['E1'])).rejects.toMatchObject({
-            status: 409,
-            code: 'CONTRACT_ON_RUNS_ENGINE',
-        });
+        await expect(assertSheetWritable(pool, ['E1'])).resolves.toBeUndefined();
+        expect(pool.query).not.toHaveBeenCalled();
     });
 
     test('assertRunAllowed 409 on legacy engine', async () => {

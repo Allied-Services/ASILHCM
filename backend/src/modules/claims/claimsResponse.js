@@ -417,7 +417,10 @@ function pickSubmission(rows, opts = {}) {
     return pool.sort((a, b) => Number(b.id) - Number(a.id))[0];
 }
 
-async function writePortalAmountsToSheet(pool, { employeeId, month, year, portal, replace = false }) {
+async function writePortalAmountsToSheet(pool, {
+    employeeId, month, year, portal, replace = false,
+    workMonth, workYear, contractId, actor, approvedVia,
+}) {
     const { rows } = await pool.query(
         `SELECT ot2_hrs, ot3_hrs, opd_claim, reimbursement, arrears, other_deduction, special_allowance, locked
          FROM payroll_transactions WHERE employee_id = $1 AND month = $2 AND year = $3`,
@@ -463,6 +466,24 @@ async function writePortalAmountsToSheet(pool, { employeeId, month, year, portal
            updated_at = NOW()`,
         [employeeId, month, year, ot2Write, ot3, med, exp, arrears, deduction, specialAllowance]
     );
+    try {
+        const { upsertLines, linesFromPortalAmounts } = require('../payrollSheet/inputLedger');
+        await upsertLines(pool, linesFromPortalAmounts({
+            employeeId,
+            contractId: contractId || null,
+            workMonth: workMonth || month,
+            workYear: workYear || year,
+            payMonth: month,
+            payYear: year,
+            portal: { ot2Write, ot3, expense: exp, medical: med, arrears, deduction, specialAllowance },
+            status: 'pushed',
+            source: 'portal_claim',
+            actor: actor || null,
+            approvedVia: approvedVia || 'lm',
+        }), actor || null);
+    } catch (err) {
+        console.error('[portal.sheet ledger_write]', err);
+    }
     return { wrotePayroll: true, blocked: null, before, portal };
 }
 

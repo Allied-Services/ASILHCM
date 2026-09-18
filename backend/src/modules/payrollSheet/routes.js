@@ -2,6 +2,7 @@
 
 const { calculatePayrollSheet, loadPayrollClaimCompare } = require('./service');
 const { requirePayrollSheet } = require('./access');
+const { listDesk, intervene } = require('./inputLedger');
 
 function registerPayrollSheetRoutes(app, deps) {
     const { pool, requireAuth, logAudit } = deps;
@@ -54,6 +55,42 @@ function registerPayrollSheetRoutes(app, deps) {
             if (err.status === 400) {
                 return res.status(400).json({ error: err.message || 'Bad request', code: err.code });
             }
+            return res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    app.get('/api/payroll-inputs/desk', requireAuth, async (req, res) => {
+        try {
+            const result = await listDesk(pool, {
+                workMonth: req.query.workMonth || req.query.month,
+                workYear: req.query.workYear || req.query.year,
+                contractId: req.query.contractId || req.query.contract_id,
+                client: req.query.client,
+                stage: req.query.stage,
+            });
+            res.json(result);
+        } catch (err) {
+            console.error('[GET /api/payroll-inputs/desk]', err);
+            if (err.status === 400) return res.status(400).json({ error: err.message });
+            return res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    const writeRoles = requirePayrollSheet(pool, 'edit');
+    app.post('/api/payroll-inputs/intervene', requireAuth, writeRoles, async (req, res) => {
+        try {
+            const body = req.body || {};
+            const result = await intervene(pool, {
+                ...body,
+                actor: req.user && req.user.email,
+            });
+            if (typeof logAudit === 'function') {
+                logAudit(req, 'PAYROLL_INTERVENTION', 'payroll_input_ledger', body.employeeId || '');
+            }
+            res.json(result);
+        } catch (err) {
+            console.error('[POST /api/payroll-inputs/intervene]', err);
+            if (err.status === 400) return res.status(400).json({ error: err.message });
             return res.status(500).json({ error: 'Internal server error' });
         }
     });

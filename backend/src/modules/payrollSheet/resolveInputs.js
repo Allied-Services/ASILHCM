@@ -54,7 +54,7 @@ function resolvePayrollSheetInputs({
     let specialAllowance = sheetSpecial;
     let otherDeduction = sheetDeduction;
 
-    if (sourceMode === 'canonical') {
+    if (sourceMode === 'canonical' || isDeclaredCycleAttendance(monthlyOv)) {
         const hubOt1 = monthlyOv ? positiveOrZero(monthlyOv.ot1_hours) : 0;
         const hubOt2 = monthlyOv ? positiveOrZero(monthlyOv.ot2_hours) : 0;
         const hubOt3 = monthlyOv ? positiveOrZero(monthlyOv.ot3_hours) : 0;
@@ -80,17 +80,35 @@ function hasHubAttendance(monthlyOv) {
     return !!(monthlyOv && (monthlyOv.present_days != null || monthlyOv.absent_days != null));
 }
 
+const CYCLE_ATTENDANCE_SOURCES = new Set(['cycle_machine_file', 'fv_conservancy_attendance']);
+
+function isDeclaredCycleAttendance(monthlyOv) {
+    if (!monthlyOv) return false;
+    const src = String(monthlyOv.source || '').trim();
+    if (!CYCLE_ATTENDANCE_SOURCES.has(src)) return false;
+    return monthlyOv.present_days != null || monthlyOv.absent_days != null;
+}
+
+function isCalendarDefaultedPaidDays(sheetPaidDays, calendarDays) {
+    const cal = num(calendarDays, 0);
+    if (!(cal > 0) || sheetPaidDays == null || sheetPaidDays === '') return false;
+    return num(sheetPaidDays) === cal;
+}
+
 /**
  * Paid / present days for Model A.
  * sheet_inputs: sheet paid_days wins when set; else hub; else attendance-derived.
  * canonical (Merge approved Portal Claims): Monthly Cycle / hub attendance
  * overrides sheet paid_days so absent-day edits load onto the sheet.
+ * Machine-file / FV cycle attendance is the declared source — it wins over a
+ * leftover calendar-month sheet value (the 31-vs-absences PSO mismatch).
  */
 function resolvePayrollSheetPaidDays({
     sheet = {},
     monthlyOv = null,
     attendancePaidDays = 0,
     sourceMode = 'sheet_inputs',
+    calendarDays = 0,
 }) {
     let presentDaysForModelA = null;
     let absentDaysForModelA = null;
@@ -106,7 +124,11 @@ function resolvePayrollSheetPaidDays({
         }
     }
 
-    const hubWins = sourceMode === 'canonical' && hasHubAttendance(monthlyOv);
+    const declaredCycle = isDeclaredCycleAttendance(monthlyOv);
+    const sheetLooksTyped = sheet.paid_days != null && sheet.paid_days !== ''
+        && !isCalendarDefaultedPaidDays(sheet.paid_days, calendarDays);
+    const hubWins = (sourceMode === 'canonical' && hasHubAttendance(monthlyOv))
+        || (declaredCycle && !sheetLooksTyped);
     if (!hubWins && sheet.paid_days != null && sheet.paid_days !== '') {
         const spd = num(sheet.paid_days);
         // Keep explicit 0 (unpaid month) — only skip null/empty
@@ -114,7 +136,7 @@ function resolvePayrollSheetPaidDays({
         if (presentDaysForModelA == null) presentDaysForModelA = spd;
     }
 
-    return { paidDays, presentDaysForModelA, absentDaysForModelA };
+    return { paidDays, presentDaysForModelA, absentDaysForModelA, declaredCycle };
 }
 
 /**
@@ -160,10 +182,11 @@ function resolveSheetModelAComputeInput({
     modelABasis = 30,
     calendarDays,
     honorSheetPaidDays = false,
+    honorDeclaredAttendance = false,
 }) {
     const cal = num(calendarDays, 0) || num(modelABasis, 30) || 30;
     const hasExplicitSheet = sheetPaidDays != null && sheetPaidDays !== '';
-    if (honorSheetPaidDays && hasExplicitSheet) {
+    if (honorSheetPaidDays && hasExplicitSheet && !honorDeclaredAttendance) {
         const capped = Math.min(Math.max(0, num(sheetPaidDays)), cal);
         return {
             modelA: true,
@@ -184,16 +207,18 @@ function resolveSheetModelAComputeInput({
 
     if (hasExplicitAbsent) {
         const absent = num(absentDaysForModelA);
+        const present = presentDaysForModelA != null
+            ? num(presentDaysForModelA)
+            : Math.max(0, cal - absent);
         return {
             modelA: true,
             absentDays: absent,
             expectedDays: cal,
             calendarBasis: cal,
-            presentDays: presentDaysForModelA != null
-                ? num(presentDaysForModelA)
-                : Math.max(0, cal - absent),
-            // PD Days stay the full month; the cut is the absence line.
-            persistPaidDays: cal,
+            presentDays: present,
+            // Cycle/machine-file attendance persists the paid days that were declared.
+            // Wafi Model A still shows the calendar month; the cut is the absence line.
+            persistPaidDays: honorDeclaredAttendance ? present : cal,
         };
     }
 
@@ -212,5 +237,8 @@ module.exports = {
     resolveSheetModelAComputeInput,
     isWeekdayShapedPaidDays,
     liftPaidDaysToCalendarMonth,
+    isDeclaredCycleAttendance,
+    isCalendarDefaultedPaidDays,
+    CYCLE_ATTENDANCE_SOURCES,
     num,
 };
