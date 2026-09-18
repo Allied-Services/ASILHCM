@@ -20,7 +20,9 @@ const { describe, test, expect } = (() => {
 
 const {
     findServiceOrderForEmployee,
+    rowsFromLockedPaidDays,
     syncSoDeductionsFromCycleRows,
+    syncSoDeductionsFromLockedSheet,
 } = require('../src/modules/serviceOrders/cycleAttendanceSync');
 const { submitImport, resolveAttendanceDays, collapseRowsByEmployee } = require('../src/modules/records/machineFile');
 
@@ -141,6 +143,57 @@ describe('syncSoDeductionsFromCycleRows', () => {
         expect(summary.deductions).toBe(0);
         expect(calls.some((c) => c.q.includes('DELETE FROM so_deductions'))).toBe(true);
         expect(calls.some((c) => c.q.includes('INSERT INTO so_deductions'))).toBe(false);
+    });
+
+    test('locked Sheet paid_days of 28 becomes 2 absent days on the 30-day SO month', () => {
+        const byContract = rowsFromLockedPaidDays([
+            { employee_id: 'ASIL-1', contract_id: 'CTR-PSO-NORTH-ZONE', paid_days: 28 },
+            { employee_id: 'ASIL-2', contract_id: 'CTR-PSO-NORTH-ZONE', paid_days: 30 },
+            { employee_id: 'ASIL-3', contract_id: 'CTR-WAFI', paid_days: 31 },
+        ]);
+        expect(byContract.get('CTR-PSO-NORTH-ZONE')).toEqual([
+            { employeeId: 'ASIL-1', presentDays: 28, absentDays: 2 },
+            { employeeId: 'ASIL-2', presentDays: 30, absentDays: 0 },
+        ]);
+        expect(byContract.get('CTR-WAFI')).toEqual([
+            { employeeId: 'ASIL-3', presentDays: 31, absentDays: 0 },
+        ]);
+    });
+
+    test('sync from locked Sheet writes the paid_days shortage, not the file number', async () => {
+        const { pool, calls } = mockPool({
+            orders: [{
+                id: 'SO-PSO-CHAKPIRANA',
+                site_code: 'CHAKPIRANA',
+                lines: [line],
+            }],
+            employees: [{ id: 'ASIL-1', designation: 'Gardener', site: 'CHAKPIRANA' }],
+        });
+        const origQuery = pool.query;
+        pool.query = async (sql, params) => {
+            const q = String(sql).replace(/\s+/g, ' ');
+            if (q.includes('FROM payroll_transactions pt')) {
+                return {
+                    rows: [{
+                        employee_id: 'ASIL-1',
+                        paid_days: 27,
+                        contract_id: 'CTR-PSO-NORTH-ZONE',
+                    }],
+                };
+            }
+            return origQuery(sql, params);
+        };
+
+        const summary = await syncSoDeductionsFromLockedSheet(pool, {
+            year: 2026,
+            month: 8,
+            employeeIds: ['ASIL-1'],
+            actor: 'payroll@asil.com.pk',
+        });
+        expect(summary.deductions).toBe(1);
+        const insert = calls.find((c) => c.q.includes('INSERT INTO so_deductions'));
+        expect(insert.params[4]).toBe('ASIL-1');
+        expect(insert.params[5]).toBe(3);
     });
 
     test('cost-plus contract without service orders is a no-op', async () => {

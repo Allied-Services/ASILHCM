@@ -50,13 +50,6 @@ export default function EmailClaimsListener({ user }) {
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [filterMonth, setFilterMonth] = useState('');
   const [hideIrrelevant, setHideIrrelevant] = useState(true);
-  // Push to payroll state
-  const [pushMonth, setPushMonth] = useState(MONTHS[0]?.value || '');
-  const [pushing, setPushing] = useState(false);
-  const [pushResult, setPushResult] = useState(null);
-  const [adjOt2, setAdjOt2] = useState('');
-  const [adjOt3, setAdjOt3] = useState('');
-  const [adjAmt, setAdjAmt] = useState('');
 
   // Consolidation tab
   const [consMonth, setConsMonth] = useState(MONTHS[0]?.value || '');
@@ -114,35 +107,6 @@ export default function EmailClaimsListener({ user }) {
       await loadListenerStatus();
     } catch (e) { setPollResult({ error: e.message }); }
     setPolling(false);
-  };
-
-  const pushToPayroll = async (claimId) => {
-    setPushing(true); setPushResult(null);
-    try {
-      const mo = MONTHS.find(m => m.value === pushMonth) || MONTHS[0];
-      const mNum = mo ? (new Date(mo.value).getMonth() + 1) : new Date().getMonth() + 1;
-      const yNum = mo ? new Date(mo.value).getFullYear() : new Date().getFullYear();
-      // Save adjustments first if entered
-      if (adjOt2 || adjOt3 || adjAmt) {
-        await apiFetch(`/api/claims/${claimId}/status`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            ot_hours_2x: adjOt2 ? parseFloat(adjOt2) : undefined,
-            ot_hours_3x: adjOt3 ? parseFloat(adjOt3) : undefined,
-            claim_amount: adjAmt ? parseFloat(adjAmt) : undefined,
-          }),
-        });
-      }
-      const d = await apiFetch(`/api/claims/${claimId}/push-to-payroll`, {
-        method: 'POST',
-        body: JSON.stringify({ month: mNum, year: yNum }),
-      });
-      if (d.error) throw new Error(d.error);
-      setPushResult({ ok: true, msg: d.message });
-      await loadInbox();
-      setSelectedClaim(null);
-    } catch (e) { setPushResult({ error: e.message }); }
-    setPushing(false);
   };
 
   const sendApprovals = async () => {
@@ -335,32 +299,9 @@ export default function EmailClaimsListener({ user }) {
               )}
               {!['PROCESSED','REJECTED'].includes(selectedClaim.status) && selectedClaim.employee_id && (
                 <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.5rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Push to Payroll</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '8px' }}>
-                    <div>
-                      <label style={{ fontSize: '0.68rem', color: '#64748b' }}>OT 2X Hrs</label>
-                      <input value={adjOt2} onChange={e => setAdjOt2(e.target.value)} placeholder={selectedClaim.ot_hours_2x || '0'} type="number" step="0.25" style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '5px 8px', borderRadius: '6px', fontSize: '0.82rem', width: '100%' }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.68rem', color: '#64748b' }}>OT 3X Hrs</label>
-                      <input value={adjOt3} onChange={e => setAdjOt3(e.target.value)} placeholder={selectedClaim.ot_hours_3x || '0'} type="number" step="0.25" style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '5px 8px', borderRadius: '6px', fontSize: '0.82rem', width: '100%' }} />
-                    </div>
-                    <div style={{ gridColumn: '1/-1' }}>
-                      <label style={{ fontSize: '0.68rem', color: '#64748b' }}>Amount PKR</label>
-                      <input value={adjAmt} onChange={e => setAdjAmt(e.target.value)} placeholder={selectedClaim.claim_amount || '0'} type="number" style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '5px 8px', borderRadius: '6px', fontSize: '0.82rem', width: '100%' }} />
-                    </div>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                    Push to payroll from this screen is closed. Use Monthly Cycle → Review Desk.
                   </div>
-                  <select value={pushMonth} onChange={e => setPushMonth(e.target.value)} style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '7px 10px', borderRadius: '8px', fontSize: '0.84rem', width: '100%', marginBottom: '8px' }}>
-                    {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                  </select>
-                  <button onClick={() => pushToPayroll(selectedClaim.id)} disabled={pushing} style={{ ...btn('#22c55e', 'rgba(34,197,94,0.15)'), width: '100%', justifyContent: 'center', opacity: pushing ? 0.7 : 1 }}>
-                    <CheckCircle size={14} /> {pushing ? 'Pushing…' : '✓ Push to Payroll'}
-                  </button>
-                  {pushResult && (
-                    <div style={{ marginTop: '8px', padding: '8px', borderRadius: '8px', background: pushResult.error ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)', fontSize: '0.78rem', color: pushResult.error ? '#ef4444' : '#22c55e' }}>
-                      {pushResult.error || pushResult.msg}
-                    </div>
-                  )}
                 </div>
               )}
               {selectedClaim.status === 'PROCESSED' && (

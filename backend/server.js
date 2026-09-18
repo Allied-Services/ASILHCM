@@ -3602,8 +3602,27 @@ app.patch('/api/payroll/:year/:month/lock', requireAuth, requireRole('finance_ap
             }
         }
 
+        // PSO invoice shortages must match the locked Sheet, not the earlier
+        // machine-file pull. Failure here never blocks the lock.
+        let invoice_sync = { ok: true, contracts: 0, deductions: 0 };
+        if (lockedEmpIds && lockedEmpIds.length > 0) {
+            try {
+                const { syncSoDeductionsFromLockedSheet } = require('./src/modules/serviceOrders/cycleAttendanceSync');
+                const synced = await syncSoDeductionsFromLockedSheet(pool, {
+                    year: yr,
+                    month: mo,
+                    employeeIds: lockedEmpIds,
+                    actor: req.user.email,
+                });
+                invoice_sync = { ok: true, ...synced };
+            } catch (invErr) {
+                console.error('[payroll-lock invoice-sync]', invErr);
+                invoice_sync = { ok: false, error_logged: true };
+            }
+        }
+
         logAudit(req, 'payroll_lock', 'payroll_period', `${yr}-${mo}${lockedEmpIds?.length ? ` (${lockedEmpIds.length} employees)` : ''} accruals:${accruals.ok ? 'ok' : 'failed'}`);
-        res.json({ ok: true, locked: true, lockedBy: req.user.email, accruals_posted: lockedEmpIds?.length || 0, accruals });
+        res.json({ ok: true, locked: true, lockedBy: req.user.email, accruals_posted: lockedEmpIds?.length || 0, accruals, invoice_sync });
     } catch (err) {
         console.error('[PATCH /api/payroll/:year/:month/lock]', err);
         if (err.status === 409) return res.status(409).json({ error: err.message, code: err.code, ...(err.details || {}) });
@@ -6783,58 +6802,12 @@ app.patch('/api/claims/:id/status', requireAuth, async (req, res) => {
     } catch (err) { console.error('[PATCH /api/claims/:id/status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// POST /api/claims/:id/push-to-payroll — write claim data into payroll_transactions for a month
-app.post('/api/claims/:id/push-to-payroll', requireAuth, async (req, res) => {
-    try {
-        const { month, year } = req.body;
-        if (!month || !year) return res.status(400).json({ error: 'month and year are required' });
-
-        const { rows: [claim] } = await pool.query(
-            'SELECT * FROM claims_inbox WHERE id=$1', [req.params.id]
-        );
-        if (!claim) return res.status(404).json({ error: 'Claim not found' });
-        if (!claim.employee_id) return res.status(400).json({ error: 'Claim has no matched employee. Please match employee first.' });
-
-        const m = parseInt(month);
-        const y = parseInt(year);
-        const ot2 = parseFloat(claim.ot_hours_2x) || 0;
-        const ot3 = parseFloat(claim.ot_hours_3x) || 0;
-        const amt = parseFloat(claim.claim_amount) || 0;
-        const claimType = (claim.claim_type || '').toUpperCase();
-
-        // Determine which payroll column to write
-        const isOT      = claimType === 'OT';
-        const isOPD     = claimType === 'OPD' || claimType === 'IPD';
-        const isExpense = claimType === 'EXPENSE' || claimType === 'ALLOWANCE' || (!isOT && !isOPD);
-
-        // Upsert payroll_transactions — overwrite the specific columns for this claim type
-        await pool.query(`
-            INSERT INTO payroll_transactions (employee_id, month, year, ot2_hrs, ot3_hrs, opd_claim, reimbursement)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (employee_id, month, year) DO UPDATE SET
-                ot2_hrs       = CASE WHEN $8 THEN EXCLUDED.ot2_hrs       ELSE payroll_transactions.ot2_hrs END,
-                ot3_hrs       = CASE WHEN $8 THEN EXCLUDED.ot3_hrs       ELSE payroll_transactions.ot3_hrs END,
-                opd_claim     = CASE WHEN $9 THEN EXCLUDED.opd_claim     ELSE payroll_transactions.opd_claim END,
-                reimbursement = CASE WHEN $10 THEN EXCLUDED.reimbursement ELSE payroll_transactions.reimbursement END,
-                updated_at    = NOW()
-        `, [
-            claim.employee_id, m, y,
-            isOT ? ot2 : 0,
-            isOT ? ot3 : 0,
-            isOPD ? amt : 0,
-            isExpense ? amt : 0,
-            isOT, isOPD, isExpense
-        ]);
-
-        // Mark claim as PROCESSED
-        await pool.query(`
-            UPDATE claims_inbox
-            SET status='PROCESSED', payroll_month=$1, payroll_year=$2, pushed_at=NOW()
-            WHERE id=$3
-        `, [m, y, req.params.id]);
-
-        res.json({ ok: true, message: `Pushed to payroll ${y}-${m} for employee ${claim.employee_id}` });
-    } catch (err) { console.error('[POST /api/claims/:id/push-to-payroll]', err); res.status(500).json({ error: 'Internal server error' }); }
+// POST /api/claims/:id/push-to-payroll — retired. Use Monthly Cycle Review Desk.
+app.post('/api/claims/:id/push-to-payroll', requireAuth, (req, res) => {
+    res.status(410).json({
+        error: 'Use Monthly Cycle Review Desk to push claims onto the Payroll Sheet',
+        code: 'EMAIL_CLAIMS_PUSH_RETIRED',
+    });
 });
 
 // POST /api/claims/send-approval-emails — dispatch approval emails to line managers
