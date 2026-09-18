@@ -90,7 +90,11 @@ const PRINT_FORMATS = [
     { key: 'sales_tax_letterhead', label: 'Sales Tax (LH)' },
 ];
 
-export default function FixedValueContracts({ user }) {
+export default function FixedValueContracts({ user, mode = 'ops' }) {
+    const invoiceOnly = mode === 'invoices';
+    const visibleSteps = invoiceOnly
+        ? STEPS.filter((s) => ['period', 'billable', 'invoice', 'export'].includes(s.key))
+        : STEPS;
     const now = new Date();
     const work = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const [month, setMonth] = useState(work.getMonth() + 1);
@@ -99,7 +103,7 @@ export default function FixedValueContracts({ user }) {
     const [contractId, setContractId] = useState(() => readStaffQuery().contract || '');
     const [orders, setOrders] = useState([]);
     const [siteCode, setSiteCode] = useState(ALL_SITES);
-    const [step, setStep] = useState('period');
+    const [step, setStep] = useState(invoiceOnly ? 'invoice' : 'period');
     const [loading, setLoading] = useState(false);
     const [slowLoad, setSlowLoad] = useState(false);
     const [msg, setMsg] = useState('');
@@ -221,6 +225,7 @@ export default function FixedValueContracts({ user }) {
     }), emptyTotals), [payrollBySite]);
 
     const attDoneCount = attStatus.filter(s => s.status === 'done').length;
+    const cycleAttendanceDone = attStatus.some((s) => s.cycleSubmitted || s.contractOverrideCount > 0);
     const billableReviewedCount = billablePack?.reviewedCount || 0;
     const billableSiteCount = billablePack?.siteCount || orders.length;
     const stepStatus = useMemo(() => ({
@@ -657,8 +662,12 @@ export default function FixedValueContracts({ user }) {
         <div className="fv-ops">
             <div className="fv-ops-header">
                 <div>
-                    <h2>This month — Fixed Value / PSO</h2>
-                    <p>Monthly ops only: attendance → confirm billable services → payroll → invoices. Contract rates live under Client Information.</p>
+                    <h2>{invoiceOnly ? 'Month Invoices' : 'This month — Fixed Value / PSO'}</h2>
+                    <p>
+                        {invoiceOnly
+                            ? 'Pick the contract and period. Attendance already collected in Monthly Cycle is enough — confirm billable services, then stamp. Contract rates live under Client Information.'
+                            : 'Attendance collected in Monthly Cycle is the source of truth. Confirm billable services, then payroll or invoices. Contract rates live under Client Information.'}
+                    </p>
                 </div>
                 <div className="fv-ops-period">
                     <select value={contractId} onChange={e => setContractId(e.target.value)}>
@@ -681,7 +690,7 @@ export default function FixedValueContracts({ user }) {
             </div>
 
             <div className="fv-stepper">
-                {STEPS.map((s, idx) => {
+                {visibleSteps.map((s, idx) => {
                     const Icon = s.icon;
                     const st = stepStatus[s.key];
                     return (
@@ -725,11 +734,16 @@ export default function FixedValueContracts({ user }) {
                         <div className="fv-kpi"><div className="label">Contract</div><div className="value" style={{ fontSize: '0.85rem' }}>{contractId || '-'}</div></div>
                         <div className="fv-kpi"><div className="label">Sites</div><div className="value">{orders.length}</div></div>
                         <div className="fv-kpi"><div className="label">Period</div><div className="value">{month}/{year}</div></div>
-                        <div className="fv-kpi"><div className="label">Attendance done</div><div className="value">{attDoneCount}/{orders.length || 0}</div></div>
+                        <div className="fv-kpi"><div className="label">Attendance</div><div className="value">{cycleAttendanceDone ? 'From Monthly Cycle' : `${attDoneCount}/${orders.length || 0}`}</div></div>
                     </div>
                     <div className="fv-actions">
-                        <button type="button" className="btn-primary" disabled={!contractId} onClick={() => setStep('attendance')}>
-                            Continue to Attendance <Play size={14} />
+                        <button
+                            type="button"
+                            className="btn-primary"
+                            disabled={!contractId}
+                            onClick={() => setStep(invoiceOnly ? 'billable' : 'attendance')}
+                        >
+                            {invoiceOnly ? 'Continue to billable services' : 'Continue to Attendance'} <Play size={14} />
                         </button>
                         {contractId && selectedContract?.client_id && (
                             <a
@@ -786,17 +800,29 @@ export default function FixedValueContracts({ user }) {
                 <div className="fv-panel">
                     <h3>2. Attendance</h3>
                     <p className="fv-lead">
-                        Primary CTA pulls every depot sheet from Drive and applies present/absent into
-                        <code> monthly_attendance_overrides</code> + absence deductions.
-                        Monthly Cycle Collect submit does the same for this contract (no second Compute ALL).
-                        Per-site upload remains secondary.
+                        Monthly Cycle Collect is the attendance source. A submitted machine file or
+                        contract overrides counts as done for every depot — do not Drive-apply again
+                        for a month that was already submitted.
                     </p>
+                    {cycleAttendanceDone && (
+                        <div className="fv-alert ok">
+                            <CheckCircle size={16} />
+                            Monthly Cycle attendance is in
+                            {attStatus[0]?.cycleFileName ? ` (${attStatus[0].cycleFileName})` : ''}
+                            {attStatus[0]?.contractOverrideCount
+                                ? ` · ${attStatus[0].contractOverrideCount} people`
+                                : ''}.
+                        </div>
+                    )}
                     <div className="fv-actions">
-                        <button type="button" className="btn-primary" disabled={loading || !canWrite || !orders.length} onClick={handleBulkAttendance}>
-                            <CloudDownload size={16} /> Compute ALL attendance ({orders.length} sites)
+                        <button type="button" className="btn-primary" disabled={!contractId} onClick={() => setStep('billable')}>
+                            Continue to Confirm billable services
                         </button>
                         <button type="button" className="btn-secondary" disabled={loading} onClick={() => runAction(loadAttStatus, 'Status refreshed')}>
                             <RefreshCw size={16} /> Refresh status
+                        </button>
+                        <button type="button" className="btn-secondary" disabled={loading || !canWrite || !orders.length} onClick={handleBulkAttendance}>
+                            <CloudDownload size={16} /> Secondary: Drive pull ({orders.length} sites)
                         </button>
                     </div>
                     {attProgress && (
@@ -936,7 +962,7 @@ export default function FixedValueContracts({ user }) {
                         </div>
                     )}
                     <div className="fv-actions">
-                        <button type="button" className="btn-primary" disabled={!attDoneCount} onClick={() => setStep('billable')}>
+                        <button type="button" className="btn-primary" disabled={!contractId} onClick={() => setStep('billable')}>
                             Continue to Confirm billable services
                         </button>
                     </div>

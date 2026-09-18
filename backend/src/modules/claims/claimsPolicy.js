@@ -1,7 +1,9 @@
 'use strict';
 
-const ALL_CLAIM_TYPES = ['ATTENDANCE', 'OT', 'EXPENSE', 'MEDICAL'];
-const DEFAULT_ENABLED_TYPES = ['OT', 'EXPENSE', 'MEDICAL'];
+const COLLECTED_CLAIM_TYPES = ['ATTENDANCE', 'OT', 'EXPENSE', 'MEDICAL'];
+const OCCASIONAL_CLAIM_TYPES = ['DEDUCTION', 'ARREARS', 'SPECIAL_ALLOWANCE'];
+const ALL_CLAIM_TYPES = [...COLLECTED_CLAIM_TYPES, ...OCCASIONAL_CLAIM_TYPES];
+const APPROVAL_CLAIM_TYPES = ['EXPENSE', 'MEDICAL'];
 const COLLECTION_MODES = ['monthly_form', 'machine_file', 'daily_marks', 'mixed'];
 const DEADLINE_MONTHS = ['current_month', 'following_month'];
 
@@ -16,17 +18,37 @@ const DEFAULTS = {
     approve_deadline_day: null,
     submit_deadline_month: 'following_month',
     approve_deadline_month: 'following_month',
-    enabled_types: [...DEFAULT_ENABLED_TYPES],
+    enabled_types: [],
     collection_mode: 'monthly_form',
     reviewer_required: false,
 };
 
 function normalizeEnabledTypes(raw) {
-    if (!raw || !Array.isArray(raw) || !raw.length) return [...DEFAULT_ENABLED_TYPES];
+    if (!raw || !Array.isArray(raw) || !raw.length) return [];
     const out = raw
         .map((t) => String(t || '').trim().toUpperCase())
         .filter((t) => ALL_CLAIM_TYPES.includes(t));
-    return out.length ? [...new Set(out)] : [...DEFAULT_ENABLED_TYPES];
+    return [...new Set(out)];
+}
+
+function collectedTypes(raw) {
+    return normalizeEnabledTypes(raw).filter((t) => COLLECTED_CLAIM_TYPES.includes(t));
+}
+
+function occasionalTypes(raw) {
+    return normalizeEnabledTypes(raw).filter((t) => OCCASIONAL_CLAIM_TYPES.includes(t));
+}
+
+function inputsDeclared(policy) {
+    return collectedTypes(policy?.enabled_types).length > 0;
+}
+
+function typeRequiresApproval(type) {
+    return APPROVAL_CLAIM_TYPES.includes(String(type || '').toUpperCase());
+}
+
+function isOccasionalClaimType(type) {
+    return OCCASIONAL_CLAIM_TYPES.includes(String(type || '').toUpperCase());
 }
 
 function normalizeCollectionMode(raw) {
@@ -119,13 +141,28 @@ async function getDefaultClaimsPolicy(pool) {
 
 function assertEnabledType(policy, claimType) {
     const t = String(claimType || '').trim().toUpperCase();
-    const allowed = normalizeEnabledTypes(policy?.enabled_types);
+    if (isOccasionalClaimType(t)) return;
+    if (!inputsDeclared(policy)) {
+        const err = new Error('This contract has not declared monthly inputs. Open Monthly Cycle → Setup.');
+        err.status = 409;
+        err.code = 'INPUTS_NOT_DECLARED';
+        throw err;
+    }
+    const allowed = collectedTypes(policy?.enabled_types);
     if (!allowed.includes(t)) {
         const err = new Error(`Claim type ${t} is not enabled for this contract`);
         err.status = 400;
         err.code = 'CLAIM_TYPE_DISABLED';
         throw err;
     }
+}
+
+function assertInputsDeclared(policy) {
+    if (inputsDeclared(policy)) return;
+    const err = new Error('This contract has not declared monthly inputs. Open Monthly Cycle → Setup.');
+    err.status = 409;
+    err.code = 'INPUTS_NOT_DECLARED';
+    throw err;
 }
 
 async function upsertClaimsPolicy(pool, contractId, body) {
@@ -182,9 +219,17 @@ module.exports = {
     hasApproveDeadline,
     deadlineYearMonth,
     assertEnabledType,
+    assertInputsDeclared,
+    collectedTypes,
+    occasionalTypes,
+    inputsDeclared,
+    typeRequiresApproval,
+    isOccasionalClaimType,
     shapePolicyRow,
     ALL_CLAIM_TYPES,
-    DEFAULT_ENABLED_TYPES,
+    COLLECTED_CLAIM_TYPES,
+    OCCASIONAL_CLAIM_TYPES,
+    APPROVAL_CLAIM_TYPES,
     COLLECTION_MODES,
     DEADLINE_MONTHS,
     DEFAULTS,

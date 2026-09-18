@@ -11,12 +11,15 @@ const {
     shapePolicyRow,
     DEFAULTS,
     ALL_CLAIM_TYPES,
+    assertEnabledType,
+    inputsDeclared,
 } = require('../src/modules/claims/claimsPolicy');
 
 describe('claimsPolicy', () => {
-    test('defaults enabled types to OT EXPENSE MEDICAL', () => {
-        expect(normalizeEnabledTypes(null)).toEqual(DEFAULTS.enabled_types);
-        expect(normalizeEnabledTypes([])).toEqual(DEFAULTS.enabled_types);
+    test('unset enabled types stay empty — never inherit Wafi', () => {
+        expect(normalizeEnabledTypes(null)).toEqual([]);
+        expect(normalizeEnabledTypes([])).toEqual([]);
+        expect(DEFAULTS.enabled_types).toEqual([]);
     });
 
     test('filters unknown claim types', () => {
@@ -79,8 +82,17 @@ describe('claimsPolicy', () => {
         expect(p.approve_deadline_day).toBeNull();
     });
 
-    test('ALL_CLAIM_TYPES includes ATTENDANCE for future PSO', () => {
-        expect(ALL_CLAIM_TYPES).toContain('ATTENDANCE');
-        expect(ALL_CLAIM_TYPES).toContain('OT');
+    test('ALL_CLAIM_TYPES includes attendance, claims and occasional corrections', () => {
+        expect(ALL_CLAIM_TYPES).toEqual(expect.arrayContaining([
+            'ATTENDANCE', 'OT', 'EXPENSE', 'MEDICAL',
+            'DEDUCTION', 'ARREARS', 'SPECIAL_ALLOWANCE',
+        ]));
+    });
+
+    test('unset policy blocks collected types and allows occasional corrections', () => {
+        expect(inputsDeclared({ enabled_types: [] })).toBe(false);
+        expect(() => assertEnabledType({ enabled_types: [] }, 'OT')).toThrow(/not declared/);
+        expect(() => assertEnabledType({ enabled_types: [] }, 'DEDUCTION')).not.toThrow();
+        expect(() => assertEnabledType({ enabled_types: ['OT'] }, 'EXPENSE')).toThrow(/not enabled/);
     });
 });

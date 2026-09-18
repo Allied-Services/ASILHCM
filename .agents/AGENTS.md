@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-18 — One rulebook: PSO payroll scope + declared inputs
+Fixed Value payroll now includes only `employees.contract_id` for the selected contract — attendance overrides / `so_deductions` no longer pull Janitorial or Ops Handling onto North Zone. Monthly Cycle attendance counts as done for invoicing (no Drive re-pull gate). Claim types are declared per contract; unset no longer inherits Wafi OT/Expense/Medical. Deductions / arrears / special allowance are occasional corrections. Operator payroll close follows declared types, not employee-code regex. Month Invoices is the default invoice screen; Fixed Value / PSO stays on `?tab=fixed_value`.
+
+**Env vars needed:** none. Run `npm run migrate` on the deploy target.
+
 ### 2026-09-15 — Income tax no longer drops on a 1-day absence
 Monthly WHT is floored at tax on the contractual salary. ASIL/PSO-056/25 (M Rasab, Rs. 55,000) was showing PKR 32 because one absent day prorated the tax base to ~53,226. It now stays PKR 50. OT can still lift tax above that floor (Wafi). Bonus / OPD / reimbursements / arrears stay excluded. Locked rows are not rewritten — recompute the run to refresh.
 

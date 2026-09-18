@@ -57,3 +57,7 @@ export function monthlyCycleSetupHref(contractId) {
 export function fixedValueMonthHref(contractId) {
   return staffHref('fixed_value', { contract: contractId });
 }
+
+export function monthInvoicesHref(contractId) {
+  return staffHref('month_invoices', { contract: contractId });
+}

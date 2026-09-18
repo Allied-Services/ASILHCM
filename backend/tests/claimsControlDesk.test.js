@@ -150,11 +150,12 @@ describe('claims control desk', () => {
         expect(actionViewFromControl(s)).toBe('waiting');
     });
 
-    test('PSO / Fixed Value uses operator payroll close, not Wafi LM approval', () => {
-        expect(usesOperatorPayrollClose({ id: 'ASIL/PSO-040/25', contract_id: 'CTR-PSO-NORTH-ZONE' })).toBe(true);
-        expect(usesOperatorPayrollClose({ collection_mode: 'machine_file' })).toBe(true);
+    test('operator payroll close follows declared types, not employee codes', () => {
+        expect(usesOperatorPayrollClose({ id: 'ASIL/PSO-040/25', contract_id: 'CTR-PSO-NORTH-ZONE' })).toBe(false);
+        expect(usesOperatorPayrollClose({ collection_mode: 'machine_file' })).toBe(false);
         expect(usesOperatorPayrollClose({ enabled_types: ['OT', 'ATTENDANCE'] })).toBe(true);
-        expect(usesOperatorPayrollClose({ id: 'ASIL/SPL-400/21', enabled_types: ['OT', 'EXPENSE', 'MEDICAL'] })).toBe(false);
+        expect(usesOperatorPayrollClose({ enabled_types: ['OT', 'EXPENSE', 'MEDICAL'] })).toBe(false);
+        expect(usesOperatorPayrollClose({ enabled_types: ['OT'], reviewer_required: true })).toBe(false);
     });
 
     test('recruiter can tick invite-sent PSO rows; already sent stays blocked', () => {

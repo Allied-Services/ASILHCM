@@ -48,9 +48,11 @@ describe('payrollAdjustments', () => {
         expect(isPayrollAdjustmentType('EXPENSE')).toBe(false);
     });
 
-    test('looksLikeFixedValueEmployee matches PSO / FV contracts', () => {
-        expect(looksLikeFixedValueEmployee({ id: 'ASIL/PSO-040/25' })).toBe(true);
-        expect(looksLikeFixedValueEmployee({ contract_id: 'CTR-PSO-NORTH-ZONE' })).toBe(true);
+    test('looksLikeFixedValueEmployee reads stored contract config only', () => {
+        expect(looksLikeFixedValueEmployee({ id: 'ASIL/PSO-040/25' })).toBe(false);
+        expect(looksLikeFixedValueEmployee({ contract_id: 'CTR-PSO-NORTH-ZONE' })).toBe(false);
+        expect(looksLikeFixedValueEmployee({ commercial_type: 'fixed_value' })).toBe(true);
+        expect(looksLikeFixedValueEmployee({ billing_model: 'service_order_deduction' })).toBe(true);
         expect(looksLikeFixedValueEmployee({ service_type: 'Fixed Value' })).toBe(true);
         expect(looksLikeFixedValueEmployee({ id: 'ASIL/SPL-400/21' })).toBe(false);
     });

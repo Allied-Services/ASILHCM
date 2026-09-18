@@ -100,23 +100,23 @@ const AUTH_BOOTSTRAP_MS = 14000;
 // finance_proposer: can see Employee Info (view), AP (view), Vendor (register/view/edit),
 // Inventory (create/add), Bills, Invoices (forbidden — enforced inside component), Annexure
 const ROLE_NAV = {
-    superadmin:           ['dashboard','employee','payroll','payroll_run','fixed_value','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev','bill_verification','compliance','ar'],
+    superadmin:           ['dashboard','employee','payroll','payroll_run','fixed_value','month_invoices','documents','billing','invoices','po_tracking','ap','client','vendor','inventory','annexure','config','users','audit_log','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev','bill_verification','compliance','ar'],
     supervisor:           ['attendance','maintenance'],
-    operations:           ['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev'],
-    operations_supervisor:['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev'],
-    operations_team:      ['employee','documents','client','fixed_value','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops'],
-    monthly_cycle:        ['monthly_cycle','claims_portal','fixed_value','attendance','employee','client'],
+    operations:           ['employee','documents','client','fixed_value','month_invoices','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev'],
+    operations_supervisor:['employee','documents','client','fixed_value','month_invoices','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev'],
+    operations_team:      ['employee','documents','client','fixed_value','month_invoices','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops'],
+    monthly_cycle:        ['monthly_cycle','claims_portal','fixed_value','month_invoices','attendance','employee','client'],
     procurement_proposer: ['billing','vendor','inventory','bill_verification','ap'],
     procurement_approver: ['billing','vendor','inventory','bill_verification'],
     procurement_manager:  ['billing','vendor','inventory','ap','maintenance','bill_verification'],
     procurement:          ['billing','vendor','inventory','ap','bill_verification'],
-    finance_proposer:     ['billing','invoices','fixed_value','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
-    finance_approver:     ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','client','annexure','config','users','attendance','claims_portal','monthly_cycle','contract_ops','compliance','bizdev','ar'],
-    finance_manager:      ['payroll','payroll_run','billing','invoices','fixed_value','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev','compliance','ar'],
-    ap_team:              ['ap','billing','payroll_run','fixed_value'],
-    ar_team:              ['invoices','fixed_value','po_tracking','billing','compliance'],
-    payroll_initiator:    ['payroll','payroll_run','fixed_value','employee','claims_portal','monthly_cycle'],
-    payroll:              ['payroll','payroll_run','fixed_value','employee','claims_portal','monthly_cycle'],
+    finance_proposer:     ['billing','invoices','fixed_value','month_invoices','po_tracking','employee','ap','vendor','inventory','annexure','maintenance','contract_ops','compliance'],
+    finance_approver:     ['payroll','payroll_run','billing','invoices','fixed_value','month_invoices','po_tracking','client','annexure','config','users','attendance','claims_portal','monthly_cycle','contract_ops','compliance','bizdev','ar'],
+    finance_manager:      ['payroll','payroll_run','billing','invoices','fixed_value','month_invoices','po_tracking','ap','client','vendor','annexure','config','users','attendance','maintenance','intake_hub','claims_portal','monthly_cycle','contract_ops','bizdev','compliance','ar'],
+    ap_team:              ['ap','billing','payroll_run','fixed_value','month_invoices'],
+    ar_team:              ['invoices','fixed_value','month_invoices','po_tracking','billing','compliance'],
+    payroll_initiator:    ['payroll','payroll_run','fixed_value','month_invoices','employee','claims_portal','monthly_cycle'],
+    payroll:              ['payroll','payroll_run','fixed_value','month_invoices','employee','claims_portal','monthly_cycle'],
     bizdev:               ['bizdev','client','contract_ops'],
     pending:              [],
 };
@@ -366,7 +366,7 @@ function App() {
     allowedTabs = ROLE_NAV[role] || [];
   }
 
-  const HIDDEN_LEGACY_NAV = new Set(['email_claims', 'wafi_claims', 'claims_queue', 'contract_ops']);
+  const HIDDEN_LEGACY_NAV = new Set(['email_claims', 'wafi_claims', 'claims_queue', 'contract_ops', 'fixed_value']);
   const visibleTabs = allowedTabs.filter((t) => !HIDDEN_LEGACY_NAV.has(t));
 
   // Auto-redirect to first allowed tab if current tab not accessible.
@@ -405,6 +405,7 @@ function App() {
     { key: 'payroll',   label: 'Payroll Sheet',          icon: <Calculator size={20} /> },
     { key: 'payroll_run', label: 'Payroll Run',        icon: <Calculator size={20} /> },
     { key: 'fixed_value', label: 'Fixed Value / PSO',  icon: <MapPin size={20} /> },
+    { key: 'month_invoices', label: 'Month Invoices',  icon: <FileText size={20} /> },
     { key: 'documents', label: 'Document Generator',     icon: <FilePlus size={20} /> },
     { key: 'billing',   label: 'Bills & Procurement',    icon: <Receipt size={20} /> },
     { key: 'invoices',    label: 'Invoices (AR)',          icon: <FileText size={20} /> },
@@ -505,6 +506,7 @@ function App() {
           {effectiveTab === 'payroll'    && <PayrollSheetErrorBoundary><PayrollSheet user={user} /></PayrollSheetErrorBoundary>}
           {effectiveTab === 'payroll_run' && <PayrollRun user={user} />}
           {effectiveTab === 'fixed_value' && <FixedValueErrorBoundary><FixedValueContracts user={user} /></FixedValueErrorBoundary>}
+          {effectiveTab === 'month_invoices' && <FixedValueErrorBoundary><FixedValueContracts user={user} mode="invoices" /></FixedValueErrorBoundary>}
           {effectiveTab === 'documents'  && <DocumentGenerator />}
           {effectiveTab === 'billing'    && <BillingProcurement user={user} />}
           {effectiveTab === 'invoices'    && <InvoiceSection user={user} />}

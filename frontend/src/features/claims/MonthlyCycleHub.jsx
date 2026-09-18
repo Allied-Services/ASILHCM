@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine, ListChecks, Download } from 'lucide-react';
 import { api } from '../../api';
-import { clientContractHref, isFixedValueService, readStaffQuery } from '../../navLinks';
+import { clientContractHref, isFixedValueService, monthInvoicesHref, readStaffQuery } from '../../navLinks';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import PortalClaimsHub from './PortalClaimsHub';
 import './PortalClaimsHub.css';
@@ -65,6 +65,11 @@ const CLAIM_TYPE_OPTIONS = [
   { id: 'OT', label: 'Overtime' },
   { id: 'EXPENSE', label: 'Expense reimbursement' },
   { id: 'MEDICAL', label: 'Medical reimbursement' },
+];
+const OCCASIONAL_TYPE_OPTIONS = [
+  { id: 'DEDUCTION', label: 'Deductions' },
+  { id: 'ARREARS', label: 'Arrears' },
+  { id: 'SPECIAL_ALLOWANCE', label: 'Special allowance' },
 ];
 
 const COLLECTION_MODES = [
@@ -196,7 +201,10 @@ function MonthlyCycleSetup({ user }) {
       {policy && (
         <>
           <div className="mch-block">
-            <h3>Claim types enabled</h3>
+            <h3>Collected every month</h3>
+            {!(policy.enabled_types || []).some((t) => CLAIM_TYPE_OPTIONS.some((o) => o.id === t)) && (
+              <p className="pch-err">Inputs not declared. This contract cannot run a month until you tick what it collects.</p>
+            )}
             <div className="mch-check-grid">
               {CLAIM_TYPE_OPTIONS.map((opt) => (
                 <label key={opt.id} className="mch-check">
@@ -210,6 +218,10 @@ function MonthlyCycleSetup({ user }) {
                 </label>
               ))}
             </div>
+            <p className="mch-muted" style={{ marginTop: 12 }}>
+              Occasional corrections — always available, never campaigned, never “pending”:
+              {' '}{OCCASIONAL_TYPE_OPTIONS.map((o) => o.label).join(' · ')}.
+            </p>
           </div>
           <div className="mch-block">
             <h3>Collection mode</h3>
@@ -968,11 +980,15 @@ export default function MonthlyCycleHub({ user }) {
           <CalendarRange size={22} />
           <div>
             <h1>Monthly Cycle</h1>
-            <p>One place to configure the rulebook, assign people, collect claims or a machine file, track, correct, and close the month.</p>
+            <p>Attendance and claims for the contract you configured in Setup. Payroll is the Payroll Sheet (or the desk below). Invoices are a separate page — they do not wait on payroll for Service Order contracts.</p>
             {comms && comms.mode !== 'on' && (
               <p className="mch-muted">Live mail/SMS: <strong>{comms.email}</strong> · SMS {comms.sms}. No Wafi or personal inboxes until verification.</p>
             )}
           </div>
+        </div>
+        <div className="mch-people-actions" style={{ margin: '8px 0 0' }}>
+          <a className="btn-secondary" href="/?tab=payroll">Open Payroll Sheet</a>
+          <a className="btn-secondary" href={monthInvoicesHref()}>Open Month Invoices</a>
         </div>
         <nav className="mch-nav">
           {SECTIONS.map(({ key, label, icon: Icon }) => (
