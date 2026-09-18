@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { sheetCalcFromEngine } = require('../src/modules/payrollSheet/service');
 const { computePrSheetRow } = require('../src/payroll/prSheetEngine');
 
@@ -108,5 +110,41 @@ describe('payrollSheet sheetCalcFromEngine', () => {
             pfDeduction: 1667,
         }, { standard_month_days: 30, service_charge_pct: 0.18 });
         expect(override.pfDeduction).toBe(1667);
+    });
+
+    test('exposes eobi_er and sessi from the engine for a 40k Sindh-style row', () => {
+        const salary = 40000;
+        const computed = computePrSheetRow({
+            newSalary: salary,
+            presentDays: 30,
+            expectedDays: 30,
+            modelA: true,
+            eobiMinWage: 40000,
+        }, { standard_month_days: 30, service_charge_pct: 0.18 });
+        expect(computed.eobiEmployer).toBe(2000);
+        expect(computed.sessiEmployer).toBe(2400);
+
+        const calc = sheetCalcFromEngine(computed, { paid_days: 30 }, { newSalary: salary });
+        expect(calc.eobi_er).toBe(2000);
+        expect(calc.sessi).toBe(2400);
+        expect(calc.eobi_ee).toBe(400);
+        expect(calc.pfEE).toBe(0);
+    });
+
+    test('upsert SQL persists eobi_er, sessi_er and pf_ee from calc', () => {
+        const src = fs.readFileSync(path.join(__dirname, '../src/modules/payrollSheet/service.js'), 'utf8');
+        const start = src.indexOf('async function upsertPayrollTransactions');
+        expect(start).toBeGreaterThan(-1);
+        const block = src.slice(start, src.indexOf('async function writeCycleAttendanceToSheet', start));
+        expect(block).toMatch(/eobi_er/);
+        expect(block).toMatch(/sessi_er/);
+        expect(block).toMatch(/pf_ee/);
+        expect(block).toMatch(/p\.calc\.eobi_er/);
+        expect(block).toMatch(/p\.calc\.sessi/);
+        expect(block).toMatch(/p\.calc\.pfEE/);
+        expect(block).toMatch(/r\.calc\.eobi_er/);
+        expect(block).toMatch(/r\.calc\.sessi/);
+        expect((block.match(/eobi_er = EXCLUDED\.eobi_er/g) || []).length).toBeGreaterThanOrEqual(2);
+        expect((block.match(/sessi_er = EXCLUDED\.sessi_er/g) || []).length).toBeGreaterThanOrEqual(2);
     });
 });

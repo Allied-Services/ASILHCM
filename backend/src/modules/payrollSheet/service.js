@@ -705,6 +705,9 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
         const net = chunk.map((r) => r.calc.netPay);
         const wht = chunk.map((r) => r.calc.incomeTax);
         const eobi = chunk.map((r) => r.calc.eobi_ee);
+        const eobiEr = chunk.map((r) => r.calc.eobi_er);
+        const sessiEr = chunk.map((r) => r.calc.sessi);
+        const pfEe = chunk.map((r) => r.calc.pfEE);
         const sc = chunk.map((r) => r.calc.serviceCharges);
         const st = chunk.map((r) => r.calc.salesTax);
         const inv = chunk.map((r) => r.calc.totalInvoice);
@@ -720,7 +723,7 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     reimbursement, arrears, bonus_amount, special_allowance, fuel_mobile,
                     other_deduction, advance_deduction, loan_deduction,
                     medical_ee, medical_sp, medical_ch1, medical_ch2,
-                    gross, net, wht, eobi_ee, service_charges, sales_tax, total_invoice,
+                    gross, net, wht, eobi_ee, eobi_er, sessi_er, pf_ee, service_charges, sales_tax, total_invoice,
                     remarks, computed_json, created_by, updated_at, salary_used
                  )
                  SELECT
@@ -728,7 +731,7 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     u.reimbursement, u.arrears, u.bonus_amount, u.special_allowance, u.fuel_mobile,
                     u.other_deduction, u.advance_deduction, u.loan_deduction,
                     u.medical_ee, u.medical_sp, u.medical_ch1, u.medical_ch2,
-                    u.gross, u.net, u.wht, u.eobi_ee, u.service_charges, u.sales_tax, u.total_invoice,
+                    u.gross, u.net, u.wht, u.eobi_ee, u.eobi_er, u.sessi_er, u.pf_ee, u.service_charges, u.sales_tax, u.total_invoice,
                     u.remarks, u.computed_json, u.created_by, NOW(), u.salary_used
                  FROM unnest(
                     $1::int[], $2::int[], $3::text[], $4::numeric[], $5::numeric[], $6::numeric[], $7::numeric[],
@@ -736,13 +739,14 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     $13::numeric[], $14::numeric[], $15::numeric[],
                     $16::numeric[], $17::numeric[], $18::numeric[], $19::numeric[],
                     $20::numeric[], $21::numeric[], $22::numeric[], $23::numeric[], $24::numeric[], $25::numeric[], $26::numeric[],
-                    $27::text[], $28::jsonb[], $29::text[], $30::numeric[]
+                    $27::numeric[], $28::numeric[], $29::numeric[],
+                    $30::text[], $31::jsonb[], $32::text[], $33::numeric[]
                  ) AS u(
                     month, year, employee_id, paid_days, ot2_hrs, ot3_hrs, opd_claim,
                     reimbursement, arrears, bonus_amount, special_allowance, fuel_mobile,
                     other_deduction, advance_deduction, loan_deduction,
                     medical_ee, medical_sp, medical_ch1, medical_ch2,
-                    gross, net, wht, eobi_ee, service_charges, sales_tax, total_invoice,
+                    gross, net, wht, eobi_ee, eobi_er, sessi_er, pf_ee, service_charges, sales_tax, total_invoice,
                     remarks, computed_json, created_by, salary_used
                  )
                  ON CONFLICT (employee_id, month, year) DO UPDATE SET
@@ -766,6 +770,9 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     net = EXCLUDED.net,
                     wht = EXCLUDED.wht,
                     eobi_ee = EXCLUDED.eobi_ee,
+                    eobi_er = EXCLUDED.eobi_er,
+                    sessi_er = EXCLUDED.sessi_er,
+                    pf_ee = EXCLUDED.pf_ee,
                     service_charges = EXCLUDED.service_charges,
                     sales_tax = EXCLUDED.sales_tax,
                     total_invoice = EXCLUDED.total_invoice,
@@ -782,7 +789,7 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     reimbursement, arrears, bonus_amount, special_allowance, fuel_mobile,
                     other_deduction, advance_deduction, loan_deduction,
                     medical_ee, medical_sp, medical_ch1, medical_ch2,
-                    gross, net, wht, eobi_ee, service_charges, sales_tax, total_invoice,
+                    gross, net, wht, eobi_ee, eobi_er, sessi_er, pf_ee, service_charges, sales_tax, total_invoice,
                     remarks, computed_json, created_by, updated_at
                  )
                  SELECT
@@ -790,7 +797,7 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     u.reimbursement, u.arrears, u.bonus_amount, u.special_allowance, u.fuel_mobile,
                     u.other_deduction, u.advance_deduction, u.loan_deduction,
                     u.medical_ee, u.medical_sp, u.medical_ch1, u.medical_ch2,
-                    u.gross, u.net, u.wht, u.eobi_ee, u.service_charges, u.sales_tax, u.total_invoice,
+                    u.gross, u.net, u.wht, u.eobi_ee, u.eobi_er, u.sessi_er, u.pf_ee, u.service_charges, u.sales_tax, u.total_invoice,
                     u.remarks, u.computed_json, u.created_by, NOW()
                  FROM unnest(
                     $1::int[], $2::int[], $3::text[], $4::numeric[], $5::numeric[], $6::numeric[], $7::numeric[],
@@ -798,13 +805,14 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     $13::numeric[], $14::numeric[], $15::numeric[],
                     $16::numeric[], $17::numeric[], $18::numeric[], $19::numeric[],
                     $20::numeric[], $21::numeric[], $22::numeric[], $23::numeric[], $24::numeric[], $25::numeric[], $26::numeric[],
-                    $27::text[], $28::jsonb[], $29::text[]
+                    $27::numeric[], $28::numeric[], $29::numeric[],
+                    $30::text[], $31::jsonb[], $32::text[]
                  ) AS u(
                     month, year, employee_id, paid_days, ot2_hrs, ot3_hrs, opd_claim,
                     reimbursement, arrears, bonus_amount, special_allowance, fuel_mobile,
                     other_deduction, advance_deduction, loan_deduction,
                     medical_ee, medical_sp, medical_ch1, medical_ch2,
-                    gross, net, wht, eobi_ee, service_charges, sales_tax, total_invoice,
+                    gross, net, wht, eobi_ee, eobi_er, sessi_er, pf_ee, service_charges, sales_tax, total_invoice,
                     remarks, computed_json, created_by
                  )
                  ON CONFLICT (employee_id, month, year) DO UPDATE SET
@@ -828,6 +836,9 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     net = EXCLUDED.net,
                     wht = EXCLUDED.wht,
                     eobi_ee = EXCLUDED.eobi_ee,
+                    eobi_er = EXCLUDED.eobi_er,
+                    sessi_er = EXCLUDED.sessi_er,
+                    pf_ee = EXCLUDED.pf_ee,
                     service_charges = EXCLUDED.service_charges,
                     sales_tax = EXCLUDED.sales_tax,
                     total_invoice = EXCLUDED.total_invoice,
@@ -841,7 +852,7 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     reimb, arrears, bonus, spl, fuel,
                     other, adv, loan,
                     medEe, medSp, medCh1, medCh2,
-                    gross, net, wht, eobi, sc, st, inv,
+                    gross, net, wht, eobi, eobiEr, sessiEr, pfEe, sc, st, inv,
                     remarks, computedJson, creators, salaryUsed,
                 ]
                 : [
@@ -849,7 +860,7 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     reimb, arrears, bonus, spl, fuel,
                     other, adv, loan,
                     medEe, medSp, medCh1, medCh2,
-                    gross, net, wht, eobi, sc, st, inv,
+                    gross, net, wht, eobi, eobiEr, sessiEr, pfEe, sc, st, inv,
                     remarks, computedJson, creators,
                 ],
         );
@@ -875,16 +886,16 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                          reimbursement, arrears, bonus_amount, special_allowance, fuel_mobile,
                          other_deduction, advance_deduction, loan_deduction,
                          medical_ee, medical_sp, medical_ch1, medical_ch2,
-                         gross, net, wht, eobi_ee, service_charges, sales_tax, total_invoice,
+                         gross, net, wht, eobi_ee, eobi_er, sessi_er, pf_ee, service_charges, sales_tax, total_invoice,
                          remarks, created_by, updated_at)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,NOW())
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,NOW())
                     ON CONFLICT (employee_id, month, year) DO UPDATE SET
                         paid_days=$4, ot2_hrs=$5, ot3_hrs=$6, opd_claim=$7,
                         reimbursement=$8, arrears=$9, bonus_amount=$10, special_allowance=$11,
                         fuel_mobile=$12, other_deduction=$13, advance_deduction=$14, loan_deduction=$15,
                         medical_ee=$16, medical_sp=$17, medical_ch1=$18, medical_ch2=$19,
-                        gross=$20, net=$21, wht=$22, eobi_ee=$23, service_charges=$24,
-                        sales_tax=$25, total_invoice=$26, remarks=$27, updated_at=NOW()
+                        gross=$20, net=$21, wht=$22, eobi_ee=$23, eobi_er=$24, sessi_er=$25, pf_ee=$26,
+                        service_charges=$27, sales_tax=$28, total_invoice=$29, remarks=$30, updated_at=NOW()
                     WHERE COALESCE(payroll_transactions.locked, FALSE) = FALSE`,
                 [
                     month, year, p.employee_id,
@@ -893,6 +904,7 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
                     p.ov.fuel_mobile, p.ov.other_deduction, p.ov.advance_deduction, p.ov.loan_deduction,
                     p.ov.medical_ee, p.ov.medical_sp, p.ov.medical_ch1, p.ov.medical_ch2,
                     p.calc.grossMonthly, p.calc.netPay, p.calc.incomeTax, p.calc.eobi_ee,
+                    p.calc.eobi_er, p.calc.sessi, p.calc.pfEE,
                     p.calc.serviceCharges, p.calc.salesTax, p.calc.totalInvoice,
                     p.ov.remarks, createdBy,
                 ]);
