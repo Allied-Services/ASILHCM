@@ -308,7 +308,16 @@ describe('Pillar 7 — Pakistan tax deductions', () => {
         expect(row.sessiEmployer).toBe(2400);
     });
 
-    test('SESSI exempt when contractual salary is 45000 or above', () => {
+    test('SESSI charges at contractual salary of exactly 45000', () => {
+        const row = computePrSheetRow({
+            newSalary: 45000,
+            paidDays: 30,
+            workingDays: 30,
+        }, POLICY);
+        expect(row.sessiEmployer).toBe(2400);
+    });
+
+    test('SESSI exempt when contractual salary is above 45000', () => {
         const row = computePrSheetRow({
             newSalary: 45158,
             paidDays: 30,

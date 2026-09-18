@@ -313,8 +313,8 @@ function computePrSheetRow(input, policy = {}) {
     const eobi = input.eobiEmployee != null
         ? { employeeShare: Math.round(Number(input.eobiEmployee)), employerShare: calculateEOBI(eobiPeriod).employerShare }
         : calculateEOBI(eobiPeriod);
-    // SESSI: flat Rs. 2,400 (6% × Rs. 40,000 min wage) when contractual salary < 45,000.
-    const sessiEr = salary < 45000 ? 2400 : 0;
+    // SESSI: flat Rs. 2,400 (6% × Rs. 40,000 min wage) when contractual salary <= 45,000.
+    const sessiEr = salary <= 45000 ? 2400 : 0;
     const eosbType = String(input.eosbType || input.eosb_type || '').trim();
     const isPF = eosbType === 'Provident Fund';
     // Explicit pfDeduction (Excel / monthly override) wins. A stored/default 0 on a

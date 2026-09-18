@@ -311,6 +311,15 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-18 — Calculate writes eobi_er and sessi_er; cost-plus invoice stamps
+Payroll Sheet Calculate already computed employer EOBI and SESSI on `computed_json` but `upsertPayrollTransactions` only stored `eobi_ee`, so columns stayed at schema defaults (1850 / 0). INSERT now writes `eobi_er`, `sessi_er`, and `pf_ee`. SESSI charges at contractual salary **<= 45,000** (August Excel charged 2400 at exactly 45k). WHT contractual-salary floor and EOBI 1%/5% of contract min wage are unchanged.
+
+Cost-plus invoice from the locked Sheet (`POST /api/month-close/:contractId/:year/:month/invoice`) was inserting `client_id` and skipping `invoice_number`. `client_invoices` requires `invoice_number` + `client` (name). TEST CLIENT lock then stamp was 500. Writer now matches the Service Order invoice insert.
+
+**Env vars needed:** none.
+
+**Env vars needed:** none.
+
 ### 2026-09-18 — One Payroll Sheet: invoices use locked days; leftover doors closed
 PSO Service Order absence shortages are rebuilt when the Payroll Sheet is locked (`absent = max(0, 30 − paid_days)`). Manual genset/chemical adjustments are unchanged. Wafi cost-plus is unchanged. Payroll Run, Email Claims, Wafi Claims, Claims Queue and Contract Policies no longer open from leftover `?tab=` links. Email Claims `push-to-payroll` returns 410. Historical `payroll_runs` and Wafi magic-link routes stay.
 
