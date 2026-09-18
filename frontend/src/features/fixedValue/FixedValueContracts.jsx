@@ -665,7 +665,7 @@ export default function FixedValueContracts({ user, mode = 'ops' }) {
                     <h2>{invoiceOnly ? 'Month Invoices' : 'This month — Fixed Value / PSO'}</h2>
                     <p>
                         {invoiceOnly
-                            ? 'Pick the contract and period. Attendance already collected in Monthly Cycle is enough — confirm billable services, then stamp. Contract rates live under Client Information.'
+                            ? 'Pick the contract and period. Lock the Payroll Sheet first so absence shortages match the days just approved. Then confirm billable services (genset, chemicals) and stamp. Contract rates live under Client Information.'
                             : 'Attendance collected in Monthly Cycle is the source of truth. Confirm billable services, then payroll or invoices. Contract rates live under Client Information.'}
                     </p>
                 </div>

@@ -366,12 +366,11 @@ function App() {
     allowedTabs = ROLE_NAV[role] || [];
   }
 
-  const HIDDEN_LEGACY_NAV = new Set(['email_claims', 'wafi_claims', 'claims_queue', 'contract_ops', 'fixed_value']);
+  const HIDDEN_LEGACY_NAV = new Set(['email_claims', 'wafi_claims', 'claims_queue', 'contract_ops', 'fixed_value', 'payroll_run']);
   const visibleTabs = allowedTabs.filter((t) => !HIDDEN_LEGACY_NAV.has(t));
 
-  // Auto-redirect to first allowed tab if current tab not accessible.
-  // Hidden doors stay reachable via leftover deep links.
-  const effectiveTab = (allowedTabs.includes(activeTab) || HIDDEN_LEGACY_NAV.has(activeTab))
+  // Hidden screens stay off the sidebar and leftover ?tab= links no longer open them.
+  const effectiveTab = (allowedTabs.includes(activeTab) && !HIDDEN_LEGACY_NAV.has(activeTab))
     ? activeTab
     : (visibleTabs[0] || '');
 
