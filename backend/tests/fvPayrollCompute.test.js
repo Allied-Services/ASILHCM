@@ -272,58 +272,30 @@ describe('FV PSO payroll compute', () => {
         expect(result.rows[0].inputs.opd).toBe(800);
     });
 
-    test('includes Drive-matched employees even when legacy contract_id differs from FV contract', async () => {
-        // Mimics production: attendance resolved ASIL/PSO-* by id, but roster still on old World A contract_id.
-        const legacy = makeEmployee('ASIL/PSO-024/25', {
-            site: 'TARUJABBA',
-            location: 'Tarujabba Depot',
-        });
-        const seeded = makeEmployee('ASIL-PSO-NZ-001', { site: 'CHITRAL' });
-        const state = {
-            employees: [legacy, seeded],
-            overrides: [
-                {
-                    employee_id: legacy.id,
-                    period_month: 7,
-                    period_year: 2026,
-                    present_days: 26,
-                    absent_days: 1,
-                    source: 'fv_conservancy_attendance',
-                },
-                {
-                    employee_id: seeded.id,
-                    period_month: 7,
-                    period_year: 2026,
-                    present_days: 27,
-                    absent_days: 0,
-                    source: 'fv_conservancy_attendance',
-                },
-            ],
-            deductions: [],
-            claims: [],
-            attendance: [],
-            runId: 0,
-            insertedRows: [],
+    test('Fixed Value payroll stays on the selected contract_id only', async () => {
+        const { loadEmployeesForPayrollRun } = require('../src/modules/payrollrun/service');
+        const calls = [];
+        const pool = {
+            query: jest.fn(async (sql) => {
+                calls.push(String(sql).replace(/\s+/g, ' '));
+                if (String(sql).includes('FROM employees e')) {
+                    return { rows: [makeEmployee('ASIL-PSO-NZ-001')] };
+                }
+                return { rows: [] };
+            }),
         };
-        const pool = buildMockPool(state);
-
-        const result = await computeRunForContract(pool, {
+        const rows = await loadEmployeesForPayrollRun(pool, {
             contractId: 'CTR-PSO-NORTH-ZONE',
-            month: 7,
+            month: 8,
             year: 2026,
+            policy: makePolicy(),
         });
-
-        expect(result.ok).toBe(true);
-        expect(result.headcount).toBe(2);
-        expect(result.rows.map((r) => r.employee_id).sort()).toEqual([legacy.id, seeded.id].sort());
-        expect(result.rows.find((r) => r.employee_id === legacy.id).computed.salaryForDays)
-            .toBe(Math.round(48000 * (30 / 31)));
-
-        // Expanded FV employee SELECT must have been used (service_orders / override path).
-        const empQueries = pool.query.mock.calls
-            .map(([sql]) => String(sql).replace(/\s+/g, ' '))
-            .filter((q) => q.includes('FROM employees e'));
-        expect(empQueries.some((q) => q.includes('fv_conservancy_attendance'))).toBe(true);
+        expect(rows).toHaveLength(1);
+        const empSql = calls.find((q) => q.includes('FROM employees e'));
+        expect(empSql).toContain('e.contract_id = $1');
+        expect(empSql).not.toContain('fv_conservancy_attendance');
+        expect(empSql).not.toContain('so_deductions');
+        expect(empSql).not.toContain('e.contract_name = $4');
     });
 
     test('keeps this-month arrears when the previous month did not have the same amount', async () => {

@@ -1,6 +1,6 @@
 ﻿'use strict';
 
-const { looksLikeFixedValueEmployee } = require('./payrollAdjustments');
+const { collectedTypes, typeRequiresApproval, inputsDeclared } = require('./claimsPolicy');
 
 const EPS_HRS = 0.009;
 const EPS_PKR = 0.5;
@@ -178,18 +178,14 @@ function emptyActionCounts() {
 }
 
 /**
- * Wafi monthly-form contracts collect Expense / Medical and wait for LM.
- * PSO / Fixed Value / machine-file / OT-only packs do not — the recruiter closes payroll.
+ * Operator (recruiter) closes payroll when no collected type needs approval.
+ * Unset contracts stay blocked — they do not inherit a Wafi or PSO guess.
  */
 function usesOperatorPayrollClose(emp = {}) {
-    if (looksLikeFixedValueEmployee(emp)) return true;
-    const mode = String(emp.collection_mode || emp.collectionMode || '').toLowerCase();
-    if (mode === 'machine_file') return true;
-    const types = Array.isArray(emp.enabled_types || emp.enabledTypes)
-        ? (emp.enabled_types || emp.enabledTypes).map((t) => String(t || '').toUpperCase())
-        : [];
-    if (types.length && !types.includes('EXPENSE') && !types.includes('MEDICAL')) return true;
-    return false;
+    const types = collectedTypes(emp.enabled_types || emp.enabledTypes);
+    if (!inputsDeclared({ enabled_types: types })) return false;
+    if (emp.reviewer_required === true || emp.reviewerRequired === true) return false;
+    return !types.some((t) => typeRequiresApproval(t));
 }
 
 const OPERATOR_PUSH_BLOCKED = new Set([

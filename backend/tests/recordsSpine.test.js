@@ -20,7 +20,7 @@ const { assertNoOpenConflicts } = require('../src/modules/records/provenance');
 describe('records spine — rulebook', () => {
     test('PSO / SO billing infers fixed_value', () => {
         expect(inferCommercialType({ billing_model: 'service_order_deduction' }, { id: 'CTR-X' })).toBe('fixed_value');
-        expect(inferCommercialType({}, { id: 'CTR-PSO-NORTH-ZONE' })).toBe('fixed_value');
+        expect(inferCommercialType({}, { id: 'CTR-PSO-NORTH-ZONE' })).toBe('cost_plus');
         expect(inferCommercialType({}, { service_type: 'Fixed Value Conservancy' })).toBe('fixed_value');
     });
 

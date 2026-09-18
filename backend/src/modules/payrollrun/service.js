@@ -310,12 +310,9 @@ async function allocateRunToCosts(pool, runId) {
 /**
  * Active employees eligible for a payroll run.
  *
- * Fixed Value / service-order contracts often keep historical World A
- * contract_ids on the roster while attendance is applied via Drive sheets
- * (resolve-by-employee-id). Payroll must still include those people when:
- *   - they have fv_conservancy_attendance overrides for the period, or
- *   - their site/location matches a service order under this contract,
- *   - and they are not owned by a *different* Fixed Value contract.
+ * Service-order / Fixed Value contracts use the selected contract_id only.
+ * Attendance overrides and so_deductions must not pull people from a
+ * neighbouring contract (Janitorial / Ops Handling onto North Zone).
  */
 async function loadEmployeesForPayrollRun(pool, { contractId, month, year, policy }) {
     const { isSoBillingModel } = require('../serviceOrders/sitesMeta');
@@ -340,44 +337,13 @@ async function loadEmployeesForPayrollRun(pool, { contractId, month, year, polic
         return rows;
     }
 
-    const { rows: nameRows } = await pool.query(
-        `SELECT contract_name FROM contracts WHERE id = $1`,
-        [contractId]
-    );
-    const contractName = nameRows[0]?.contract_name || null;
-
     const { rows } = await pool.query(
-        `SELECT DISTINCT ${selectCols}
+        `SELECT ${selectCols}
          FROM employees e
          WHERE ${activeClause}
-           AND (
-             e.contract_id = $1
-             OR ($4::text IS NOT NULL AND e.contract_name = $4)
-             OR EXISTS (
-               SELECT 1 FROM so_deductions d
-               JOIN service_orders so ON so.id = d.service_order_id
-               WHERE d.employee_id = e.id
-                 AND so.contract_id = $1
-                 AND d.period_month = $2
-                 AND d.period_year = $3
-             )
-             OR (
-               EXISTS (
-                 SELECT 1 FROM monthly_attendance_overrides mao
-                 WHERE mao.employee_id = e.id
-                   AND mao.period_month = $2
-                   AND mao.period_year = $3
-                   AND mao.source IN ('fv_conservancy_attendance', 'cycle_machine_file')
-               )
-               AND NOT EXISTS (
-                 SELECT 1 FROM service_orders so_other
-                 WHERE so_other.contract_id = e.contract_id
-                   AND so_other.contract_id IS DISTINCT FROM $1
-               )
-             )
-           )
+           AND e.contract_id = $1
          ORDER BY e.site NULLS LAST, e.name`,
-        [contractId, month, year, contractName]
+        [contractId, month, year]
     );
     return rows;
 }

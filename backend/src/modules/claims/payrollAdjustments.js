@@ -42,15 +42,18 @@ function isPayrollAdjustmentType(type) {
     return PAYROLL_ADJUSTMENT_TYPES.includes(String(type || '').toUpperCase());
 }
 
-/** PSO / Conservancy / Fixed Value — payroll runs read monthly_attendance_overrides, not the sheet. */
-function looksLikeFixedValueEmployee(emp = {}) {
-    const id = String(emp.id || emp.employeeId || emp.employee_id || '');
-    const contractId = String(emp.contract_id || emp.contractId || '');
+/** Fixed Value / Conservancy — stored contract config only. Never infer from an employee code. */
+function isFixedValueFromConfig(emp = {}) {
+    const commercial = String(emp.commercial_type || emp.commercialType || '').toLowerCase();
+    if (commercial === 'fixed_value') return true;
+    const billing = String(emp.billing_model || emp.billingModel || '').toLowerCase();
+    if (billing === 'service_order_deduction' || billing === 'fixed_value') return true;
     const serviceType = String(emp.service_type || emp.serviceType || '');
-    return /^ASIL\/PSO[-/]/i.test(id)
-        || /^CTR-PSO-/i.test(contractId)
-        || /fixed value/i.test(serviceType)
-        || /conservancy/i.test(serviceType);
+    return /fixed value/i.test(serviceType) || /conservancy/i.test(serviceType);
+}
+
+function looksLikeFixedValueEmployee(emp = {}) {
+    return isFixedValueFromConfig(emp);
 }
 
 module.exports = {
@@ -62,5 +65,6 @@ module.exports = {
     applyAdjustmentMode,
     replaceAdjustmentDelta,
     isPayrollAdjustmentType,
+    isFixedValueFromConfig,
     looksLikeFixedValueEmployee,
 };

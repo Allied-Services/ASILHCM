@@ -160,6 +160,33 @@ async function persistInvoicesAllSites(pool, { contractId, month, year, generate
 
 async function attendanceStatusBySite(pool, { contractId, month, year }) {
     const orders = await listServiceOrders(pool, { contractId });
+    const { rows: cycleRows } = await pool.query(
+        `SELECT id, file_name, submitted_at
+         FROM cycle_file_imports
+         WHERE contract_id = $1
+           AND period_month = $2
+           AND period_year = $3
+           AND status = 'submitted'
+         ORDER BY submitted_at DESC NULLS LAST
+         LIMIT 1`,
+        [contractId, month, year]
+    );
+    const { rows: contractOv } = await pool.query(
+        `SELECT COUNT(*)::int AS n
+         FROM monthly_attendance_overrides o
+         JOIN employees e ON e.id = o.employee_id
+         WHERE o.period_month = $1 AND o.period_year = $2
+           AND o.source = ANY($4::text[])
+           AND e.contract_id = $3
+           AND ${activeEmployeeSqlClause('e', {
+               lwdFloorSql: `make_date($2::int, $1::int, 1)`,
+           })}`,
+        [month, year, contractId, CYCLE_AND_FV_ATTENDANCE_SOURCES]
+    );
+    const cycleSubmitted = !!cycleRows[0];
+    const contractOverrideCount = contractOv[0]?.n || 0;
+    const contractAttendanceDone = cycleSubmitted || contractOverrideCount > 0;
+
     const out = [];
     for (const so of orders) {
         const deductions = await listDeductions(pool, so.id, month, year);
@@ -175,13 +202,17 @@ async function attendanceStatusBySite(pool, { contractId, month, year }) {
                })}`,
             [month, year, so.site_code, `%${so.site_code}%`, CYCLE_AND_FV_ATTENDANCE_SOURCES]
         );
+        const siteCount = ovCount[0]?.n || 0;
         out.push({
             siteCode: so.site_code,
             soId: so.id,
             siteName: so.name,
-            overrideCount: ovCount[0]?.n || 0,
+            overrideCount: siteCount,
             deductionCount: deductions.length,
-            status: (ovCount[0]?.n || 0) > 0 ? 'done' : 'not_started',
+            cycleSubmitted,
+            cycleFileName: cycleRows[0]?.file_name || null,
+            contractOverrideCount,
+            status: (siteCount > 0 || contractAttendanceDone) ? 'done' : 'not_started',
         });
     }
     return out;

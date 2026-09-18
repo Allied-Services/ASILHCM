@@ -24,8 +24,6 @@ function inferCommercialType(policy, contract) {
     if (billing === 'service_order_deduction' || billing === 'fixed_value') return 'fixed_value';
     const svc = String(contract?.service_type || '').toLowerCase();
     if (svc.includes('fixed value') || svc.includes('conservancy')) return 'fixed_value';
-    const id = String(contract?.id || '');
-    if (id.startsWith('CTR-PSO-')) return 'fixed_value';
     return 'cost_plus';
 }
 
