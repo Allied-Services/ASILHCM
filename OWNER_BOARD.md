@@ -70,7 +70,9 @@ STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August pays
 ## IN PROGRESS
 - BPO / PSO contract matching on staging (separate track — do not block)
 - August payslip resend (304 people) after live mail switch-on
-- Monthly Cycle Collect resend to Approver + Review Client board + Download (PR on `agent/cycle-resend-desk`) — live Usman/Ahsan LM mail waits for `Go red:`
+
+## JUST SHIPPED (2026-09-18)
+- **Monthly Cycle Collect can resend to the Line Manager** — Email goes to, Approver, or both. Review picks Client first and shows who is stuck plus No Claims. Track and Review have Download. Live API `5c556a4`. Usman / Ahsan LM mail still waits for `Go red:`.
 
 ## JUST SHIPPED (2026-09-15)
 - **Contract Service Orders page is clean** — North Zone `chapter=so` opens depots and line rates first. Details / Costs / Rates stay on their own tabs. Live totals still 10,732,648.00 / 1,717,223.68 / 12,449,871.68. No pay change.
