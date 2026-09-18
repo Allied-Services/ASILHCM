@@ -1,0 +1,28 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month for the pilot contract (38 people)
+Status: AMBER
+
+NOT FINISHED YET
+1. Pilot Excel vs HCM still not proven (waiting on payroll team CSV)
+2. August payslip resend still in progress after live mail switch-on
+3. New pay engine not used for real production pay yet
+
+NEEDS YOU TODAY
+- Send the pilot Excel export (or say who has it) so shadow month can finish
+- Close PR #146 (old EOBI — already superseded, has conflicts)
+- Review / fix conflicts on PR #158 (locked payroll AP sync) — or say leave it
+- Connect morning brief email on the Automation (still not sending)
+
+I SUGGEST
+- Do not Calculate August
+- Keep focus on August payslip resend + pilot Excel proof; no new builds
+
+FOCUS TODAY
+Finish August payslip resend and get the pilot Excel file — park new features.
+
+NOTE: This Automation still cannot send email. Brief is in the PR + HTML card.
+Card: docs/owner/morning_latest.html
+Agent: https://cursor.com/agents/bc-1ed87c13-3c9c-42ef-b71a-a75297a85905
+Live health: commit 0534d30 · status ok · migrations ok
