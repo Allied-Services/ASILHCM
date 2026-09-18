@@ -1,9 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ClipboardCheck, Download, Lock, RefreshCw } from 'lucide-react';
 import { api } from '../../api';
+import {
+  boardDownloadRows,
+  downloadCsv,
+  followingMonth,
+  mergeReviewPeople,
+  reviewStageOf,
+  rowsToCsv,
+} from './cycleDeskExport';
 
 const STAGES = [
   { id: '', label: 'All stages' },
+  { id: 'not_started', label: 'Not started' },
+  { id: 'waiting_fill', label: 'Waiting fill' },
+  { id: 'waiting_lm', label: 'Waiting LM' },
+  { id: 'no_claims', label: 'No Claims' },
+  { id: 'ready', label: 'Ready / review' },
   { id: 'submitted', label: 'Pending approval' },
   { id: 'approved', label: 'Approved' },
   { id: 'pushed', label: 'Pushed' },
@@ -12,23 +25,34 @@ const STAGES = [
 
 function currentWorkPeriod() {
   const now = new Date();
-  return { month: now.getMonth() + 1, year: now.getFullYear() };
+  const payMonth = now.getMonth() + 1;
+  const payYear = now.getFullYear();
+  const work = new Date(payYear, payMonth - 2, 1);
+  return { month: work.getMonth() + 1, year: work.getFullYear() };
 }
 
-function csvEscape(v) {
-  const s = v == null ? '' : String(v);
-  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
+function contractClient(c) {
+  return c.clientName || c.client || c.client_name || '';
+}
+
+function contractName(c) {
+  return c.contractName || c.contract_name || c.name || c.id;
+}
+
+function stageLabel(p) {
+  return p.controlLabel || STAGES.find((s) => s.id === reviewStageOf(p))?.label || reviewStageOf(p);
 }
 
 export default function ReviewDesk({ user }) {
   const period = currentWorkPeriod();
   const [month, setMonth] = useState(period.month);
   const [year, setYear] = useState(period.year);
+  const [client, setClient] = useState('');
   const [contractId, setContractId] = useState('');
   const [contracts, setContracts] = useState([]);
   const [stage, setStage] = useState('');
-  const [data, setData] = useState({ people: [], count: 0 });
+  const [peopleAll, setPeopleAll] = useState([]);
+  const [bankIncomplete, setBankIncomplete] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [picked, setPicked] = useState(() => new Set());
@@ -40,17 +64,44 @@ export default function ReviewDesk({ user }) {
     api.getContracts().then((rows) => setContracts(Array.isArray(rows) ? rows : [])).catch(() => setContracts([]));
   }, []);
 
+  const clients = useMemo(
+    () => [...new Set(contracts.map(contractClient).filter(Boolean))].sort(),
+    [contracts]
+  );
+  const contractsForClient = useMemo(
+    () => contracts.filter((c) => !client || contractClient(c) === client),
+    [contracts, client]
+  );
+
   async function load() {
+    if (!client) {
+      setPeopleAll([]);
+      setPicked(new Set());
+      setErr('');
+      return;
+    }
     setBusy(true);
     setErr('');
     try {
-      const result = await api.getPayrollInputDesk({
-        workMonth: month,
-        workYear: year,
-        contractId,
-        stage,
-      });
-      setData(result);
+      const pay = followingMonth(month, year);
+      const [ledger, board] = await Promise.all([
+        api.getPayrollInputDesk({
+          workMonth: month,
+          workYear: year,
+          contractId,
+          client,
+        }),
+        api.portalClaimsResponse({
+          workMonth: String(month),
+          workYear: String(year),
+          payMonth: String(pay.month),
+          payYear: String(pay.year),
+          client,
+          contract: contractId,
+        }),
+      ]);
+      setPeopleAll(mergeReviewPeople(board.people || [], ledger.people || []));
+      setBankIncomplete(ledger.bankIncomplete || 0);
       setPicked(new Set());
     } catch (e) {
       setErr(e.message || 'Could not load the review desk');
@@ -59,11 +110,16 @@ export default function ReviewDesk({ user }) {
     }
   }
 
-  useEffect(() => { load(); }, [month, year, contractId, stage]);
+  useEffect(() => { load(); }, [month, year, client, contractId]);
 
-  const people = data.people || [];
+  const people = useMemo(
+    () => (stage ? peopleAll.filter((p) => reviewStageOf(p) === stage) : peopleAll),
+    [peopleAll, stage]
+  );
   const allIds = people.map((p) => p.employeeId);
   const allOn = allIds.length > 0 && allIds.every((id) => picked.has(id));
+  const noClaimsCount = peopleAll.filter((p) => reviewStageOf(p) === 'no_claims').length;
+  const waitingLmCount = peopleAll.filter((p) => reviewStageOf(p) === 'waiting_lm').length;
 
   function toggleAll() {
     setPicked(allOn ? new Set() : new Set(allIds));
@@ -79,29 +135,11 @@ export default function ReviewDesk({ user }) {
   }
 
   function exportExcel() {
-    const header = [
-      'employee_id', 'name', 'client', 'location', 'item_type', 'present_days',
-      'absent_days', 'hours', 'amount', 'status', 'approved_by', 'approved_via', 'reason', 'locked', 'bank',
-    ];
-    const lines = [header.join(',')];
-    for (const p of people) {
-      if (picked.size && !picked.has(p.employeeId)) continue;
-      for (const item of p.items || []) {
-        lines.push([
-          p.employeeId, p.name, p.client, p.location, item.itemType,
-          item.presentDays, item.absentDays, item.hours, item.amount,
-          item.status, item.approvedBy, item.approvedVia, item.reason,
-          p.locked ? 'Y' : 'N',
-          p.bankReady === false ? (p.bankLabels || []).join('; ') : 'Ready',
-        ].map(csvEscape).join(','));
-      }
-    }
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `review_desk_${year}-${String(month).padStart(2, '0')}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const rows = boardDownloadRows(people);
+    downloadCsv(
+      `review_desk_${year}-${String(month).padStart(2, '0')}.csv`,
+      rowsToCsv(rows)
+    );
   }
 
   async function lockSelected() {
@@ -186,11 +224,21 @@ export default function ReviewDesk({ user }) {
           <input type="number" min="2026" value={year} onChange={(e) => setYear(Number(e.target.value))} />
         </label>
         <label>
+          Client
+          <select
+            value={client}
+            onChange={(e) => { setClient(e.target.value); setContractId(''); }}
+          >
+            <option value="">Select client…</option>
+            {clients.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <label>
           Contract
-          <select value={contractId} onChange={(e) => setContractId(e.target.value)}>
-            <option value="">All contracts</option>
-            {contracts.map((c) => (
-              <option key={c.id} value={c.id}>{c.contract_name || c.name || c.id}</option>
+          <select value={contractId} disabled={!client} onChange={(e) => setContractId(e.target.value)}>
+            <option value="">{client ? 'All contracts' : 'Select client first'}</option>
+            {contractsForClient.map((c) => (
+              <option key={c.id} value={c.id}>{contractName(c)}</option>
             ))}
           </select>
         </label>
@@ -200,11 +248,11 @@ export default function ReviewDesk({ user }) {
             {STAGES.map((s) => <option key={s.id || 'all'} value={s.id}>{s.label}</option>)}
           </select>
         </label>
-        <button type="button" className="btn-secondary" disabled={busy} onClick={load}>
+        <button type="button" className="btn-secondary" disabled={busy || !client} onClick={load}>
           <RefreshCw size={14} /> Refresh
         </button>
-        <button type="button" className="btn-secondary" onClick={exportExcel}>
-          <Download size={14} /> Excel
+        <button type="button" className="btn-secondary" disabled={!people.length} onClick={exportExcel}>
+          <Download size={14} /> Download
         </button>
         <button type="button" className="btn-secondary" disabled={busy} onClick={pushSelected}>
           Push to Payroll Sheet
@@ -214,15 +262,15 @@ export default function ReviewDesk({ user }) {
         </button>
       </div>
       <p className="mch-muted">
-        {data.count || 0} people
-        {selectedContract ? ` on ${selectedContract.contract_name || selectedContract.id}` : ''}.
-        Tick people (or leave empty to use the contract), review, then Lock and Push.
-        Locked rows appear in Accounts Payable next to Wafi. Bank files refuse a missing account or mobile.
+        {!client
+          ? 'Select a client to see everyone — including who is stuck and who has No Claims.'
+          : `${people.length} showing of ${peopleAll.length} people${selectedContract ? ` on ${contractName(selectedContract)}` : ''}. Waiting LM ${waitingLmCount} · No Claims ${noClaimsCount}.`}
+        {' '}Tick people (or leave empty to use the contract), then Lock and Push.
         {user?.email ? ` Signed in as ${user.email}.` : ''}
       </p>
-      {(data.bankIncomplete || 0) > 0 && (
+      {bankIncomplete > 0 && (
         <p className="review-desk-warn">
-          {data.bankIncomplete} people are missing a bank account or 03 mobile. Fix Employee Information before the HBL file can be produced.
+          {bankIncomplete} people are missing a bank account or 03 mobile. Fix Employee Information before the HBL file can be produced.
         </p>
       )}
       {err && <p className="mch-error">{err}</p>}
@@ -234,10 +282,11 @@ export default function ReviewDesk({ user }) {
                 <input type="checkbox" checked={allOn} onChange={toggleAll} aria-label="Select all" />
               </th>
               <th>Employee</th>
+              <th>Stage</th>
+              <th>Email goes to</th>
+              <th>Approver</th>
               <th>Type</th>
               <th>Days / hours / amount</th>
-              <th>Stage</th>
-              <th>Approved by</th>
               <th>Bank</th>
               <th>Sheet</th>
               <th></th>
@@ -258,20 +307,19 @@ export default function ReviewDesk({ user }) {
                   <strong>{p.name || p.employeeId}</strong>
                   <div className="mch-muted">{p.employeeId} · {p.location || '—'}</div>
                 </td>
+                <td>{stageLabel(p)}</td>
+                <td>{p.mailedTo || '—'}</td>
+                <td>{p.approver || '—'}</td>
                 <td>{item.itemType}</td>
                 <td>
                   {item.presentDays != null ? `${item.presentDays} present` : ''}
                   {item.absentDays != null ? ` / ${item.absentDays} absent` : ''}
                   {item.hours != null ? ` ${item.hours}h` : ''}
                   {item.amount != null ? ` Rs. ${item.amount}` : ''}
-                </td>
-                <td>{item.status}</td>
-                <td>
-                  {item.approvedBy || '—'}
-                  {item.approvedVia ? ` (${item.approvedVia})` : ''}
+                  {!p.items.length ? (p.noClaims ? 'No Claims' : (p.next || '—')) : ''}
                 </td>
                 <td className={p.bankReady === false ? 'review-desk-bank-bad' : ''}>
-                  {p.bankReady === false ? (p.bankLabels || []).join(', ') || 'Incomplete' : 'Ready'}
+                  {p.bankReady === false ? (p.bankLabels || []).join(', ') || 'Incomplete' : (p.bankReady ? 'Ready' : '—')}
                 </td>
                 <td>{p.locked ? 'Locked' : (p.sheetPaidDays != null ? `${p.sheetPaidDays} PD` : '—')}</td>
                 <td>
@@ -285,9 +333,14 @@ export default function ReviewDesk({ user }) {
                 </td>
               </tr>
             )))}
-            {!people.length && (
+            {!client && (
               <tr>
-                <td colSpan={9} className="mch-muted">No ledger rows for this month yet. Submit a machine file or approve claims first.</td>
+                <td colSpan={10} className="mch-muted">Select a client first. The full roster — including No Claims — is not loaded until you do.</td>
+              </tr>
+            )}
+            {client && !people.length && (
+              <tr>
+                <td colSpan={10} className="mch-muted">{busy ? 'Loading…' : 'No people for this client / stage.'}</td>
               </tr>
             )}
           </tbody>

@@ -2,6 +2,7 @@
 
 const {
     getClaimsMonitorCc,
+    getClaimsOpsCc,
     getClaimsReplyTo,
     mergeClaimsMonitorCc,
     withClaimsMonitorCc,
@@ -18,12 +19,15 @@ const {
 describe('claims monitor CC', () => {
     const prevCc = process.env.CLAIMS_MONITOR_CC;
     const prevUntil = process.env.CLAIMS_MONITOR_CC_UNTIL;
+    const prevOps = process.env.CLAIMS_OPS_CC;
 
     afterEach(() => {
         if (prevCc === undefined) delete process.env.CLAIMS_MONITOR_CC;
         else process.env.CLAIMS_MONITOR_CC = prevCc;
         if (prevUntil === undefined) delete process.env.CLAIMS_MONITOR_CC_UNTIL;
         else process.env.CLAIMS_MONITOR_CC_UNTIL = prevUntil;
+        if (prevOps === undefined) delete process.env.CLAIMS_OPS_CC;
+        else process.env.CLAIMS_OPS_CC = prevOps;
     });
 
     it('defaults to claims@asil.com.pk before the until date', () => {
@@ -43,13 +47,30 @@ describe('claims monitor CC', () => {
         expect(getClaimsMonitorCc(new Date('2026-08-15T10:00:00+05:00'))).toEqual([]);
     });
 
+    it('always CCs ops-support unless CLAIMS_OPS_CC is emptied', () => {
+        delete process.env.CLAIMS_OPS_CC;
+        expect(getClaimsOpsCc()).toEqual(['ops-support@asil.com.pk']);
+        process.env.CLAIMS_OPS_CC = '';
+        expect(getClaimsOpsCc()).toEqual([]);
+    });
+
+    it('keeps ops-support after the monitor CC until date', () => {
+        delete process.env.CLAIMS_MONITOR_CC;
+        delete process.env.CLAIMS_OPS_CC;
+        process.env.CLAIMS_MONITOR_CC_UNTIL = '2026-11-15';
+        expect(mergeClaimsMonitorCc(
+            { to: 'lm@wafi.example' },
+            new Date('2026-11-16T00:00:01+05:00')
+        )).toEqual(['ops-support@asil.com.pk']);
+    });
+
     it('does not CC an address that is already To', () => {
         delete process.env.CLAIMS_MONITOR_CC;
         delete process.env.CLAIMS_MONITOR_CC_UNTIL;
         expect(mergeClaimsMonitorCc(
             { to: 'claims@asil.com.pk' },
             new Date('2026-08-15T10:00:00+05:00')
-        )).toEqual([]);
+        )).toEqual(['ops-support@asil.com.pk']);
     });
 
     it('wraps sendAppEmail with the monitor CC', async () => {
@@ -62,7 +83,7 @@ describe('claims monitor CC', () => {
             to: 'focal@wafi.example',
             subject: 'x',
             html: '<p>x</p>',
-            cc: ['claims@asil.com.pk'],
+            cc: ['claims@asil.com.pk', 'ops-support@asil.com.pk'],
         });
     });
 
@@ -82,7 +103,7 @@ describe('claims monitor CC', () => {
             to: 'focal@wafi.example',
             subject: 'x',
             html: '<p>x</p>',
-            cc: ['claims@asil.com.pk'],
+            cc: ['claims@asil.com.pk', 'ops-support@asil.com.pk'],
             reply_to: 'ops-support@asil.com.pk',
         });
     });

@@ -1043,7 +1043,7 @@ export default function MonthlyCycleHub({ user }) {
           user={user}
           lockSection="response"
           hideSectionNav
-          initialFilter="payroll_desk"
+          initialFilter="all"
         />
       )}
       {section === 'close' && <MonthClosePanel />}
