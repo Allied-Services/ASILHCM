@@ -3,7 +3,7 @@
 const path = require('path');
 const { handleRouteError } = require('../../core/validate');
 const portal = require('./portalService');
-const { withClaimsPortalMail, getClaimsMonitorCc } = require('./claimsMail');
+const { withClaimsPortalMail, getClaimsMonitorCc, getClaimsOpsCc } = require('./claimsMail');
 const { requireClaimsPortal, canAccessClaimsPortal, CAMPAIGN_ROLES, VIEW_ROLES } = require('./claimsAccess');
 const { requireMonthlyCycle, VIEW_ROLES: MONTHLY_VIEW_ROLES } = require('./monthlyCycleAccess');
 
@@ -26,7 +26,7 @@ function campaignGates() {
         actualSendAllowed: process.env.CLAIMS_ALLOW_ACTUAL_SEND === 'true',
         sampleEmailConfigured: String(sampleEmail).includes('@'),
         sampleEmail: String(sampleEmail).includes('@') ? String(sampleEmail).trim().toLowerCase() : null,
-        monitorCc: getClaimsMonitorCc(),
+        monitorCc: [...new Set([...getClaimsMonitorCc(), ...getClaimsOpsCc()])],
     };
 }
 

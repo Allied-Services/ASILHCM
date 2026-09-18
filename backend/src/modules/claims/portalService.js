@@ -63,7 +63,7 @@ const {
     isPayrollAdjustmentType,
     looksLikeFixedValueEmployee,
 } = require('./payrollAdjustments');
-const { planChase, planSmartReminder } = require('./claimsChase');
+const { planChase, planSmartReminder, followingWorkMonth } = require('./claimsChase');
 const {
     isDueForReminder,
     shouldSendApproverNotifyEmail,
@@ -2755,11 +2755,12 @@ async function chaseDeskAction(pool, opts, sendAppEmail, sendJazzSMS = null) {
         return { ok: false, status: 500, error: 'CLAIMS_SAMPLE_EMAIL is not configured on this server.' };
     }
 
+    const pay = followingWorkMonth(opts.workMonth, opts.workYear);
     const board = await getResponseBoard(pool, {
         workMonth: opts.workMonth,
         workYear: opts.workYear,
-        payMonth: opts.payMonth,
-        payYear: opts.payYear,
+        payMonth: opts.payMonth || pay.month,
+        payYear: opts.payYear || pay.year,
         client: opts.client || '',
         contract: opts.contract || '',
         location: opts.location || '',

@@ -6,10 +6,17 @@ const {
     DESK_FINISHED,
 } = require('./claimsDesk');
 
+function followingWorkMonth(month, year) {
+    const m = parseInt(month, 10);
+    const y = parseInt(year, 10);
+    if (!m || !y) return { month: null, year: null };
+    return m === 12 ? { month: 1, year: y + 1 } : { month: m + 1, year: y };
+}
+
 const FINISHED = new Set(['on_sheet', 'other_data', 'ready_import', 'no_claims', 'rejected', 'closed']);
 const INVITE_OK = new Set(['not_invited']);
 const FILLER_REMIND_OK = new Set(['invite_sent', 'waiting_focal', 'waiting_employee', 'waiting_fill']);
-const APPROVER_REMIND_OK = new Set(['waiting_lm', 'waiting_asil']);
+const APPROVER_REMIND_OK = new Set(['waiting_lm', 'waiting_asil', 'final_lm_review']);
 
 function uniqueEmails(people, field) {
     const seen = new Set();
@@ -196,4 +203,5 @@ module.exports = {
     uniqueEmails,
     planChase,
     planSmartReminder,
+    followingWorkMonth,
 };

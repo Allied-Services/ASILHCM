@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
+import { buildChasePayload, confirmSendMessage } from './cycleDeskExport';
 
 const PROFILE_LABEL = {
   focal_then_lm: 'Focal + LM',
@@ -46,6 +47,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
   const [selected, setSelected] = useState(() => new Set());
   const [activeId, setActiveId] = useState(null);
   const [confirmActual, setConfirmActual] = useState(false);
+  const [sendTarget, setSendTarget] = useState('filler');
   const [sendResults, setSendResults] = useState(null);
   const [filterRows, setFilterRows] = useState([]);
   const [filterGates, setFilterGates] = useState({});
@@ -224,24 +226,85 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
       return;
     }
     const ids = [...selected];
-    const fillerCount = new Set(employees.filter(e => selected.has(e.id)).map(e => e.fillerEmail)).size;
-    const label = mode === 'sample' ? 'SAMPLE' : 'ACTUAL';
-    if (!window.confirm(`Send ${label} invites for ${ids.length} employee(s) → ${fillerCount} email(s) for ${month}/${year}?`)) return;
+    const pickedEmployees = employees.filter(e => selected.has(e.id));
+    const wantFiller = sendTarget === 'filler' || sendTarget === 'both';
+    const wantApprover = sendTarget === 'approver' || sendTarget === 'both';
+    let approverPlan = null;
+    if (wantApprover) {
+      try {
+        approverPlan = await api.portalClaimsChase(buildChasePayload({
+          action: 'remind_approver',
+          employeeIds: ids,
+          month,
+          year,
+          campaignMode: mode,
+          preview: true,
+          audience: audience(),
+        }));
+      } catch (e) {
+        setErr(e.message);
+        return;
+      }
+      if (!wantFiller && !(approverPlan.send || []).length) {
+        setErr('None of the ticked people are waiting on a Line Manager. Approver mail is only for claims already submitted.');
+        setSendResults(approverPlan.skipped || []);
+        return;
+      }
+    }
+    const confirmText = confirmSendMessage({
+      target: sendTarget,
+      month,
+      year,
+      employees: pickedEmployees,
+      approverPlan,
+    });
+    if (!window.confirm(confirmText)) return;
 
     setBusy(true); setErr(''); setMsg(''); setSendResults(null);
     try {
-      const d = await api.portalClaimsCampaign({
-        month, year, dryRun: false, campaignMode: mode,
-        onlyEmployeeIds: ids,
-        ...audience(),
-      });
-      const invites = d.invites || [];
-      const ok = invites.filter(i => i.ok).length;
-      const fail = invites.filter(i => !i.ok);
-      setSendResults(invites);
+      const results = [];
+      if (wantFiller) {
+        const d = await api.portalClaimsCampaign({
+          month, year, dryRun: false, campaignMode: mode,
+          onlyEmployeeIds: ids,
+          ...audience(),
+        });
+        results.push(...(d.invites || []).map((i) => ({ ...i, route: 'filler' })));
+      }
+      if (wantApprover) {
+        const d = await api.portalClaimsChase(buildChasePayload({
+          action: 'remind_approver',
+          employeeIds: ids,
+          month,
+          year,
+          campaignMode: mode,
+          preview: false,
+          audience: audience(),
+        }));
+        results.push(...(d.sent || []).map((i) => ({
+          fillerEmail: i.to,
+          mailTo: i.to,
+          ok: i.ok !== false && i.emailed !== false,
+          error: i.error || (i.emailed === false ? 'Approver pack saved, email not sent' : null),
+          route: 'approver',
+        })));
+        if ((d.skipped || []).length && !wantFiller) {
+          results.push(...d.skipped.map((s) => ({
+            fillerEmail: s.name,
+            mailTo: s.employee_id,
+            ok: false,
+            error: s.reason,
+            route: 'approver',
+          })));
+        }
+      }
+      const ok = results.filter(i => i.ok).length;
+      const fail = results.filter(i => !i.ok);
+      setSendResults(results);
+      const who = sendTarget === 'approver' ? 'Approver' : (sendTarget === 'both' ? 'Email goes to and Approver' : 'Email goes to');
       setMsg(mode === 'sample'
-        ? `SAMPLE sent — ${ok} email(s) redirected to ${gates.sampleEmail || 'the sample inbox'} for ${ids.length} employee(s).${fail.length ? ` ${fail.length} failed.` : ''}`
-        : `ACTUAL sent — ${ok} email(s) covering ${ids.length} employee(s).${fail.length ? ` ${fail.length} failed.` : ''}`);
+        ? `SAMPLE sent to ${who} — ${ok} email(s) redirected to ${gates.sampleEmail || 'the sample inbox'}.${fail.length ? ` ${fail.length} failed.` : ''}`
+        : `ACTUAL sent to ${who} — ${ok} email(s).${fail.length ? ` ${fail.length} failed.` : ''}`);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -264,8 +327,8 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
       <h3 style={{ margin: '0 0 4px' }}>Send claim request emails</h3>
       <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-muted)', maxWidth: 860, lineHeight: 1.5 }}>
         {actualOnly
-          ? 'These emails go to the real Focal / LM addresses. Choose Client (then Contract / Department / Location if you want), Load employees, tick who to send, confirm, and Send.'
-          : 'Choose Client (then Contract / Department / Location if you want), then Load employees. Only that slice is fetched. Tick who to send. Focals get one email for their nominated people.'}
+          ? 'These emails go to the real inboxes. Choose Client, Load employees, tick people, then send to Email goes to (filler), Approver (Line Manager), or both.'
+          : 'Choose Client (then Contract / Department / Location if you want), then Load employees. Tick who to send. Email goes to = filler invite. Approver = Line Manager approve pack, only after they have submitted.'}
       </p>
 
       {err && <div style={{ color: '#fca5a5', marginBottom: 10 }}>{err}</div>}
@@ -393,7 +456,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
                   <span style={{ fontSize: 13, color: '#e2e8f0' }}>
                     {selected.size
                       ? <><strong style={{ color: '#22c55e' }}>{selected.size}</strong> selected · {selectedFillerCount} email(s) · {visible.length} in this filter</>
-                      : 'Tick the green boxes, then Send. Only ticked employees are included.'}
+                      : 'Tick the green boxes, pick Email goes to / Approver / both, then Send.'}
                   </span>
                 </div>
                 <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border)', maxHeight: 480 }}>
@@ -497,6 +560,22 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
 
           {canSend && filterClient && (
             <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', width: '100%' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Send to</span>
+                {[
+                  ['filler', 'Email goes to'],
+                  ['approver', 'Approver'],
+                  ['both', 'Both'],
+                ].map(([id, label]) => (
+                  <label key={id} style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="radio" name="claims-send-target" checked={sendTarget === id} onChange={() => setSendTarget(id)} />
+                    {label}
+                  </label>
+                ))}
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Approver mail only works after the claim is submitted and waiting on the Line Manager.
+                </span>
+              </div>
               {!actualOnly && (
               <button type="button"
                 disabled={busy || !selected.size}
@@ -507,13 +586,13 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
                   padding: '8px 16px', borderRadius: 8, cursor: selected.size ? 'pointer' : 'not-allowed',
                   fontWeight: 700, fontSize: 13, opacity: selected.size ? 1 : 0.5,
                 }}>
-                Send SAMPLE ({selected.size} employee{selected.size === 1 ? '' : 's'} → {selectedFillerCount} email{selectedFillerCount === 1 ? '' : 's'})
+                Send SAMPLE ({selected.size} employee{selected.size === 1 ? '' : 's'})
               </button>
               )}
               <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <input type="checkbox" checked={confirmActual} onChange={e => setConfirmActual(e.target.checked)}
                   disabled={!gates.actualSendAllowed} />
-                I confirm sending {selectedFillerCount} ACTUAL email(s) for {selected.size} employee(s)
+                I confirm sending ACTUAL mail for {selected.size} employee(s) to {sendTarget === 'approver' ? 'Approver' : (sendTarget === 'both' ? 'Email goes to and Approver' : 'Email goes to')}
               </label>
               <button type="button"
                 disabled={busy || !selected.size || !confirmActual || !gates.actualSendAllowed}
@@ -524,7 +603,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
                   cursor: (!selected.size || !confirmActual || !gates.actualSendAllowed) ? 'not-allowed' : 'pointer',
                   opacity: (!selected.size || !confirmActual || !gates.actualSendAllowed) ? 0.45 : 1,
                 }}>
-                Send ACTUAL to {selected.size} selected
+                {sendTarget === 'approver' ? 'Resend to Approver' : sendTarget === 'both' ? 'Resend to both' : 'Send / resend to Email goes to'}
               </button>
               {!gates.actualSendAllowed && (
                 <span style={{ fontSize: 12, color: '#fca5a5' }}>
@@ -541,7 +620,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    <th style={th}>Filler</th>
+                    <th style={th}>Who</th>
                     <th style={th}>To</th>
                     <th style={th}>Link</th>
                     <th style={th}>Result</th>
@@ -550,7 +629,7 @@ export default function ClaimRequestCampaign({ user, onPeriodChange, claimMonth,
                 <tbody>
                   {sendResults.map((i, idx) => (
                     <tr key={i.fillerEmail || idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={td}>{i.fillerEmail}</td>
+                      <td style={td}>{i.route === 'approver' ? 'Approver' : 'Email goes to'}{i.fillerEmail ? ` · ${i.fillerEmail}` : ''}</td>
                       <td style={td}>{i.mailTo || '—'}</td>
                       <td style={{ ...td, fontSize: 11, maxWidth: 280, wordBreak: 'break-all' }}>
                         {i.link ? (

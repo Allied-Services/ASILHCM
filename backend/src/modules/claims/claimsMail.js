@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const DEFAULT_MONITOR_CC = 'claims@asil.com.pk';
 const DEFAULT_MONITOR_CC_UNTIL = '2026-11-15';
 const DEFAULT_REPLY_TO = 'ops-support@asil.com.pk';
+const DEFAULT_OPS_CC = 'ops-support@asil.com.pk';
 
 function getSampleEmail() {
     const v = process.env.CLAIMS_SAMPLE_EMAIL || process.env.CLAIMS_TEST_EMAIL;
@@ -33,11 +34,20 @@ function getClaimsMonitorCc(now = new Date()) {
     return normalizeEmailList(list);
 }
 
+/** Standing ops copy. Empty CLAIMS_OPS_CC disables. Does not expire with the monitor CC. */
+function getClaimsOpsCc() {
+    if (process.env.CLAIMS_OPS_CC === '') return [];
+    const raw = process.env.CLAIMS_OPS_CC;
+    const list = raw && String(raw).includes('@') ? raw : DEFAULT_OPS_CC;
+    return normalizeEmailList(list);
+}
+
 function mergeClaimsMonitorCc(opts = {}, now = new Date()) {
     const monitor = getClaimsMonitorCc(now);
+    const ops = getClaimsOpsCc();
     const to = normalizeEmailList(opts.to);
     const existing = normalizeEmailList(opts.cc);
-    const cc = [...new Set([...existing, ...monitor])].filter((e) => !to.includes(e));
+    const cc = [...new Set([...existing, ...monitor, ...ops])].filter((e) => !to.includes(e));
     return cc;
 }
 
@@ -314,8 +324,10 @@ function wrapClaimsHtmlFooter(html) {
 module.exports = {
     getSampleEmail,
     getClaimsMonitorCc,
+    getClaimsOpsCc,
     getClaimsReplyTo,
     mergeClaimsMonitorCc,
+    DEFAULT_OPS_CC,
     withClaimsMonitorCc,
     withClaimsReplyTo,
     withClaimsPortalMail,

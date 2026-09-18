@@ -4,6 +4,7 @@ import { BookOpen, X } from 'lucide-react';
 import { api } from '../../api';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import { isTemplateExampleCode, parseManualClaimsCsv } from './manualClaimsCsv';
+import { boardDownloadRows, downloadCsv, rowsToCsv } from './cycleDeskExport';
 import './PortalClaimsHub.css';
 
 const SADIA_EMAIL = 'sadia.komal@asil.com.pk';
@@ -929,12 +930,24 @@ export default function PortalClaimsHub({
                   <button type="button" className={`pch-chip${filter === 'done_no_claims' ? ' is-on' : ''}`} onClick={() => setFilter('done_no_claims')}>No Claims {pipelineCounts.done_no_claims}</button>
                   <button type="button" className={`pch-chip${filter === 'pending_lm' ? ' is-on' : ''}`} onClick={() => setFilter('pending_lm')}>Waiting LM {pipelineCounts.pending_lm}</button>
                   <button type="button" className={`pch-chip${filter === 'done_approved' ? ' is-on' : ''}`} onClick={() => setFilter('done_approved')}>Approved {pipelineCounts.done_approved}</button>
+                  <button type="button" className={`pch-chip${filter === 'payroll_desk' ? ' is-on' : ''}`} onClick={() => setFilter('payroll_desk')}>Ready / on sheet {payrollDeskCount}</button>
                 </>
               )}
               {filter === 'payroll_desk' && (
                 <button type="button" className="pch-chip is-on">Payroll desk {payrollDeskCount}</button>
               )}
               <button type="button" className="btn-secondary" onClick={loadBoard}>Refresh</button>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={!people.length}
+                onClick={() => downloadCsv(
+                  `claims_board_${workYear}-${String(workMonth).padStart(2, '0')}.csv`,
+                  rowsToCsv(boardDownloadRows(people))
+                )}
+              >
+                Download
+              </button>
             </div>
             <div className="pch-who">
               <span className="pch-who-label">Filler</span>

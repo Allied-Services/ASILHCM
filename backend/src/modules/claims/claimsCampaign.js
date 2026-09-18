@@ -14,7 +14,12 @@ const {
     sampleBodyBanner,
     isSamplePeriod,
     getClaimsMonitorCc,
+    getClaimsOpsCc,
 } = require('./claimsMail');
+
+function claimsPortalCc() {
+    return [...new Set([...getClaimsMonitorCc(), ...getClaimsOpsCc()])];
+}
 
 function buildShortFillerInviteHtml({
     period, employeeCount, link, fillerEmail, employees = [], routingProfile, approverSummary, roleLabel, intendedEmail, pack = {},
@@ -94,7 +99,7 @@ function buildSetupNeededPayload({ period, people, FRONTEND_URL }) {
         html,
         subject,
         link,
-        cc: getClaimsMonitorCc(),
+        cc: claimsPortalCc(),
         fillerEmail: SADIA_SETUP_EMAIL,
     };
 }
@@ -206,7 +211,7 @@ function buildInvitePayload({
             employees: emps, routingProfile, approverSummary, roleLabel, intendedEmail: fillerEmail, pack,
         });
     const subject = `${sampleSubjectPrefix(period, roleLabel)}ASIL Claims ${period.claim_month}/${period.claim_year} — ${emps.length} employee(s)`;
-    const cc = getClaimsMonitorCc();
+    const cc = claimsPortalCc();
     return { token, tokenHash, link, mail, html, subject, approverSummary, cc };
 }
 

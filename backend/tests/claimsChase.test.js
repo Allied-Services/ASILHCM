@@ -1,6 +1,6 @@
 'use strict';
 
-const { planChase, planSmartReminder } = require('../src/modules/claims/claimsChase');
+const { planChase, planSmartReminder, followingWorkMonth } = require('../src/modules/claims/claimsChase');
 
 function person(partial) {
     return {
@@ -45,11 +45,17 @@ describe('planChase', () => {
             person({ employee_id: 'B', status: 'waiting_lm', lm: 'lm@wafi', mailed_to: 'other@wafi' }),
             person({ employee_id: 'C', status: 'waiting_asil', lm: 'huzaifa@asil.com.pk' }),
             person({ employee_id: 'D', status: 'waiting_focal', lm: 'skip@wafi' }),
+            person({ employee_id: 'E', status: 'final_lm_review', lm: 'lm@wafi' }),
         ];
         const plan = planChase({ people, action: 'remind_approver', force: false });
-        expect(plan.send.map((p) => p.employee_id)).toEqual(['A', 'B', 'C']);
+        expect(plan.send.map((p) => p.employee_id)).toEqual(['A', 'B', 'C', 'E']);
         expect(plan.targets.map((t) => t.email)).toEqual(['lm@wafi', 'huzaifa@asil.com.pk']);
         expect(plan.skipped[0].reason).toBe('not_waiting_approver');
+    });
+
+    test('followingWorkMonth fills the next payroll month', () => {
+        expect(followingWorkMonth(8, 2026)).toEqual({ month: 9, year: 2026 });
+        expect(followingWorkMonth(12, 2026)).toEqual({ month: 1, year: 2027 });
     });
 
     test('force lets superadmin re-mail finished people', () => {
