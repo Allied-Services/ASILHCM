@@ -98,24 +98,41 @@ async function generateCostPlusInvoiceFromSheet(pool, { contractId, year, month,
         return { invoice: rows[0], created: false };
     }
 
+    const invNo = await nextCostPlusInvoiceNumber(pool, year, month);
     const { rows } = await pool.query(
         `INSERT INTO client_invoices
-            (client_id, contract_id, period_month, period_year, subtotal, sales_tax, grand_total,
-             status, notes, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'Draft',$8,NOW())
+            (invoice_number, client, contract, contract_id, period_month, period_year,
+             subtotal, sales_tax, grand_total, notes, status, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Draft',$11)
          RETURNING *`,
-        [book.client_id, contractId, month, year, subtotal, salesTax, grand, notes]
-    ).catch(async () => {
-        const { rows: fallback } = await pool.query(
-            `INSERT INTO client_invoices
-                (contract_id, period_month, period_year, subtotal, sales_tax, grand_total, status, notes)
-             VALUES ($1,$2,$3,$4,$5,$6,'Draft',$7)
-             RETURNING *`,
-            [contractId, month, year, subtotal, salesTax, grand, notes]
-        );
-        return { rows: fallback };
-    });
+        [
+            invNo,
+            book.client_name || book.client_id || 'TEST',
+            book.contract_name || contractId,
+            contractId,
+            month,
+            year,
+            payrollCost,
+            salesTax,
+            grand,
+            notes,
+            generatedBy || null,
+        ]
+    );
     return { invoice: rows[0], created: true };
+}
+
+async function nextCostPlusInvoiceNumber(pool, year, month) {
+    const monthAbbr = new Date(2000, parseInt(month, 10) - 1, 1)
+        .toLocaleString('en-US', { month: 'short' })
+        .toUpperCase();
+    const prefix = `INV-${monthAbbr}${String(year).slice(-2)}`;
+    const { rows } = await pool.query(
+        `SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '(\\d+)$') AS INT)), 0) AS max_seq
+         FROM client_invoices WHERE invoice_number LIKE $1`,
+        [`${prefix}-%`]
+    );
+    return `${prefix}-${String(Number(rows[0]?.max_seq || 0) + 1).padStart(4, '0')}`;
 }
 
 module.exports = {

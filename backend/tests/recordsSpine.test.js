@@ -302,6 +302,19 @@ describe('records spine — invoice guards', () => {
             code: 'USE_COST_PLUS_INVOICE',
         });
     });
+
+    test('cost-plus sheet invoice writes invoice_number + client, not client_id', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.join(__dirname, '../src/modules/records/costPlusInvoice.js'),
+            'utf8'
+        );
+        const start = src.indexOf('async function generateCostPlusInvoiceFromSheet');
+        const block = src.slice(start, start + 5500);
+        expect(block).toMatch(/invoice_number, client, contract, contract_id/);
+        expect(block).not.toMatch(/INSERT INTO client_invoices\s*\(\s*client_id/);
+    });
 });
 
 describe('records spine — conflicts block lock', () => {
