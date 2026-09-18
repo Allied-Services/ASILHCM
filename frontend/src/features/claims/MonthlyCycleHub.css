@@ -341,6 +341,16 @@
   color: #f87171;
 }
 
+.review-desk-warn {
+  margin: 0.5rem 0 0;
+  color: #f59e0b;
+  font-size: 0.85rem;
+}
+
+.review-desk-bank-bad {
+  color: #f59e0b;
+}
+
 .review-desk-table-wrap {
   overflow: auto;
   margin-top: 0.75rem;

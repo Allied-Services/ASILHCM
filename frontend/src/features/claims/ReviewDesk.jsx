@@ -81,7 +81,7 @@ export default function ReviewDesk({ user }) {
   function exportExcel() {
     const header = [
       'employee_id', 'name', 'client', 'location', 'item_type', 'present_days',
-      'absent_days', 'hours', 'amount', 'status', 'approved_by', 'approved_via', 'reason', 'locked',
+      'absent_days', 'hours', 'amount', 'status', 'approved_by', 'approved_via', 'reason', 'locked', 'bank',
     ];
     const lines = [header.join(',')];
     for (const p of people) {
@@ -92,6 +92,7 @@ export default function ReviewDesk({ user }) {
           item.presentDays, item.absentDays, item.hours, item.amount,
           item.status, item.approvedBy, item.approvedVia, item.reason,
           p.locked ? 'Y' : 'N',
+          p.bankReady === false ? (p.bankLabels || []).join('; ') : 'Ready',
         ].map(csvEscape).join(','));
       }
     }
@@ -216,8 +217,14 @@ export default function ReviewDesk({ user }) {
         {data.count || 0} people
         {selectedContract ? ` on ${selectedContract.contract_name || selectedContract.id}` : ''}.
         Tick people (or leave empty to use the contract), review, then Lock and Push.
+        Locked rows appear in Accounts Payable next to Wafi. Bank files refuse a missing account or mobile.
         {user?.email ? ` Signed in as ${user.email}.` : ''}
       </p>
+      {(data.bankIncomplete || 0) > 0 && (
+        <p className="review-desk-warn">
+          {data.bankIncomplete} people are missing a bank account or 03 mobile. Fix Employee Information before the HBL file can be produced.
+        </p>
+      )}
       {err && <p className="mch-error">{err}</p>}
       <div className="review-desk-table-wrap">
         <table className="review-desk-table">
@@ -231,6 +238,7 @@ export default function ReviewDesk({ user }) {
               <th>Days / hours / amount</th>
               <th>Stage</th>
               <th>Approved by</th>
+              <th>Bank</th>
               <th>Sheet</th>
               <th></th>
             </tr>
@@ -262,6 +270,9 @@ export default function ReviewDesk({ user }) {
                   {item.approvedBy || '—'}
                   {item.approvedVia ? ` (${item.approvedVia})` : ''}
                 </td>
+                <td className={p.bankReady === false ? 'review-desk-bank-bad' : ''}>
+                  {p.bankReady === false ? (p.bankLabels || []).join(', ') || 'Incomplete' : 'Ready'}
+                </td>
                 <td>{p.locked ? 'Locked' : (p.sheetPaidDays != null ? `${p.sheetPaidDays} PD` : '—')}</td>
                 <td>
                   <button
@@ -276,7 +287,7 @@ export default function ReviewDesk({ user }) {
             )))}
             {!people.length && (
               <tr>
-                <td colSpan={8} className="mch-muted">No ledger rows for this month yet. Submit a machine file or approve claims first.</td>
+                <td colSpan={9} className="mch-muted">No ledger rows for this month yet. Submit a machine file or approve claims first.</td>
               </tr>
             )}
           </tbody>

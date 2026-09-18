@@ -3,6 +3,7 @@
 const { calculatePayrollSheet, loadPayrollClaimCompare } = require('./service');
 const { requirePayrollSheet } = require('./access');
 const { listDesk, intervene } = require('./inputLedger');
+const { loadPayrollBankReadiness } = require('../../payroll/bankReadiness');
 
 function registerPayrollSheetRoutes(app, deps) {
     const { pool, requireAuth, logAudit } = deps;
@@ -55,6 +56,22 @@ function registerPayrollSheetRoutes(app, deps) {
             if (err.status === 400) {
                 return res.status(400).json({ error: err.message || 'Bad request', code: err.code });
             }
+            return res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    app.get('/api/payroll/:year/:month/bank-readiness', requireAuth, async (req, res) => {
+        try {
+            const result = await loadPayrollBankReadiness(pool, {
+                year: req.params.year,
+                month: req.params.month,
+                client: req.query.client,
+                contract: req.query.contract || req.query.contractName,
+            });
+            res.json(result);
+        } catch (err) {
+            console.error('[GET /api/payroll/:year/:month/bank-readiness]', err);
+            if (err.status === 400) return res.status(400).json({ error: err.message });
             return res.status(500).json({ error: 'Internal server error' });
         }
     });
