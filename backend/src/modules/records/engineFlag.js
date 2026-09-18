@@ -47,16 +47,9 @@ function engineConflictError(code, message, employees) {
     return err;
 }
 
-async function assertSheetWritable(pool, employeeIds) {
-    const rows = await enginesForEmployees(pool, employeeIds);
-    const blocked = rows.filter((r) => String(r.payroll_engine).toLowerCase() === 'runs');
-    if (blocked.length) {
-        throw engineConflictError(
-            'CONTRACT_ON_RUNS_ENGINE',
-            'These employees are on the runs engine. Use Payroll Sheet as view-only for that contract.',
-            blocked
-        );
-    }
+async function assertSheetWritable() {
+    // One Payroll Sheet: every contract writes here. The old runs-engine
+    // block is retired so PSO / Fixed Value can land on the same grid.
 }
 
 async function assertRunAllowed(pool, contractId) {

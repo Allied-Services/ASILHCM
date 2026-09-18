@@ -363,11 +363,11 @@ function resolveAttendanceDays(row, inputMode, monthDays = 30) {
 }
 
 /** Last row for an employee wins. Bulk ON CONFLICT cannot update the same key twice. */
-function collapseRowsByEmployee(rows, inputMode) {
+function collapseRowsByEmployee(rows, inputMode, monthDays = 30) {
     const byId = new Map();
     for (const r of rows || []) {
         if (!r?.employee_id) continue;
-        const days = resolveAttendanceDays(r, inputMode);
+        const days = resolveAttendanceDays(r, inputMode, monthDays);
         byId.set(r.employee_id, {
             employeeId: r.employee_id,
             presentDays: days.present,
@@ -398,7 +398,8 @@ async function submitImport(pool, importId, actor) {
     const year = pack.import.period_year;
     const mode = pack.import.input_mode;
     const contractId = pack.import.contract_id;
-    const resolved = collapseRowsByEmployee(pack.rows, mode);
+    const monthDays = calendarDaysInMonth(month, year) || 30;
+    const resolved = collapseRowsByEmployee(pack.rows, mode, monthDays);
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -454,6 +455,33 @@ async function submitImport(pool, importId, actor) {
                 cleared: 0,
             };
         }
+        let sheetWrite = { wrote: 0 };
+        try {
+            const { writeCycleAttendanceToSheet } = require('../payrollSheet/service');
+            sheetWrite = await writeCycleAttendanceToSheet(client, {
+                year,
+                month,
+                rows: resolved,
+                actor,
+            });
+        } catch (err) {
+            console.error('[cycle-file.submit sheet_write]', err);
+            sheetWrite = { wrote: 0, error: 'sheet_write_failed' };
+        }
+        let ledgerWrite = { wrote: 0 };
+        try {
+            const { upsertLines, linesFromCycleRows } = require('../payrollSheet/inputLedger');
+            ledgerWrite = await upsertLines(client, linesFromCycleRows({
+                rows: resolved,
+                contractId,
+                month,
+                year,
+                actor,
+            }), actor);
+        } catch (err) {
+            console.error('[cycle-file.submit ledger_write]', err);
+            ledgerWrite = { wrote: 0, error: 'ledger_write_failed' };
+        }
         // Only one submitted file per contract/month (UNIQUE status). Replace the last one.
         await client.query(
             `DELETE FROM cycle_file_imports
@@ -467,7 +495,7 @@ async function submitImport(pool, importId, actor) {
         );
         await client.query('COMMIT');
         const out = await getImport(pool, importId);
-        return { ...out, so_sync: soSync };
+        return { ...out, so_sync: soSync, sheet_write: sheetWrite, ledger_write: ledgerWrite };
     } catch (err) {
         try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
         throw err;

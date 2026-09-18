@@ -303,8 +303,6 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
     }
 
     const empIds = employees.map((e) => e.id);
-    const { assertSheetWritable } = require('../records/engineFlag');
-    await assertSheetWritable(pool, empIds);
     const { start, end, lastDay } = periodBounds(y, m);
     const asOf = new Date(y, m - 1, 15);
 
@@ -436,11 +434,13 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             paidDays,
             presentDaysForModelA,
             absentDaysForModelA,
+            declaredCycle,
         } = resolvePayrollSheetPaidDays({
             sheet,
             monthlyOv,
             attendancePaidDays: attPaidDays,
             sourceMode,
+            calendarDays: lastDay,
         });
         const windowDays = paidDaysFromEmploymentWindow(y, m, emp.doj, emp.last_working_day);
         const monthDays = calendarDaysInMonth(m, y) || lastDay;
@@ -453,13 +453,18 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             continue;
         }
         const sheetHasPaidDays = sheet.paid_days != null && sheet.paid_days !== '';
-        const honorSheetPaidDays = sourceMode === 'sheet_inputs' && sheetHasPaidDays;
+        const honorSheetPaidDays = sourceMode === 'sheet_inputs' && sheetHasPaidDays && !declaredCycle;
         const hasExplicitAbsent = !honorSheetPaidDays
             && absentDaysForModelA != null && absentDaysForModelA !== '';
         if (honorSheetPaidDays) {
             // Operator typed PD DAYS — keep it (capped by days employed this month).
             paidDays = Math.min(num(sheet.paid_days), windowDays);
             presentDaysForModelA = paidDays;
+        } else if (declaredCycle) {
+            paidDays = Math.min(Number(paidDays) || 0, windowDays);
+            if (presentDaysForModelA != null) {
+                presentDaysForModelA = Math.min(Number(presentDaysForModelA) || 0, windowDays);
+            }
         } else if (windowDays < monthDays) {
             paidDays = windowDays;
             presentDaysForModelA = windowDays;
@@ -578,6 +583,7 @@ async function calculatePayrollSheet(pool, year, month, opts = {}, actor = {}) {
             modelABasis,
             calendarDays: lastDay,
             honorSheetPaidDays,
+            honorDeclaredAttendance: !!declaredCycle,
         });
         const persistPaidDays = modelAFlags.persistPaidDays;
         const engineFlags = { ...modelAFlags };
@@ -895,6 +901,39 @@ async function upsertPayrollTransactions(pool, year, month, payloads, createdBy)
     }
 }
 
+/**
+ * Machine-file / cycle submit writes attendance + OT onto the Payroll Sheet
+ * the same way portal corrections write claims. Locked rows are left alone.
+ */
+async function writeCycleAttendanceToSheet(client, {
+    year,
+    month,
+    rows,
+    actor,
+} = {}) {
+    const list = (rows || []).filter((r) => r && r.employeeId);
+    if (!list.length) return { wrote: 0 };
+    const ids = list.map((r) => String(r.employeeId));
+    const paidDays = list.map((r) => (r.presentDays == null ? null : Number(r.presentDays)));
+    const ot2 = list.map((r) => Number(r.ot2Hours) || 0);
+    const ot3 = list.map((r) => Number(r.ot3Hours) || 0);
+    const result = await client.query(
+        `INSERT INTO payroll_transactions
+            (employee_id, month, year, paid_days, ot2_hrs, ot3_hrs, created_by, updated_at)
+         SELECT u.employee_id, $2, $3, u.paid_days, u.ot2_hrs, u.ot3_hrs, $4, NOW()
+         FROM UNNEST($1::text[], $5::numeric[], $6::numeric[], $7::numeric[])
+            AS u(employee_id, paid_days, ot2_hrs, ot3_hrs)
+         ON CONFLICT (employee_id, month, year) DO UPDATE SET
+            paid_days = COALESCE(EXCLUDED.paid_days, payroll_transactions.paid_days),
+            ot2_hrs = EXCLUDED.ot2_hrs,
+            ot3_hrs = EXCLUDED.ot3_hrs,
+            updated_at = NOW()
+         WHERE COALESCE(payroll_transactions.locked, FALSE) = FALSE`,
+        [ids, month, year, actor || null, paidDays, ot2, ot3]
+    );
+    return { wrote: result.rowCount || 0 };
+}
+
 module.exports = {
     calculatePayrollSheet,
     loadPayrollClaimCompare,
@@ -902,6 +941,7 @@ module.exports = {
     assertMonthUnlocked,
     isPayrollRowLocked,
     sheetCalcFromEngine,
+    writeCycleAttendanceToSheet,
     resolvePayrollSheetInputs: require('./resolveInputs').resolvePayrollSheetInputs,
     resolvePayrollSheetPaidDays: require('./resolveInputs').resolvePayrollSheetPaidDays,
 };

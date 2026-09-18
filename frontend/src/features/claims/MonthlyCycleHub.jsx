@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine, ListChecks, Download } from 'lucide-react';
+import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine, ListChecks, Download, ClipboardCheck } from 'lucide-react';
 import { api } from '../../api';
 import { clientContractHref, isFixedValueService, monthInvoicesHref, readStaffQuery } from '../../navLinks';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import PortalClaimsHub from './PortalClaimsHub';
+import ReviewDesk from './ReviewDesk';
 import './PortalClaimsHub.css';
 import './MonthlyCycleHub.css';
 
@@ -11,6 +12,7 @@ const SECTIONS = [
   { key: 'setup', label: 'Setup', icon: Settings },
   { key: 'people', label: 'People', icon: Users },
   { key: 'collect', label: 'Collect', icon: Send },
+  { key: 'review', label: 'Review', icon: ClipboardCheck },
   { key: 'track', label: 'Track', icon: Activity },
   { key: 'corrections', label: 'Corrections', icon: FilePenLine },
   { key: 'payroll', label: 'Payroll', icon: Wallet },
@@ -964,7 +966,7 @@ function ContactsSeedBar() {
 export default function MonthlyCycleHub({ user }) {
   const [section, setSection] = useState(() => {
     const q = readStaffQuery();
-    return q.section || (q.contract ? 'setup' : 'track');
+    return q.section || (q.contract ? 'setup' : 'review');
   });
   const [manualSeed, setManualSeed] = useState(null);
   const [comms, setComms] = useState(null);
@@ -1012,6 +1014,7 @@ export default function MonthlyCycleHub({ user }) {
           <MonthlyCyclePeople user={user} />
         </>
       )}
+      {section === 'review' && <ReviewDesk user={user} />}
       {section === 'collect' && (
         <div className="mch-panel">
           <MachineFileCollect />

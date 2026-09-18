@@ -232,6 +232,13 @@ describe('submitImport writes absent_days then SO shortages', () => {
             }
             if (q.includes('DELETE FROM cycle_file_imports')) return { rows: [] };
             if (q.includes('UPDATE cycle_file_imports')) return { rows: [] };
+            if (q.includes('INSERT INTO payroll_transactions')) {
+                expect(params[1]).toBe(9);
+                expect(params[2]).toBe(2026);
+                expect(params[0]).toEqual(['ASIL-1']);
+                expect(params[4]).toEqual([27]);
+                return { rowCount: 1, rows: [] };
+            }
             return { rows: [] };
         });
         const poolQuery = mockFn(async (sql) => {
@@ -250,6 +257,7 @@ describe('submitImport writes absent_days then SO shortages', () => {
 
         const result = await submitImport(pool, 9, 'ops@asil.com.pk');
         expect(result.so_sync.deductions).toBe(1);
+        expect(result.sheet_write.wrote).toBe(1);
         expect(clientQuery.mock.calls.some(([sql]) => sql === 'COMMIT')).toBe(true);
         expect(clientQuery.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM cycle_file_imports'))).toBe(true);
         expect(result.import.status).toBe('draft'); // getImport reuses the same draft fixture

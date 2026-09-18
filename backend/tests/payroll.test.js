@@ -153,6 +153,30 @@ describe('PATCH /api/payroll/:year/:month/lock — lock scope', () => {
     expect(res.body.lockedBy).toBe('testuser@asil.com.pk');
   });
 
+  test('contractId without employee_ids locks only that contract', async () => {
+    mockPool.query.mockResolvedValueOnce({
+      rows: [{ employee_id: 'ASIL-PSO-1' }, { employee_id: 'ASIL-PSO-2' }],
+      rowCount: 2,
+    });
+    mockNoConflicts();
+    mockUpdateSuccess();
+    mockPool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const res = await request()
+      .patch(LOCK_PATH)
+      .set('Authorization', `Bearer ${token()}`)
+      .send({ contractId: 'CTR-PSO-NORTH-ZONE' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.accruals_posted).toBe(2);
+    const scopedSelect = mockPool.query.mock.calls.find(([sql]) =>
+      String(sql).includes('e.contract_id::text')
+    );
+    expect(scopedSelect).toBeTruthy();
+    expect(scopedSelect[1]).toEqual([TEST_YEAR, TEST_MONTH, 'CTR-PSO-NORTH-ZONE']);
+  });
+
   test('full-month lock with no employee_ids → returns accruals_posted count', async () => {
     mockNoConflicts();
     mockUpdateSuccess(); // full UPDATE
@@ -327,7 +351,9 @@ describe('POST /api/payroll/:year/:month — locked month upsert guard', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    const sql = String(mockPool.query.mock.calls[0][0]);
+    const sql = mockPool.query.mock.calls
+      .map(([q]) => String(q))
+      .find((q) => /INSERT INTO payroll_transactions/i.test(q));
     expect(sql).toMatch(/WHERE COALESCE\(payroll_transactions\.locked, FALSE\) = FALSE/i);
   });
 

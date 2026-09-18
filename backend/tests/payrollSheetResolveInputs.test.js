@@ -117,6 +117,19 @@ describe('resolvePayrollSheetInputs — sheet OT must survive hub zeros', () => 
         expect(r.specialAllowance).toBe(1500);
     });
 
+    test('sheet_inputs: machine-file OT fills empty sheet cells', () => {
+        const r = resolvePayrollSheetInputs({
+            sheet: { ot2_hrs: 0, ot3_hrs: 0, reimbursement: 0 },
+            attOt: {},
+            monthlyOv: { ot2_hours: 12, ot3_hours: 2, present_days: 27, source: 'cycle_machine_file' },
+            claimAgg: {},
+            hasClaims: false,
+            sourceMode: 'sheet_inputs',
+        });
+        expect(r.ot2).toBe(12);
+        expect(r.ot3).toBe(2);
+    });
+
     test('sheet_inputs: ignores hub/claims and uses sheet only', () => {
         const r = resolvePayrollSheetInputs({
             sheet: { ot2_hrs: 9, ot3_hrs: 6, reimbursement: 20000 },
@@ -153,6 +166,31 @@ describe('resolvePayrollSheetPaidDays', () => {
             sourceMode: 'sheet_inputs',
         });
         expect(r.paidDays).toBe(31);
+    });
+
+    test('sheet_inputs: machine-file attendance wins over leftover calendar 31', () => {
+        const r = resolvePayrollSheetPaidDays({
+            sheet: { paid_days: 31 },
+            monthlyOv: { present_days: 27, absent_days: 4, source: 'cycle_machine_file' },
+            attendancePaidDays: 0,
+            sourceMode: 'sheet_inputs',
+            calendarDays: 31,
+        });
+        expect(r.paidDays).toBe(27);
+        expect(r.presentDaysForModelA).toBe(27);
+        expect(r.absentDaysForModelA).toBe(4);
+        expect(r.declaredCycle).toBe(true);
+    });
+
+    test('sheet_inputs: operator-typed 28 still wins over machine-file hub', () => {
+        const r = resolvePayrollSheetPaidDays({
+            sheet: { paid_days: 28 },
+            monthlyOv: { present_days: 27, absent_days: 4, source: 'cycle_machine_file' },
+            attendancePaidDays: 0,
+            sourceMode: 'sheet_inputs',
+            calendarDays: 31,
+        });
+        expect(r.paidDays).toBe(28);
     });
 
     test('canonical: Monthly Cycle absent/present days override sheet paid_days', () => {
@@ -357,6 +395,22 @@ describe('resolveSheetModelAComputeInput — Paid Days are the calendar month', 
         });
         expect(flags.persistPaidDays).toBe(29);
         expect(flags.presentDays).toBe(29);
+    });
+
+    test('declared cycle attendance persists present days, not calendar 31', () => {
+        const flags = resolveSheetModelAComputeInput({
+            paidDays: 27,
+            workingDays: 26,
+            presentDaysForModelA: 27,
+            absentDaysForModelA: 4,
+            sheetPaidDays: 31,
+            modelABasis: 30,
+            calendarDays: 31,
+            honorDeclaredAttendance: true,
+        });
+        expect(flags.persistPaidDays).toBe(27);
+        expect(flags.presentDays).toBe(27);
+        expect(flags.absentDays).toBe(4);
     });
 
     test('mid-month 20 calendar days prorates 20/31, not 20/26', () => {
