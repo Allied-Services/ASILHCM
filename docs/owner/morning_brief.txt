@@ -1,0 +1,27 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month through HCM for the pilot contract.
+Status: AMBER
+
+NOT FINISHED YET
+1. Pilot Excel vs HCM still not proven (waiting on payroll CSV)
+2. August payslip resend for 304 people still open — do not Calculate August
+3. New pay engine not used for real pay yet
+
+NEEDS YOU TODAY
+- Payroll team Excel export for the pilot shadow month
+- Confirm August payslip resend finished (or say Go red if more live send needed)
+- Connect morning email on the Automation so this brief reaches your inbox
+
+I SUGGEST
+- No new builds today — finish August resend + unlock the pilot Excel export
+
+FOCUS TODAY
+Clear August payslips, then get the pilot Excel file — park everything else.
+
+---
+Live check: https://asilhcm.onrender.com/health → ok (commit 6d23b89)
+HTML card: docs/owner/morning_latest.html
+Open work PRs needing you: none
+Note: This automation still has no email send tool — brief is in the PR / Cursor run until you connect email.
