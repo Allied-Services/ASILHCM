@@ -553,6 +553,28 @@
   align-items: center;
 }
 .so-role-sum { font-size: 0.75rem; color: var(--text-muted); }
+.so-site-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.so-site-total {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.so-site-total span {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.so-site-total strong {
+  font-variant-numeric: tabular-nums;
+}
 .so-roles-row td { background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border); }
 .so-table-input {
   background: var(--bg-dark);
