@@ -2,6 +2,7 @@
 
 const { syncSoDeductionsFromCycleRows } = require('../serviceOrders/cycleAttendanceSync');
 const { clearCarriedForwardArrears } = require('../../payroll/oneTimePayCarryForward');
+const { deriveCycleCollection } = require('./cycleCollection');
 
 const INPUT_MODES = ['full_ledger', 'hours', 'days', 'absent_only'];
 
@@ -9,7 +10,7 @@ const TEMPLATE_COLUMNS = {
     full_ledger: ['employee_id', 'name', 'present_days', 'absent_days', 'hours', 'ot2', 'ot3'],
     hours: ['employee_id', 'name', 'hours', 'ot2', 'ot3'],
     days: ['employee_id', 'name', 'present_days', 'absent_days', 'ot2', 'ot3'],
-    absent_only: ['employee_id', 'name', 'absent_days', 'ot2', 'ot3'],
+    absent_only: ['employee_id', 'name', 'absent_days'],
 };
 
 function normHeader(h) {
@@ -131,8 +132,11 @@ function mapRow(raw, inputMode) {
     };
 }
 
-function templateColumns(inputMode) {
+function templateColumns(inputMode, opts = {}) {
     const mode = INPUT_MODES.includes(inputMode) ? inputMode : 'full_ledger';
+    if (mode === 'absent_only' && opts.includeOt) {
+        return ['employee_id', 'name', 'absent_days', 'ot2', 'ot3'];
+    }
     return TEMPLATE_COLUMNS[mode];
 }
 
@@ -174,8 +178,8 @@ function employeeActiveInPeriod(emp, year, month) {
     return !!(lwd && lwd >= monthStart);
 }
 
-function buildTemplateCsv(inputMode, employees) {
-    const cols = templateColumns(inputMode);
+function buildTemplateCsv(inputMode, employees, opts = {}) {
+    const cols = templateColumns(inputMode, opts);
     const lines = [cols.join(',')];
     for (const e of employees || []) {
         const cells = {
@@ -220,13 +224,25 @@ async function listActiveEmployeesForPeriod(pool, contractId, year, month) {
 }
 
 async function buildCycleFileTemplate(pool, { contractId, year, month, inputMode }) {
-    const mode = INPUT_MODES.includes(inputMode) ? inputMode : 'full_ledger';
+    let mode = INPUT_MODES.includes(inputMode) ? inputMode : 'full_ledger';
+    let includeOt = false;
+    try {
+        const { getClaimsPolicy } = require('../claims/claimsPolicy');
+        const policy = await getClaimsPolicy(pool, contractId);
+        const derived = deriveCycleCollection(policy.enabled_types);
+        if (derived.uses_file) {
+            mode = derived.attendance_input_mode;
+            includeOt = !!derived.include_ot;
+        }
+    } catch { /* keep requested mode */ }
     const employees = await listActiveEmployeesForPeriod(pool, contractId, year, month);
     return {
         filename: templateFilename(contractId, year, month, mode),
-        csv: buildTemplateCsv(mode, employees),
+        csv: buildTemplateCsv(mode, employees, { includeOt }),
         count: employees.length,
         input_mode: mode,
+        include_ot: includeOt,
+        headers: templateColumns(mode, { includeOt }),
     };
 }
 

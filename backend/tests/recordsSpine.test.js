@@ -151,7 +151,7 @@ describe('records spine — machine file parse', () => {
 
     test('rejects a data line with no header for the selected mode', () => {
         expect(() => parseDelimited('ASIL/PSO-375/25,Muhammad Masood,13,0,0', 'absent_only'))
-            .toThrow(/First row must be the header: employee_id,name,absent_days,ot2,ot3/);
+            .toThrow(/First row must be the header: employee_id,name,absent_days/);
     });
 
     test('accepts absent-only paste when the header is present', () => {
@@ -170,7 +170,7 @@ describe('records spine — machine file parse', () => {
     });
 
     test('headerLineForMode matches the on-screen template', () => {
-        expect(headerLineForMode('absent_only')).toBe('employee_id,name,absent_days,ot2,ot3');
+        expect(headerLineForMode('absent_only')).toBe('employee_id,name,absent_days');
         expect(() => assertCycleFileHeaders(['asil_pso_375_25', 'muhammad_masood', '13'], 'absent_only'))
             .toThrow(/First row must be the header/);
     });
@@ -199,7 +199,7 @@ describe('records spine — cycle file templates', () => {
         ['full_ledger', ['employee_id', 'name', 'present_days', 'absent_days', 'hours', 'ot2', 'ot3']],
         ['hours', ['employee_id', 'name', 'hours', 'ot2', 'ot3']],
         ['days', ['employee_id', 'name', 'present_days', 'absent_days', 'ot2', 'ot3']],
-        ['absent_only', ['employee_id', 'name', 'absent_days', 'ot2', 'ot3']],
+        ['absent_only', ['employee_id', 'name', 'absent_days']],
     ])('%s template columns start with employee_id and name', (mode, cols) => {
         expect(templateColumns(mode)).toEqual(cols);
         expect(templateColumns(mode)[0]).toBe('employee_id');

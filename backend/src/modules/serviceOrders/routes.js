@@ -45,6 +45,7 @@ const {
     saveBillableConfirmations,
     saveContractBillableConfirmations,
 } = require('./service');
+const { summarizeRosterCapacity } = require('./rosterCapacity');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
@@ -89,6 +90,14 @@ function registerServiceOrderRoutes(app, deps) {
             res.json(row);
         } catch (err) {
             handleRouteError(res, 'fixed-value.contracts.get', err);
+        }
+    });
+
+    app.get('/api/fixed-value/contracts/:contractId/roster-capacity', requireAuth, readRoles, async (req, res) => {
+        try {
+            res.json(await summarizeRosterCapacity(pool, req.params.contractId));
+        } catch (err) {
+            handleRouteError(res, 'fixed-value.contracts.rosterCapacity', err);
         }
     });
 

@@ -1,5 +1,7 @@
 'use strict';
 
+const { deriveCycleCollection } = require('../records/cycleCollection');
+
 const COLLECTED_CLAIM_TYPES = ['ATTENDANCE', 'OT', 'EXPENSE', 'MEDICAL'];
 const OCCASIONAL_CLAIM_TYPES = ['DEDUCTION', 'ARREARS', 'SPECIAL_ALLOWANCE'];
 const ALL_CLAIM_TYPES = [...COLLECTED_CLAIM_TYPES, ...OCCASIONAL_CLAIM_TYPES];
@@ -176,7 +178,8 @@ async function upsertClaimsPolicy(pool, contractId, body) {
     const submitMonth = normalizeDeadlineMonth(body.submit_deadline_month, monthFallback);
     const approveMonth = normalizeDeadlineMonth(body.approve_deadline_month, monthFallback);
     const enabledTypes = normalizeEnabledTypes(body.enabled_types);
-    const collectionMode = normalizeCollectionMode(body.collection_mode);
+    const derived = deriveCycleCollection(enabledTypes);
+    const collectionMode = derived.collection_mode;
     const reviewerRequired = body.reviewer_required === true || body.reviewer_required === 'true';
 
     const { rows } = await pool.query(
@@ -203,7 +206,18 @@ async function upsertClaimsPolicy(pool, contractId, body) {
             enabledTypes, collectionMode, reviewerRequired,
         ]
     );
-    return shapePolicyRow(rows[0]);
+    await pool.query(
+        `UPDATE contract_policies
+            SET attendance_input_mode = $2
+          WHERE id = (
+            SELECT id FROM contract_policies
+             WHERE contract_id = $1
+             ORDER BY effective_from DESC, id DESC
+             LIMIT 1
+          )`,
+        [contractId, derived.attendance_input_mode]
+    );
+    return { ...shapePolicyRow(rows[0]), derived_collection: derived };
 }
 
 module.exports = {

@@ -143,12 +143,34 @@ function buildOldToNewLineIdMap(oldLines, newLines) {
     return map;
 }
 
+async function ensureDefaultServiceOrder(pool, contractId, contractName) {
+    const existing = await listServiceOrders(pool, { contractId });
+    if (existing.length) return existing[0];
+    const rawId = `SO-${String(contractId || 'CONTRACT').replace(/[^A-Za-z0-9_-]+/g, '-')}`;
+    const id = rawId.slice(0, 80);
+    return upsertServiceOrder(pool, {
+        id,
+        contract_id: contractId,
+        site_code: 'MAIN',
+        name: `${contractName || contractId} — Service Order`,
+        status: 'active',
+    });
+}
+
 async function replaceLines(db, serviceOrderId, lines) {
     const so = await getServiceOrder(db, serviceOrderId);
     if (!so) {
         const err = new Error('Service order not found');
         err.status = 404;
         throw err;
+    }
+    if (so.contract_id) {
+        const { assertLinesRespectRoster } = require('./rosterCapacity');
+        await assertLinesRespectRoster(db, {
+            contractId: so.contract_id,
+            siteCode: so.site_code,
+            lines,
+        });
     }
 
     // Pool has .connect but no .release; a pooled Client has .release.
@@ -234,6 +256,7 @@ module.exports = {
     listServiceOrders,
     getServiceOrder,
     upsertServiceOrder,
+    ensureDefaultServiceOrder,
     replaceLines,
     buildOldToNewLineIdMap,
 };

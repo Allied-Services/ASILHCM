@@ -1,6 +1,7 @@
 'use strict';
 
 const cutover = require('../../core/cutover');
+const { currentlyActiveSqlClause, currentlyInactiveSqlClause } = require('../../core/employeeActive');
 
 const LIST_COLS = [
     'e.id',
@@ -21,6 +22,7 @@ const LIST_COLS = [
     'e.primary_contact',
     'e.claim_authority',
     'e.line_manager_email',
+    'e.last_working_day',
 ];
 
 const SORTS = {
@@ -41,15 +43,17 @@ function parseDirectoryQuery(query = {}) {
     const clientBu = String(query.clientBu || query.client_bu || '').trim();
     const location = String(query.location || '').trim();
     const dept = String(query.dept || '').trim();
+    const designation = String(query.designation || '').trim();
     const activeRaw = String(query.active || 'all').trim().toLowerCase();
     const active = ['yes', 'no', 'all'].includes(activeRaw) ? activeRaw : 'all';
     const browse = truthyFlag(query.browse);
     const page = Math.max(1, parseInt(query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 50));
+    const limit = Math.min(500, Math.max(1, parseInt(query.limit, 10) || 50));
     const sortKey = String(query.sort || 'name').trim().toLowerCase();
     const sort = SORTS[sortKey] ? sortKey : 'name';
     const hasQ = q.length >= 2;
-    const hasOrg = !!(bu || client || contractId || clientBu || location || dept);
+    const hasOrg = !!(bu || client || contractId || clientBu || location || dept || designation);
+    const scoped = !!(client && contractId);
     return {
         q,
         bu,
@@ -58,6 +62,7 @@ function parseDirectoryQuery(query = {}) {
         clientBu,
         location,
         dept,
+        designation,
         active,
         browse,
         page,
@@ -65,7 +70,8 @@ function parseDirectoryQuery(query = {}) {
         sort,
         hasQ,
         hasOrg,
-        allowed: hasQ || hasOrg || browse,
+        scoped,
+        allowed: scoped,
         offset: (page - 1) * limit,
     };
 }
@@ -113,15 +119,12 @@ function buildDirectorySql(parsed, { archive = false } = {}) {
     if (parsed.clientBu) where.push(eqText('e.client_bu', parsed.clientBu, params));
     if (parsed.location) where.push(eqText('e.location', parsed.location, params));
     if (parsed.dept) where.push(eqText('e.dept', parsed.dept, params));
+    if (parsed.designation) where.push(eqText('e.designation', parsed.designation, params));
 
     if (parsed.active === 'yes') {
-        where.push(`(
-            e.active IS NULL
-            OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
-            OR e.active::text = 'Yes'
-        )`);
+        where.push(currentlyActiveSqlClause('e'));
     } else if (parsed.active === 'no') {
-        where.push(`LOWER(TRIM(e.active::text)) IN ('no','false','0','inactive')`);
+        where.push(currentlyInactiveSqlClause('e'));
     }
 
     if (!where.length) where.push('TRUE');
@@ -157,6 +160,7 @@ function rowToDirectoryDto(r) {
         primaryContact: r.primary_contact,
         claimAuthority: r.claim_authority,
         lineManagerEmail: r.line_manager_email,
+        lastWorkingDay: r.last_working_day ? String(r.last_working_day).slice(0, 10) : '',
     };
 }
 
@@ -165,7 +169,7 @@ const SLIM_KEYS = Object.keys(rowToDirectoryDto({}));
 async function searchDirectory(pool, req) {
     const parsed = parseDirectoryQuery(req.query || {});
     if (!parsed.allowed) {
-        const err = new Error('Search text (2+ characters), an organisation filter, or browse=1 is required');
+        const err = new Error('Select a Client and Contract before loading employees');
         err.status = 400;
         err.code = 'DIRECTORY_QUERY_REQUIRED';
         throw err;
@@ -181,6 +185,33 @@ async function searchDirectory(pool, req) {
         limit: parsed.limit,
         sort: parsed.sort,
         archive_mode: archive,
+    };
+}
+
+async function getDirectoryFacets(pool, query = {}) {
+    const client = String(query.client || '').trim();
+    const contractId = String(query.contractId || query.contract_id || '').trim();
+    if (!client || !contractId) {
+        const err = new Error('Client and Contract are required');
+        err.status = 400;
+        err.code = 'DIRECTORY_QUERY_REQUIRED';
+        throw err;
+    }
+    const params = [client, contractId];
+    const { rows } = await pool.query(
+        `SELECT e.client_bu, e.location, e.dept, e.designation
+         FROM employees e
+         WHERE LOWER(TRIM(e.client)) = LOWER(TRIM($1))
+           AND e.contract_id = $2`,
+        params
+    );
+    const uniq = (key) => [...new Set(rows.map((r) => r[key]).filter((v) => v != null && String(v).trim() !== ''))]
+        .sort((a, b) => String(a).localeCompare(String(b)));
+    return {
+        clientBus: uniq('client_bu'),
+        locations: uniq('location'),
+        departments: uniq('dept'),
+        designations: uniq('designation'),
     };
 }
 
@@ -215,6 +246,18 @@ function registerEmployeeDirectoryRoutes(app, deps) {
         }
     });
 
+    app.get('/api/employees/directory/facets', requireAuth, async (req, res) => {
+        try {
+            res.json(await getDirectoryFacets(pool, req.query || {}));
+        } catch (err) {
+            if (err.status === 400) {
+                return res.status(400).json({ error: err.message, code: err.code });
+            }
+            console.error('[GET /api/employees/directory/facets]', err);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
     app.get('/api/employees/directory/:id', requireAuth, async (req, res) => {
         try {
             const employee = await getDirectoryRecord(pool, req, empFromDb);
@@ -233,6 +276,7 @@ module.exports = {
     buildDirectorySql,
     rowToDirectoryDto,
     searchDirectory,
+    getDirectoryFacets,
     getDirectoryRecord,
     registerEmployeeDirectoryRoutes,
     SLIM_KEYS,

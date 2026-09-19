@@ -6,6 +6,7 @@ import { isFixedValueService, monthlyCycleSetupHref, normalizeContractChapter, r
 import './features/fixedValue/FixedValueOps.css';
 import FixedValueBaselineChapter from './features/fixedValue/FixedValueBaselineChapter';
 import ContractRatePolicyChapter from './features/contracts/ContractRatePolicyChapter';
+import ContractRulebookEditor from './features/contracts/ContractRulebookEditor';
 
 // ── Sample Data ──────────────────────────────────────────────────────────────
 const SERVICE_TYPES = [
@@ -157,7 +158,7 @@ function ClaimsPackSummary({ contractId }) {
                 Open Monthly Cycle Setup
             </a>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                Claim types, routing, and deadlines are edited only in Monthly Cycle → Setup.
+                Claim types and deadlines stay in Monthly Cycle → Setup. Commercial type, Service Orders, EOBI, and routing are on this contract record.
             </div>
         </div>
     );
@@ -165,7 +166,8 @@ function ClaimsPackSummary({ contractId }) {
 
 function ContractEditor({ contract, onSave, onCancel, allClients = [], currentClientId, initialChapter = 'details' }) {
     const [c, setC] = useState({ ...EMPTY_CONTRACT, ...contract, costs: { ...EMPTY_CONTRACT.costs, ...(contract?.costs || {}) }, financials: { ...EMPTY_CONTRACT.financials, ...(contract?.financials || {}) }, assignedClientId: currentClientId });
-    const hasSo = !!(contract?.id && isFixedValueService(c.serviceType));
+    const [commercialType, setCommercialType] = useState('');
+    const hasSo = !!(contract?.id && (isFixedValueService(c.serviceType, commercialType) || commercialType === 'fixed_value'));
     const [chapter, setChapter] = useState(() => normalizeContractChapter(initialChapter, { hasSo }));
 
     useEffect(() => {
@@ -250,6 +252,12 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
                         <FRow label="Client Focal Name"><FInput value={c.clientFocalName || ''} onChange={e => set('clientFocalName', e.target.value)} ph="External client approver" /></FRow>
                         <FRow label="Client Focal Email"><FInput value={c.clientFocalEmail || ''} onChange={e => set('clientFocalEmail', e.target.value)} ph="client@company.com" /></FRow>
                     </div>
+                    {contract?.id && (
+                        <ContractRulebookEditor
+                            contractId={contract.id}
+                            onCommercialChange={setCommercialType}
+                        />
+                    )}
                     {contract?.id && <LeavePolicyEditor contractId={contract.id} />}
                     {contract?.id && <ClaimsPackSummary contractId={contract.id} />}
                 </div>

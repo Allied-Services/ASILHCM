@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine, ListChecks, Download, ClipboardCheck } from 'lucide-react';
 import { api } from '../../api';
 import { clientContractHref, isFixedValueService, monthInvoicesHref, readStaffQuery } from '../../navLinks';
+import { deriveCycleCollection } from '../records/cycleCollection';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import PortalClaimsHub from './PortalClaimsHub';
 import ReviewDesk from './ReviewDesk';
@@ -19,29 +20,12 @@ const SECTIONS = [
   { key: 'close', label: 'Close', icon: ListChecks },
 ];
 
-const ROUTING_MODES = [
-  { id: 'auto', label: 'Auto (Focal / LM; official mailbox submit is final)' },
-  { id: 'employee_then_focal', label: 'a. Employee → Focal' },
-  { id: 'employee_then_lm', label: 'b. Employee → LM' },
-  { id: 'focal_then_lm', label: 'c. Focal → LM' },
-  { id: 'focal_only', label: 'd. Focal final' },
-  { id: 'lm_only', label: 'e. LM final' },
-  { id: 'employee_then_asil', label: 'f. Employee → Dedicated Payroll' },
-  { id: 'asil_supervisor_then_focal', label: 'g. ASIL Site Supervisor → Contract Focal' },
-];
-
-const INPUT_MODES = [
-  { id: 'full_ledger', label: 'Full ledger' },
-  { id: 'hours', label: 'Hours only' },
-  { id: 'days', label: 'Days only' },
-  { id: 'absent_only', label: 'Absent / deductions only' },
-];
-
 const FILE_MODE_HEADERS = {
   full_ledger: 'employee_id,name,present_days,absent_days,hours,ot2,ot3',
   hours: 'employee_id,name,hours,ot2,ot3',
   days: 'employee_id,name,present_days,absent_days,ot2,ot3',
-  absent_only: 'employee_id,name,absent_days,ot2,ot3',
+  absent_only: 'employee_id,name,absent_days',
+  absent_ot: 'employee_id,name,absent_days,ot2,ot3',
 };
 
 function normHeaderCell(h) {
@@ -74,21 +58,9 @@ const OCCASIONAL_TYPE_OPTIONS = [
   { id: 'SPECIAL_ALLOWANCE', label: 'Special allowance' },
 ];
 
-const COLLECTION_MODES = [
-  { id: 'monthly_form', label: 'Monthly form (Wafi default)' },
-  { id: 'machine_file', label: 'Machine file upload (PSO phase)' },
-  { id: 'daily_marks', label: 'Daily supervisor marks' },
-  { id: 'mixed', label: 'Mixed (site decides later)' },
-];
-
-const EOBI_WAGE_PRESETS = [
-  { id: 'sindh', label: 'Sindh 43,000', value: 43000 },
-  { id: 'punjab_kpk', label: 'Punjab & KPK 40,000', value: 40000 },
-];
-
-function eobiFromMinWage(minWage) {
-  const mw = Number(minWage) > 0 ? Number(minWage) : 40000;
-  return { mw, ee: Math.round(mw * 0.01), er: Math.round(mw * 0.05) };
+function fileHeaderLine(enabledTypes) {
+  const derived = deriveCycleCollection(enabledTypes);
+  return derived.file_headers.length ? derived.file_headers.join(',') : '';
 }
 
 function uniq(arr) {
@@ -163,16 +135,13 @@ function MonthlyCycleSetup({ user }) {
     setMsg('');
     setErr('');
     try {
-      const saved = await api.updateClaimsPolicy(contractId, policy);
+      const derived = deriveCycleCollection(policy.enabled_types);
+      const saved = await api.updateClaimsPolicy(contractId, {
+        ...policy,
+        collection_mode: derived.collection_mode,
+      });
       setPolicy(saved);
-      const focal = String(rulebook?.allied_contract_focal_email || '').trim();
-      if (rulebook && focal.includes('@')) {
-        const rb = await api.saveRulebook(contractId, { ...rulebook, claims: policy });
-        setRulebook(rb);
-        setMsg('Contract pack and rulebook saved.');
-      } else {
-        setMsg('Contract pack saved.');
-      }
+      setMsg('Attendance and claims pack saved.');
     } catch (e) {
       setErr(e.message);
     }
@@ -185,7 +154,7 @@ function MonthlyCycleSetup({ user }) {
   return (
     <div className="mch-panel">
       <p className="mch-lead">
-        Choose what each contract collects each month: claim types, how attendance is captured, optional calendar deadlines, and whether a separate reviewer step is required.
+        Choose what this contract collects each month for payroll: Attendance, Overtime, Expense, and Medical. Collection is derived from those ticks. Commercial type, EOBI, Service Orders, and focals live on the client contract.
       </p>
       {err && <div className="pch-err">{err}</div>}
       {msg && <div className="pch-ok">{msg}</div>}
@@ -226,113 +195,12 @@ function MonthlyCycleSetup({ user }) {
             </p>
           </div>
           <div className="mch-block">
-            <h3>Collection mode</h3>
-            <select
-              value={policy.collection_mode || 'monthly_form'}
-              onChange={(e) => setPolicy((p) => ({ ...p, collection_mode: e.target.value }))}
-            >
-              {COLLECTION_MODES.map((m) => (
-                <option key={m.id} value={m.id}>{m.label}</option>
-              ))}
-            </select>
+            <h3>How it will be collected</h3>
+            <p className="mch-muted">{deriveCycleCollection(policy.enabled_types).summary}</p>
+            {fileHeaderLine(policy.enabled_types) && (
+              <p className="mch-muted">File header: <code>{fileHeaderLine(policy.enabled_types)}</code></p>
+            )}
           </div>
-          {rulebook && (
-            <div className="mch-block">
-              <h3>Contract rulebook</h3>
-              <div className="mch-form-grid mch-form-grid-2">
-                <label>
-                  <span className="lbl">Commercial type</span>
-                  <select
-                    value={rulebook.commercial_type || 'cost_plus'}
-                    onChange={(e) => setRulebook((r) => ({ ...r, commercial_type: e.target.value }))}
-                  >
-                    <option value="cost_plus">Cost-plus (salary + fee)</option>
-                    <option value="fixed_value">Fixed value (Service Order invoice)</option>
-                  </select>
-                </label>
-                <label>
-                  <span className="lbl">Payroll engine</span>
-                  <select
-                    value={rulebook.payroll_engine || 'legacy'}
-                    onChange={(e) => setRulebook((r) => ({ ...r, payroll_engine: e.target.value }))}
-                  >
-                    <option value="legacy">Legacy — Payroll Sheet pays</option>
-                    <option value="runs">Runs — Sheet is view-only</option>
-                  </select>
-                </label>
-                <label>
-                  <span className="lbl">ASIL Contract Focal (required)</span>
-                  <input
-                    value={rulebook.allied_contract_focal_email || ''}
-                    onChange={(e) => setRulebook((r) => ({ ...r, allied_contract_focal_email: e.target.value }))}
-                    placeholder="focal@asil.com.pk"
-                  />
-                </label>
-                <label>
-                  <span className="lbl">Dedicated Payroll Resource</span>
-                  <input
-                    value={rulebook.dedicated_payroll_resource_email || ''}
-                    onChange={(e) => setRulebook((r) => ({ ...r, dedicated_payroll_resource_email: e.target.value }))}
-                    placeholder="defaults to Contract Focal"
-                  />
-                </label>
-                <label>
-                  <span className="lbl">Claims routing</span>
-                  <select
-                    value={rulebook.routing_mode || 'auto'}
-                    onChange={(e) => setRulebook((r) => ({ ...r, routing_mode: e.target.value }))}
-                  >
-                    {ROUTING_MODES.map((m) => (
-                      <option key={m.id} value={m.id}>{m.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span className="lbl">Client file mode</span>
-                  <select
-                    value={rulebook.attendance_input_mode || 'full_ledger'}
-                    onChange={(e) => setRulebook((r) => ({ ...r, attendance_input_mode: e.target.value }))}
-                  >
-                    {INPUT_MODES.map((m) => (
-                      <option key={m.id} value={m.id}>{m.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span className="lbl">EOBI minimum wage</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1000"
-                    value={rulebook.eobi_min_wage ?? ''}
-                    onChange={(e) => setRulebook((r) => ({
-                      ...r,
-                      eobi_min_wage: e.target.value === '' ? null : Number(e.target.value),
-                    }))}
-                    placeholder="40000"
-                  />
-                  <span className="mch-chip-row">
-                    {EOBI_WAGE_PRESETS.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        className={`mch-chip${Number(rulebook.eobi_min_wage) === p.value ? ' is-on' : ''}`}
-                        onClick={() => setRulebook((r) => ({ ...r, eobi_min_wage: p.value }))}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </span>
-                  <span className="mch-hint">
-                    Employee deduction Rs. {eobiFromMinWage(rulebook.eobi_min_wage).ee.toLocaleString()}
-                    {' · '}
-                    Employer Rs. {eobiFromMinWage(rulebook.eobi_min_wage).er.toLocaleString()}
-                    {rulebook.eobi_min_wage == null ? ' (default 40,000)' : ''}
-                  </span>
-                </label>
-              </div>
-            </div>
-          )}
           <div className="mch-block">
             <div className="mch-block-head">
               <h3>Calendar &amp; pay timing</h3>
@@ -659,14 +527,18 @@ function MachineFileCollect() {
   const [contractId, setContractId] = useState('');
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
-  const [mode, setMode] = useState('full_ledger');
-  const [text, setText] = useState(FILE_MODE_HEADERS.full_ledger);
+  const [mode, setMode] = useState('absent_only');
+  const [enabledTypes, setEnabledTypes] = useState([]);
+  const [text, setText] = useState(FILE_MODE_HEADERS.absent_only);
   const [fileName, setFileName] = useState('');
   const [pack, setPack] = useState(null);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
-  const headers = FILE_MODE_HEADERS[mode] || FILE_MODE_HEADERS.full_ledger;
+  const derived = deriveCycleCollection(enabledTypes);
+  const headers = derived.file_headers.length
+    ? derived.file_headers.join(',')
+    : FILE_MODE_HEADERS.absent_only;
 
   useEffect(() => {
     api.getContracts().then((list) => {
@@ -677,6 +549,20 @@ function MachineFileCollect() {
       })));
     }).catch((e) => setErr(e.message));
   }, []);
+
+  useEffect(() => {
+    if (!contractId) {
+      setEnabledTypes([]);
+      setMode('absent_only');
+      return;
+    }
+    api.getClaimsPolicy(contractId).then((p) => {
+      const types = p.enabled_types || [];
+      setEnabledTypes(types);
+      const next = deriveCycleCollection(types);
+      setMode(next.attendance_input_mode || 'absent_only');
+    }).catch(() => {});
+  }, [contractId]);
 
   useEffect(() => {
     setText((prev) => {
@@ -761,12 +647,8 @@ function MachineFileCollect() {
         <label><span className="lbl">Year</span>
           <input type="number" value={year} onChange={(e) => setYear(parseInt(e.target.value, 10) || year)} />
         </label>
-        <label><span className="lbl">File mode</span>
-          <select value={mode} onChange={(e) => setMode(e.target.value)}>
-            {INPUT_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
-        </label>
       </div>
+      <p className="mch-muted">{derived.summary || 'Select a contract to see the file this pack expects.'}</p>
       <div className="mch-file-guide">
         <span className="lbl">Required header for this file mode</span>
         <div className="mch-file-header-chips">

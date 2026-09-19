@@ -167,9 +167,16 @@ function isPayrollRowLocked(sheet) {
 }
 
 async function loadSheetEmployees(pool, { year, month, client, contractId, location, employeeIds }) {
-    const params = [];
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10);
+    const params = [y, m];
+    const windowClauses = [
+        `(e.last_working_day IS NULL OR e.last_working_day >= make_date($1::int, $2::int, 1))`,
+        `(e.doj IS NULL OR e.doj <= (make_date($1::int, $2::int, 1) + INTERVAL '1 month' - INTERVAL '1 day')::date)`,
+    ];
     const clauses = [
         `COALESCE(LOWER(TRIM(e.active)), 'yes') IN ('yes', 'true', '1')`,
+        ...windowClauses,
     ];
     if (client) {
         params.push(client);
@@ -193,14 +200,14 @@ async function loadSheetEmployees(pool, { year, month, client, contractId, locat
     const { rows: onSheet } = await pool.query(
         `SELECT DISTINCT employee_id FROM payroll_transactions
          WHERE year = $1 AND month = $2`,
-        [year, month],
+        [y, m],
     );
     const hasScope = !!(employeeIds && employeeIds.length) || !!client || !!contractId || !!location;
     if (onSheet.length && !hasScope) {
         params.length = 0;
-        params.push(onSheet.map((r) => r.employee_id));
+        params.push(y, m, onSheet.map((r) => r.employee_id));
         clauses.length = 0;
-        clauses.push(`e.id = ANY($1::text[])`);
+        clauses.push(`e.id = ANY($3::text[])`, ...windowClauses);
     }
 
     const { rows } = await pool.query(

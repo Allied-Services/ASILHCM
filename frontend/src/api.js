@@ -72,6 +72,14 @@ export const api = {
         return apiFetch(`/api/employees/directory?${q.toString()}`);
     },
     getEmployeeDirectoryRecord: (id) => apiFetch(`/api/employees/directory/${encodeURIComponent(id)}`),
+    getEmployeeDirectoryFacets: (params = {}) => {
+        const q = new URLSearchParams();
+        Object.entries(params).forEach(([k, v]) => {
+            if (v == null || v === '') return;
+            q.set(k, String(v));
+        });
+        return apiFetch(`/api/employees/directory/facets?${q.toString()}`);
+    },
     lookupEmployee: ({ id, cnic } = {}) => {
         const q = new URLSearchParams();
         if (id) q.set('id', String(id).trim());
@@ -791,6 +799,7 @@ export const api = {
     // ── Fixed Value / Conservancy (PSO service orders) ─────────────────────────
     getFixedValueContracts: () => apiFetch('/api/fixed-value/contracts'),
     getFixedValueContract: (contractId) => apiFetch(`/api/fixed-value/contracts/${encodeURIComponent(contractId)}`),
+    getFixedValueRosterCapacity: (contractId) => apiFetch(`/api/fixed-value/contracts/${encodeURIComponent(contractId)}/roster-capacity`),
     createFixedValueContract: (data) => apiFetch('/api/fixed-value/contracts', { method: 'POST', body: JSON.stringify(data) }),
     updateFixedValueContract: (contractId, data) => apiFetch(`/api/fixed-value/contracts/${encodeURIComponent(contractId)}`, { method: 'PUT', body: JSON.stringify(data) }),
     resyncPsoNorthZoneSeed: (confirm = true, syncEmployees = false) => apiFetch(
