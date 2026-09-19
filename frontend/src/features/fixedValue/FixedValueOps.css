@@ -514,12 +514,20 @@
   text-align: left;
 }
 .fv-table td.so-roles-cell { white-space: normal; min-width: 240px; vertical-align: top; }
+.so-lines-wrap { max-height: none; }
 .so-roles { display: grid; gap: 6px; min-width: 220px; }
+.so-role-head,
 .so-role {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px auto;
+  grid-template-columns: minmax(140px, 1.6fr) 72px minmax(110px, 1fr) 110px 90px auto;
   gap: 6px;
   align-items: center;
+}
+.so-role-head {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
 }
 .so-role input {
   background: var(--bg-dark);
@@ -530,6 +538,22 @@
   min-height: 34px;
   width: 100%;
 }
+.so-mp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.so-role-total { font-variant-numeric: tabular-nums; font-size: 0.78rem; }
+.so-role-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.so-role-sum { font-size: 0.75rem; color: var(--text-muted); }
+.so-roles-row td { background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border); }
 .so-table-input {
   background: var(--bg-dark);
   border: 1px solid var(--border);

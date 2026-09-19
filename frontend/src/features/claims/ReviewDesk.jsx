@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ClipboardCheck, Download, Lock, RefreshCw } from 'lucide-react';
+import { ClipboardCheck, Download, RefreshCw } from 'lucide-react';
 import { api } from '../../api';
 import {
   boardDownloadRows,
@@ -254,18 +254,12 @@ export default function ReviewDesk({ user }) {
         <button type="button" className="btn-secondary" disabled={!people.length} onClick={exportExcel}>
           <Download size={14} /> Download
         </button>
-        <button type="button" className="btn-secondary" disabled={busy} onClick={pushSelected}>
-          Push to Payroll Sheet
-        </button>
-        <button type="button" className="btn-primary" disabled={busy} onClick={lockSelected}>
-          <Lock size={14} /> Lock
-        </button>
       </div>
       <p className="mch-muted">
         {!client
           ? 'Select a client to see everyone — including who is stuck and who has No Claims.'
           : `${people.length} showing of ${peopleAll.length} people${selectedContract ? ` on ${contractName(selectedContract)}` : ''}. Waiting LM ${waitingLmCount} · No Claims ${noClaimsCount}.`}
-        {' '}Tick people (or leave empty to use the contract), then Lock and Push.
+        {' '}This board is for collected attendance and claims. Pay on the Payroll Sheet. Bill on Month Invoices.
         {user?.email ? ` Signed in as ${user.email}.` : ''}
       </p>
       {bankIncomplete > 0 && (

@@ -150,6 +150,14 @@ function findLineForDesignation(lines, designation, opts = {}) {
     return matches[0];
 }
 
+function findMatchingRole(roles, designation) {
+    const list = lineRoles({ roles });
+    for (const role of list) {
+        if (designationsMatch(designation, role.designation || role.role)) return role;
+    }
+    return null;
+}
+
 module.exports = {
     normalizeDesignation,
     containsWholePhrase,
@@ -157,4 +165,5 @@ module.exports = {
     designationMatchKeys,
     designationsMatch,
     findLineForDesignation,
+    findMatchingRole,
 };

@@ -7,6 +7,7 @@ const {
     normalizeDesignation,
     designationsMatch,
     findLineForDesignation,
+    findMatchingRole,
 } = require('./designationMatch');
 
 async function resolveEmployeeId(pool, empCode, contractId, siteCode) {
@@ -123,7 +124,8 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
                 continue;
             }
 
-            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays);
+            const role = findMatchingRole(match.roles, row.designation);
+            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays, role);
             if (amount <= 0) continue;
 
             await client.query(

@@ -24,19 +24,25 @@
         "roles": [
           {
             "designation": "Conservancy Supervisory Services",
-            "count": 1
+            "count": 1,
+            "rate": 60246,
+            "isManpowerDependent": true
           },
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 1
+            "count": 1,
+            "isManpowerDependent": true
           },
           {
             "designation": "Gardening Services",
-            "count": 2
+            "count": 2,
+            "rate": 52183,
+            "isManpowerDependent": true
           },
           {
             "designation": "Decanting/Filling Services",
-            "count": 2
+            "count": 2,
+            "isManpowerDependent": true
           }
         ]
       },
