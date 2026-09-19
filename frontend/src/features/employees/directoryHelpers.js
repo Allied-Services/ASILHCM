@@ -1,4 +1,4 @@
-const DIR_KEYS = ['q', 'bu', 'client', 'contractId', 'clientBu', 'location', 'dept', 'active', 'page', 'browse'];
+const DIR_KEYS = ['q', 'bu', 'client', 'contractId', 'clientBu', 'location', 'dept', 'designation', 'active', 'page', 'browse'];
 const RECENT_KEY = 'asil_emp_recent';
 const RECENT_MAX = 8;
 
@@ -24,6 +24,7 @@ export function readDirectoryParams(search = typeof window !== 'undefined' ? win
         clientBu: p.get('clientBu') || '',
         location: p.get('location') || '',
         dept: p.get('dept') || '',
+        designation: p.get('designation') || '',
         active: p.get('active') || 'all',
         page: Math.max(1, parseInt(p.get('page'), 10) || 1),
         browse: p.get('browse') === '1',
@@ -31,9 +32,7 @@ export function readDirectoryParams(search = typeof window !== 'undefined' ? win
 }
 
 export function hasDirectoryQuery(params) {
-    return String(params.q || '').trim().length >= 2
-        || !!(params.bu || params.client || params.contractId || params.clientBu || params.location || params.dept)
-        || !!params.browse;
+    return !!(params.client && params.contractId);
 }
 
 export function writeDirectoryParams(next, search = typeof window !== 'undefined' ? window.location.search : '') {
@@ -46,6 +45,7 @@ export function writeDirectoryParams(next, search = typeof window !== 'undefined
     if (next.clientBu) p.set('clientBu', next.clientBu);
     if (next.location) p.set('location', next.location);
     if (next.dept) p.set('dept', next.dept);
+    if (next.designation) p.set('designation', next.designation);
     if (next.active && next.active !== 'all') p.set('active', next.active);
     if (next.page && next.page > 1) p.set('page', String(next.page));
     if (next.browse) p.set('browse', '1');

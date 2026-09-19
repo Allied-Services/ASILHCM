@@ -2855,7 +2855,7 @@ export default function PayrollSheet({ user }) {
 
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1rem 1.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 <strong>Formulas:</strong> Gross = Basic(paid) + Allowances(pro-rata) + OT | WHT = FBR 2025-26 slabs ÷ 12 |
-                EOBI = <strong>1% / 5% of the contract minimum wage</strong> (Monthly Cycle → Setup; default Rs. 40,000) |
+                EOBI = <strong>1% / 5% of the contract minimum wage</strong> (Client Information → Contract; default Federal / lowest Rs. 40,000) |
                 SESSI = <strong>6% of gross</strong>, only where gross &lt; Rs. 45,000 (exempt above) |
                 PF = Gross ÷ 24 (EE &amp; ER, when PF scheme) | <strong>Gratuity = Base Salary ÷ 12</strong> (8.33% of contractual base, EOB Ord 1968 — NOT inflated by OT) |
                 Total Payroll Cost = Gross + employer obligations | Service Charges on Total Payroll Cost | Sales Tax on (Total Payroll Cost + Service Charges). Click <strong>Verify</strong> on any row for full step-by-step breakdown.

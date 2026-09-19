@@ -53,6 +53,8 @@ const {
     cnicTakenMessage,
     mapEmployeeWriteError,
 } = require('./src/modules/employees/employeeWrite');
+const { applyLastWorkingDayToActive } = require('./src/core/employeeActive');
+const { assertEmployeeFitsRoster } = require('./src/modules/serviceOrders/rosterCapacity');
 const { requirePayrollSheet } = require('./src/modules/payrollSheet/access');
 const { requireAttendanceAccess, EXPORT_ROLES } = require('./src/modules/attendance/attendanceAccess');
 
@@ -462,7 +464,7 @@ const nullNum = (n) => (n !== '' && n != null) ? parseFloat(n) || null : null;
 
 const empToDb = (e) => ({
     id: (e.id && String(e.id).trim()) || `ASIL-${Date.now()}`,
-    bu: e.bu || null, active: e.active || 'Yes',
+    bu: e.bu || null, active: applyLastWorkingDayToActive(e.active || 'Yes', e.lastWorkingDay),
     client: e.client || null, client_bu: e.clientBU || null,
     dept: e.dept || null, designation: e.designation || null,
     location: e.location || null, site: e.site || null, province: e.province || null,
@@ -742,6 +744,7 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
 
         try {
             const d = empToDb(emp);
+            await assertEmployeeFitsRoster(pool, d, { excludeEmployeeId: d.id });
             const vals = COLS.map(c => d[c]);
             const { rows } = await pool.query(
                 `INSERT INTO employees (${COLS.join(',')}) VALUES (${placeholders})
@@ -756,6 +759,10 @@ app.post('/api/employees/bulk', requireAuth, async (req, res) => {
                 if (rows[0].is_new_row && notifyNew) newEmployees.push(empObj);
             }
         } catch (err) {
+            if (err.status === 409 && err.code === 'SO_HEADCOUNT_EXCEEDED') {
+                errors.push({ id: emp.id, name: emp.name, error: err.message });
+                continue;
+            }
             console.error('[bulk-import]', err);
             errors.push({ id: emp.id, name: emp.name, error: 'Internal server error' });
         }
@@ -796,6 +803,7 @@ app.post('/api/employees', requireAuth, async (req, res) => {
                 existing: conflicts.byCnic,
             });
         }
+        await assertEmployeeFitsRoster(pool, d, { excludeEmployeeId: d.id });
         const cols = ['id', 'bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'claim_authority', 'claims_reviewer_email', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
         const vals = cols.map(c => (d[c] === undefined ? null : d[c]));
         const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
@@ -806,6 +814,9 @@ app.post('/api/employees', requireAuth, async (req, res) => {
         );
         res.json({ employee: empFromDb(rows[0]), updatedExisting: !!conflicts.byId });
     } catch (err) {
+        if (err.status === 409 && err.code === 'SO_HEADCOUNT_EXCEEDED') {
+            return res.status(409).json({ error: err.message, code: err.code, details: err.details });
+        }
         const mapped = mapEmployeeWriteError(err, { id: req.body?.id, cnic: req.body?.cnic });
         if (mapped) return res.status(mapped.status).json(mapped.body);
         console.error('[POST /api/employees]', err);
@@ -829,6 +840,7 @@ app.put('/api/employees/:id', requireAuth, async (req, res) => {
             logAudit(req, 'employee_rename', 'employee', `${currentId} -> ${targetId}`);
         }
         const d = empToDb({ ...req.body, id: targetId });
+        await assertEmployeeFitsRoster(pool, d, { excludeEmployeeId: targetId });
         let cols = ['bu', 'active', 'client', 'client_bu', 'dept', 'designation', 'location', 'site', 'province', 'name', 'father_name', 'mother_name', 'cnic', 'cnic_issue', 'cnic_expiry', 'place_of_birth', 'eobi_no', 'religion', 'marital_status', 'dob', 'doj', 'last_working_day', 'primary_contact', 'emergency_contact', 'email', 'present_address', 'permanent_address', 'salary', 'spouse_name', 'spouse_age', 'spouse_cnic', 'child1_name', 'child1_age', 'child1_id', 'child2_name', 'child2_age', 'child2_id', 'medical_type', 'medical_maternity', 'total_medical_coverage', 'bank_name', 'bank_account', 'account_title', 'nok_name', 'nok_relation', 'nok_contact', 'contract_date', 'contract_name', 'contract_id', 'region', 'line_manager_name', 'line_manager_email', 'claim_authority', 'claims_reviewer_email', 'sessi_no', 'shirt_size', 'trouser_size', 'safety_shoe_size', 'last_uniform_issue_date', 'last_ppe_issue_date', 'gate_pass_expiry', 'payroll_cycle_type'];
         // Old profile saves omit Focal — do not wipe claim_authority unless the client sent it.
         if (!bodyHasClaimAuthority(req.body)) cols = cols.filter(c => c !== 'claim_authority');

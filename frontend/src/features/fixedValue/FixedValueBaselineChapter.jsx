@@ -60,6 +60,7 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
+  const [capacity, setCapacity] = useState(null);
 
   useEffect(() => {
     if (!contractId) {
@@ -70,6 +71,9 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
     let cancelled = false;
     setLoading(true);
     setError('');
+    api.getFixedValueRosterCapacity(contractId)
+      .then((cap) => { if (!cancelled) setCapacity(cap); })
+      .catch(() => { if (!cancelled) setCapacity(null); });
     api.getFixedValueContract(contractId)
       .then((detail) => {
         if (cancelled) return;
@@ -190,6 +194,19 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
             <div className="fv-kpi"><div className="label">Sales tax</div><div className="value">{money(st)}</div></div>
             <div className="fv-kpi"><div className="label">Grand</div><div className="value">{money(grand)}</div></div>
           </div>
+          {capacity?.roles?.length > 0 && (
+            <div className="fv-banner" style={{ marginTop: '0.75rem' }}>
+              <strong>Active roster vs Service Order</strong>
+              <ul style={{ margin: '0.4rem 0 0', paddingLeft: '1.2rem' }}>
+                {capacity.roles.map((r) => (
+                  <li key={`${r.designation}-${r.site || 'all'}`} style={{ color: r.over ? '#ef4444' : 'inherit' }}>
+                    {r.designation}{r.site ? ` · ${r.site}` : ''}: {r.assigned} / {r.allowed} assigned
+                    {r.over ? ' — over capacity' : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <button type="button" className="so-terms-toggle" onClick={() => setTermsOpen((o) => !o)}>
             {termsOpen ? 'Hide contract terms' : 'Show contract terms (deposit, SLA, invoice notes)'}

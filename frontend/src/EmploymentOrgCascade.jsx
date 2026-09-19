@@ -200,24 +200,26 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
 
     return (
         <>
-            <Field label={isFilter ? 'ASIL BU' : 'ASIL BU *'}>
+            {!isFilter && (
+            <Field label="ASIL BU *">
                 <select value={asilBu} onChange={(e) => onAsilBu(e.target.value)} style={selStyle(!!asilBu)}>
-                    <option value="">{isFilter ? 'All BUs' : '-- Select ASIL BU --'}</option>
+                    <option value="">-- Select ASIL BU --</option>
                     {ASIL_BUS.map((b) => <option key={b} value={b}>{b}</option>)}
                     {asilBu && !ASIL_BUS.includes(asilBu) && (
                         <option value={asilBu}>{asilBu} (legacy — reassign)</option>
                     )}
                 </select>
             </Field>
+            )}
 
-            <Field label={isFilter ? 'Client Name' : 'Client Name *'}>
+            <Field label={isFilter ? 'Client name' : 'Client Name *'}>
                 <select
                     value={form.client || ''}
                     onChange={(e) => onClient(e.target.value)}
                     disabled={!isFilter && !asilBu}
                     style={selStyle(!!form.client)}
                 >
-                    <option value="">{isFilter ? 'All clients' : (asilBu ? '-- Select active client --' : '-- Select ASIL BU first --')}</option>
+                    <option value="">{isFilter ? '-- Select client --' : (asilBu ? '-- Select active client --' : '-- Select ASIL BU first --')}</option>
                     {clientsForBu.map((c) => (
                         <option key={c.id} value={c.name}>{c.name}</option>
                     ))}
@@ -227,14 +229,14 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
                 </select>
             </Field>
 
-            <Field label={isFilter ? 'Contract' : 'Contract *'} full={layout === 'grid'}>
+            <Field label={isFilter ? 'Client contract' : 'Contract *'} full={layout === 'grid'}>
                 <select
                     value={form.contractId || ''}
                     onChange={(e) => onContract(e.target.value)}
                     disabled={!form.client}
                     style={selStyle(!!form.contractId)}
                 >
-                    <option value="">{form.client ? (isFilter ? 'All contracts' : '-- Select contract --') : '-- Select client first --'}</option>
+                    <option value="">{form.client ? '-- Select contract --' : '-- Select client first --'}</option>
                     {contractsForClient.map((ct) => (
                         <option key={ct.id} value={ct.id}>
                             {ct.contractName}{ct.location ? ` · ${ct.location}` : ''}
@@ -256,6 +258,7 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
                 )}
             </Field>
 
+            {!isFilter && (
             <Field label="Client Business Unit">
                 <select
                     value={form.clientBU || ''}
@@ -307,6 +310,7 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
                 </select>
             </Field>
 
+            )}
             {layout === 'grid' && !isFilter && (
                 <Field label="Province">
                     <select value={form.province || ''} onChange={(e) => patch({ province: e.target.value })} style={selStyle(true)}>

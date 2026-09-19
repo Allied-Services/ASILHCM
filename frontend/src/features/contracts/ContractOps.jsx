@@ -203,7 +203,7 @@ const ContractOps = () => {
                         <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
                             <h3 style={{ marginBottom: '1rem' }}>Contract Rulebook</h3>
                             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-                                Prefer Monthly Cycle → Setup for the rulebook. Saving here still works for legacy bookmarks.
+                                Prefer Client Information → Contract for commercial type, EOBI, Service Orders, and focals. Saving here still works for legacy bookmarks.
                             </p>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
                                 <label>Commercial type

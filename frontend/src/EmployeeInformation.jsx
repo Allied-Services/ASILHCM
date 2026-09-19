@@ -7,7 +7,7 @@ import EmployeeProfile from './EmployeeProfile';
 import EmployeeDirectoryToolbar from './features/employees/EmployeeDirectory';
 import EmploymentOrgCascade from './EmploymentOrgCascade';
 import { normalizeAsilBu } from './orgHierarchy';
-import { isEmployeeActive, activeStatusLabel, normalizeActiveValue } from './employeeActive';
+import { derivedActiveStatusLabel, isEmployeeCurrentlyActive, normalizeActiveValue } from './employeeActive';
 import {
     activeToParam, paramToActive, readDirectoryParams, writeDirectoryParams,
     hasDirectoryQuery, loadRecentEmployees, pushRecentEmployee,
@@ -15,9 +15,9 @@ import {
 
 const EMPTY_DIR = {
     bu: '', client: '', clientId: '', contractId: '', contractName: '',
-    clientBU: '', location: '', dept: '',
+    clientBU: '', location: '', dept: '', designation: '',
 };
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 400;
 
 // ── Exact columns from Master Data.csv ───────────────────────────────────────
 export const MASTER_COLUMNS = [
@@ -119,7 +119,10 @@ export default function EmployeeInformation({ user }) {
         clientBU: boot.clientBu,
         location: boot.location,
         dept: boot.dept,
+        designation: boot.designation,
     });
+    const [facets, setFacets] = useState({ clientBus: [], locations: [], departments: [], designations: [] });
+    const [extraFilter, setExtraFilter] = useState('');
     const skipFilterQuery = useRef(true);
     const [showAdd, setShowAdd] = useState(false);
     const [addMode, setAddMode] = useState('single');
@@ -152,6 +155,7 @@ export default function EmployeeInformation({ user }) {
             clientBu: form.clientBU || '',
             location: form.location || '',
             dept: form.dept || '',
+            designation: form.designation || '',
             active: activeToParam(active),
             page: pg,
             browse: br,
@@ -179,6 +183,7 @@ export default function EmployeeInformation({ user }) {
                 clientBu: params.clientBu,
                 location: params.location,
                 dept: params.dept,
+                designation: params.designation,
                 active: params.active,
                 page: params.page,
                 limit: PAGE_SIZE,
@@ -215,6 +220,7 @@ export default function EmployeeInformation({ user }) {
                     clientBU: boot.clientBu,
                     location: boot.location,
                     dept: boot.dept,
+                    designation: boot.designation,
                 },
                 active: paramToActive(boot.active),
                 page: boot.page,
@@ -234,7 +240,31 @@ export default function EmployeeInformation({ user }) {
         if (hasDirectoryQuery(next)) runDirectory({ form: dirForm, page: 1 });
         else if (hasQueried) runDirectory({ form: dirForm, page: 1 });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dirForm.bu, dirForm.client, dirForm.contractId, dirForm.clientBU, dirForm.location, dirForm.dept]);
+    }, [dirForm.bu, dirForm.client, dirForm.contractId, dirForm.clientBU, dirForm.location, dirForm.dept, dirForm.designation]);
+
+    useEffect(() => {
+        if (!dirForm.client || !dirForm.contractId) {
+            setFacets({ clientBus: [], locations: [], departments: [], designations: [] });
+            return;
+        }
+        api.getEmployeeDirectoryFacets({ client: dirForm.client, contractId: dirForm.contractId })
+            .then(setFacets)
+            .catch(() => setFacets({ clientBus: [], locations: [], departments: [], designations: [] }));
+    }, [dirForm.client, dirForm.contractId]);
+
+    const applyExtraFilter = (raw) => {
+        setExtraFilter(raw);
+        const sep = raw.indexOf(':');
+        const kind = sep === -1 ? '' : raw.slice(0, sep);
+        const value = sep === -1 ? '' : raw.slice(sep + 1);
+        setDirForm((p) => ({
+            ...p,
+            clientBU: kind === 'bu' ? value : '',
+            location: kind === 'loc' ? value : '',
+            dept: kind === 'dept' ? value : '',
+            designation: kind === 'desig' ? value : '',
+        }));
+    };
 
     const secIdx = SECTIONS.indexOf(sec);
     const filtered = emps;
@@ -489,7 +519,7 @@ export default function EmployeeInformation({ user }) {
         const lines = rows.map(e => [
             e.id, e.name, e.client, e.designation, e.location, e.province,
             e.contractName || e.bu || '',
-            e.salary, activeStatusLabel(e.active), e.cnic,
+            e.salary, derivedActiveStatusLabel(e), e.cnic,
             e.email, e.primaryContact, e.bankName, e.bankAccount
         ].map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(','));
         const csv = [headers.join(','), ...lines].join('\n');
@@ -793,19 +823,27 @@ export default function EmployeeInformation({ user }) {
                         value={search}
                         onChange={e => setSearch(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') runDirectory({ q: search, page: 1 }); }}
-                        placeholder="Search name, employee code, or CNIC…"
+                        placeholder={hasDirectoryQuery(buildDirParams()) ? 'Search name, employee code, or CNIC…' : 'Select Client and Contract first'}
                         style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', outline: 'none' }}
                     />
                 </div>
                 <button
                     onClick={() => runDirectory({ q: search, page: 1 })}
-                    disabled={String(search || '').trim().length < 2 && !hasDirectoryQuery(buildDirParams({ q: search }))}
+                    disabled={!hasDirectoryQuery(buildDirParams())}
                     style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--primary)', background: 'var(--primary)', color: 'white', cursor: 'pointer', fontWeight: 700 }}
                 >
                     Search
                 </button>
                 <button
-                    onClick={() => { setBrowse(true); setFilterActive('Active'); runDirectory({ browse: true, active: 'Active', page: 1 }); }}
+                    onClick={() => {
+                        if (!hasDirectoryQuery(buildDirParams())) {
+                            alert('Select Client and Contract to load employees.');
+                            return;
+                        }
+                        setBrowse(true);
+                        setFilterActive('Active');
+                        runDirectory({ browse: true, active: 'Active', page: 1 });
+                    }}
                     style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', cursor: 'pointer', fontWeight: 600 }}
                 >
                     Browse Active
@@ -832,6 +870,37 @@ export default function EmployeeInformation({ user }) {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
                 <EmploymentOrgCascade mode="filter" form={dirForm} setForm={setDirForm} compact />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filter</label>
+                    <select
+                        value={extraFilter}
+                        disabled={!dirForm.client || !dirForm.contractId}
+                        onChange={(e) => applyExtraFilter(e.target.value)}
+                        style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%' }}
+                    >
+                        <option value="">{dirForm.contractId ? 'All on this contract' : 'Select Client and Contract first'}</option>
+                        {facets.clientBus.length > 0 && (
+                            <optgroup label="Client BU">
+                                {facets.clientBus.map((v) => <option key={`bu:${v}`} value={`bu:${v}`}>{v}</option>)}
+                            </optgroup>
+                        )}
+                        {facets.locations.length > 0 && (
+                            <optgroup label="Client Location">
+                                {facets.locations.map((v) => <option key={`loc:${v}`} value={`loc:${v}`}>{v}</option>)}
+                            </optgroup>
+                        )}
+                        {facets.departments.length > 0 && (
+                            <optgroup label="Department">
+                                {facets.departments.map((v) => <option key={`dept:${v}`} value={`dept:${v}`}>{v}</option>)}
+                            </optgroup>
+                        )}
+                        {facets.designations.length > 0 && (
+                            <optgroup label="Designation">
+                                {facets.designations.map((v) => <option key={`desig:${v}`} value={`desig:${v}`}>{v}</option>)}
+                            </optgroup>
+                        )}
+                    </select>
+                </div>
             </div>
 
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -847,7 +916,8 @@ export default function EmployeeInformation({ user }) {
                 {dirForm.contractName && <button onClick={() => setDirForm((p) => ({ ...p, contractId: '', contractName: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.contractName} ×</button>}
                 {dirForm.clientBU && <button onClick={() => setDirForm((p) => ({ ...p, clientBU: '', dept: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.clientBU} ×</button>}
                 {dirForm.location && <button onClick={() => setDirForm((p) => ({ ...p, location: '', dept: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.location} ×</button>}
-                {dirForm.dept && <button onClick={() => setDirForm((p) => ({ ...p, dept: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.dept} ×</button>}
+                {dirForm.dept && <button onClick={() => { setExtraFilter(''); setDirForm((p) => ({ ...p, dept: '' })); }} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.dept} ×</button>}
+                {dirForm.designation && <button onClick={() => { setExtraFilter(''); setDirForm((p) => ({ ...p, designation: '' })); }} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.designation} ×</button>}
                 {filterActive !== 'All' && (
                     <button onClick={() => { setFilterActive('All'); if (hasQueried) runDirectory({ active: 'All', page: 1 }); }}
                         style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{filterActive} ×</button>
@@ -861,7 +931,7 @@ export default function EmployeeInformation({ user }) {
                 <span style={{ marginLeft: 'auto', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
                     {hasQueried
                         ? <>{total.toLocaleString()} people · page {page} of {Math.max(1, Math.ceil(total / PAGE_SIZE))}{elapsedMs != null ? ` · ${elapsedMs} ms` : ''}</>
-                        : 'No roster query yet'}
+                        : 'Select Client and Contract to load employees.'}
                 </span>
             </div>
 
@@ -942,7 +1012,7 @@ export default function EmployeeInformation({ user }) {
                                         : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem' }}>
-                                    <span style={{ background: isEmployeeActive(emp.active) ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: isEmployeeActive(emp.active) ? '#22c55e' : '#eab308', padding: '3px 10px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 600 }}>{activeStatusLabel(emp.active)}</span>
+                                    <span style={{ background: isEmployeeCurrentlyActive(emp) ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: isEmployeeCurrentlyActive(emp) ? '#22c55e' : '#eab308', padding: '3px 10px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 600 }}>{derivedActiveStatusLabel(emp)}</span>
                                 </td>
                                 <td style={{ padding: '0.85rem 1rem' }} onClick={e => e.stopPropagation()}>
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -1202,7 +1272,7 @@ export default function EmployeeInformation({ user }) {
                                                                     {r.province ? <span style={{ background: 'rgba(56,189,248,0.1)', color: '#38bdf8', padding: '2px 7px', borderRadius: '6px', fontSize: '0.76rem', fontWeight: 600 }}>{r.province}</span> : '—'}
                                                                 </td>
                                                                 <td style={{ padding: '8px 12px' }}>Rs. {(r.salary || 0).toLocaleString()}</td>
-                                                                <td style={{ padding: '8px 12px' }}><span style={{ color: isEmployeeActive(r.active) ? '#22c55e' : '#eab308' }}>{activeStatusLabel(r.active)}</span></td>
+                                                                <td style={{ padding: '8px 12px' }}><span style={{ color: isEmployeeCurrentlyActive(r) ? '#22c55e' : '#eab308' }}>{derivedActiveStatusLabel(r)}</span></td>
                                                             </tr>
                                                         ))}
                                                     </tbody>

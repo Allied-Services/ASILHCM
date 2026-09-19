@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-19 — Contract master, directory, SO headcount
+EOBI / commercial type / Service Order enable / focals / routing moved to Client Information → Contract. Monthly Cycle Setup is attendance + claims only; collection is derived (Attendance-only = absent_days file; Wafi monthly-form unchanged). Default EOBI wage is Federal / lowest Rs. 40,000 (editable). Last working day on or before today shows Inactive and is persisted Inactive; July leavers stay out of later payroll loads. Employee Information loads only after Client + Contract; one extra filter covers Client BU / Location / Department / Designation. Active employees cannot exceed Service Order role counts.
+
+**Env vars needed:** none.
+
 ### 2026-09-18 — One Payroll Sheet: invoices use locked days; leftover doors closed
 PSO Service Order absence shortages are rebuilt when the Payroll Sheet is locked (`absent = max(0, 30 − paid_days)`). Manual genset/chemical adjustments are unchanged. Wafi cost-plus is unchanged. Payroll Run, Email Claims, Wafi Claims, Claims Queue and Contract Policies no longer open from leftover `?tab=` links. Email Claims `push-to-payroll` returns 410. Historical `payroll_runs` and Wafi magic-link routes stay.
 

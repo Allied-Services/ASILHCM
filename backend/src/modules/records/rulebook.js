@@ -3,6 +3,7 @@
 const { getPolicy, upsertPolicy } = require('../constraints/service');
 const { getClaimsPolicy, upsertClaimsPolicy } = require('../claims/claimsPolicy');
 const { eobiRatesFromMinWage, parseEobiMinWage } = require('../../../taxEngine');
+const { listServiceOrders, ensureDefaultServiceOrder } = require('../serviceOrders/crud');
 
 const COMMERCIAL_TYPES = ['cost_plus', 'fixed_value'];
 const ENGINES = ['legacy', 'runs'];
@@ -108,7 +109,19 @@ async function saveRulebook(pool, contractId, body, actor) {
     const commercial = COMMERCIAL_TYPES.includes(body.commercial_type)
         ? body.commercial_type
         : current.commercial_type;
-    const engine = ENGINES.includes(body.payroll_engine) ? body.payroll_engine : current.payroll_engine;
+    if (current.commercial_type === 'fixed_value' && commercial === 'cost_plus' && !body.force_disable_so) {
+        const existingSo = await listServiceOrders(pool, { contractId });
+        const hasLines = existingSo.some((so) => (so.lines || []).length > 0);
+        if (hasLines) {
+            const err = new Error('This contract already has Service Order lines. Remove those lines before turning off Service Order logic.');
+            err.status = 409;
+            err.code = 'SO_STILL_CONFIGURED';
+            throw err;
+        }
+    }
+    const engine = commercial === 'fixed_value'
+        ? 'runs'
+        : (ENGINES.includes(body.payroll_engine) ? body.payroll_engine : current.payroll_engine);
     const routing = ROUTING_MODES.includes(body.routing_mode) ? body.routing_mode : current.routing_mode;
     const focal = String(body.allied_contract_focal_email || '').trim().toLowerCase();
     if (!focal || !focal.includes('@')) {
@@ -196,6 +209,10 @@ async function saveRulebook(pool, contractId, body, actor) {
                 eobiMinWage,
             ]
         );
+    }
+
+    if (commercial === 'fixed_value') {
+        await ensureDefaultServiceOrder(pool, contractId, current.contract_name);
     }
 
     return getRulebook(pool, contractId);
