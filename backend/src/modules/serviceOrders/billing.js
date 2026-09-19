@@ -5,6 +5,7 @@ const { provinceSalesTaxRate } = require('../../core/regionTax');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { getServiceOrder } = require('./crud');
 const { siteProvince, roleCount } = require('./sitesMeta');
+const { syncVacanciesForServiceOrder } = require('./vacancySync');
 const { renderInvoiceHtml, summarizeInvoiceDeductions } = require('./invoiceHtml');
 const { parseInvoiceAdjustmentAmount } = require('./parseInvoiceAdjustmentAmount');
 const {
@@ -255,6 +256,16 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year, requireConf
         await assertPeriodReviewed(pool, serviceOrderId, month, year);
     }
 
+    try {
+        await syncVacanciesForServiceOrder(pool, {
+            serviceOrder: so,
+            month,
+            year,
+        });
+    } catch (err) {
+        console.error('[computeSoInvoice vacancies]', err);
+    }
+
     const { rows: contractRows } = await pool.query(
         `SELECT c.*, cl.name AS client_name, cl.ntn, cl.strn
          FROM contracts c
@@ -267,18 +278,6 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year, requireConf
         const err = new Error('Contract not found');
         err.status = 404;
         throw err;
-    }
-
-    try {
-        const { reconcileResourceGaps } = require('./resourceGaps');
-        await reconcileResourceGaps(pool, {
-            contractId: contract.id,
-            month,
-            year,
-            actor: 'invoice-compute',
-        });
-    } catch (err) {
-        console.error('[computeSoInvoice resource_gaps]', err);
     }
 
     const policy = await getPolicy(pool, contract.id);

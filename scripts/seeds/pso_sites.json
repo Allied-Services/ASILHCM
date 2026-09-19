@@ -25,22 +25,26 @@
           {
             "designation": "Conservancy Supervisory Services",
             "count": 1,
-            "rate": 60246
+            "rate": 60246,
+            "isManpowerDependent": true
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 1,
-            "rate": 52040
+            "rate": 52040,
+            "isManpowerDependent": true
           },
           {
             "designation": "Gardening Services",
             "count": 2,
-            "rate": 52183
+            "rate": 52183,
+            "isManpowerDependent": true
           },
           {
             "designation": "Decanting/Filling Services",
             "count": 2,
-            "rate": 57298
+            "rate": 57298,
+            "isManpowerDependent": true
           }
         ]
       },

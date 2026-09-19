@@ -759,7 +759,7 @@ export default function MonthlyCycleHub({ user }) {
           <CalendarRange size={22} />
           <div>
             <h1>Monthly Cycle</h1>
-            <p>Collect attendance and claims only. Push to payroll and month close live on the Payroll Sheet. Cost-plus invoices are raised on Invoices (AR).</p>
+            <p>Collect attendance and claims for the month. Payroll lives on the Payroll Sheet. Invoices live on Month Invoices.</p>
             {comms && comms.mode !== 'on' && (
               <p className="mch-muted">Live mail/SMS: <strong>{comms.email}</strong> · SMS {comms.sms}. No Wafi or personal inboxes until verification.</p>
             )}
@@ -803,7 +803,7 @@ export default function MonthlyCycleHub({ user }) {
           user={user}
           lockSection="response"
           hideSectionNav
-          hidePayrollPush
+          collectOnly
           onOpenManual={(seed) => { setManualSeed(seed); setSection('corrections'); }}
         />
       )}
@@ -812,7 +812,7 @@ export default function MonthlyCycleHub({ user }) {
           user={user}
           lockSection="manual"
           hideSectionNav
-          hidePayrollPush
+          collectOnly
           manualSeed={manualSeed}
           onManualSeedConsumed={() => setManualSeed(null)}
         />

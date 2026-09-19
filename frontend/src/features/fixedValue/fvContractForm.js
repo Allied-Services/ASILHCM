@@ -1,6 +1,11 @@
 export const CORO_EXPECTED = 4136919.94;
 
-export const emptyRole = () => ({ designation: '', count: 1, rate: 0 });
+export const emptyRole = (manpower = true) => ({
+  designation: '',
+  count: 1,
+  rate: '',
+  is_manpower_dependent: !!manpower,
+});
 
 export const emptyLine = () => ({
   line_number: '1',
@@ -9,49 +14,8 @@ export const emptyLine = () => ({
   quantity: 1,
   rate: 0,
   is_manpower_dependent: true,
-  roles: [emptyRole()],
+  roles: [emptyRole(true)],
 });
-
-export function normalizeRoles(roles) {
-  if (!Array.isArray(roles) || !roles.length) return [emptyRole()];
-  return roles.map((r) => ({
-    designation: r.designation || r.role || '',
-    count: Number(r.count) || 0,
-    rate: Number(r.rate ?? r.monthly_rate ?? r.monthlyRate ?? 0) || 0,
-  }));
-}
-
-export function roleCountOf(roles) {
-  return normalizeRoles(roles).reduce((n, r) => n + (Number(r.count) || 0), 0);
-}
-
-export function roleRateSum(roles) {
-  return normalizeRoles(roles).reduce((n, r) => n + (Number(r.rate) || 0) * (Number(r.count) || 0), 0);
-}
-
-export function siteLineTotals(site) {
-  const lines = site?.lines || [];
-  let manpower = 0;
-  let nonManpower = 0;
-  for (const l of lines) {
-    const amt = Number(l.rate || 0);
-    if (l.is_manpower_dependent) manpower += amt;
-    else nonManpower += amt;
-  }
-  return { manpower: round2(manpower), nonManpower: round2(nonManpower), total: round2(manpower + nonManpower) };
-}
-
-export function lineRateWarning(line) {
-  if (!line?.is_manpower_dependent) return '';
-  const roles = (line.roles || []).filter((r) => r.designation || r.count || r.rate);
-  if (!roles.length) return 'Add the manpower roles for this line.';
-  const sum = round2(roleRateSum(roles));
-  const rate = round2(Number(line.rate || 0));
-  if (sum > 0 && rate > 0 && sum !== rate) {
-    return `Role rates sum to ${money(sum)}; line total is ${money(rate)}.`;
-  }
-  return '';
-}
 
 export const emptySite = () => ({
   site_code: '',
@@ -69,6 +33,32 @@ export function round2(n) {
 
 export function money(n) {
   return round2(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export function mapRole(r, lineManpower = true) {
+  const rateRaw = r?.rate ?? r?.monthly_rate;
+  const rateNum = rateRaw === '' || rateRaw == null ? null : Number(rateRaw);
+  const mp = r?.is_manpower_dependent ?? r?.isManpowerDependent;
+  return {
+    designation: r?.designation || r?.role || '',
+    count: Number(r?.count) || 0,
+    rate: Number.isFinite(rateNum) && rateNum > 0 ? rateNum : '',
+    is_manpower_dependent: mp == null ? !!lineManpower : !!mp,
+  };
+}
+
+export function rolePayload(r, lineManpower = true) {
+  const mapped = mapRole(r, lineManpower);
+  const out = {
+    designation: mapped.designation,
+    count: mapped.count,
+    is_manpower_dependent: mapped.is_manpower_dependent,
+    isManpowerDependent: mapped.is_manpower_dependent,
+  };
+  if (mapped.rate !== '') {
+    out.rate = Number(mapped.rate);
+  }
+  return out;
 }
 
 export function buildInitial(detail) {
@@ -174,7 +164,9 @@ export function buildInitial(detail) {
           quantity: 1,
           rate: Number(l.rate || 0),
           is_manpower_dependent: !!l.is_manpower_dependent,
-          roles: normalizeRoles(l.roles),
+          roles: Array.isArray(l.roles) && l.roles.length
+            ? l.roles.map((r) => mapRole(r, !!l.is_manpower_dependent))
+            : [emptyRole(!!l.is_manpower_dependent)],
         })) : [emptyLine()],
       };
     }) : [emptySite()],
@@ -228,11 +220,7 @@ export function formToPayload(form) {
         rate: Number(l.rate || 0),
         total_amount: Number(l.rate || 0),
         is_manpower_dependent: !!l.is_manpower_dependent,
-        roles: (l.roles || []).filter((r) => r.designation || r.count || r.rate).map((r) => ({
-          designation: r.designation || '',
-          count: Number(r.count) || 0,
-          rate: Number(r.rate || 0) || 0,
-        })),
+        roles: (l.roles || []).filter((r) => r.designation || r.count).map((r) => rolePayload(r, !!l.is_manpower_dependent)),
       })),
     })),
   };

@@ -462,17 +462,6 @@ async function submitImport(pool, importId, actor) {
                 actor,
                 rows: resolved,
             });
-            try {
-                const { reconcileResourceGaps } = require('../serviceOrders/resourceGaps');
-                soSync.resourceGaps = await reconcileResourceGaps(client, {
-                    contractId,
-                    month,
-                    year,
-                    actor,
-                });
-            } catch (gapErr) {
-                console.error('[cycle-file.submit resource_gaps]', gapErr);
-            }
         } catch (err) {
             console.error('[cycle-file.submit so_sync]', err);
             soSync = {

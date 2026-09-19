@@ -306,10 +306,18 @@ export default function FixedValueContractWizard({
                 rate: Number(l.rate || 0),
                 total_amount: Number(l.rate || 0),
                 is_manpower_dependent: !!l.is_manpower_dependent,
-                roles: (l.roles || []).filter(r => r.designation || r.count).map(r => ({
-                    designation: r.designation || '',
-                    count: Number(r.count) || 0,
-                })),
+                roles: (l.roles || []).filter(r => r.designation || r.count).map(r => {
+                    const mp = r.is_manpower_dependent ?? r.isManpowerDependent ?? !!l.is_manpower_dependent;
+                    const out = {
+                        designation: r.designation || '',
+                        count: Number(r.count) || 0,
+                        is_manpower_dependent: !!mp,
+                        isManpowerDependent: !!mp,
+                    };
+                    const rate = Number(r.rate);
+                    if (Number.isFinite(rate) && rate > 0) out.rate = rate;
+                    return out;
+                }),
             })),
         })),
     });

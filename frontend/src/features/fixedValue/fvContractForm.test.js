@@ -3,9 +3,8 @@ import assert from 'node:assert/strict';
 import {
   buildInitial,
   formToPayload,
-  lineRateWarning,
-  roleRateSum,
-  siteLineTotals,
+  mapRole,
+  rolePayload,
 } from './fvContractForm.js';
 
 describe('fvContractForm role rates', () => {
@@ -31,27 +30,19 @@ describe('fvContractForm role rates', () => {
     assert.equal(form.sites[0].lines[0].roles[0].rate, 60246);
     const payload = formToPayload(form);
     assert.equal(payload.sites[0].lines[0].roles[0].rate, 60246);
-    assert.equal(roleRateSum(form.sites[0].lines[0].roles), 60246 + 52183 * 2);
+    assert.equal(payload.sites[0].lines[0].roles[1].rate, 52183);
+    assert.equal(payload.sites[0].lines[0].roles[1].count, 2);
   });
 
-  it('warns when role rates do not match the line total', () => {
-    const warn = lineRateWarning({
-      is_manpower_dependent: true,
-      rate: 331248,
-      roles: [{ designation: 'Gardener', count: 1, rate: 52183 }],
-    });
-    assert.match(warn, /Role rates sum/);
-  });
-
-  it('splits manpower and non-manpower site totals', () => {
-    const totals = siteLineTotals({
-      lines: [
-        { rate: 331248, is_manpower_dependent: true },
-        { rate: 10988, is_manpower_dependent: false },
-      ],
-    });
-    assert.equal(totals.manpower, 331248);
-    assert.equal(totals.nonManpower, 10988);
-    assert.equal(totals.total, 342236);
+  it('keeps explicit role rates and manpower flags on payload', () => {
+    const mapped = mapRole({
+      designation: 'Sweeping / Cleaning Services',
+      count: 1,
+      rate: 52040,
+    }, true);
+    assert.equal(mapped.rate, 52040);
+    const payload = rolePayload(mapped, true);
+    assert.equal(payload.rate, 52040);
+    assert.equal(payload.is_manpower_dependent, true);
   });
 });

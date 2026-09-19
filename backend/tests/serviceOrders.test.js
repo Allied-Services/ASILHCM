@@ -33,6 +33,16 @@ describe('serviceOrders — absence formula', () => {
         expect(amt).toBe(Math.round((120000 / 6 / 30) * 3 * 100) / 100);
     });
 
+    test('explicit role rate wins over equal split', () => {
+        const roles = [
+            { designation: 'FM Supervisor', count: 1, rate: 60246 },
+            { designation: 'Gardening', count: 2, rate: 52183 },
+            { designation: 'Sweeper', count: 1 },
+        ];
+        const amt = absenceDeductionAmount(331248, roles, 30, 30, roles[0]);
+        expect(amt).toBe(60246);
+    });
+
     test('zero absences → zero deduction', () => {
         expect(absenceDeductionAmount(50000, [{ count: 2 }], 0)).toBe(0);
     });

@@ -8,66 +8,77 @@ import {
   emptyRole,
   emptySite,
   formToPayload,
-  lineRateWarning,
   money,
   monthlyGrossOf,
-  roleCountOf,
-  roleRateSum,
   round2,
-  siteLineTotals,
 } from './fvContractForm';
 import './FixedValueOps.css';
 
-function RoleEditor({ roles, onChange, disabled }) {
-  const list = roles?.length ? roles : [emptyRole()];
+function RoleEditor({ roles, lineManpower, onChange }) {
+  const list = roles?.length ? roles : [emptyRole(lineManpower)];
   const setRole = (idx, next) => {
     const copy = list.map((r, i) => (i === idx ? next : r));
     onChange(copy);
   };
+  const roleTotal = (r) => {
+    const rate = Number(r.rate);
+    const count = Number(r.count) || 0;
+    return Number.isFinite(rate) && rate > 0 ? round2(rate * count) : 0;
+  };
+  const priced = list.reduce((n, r) => n + roleTotal(r), 0);
   return (
     <div className="so-roles">
       <div className="so-role so-role-head">
-        <span>Role</span>
+        <span>Service</span>
         <span>Count</span>
-        <span>Monthly rate</span>
+        <span>Rate / resource</span>
+        <span>Manpower</span>
+        <span>Total</span>
         <span />
       </div>
       {list.map((r, i) => (
         <div key={i} className="so-role">
           <input
             value={r.designation || ''}
-            placeholder="Designation"
-            disabled={disabled}
+            placeholder="Service / designation"
             onChange={(e) => setRole(i, { ...r, designation: e.target.value })}
           />
           <input
             type="number"
             min="0"
             value={r.count ?? 0}
-            disabled={disabled}
             onChange={(e) => setRole(i, { ...r, count: Number(e.target.value) || 0 })}
           />
           <input
             type="number"
             min="0"
             step="0.01"
-            value={r.rate ?? 0}
-            disabled={disabled}
-            placeholder="Role rate"
-            onChange={(e) => setRole(i, { ...r, rate: Number(e.target.value) || 0 })}
+            value={r.rate === '' || r.rate == null ? '' : r.rate}
+            placeholder="equal split"
+            onChange={(e) => setRole(i, { ...r, rate: e.target.value === '' ? '' : Number(e.target.value) })}
           />
-          {list.length > 1 && !disabled && (
+          <label className="so-mp">
+            <input
+              type="checkbox"
+              checked={r.is_manpower_dependent == null ? !!lineManpower : !!r.is_manpower_dependent}
+              onChange={(e) => setRole(i, { ...r, is_manpower_dependent: e.target.checked })}
+            />
+            <span>{(r.is_manpower_dependent == null ? lineManpower : r.is_manpower_dependent) ? 'Yes' : 'No'}</span>
+          </label>
+          <span className="so-role-total">{roleTotal(r) ? money(roleTotal(r)) : '—'}</span>
+          {list.length > 1 && (
             <button type="button" className="btn-secondary" onClick={() => onChange(list.filter((_, j) => j !== i))}>
               <Trash2 size={14} />
             </button>
           )}
         </div>
       ))}
-      {!disabled && (
-        <button type="button" className="btn-secondary" onClick={() => onChange([...list, emptyRole()])}>
-          <Plus size={14} /> Add role
+      <div className="so-role-actions">
+        <button type="button" className="btn-secondary" onClick={() => onChange([...list, emptyRole(lineManpower)])}>
+          <Plus size={14} /> Add service
         </button>
-      )}
+        {priced > 0 && <span className="so-role-sum">Priced services {money(priced)}</span>}
+      </div>
     </div>
   );
 }
@@ -127,7 +138,6 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
   const lineSumOk = !isCoro || round2(monthlyGross) === round2(expected || CORO_EXPECTED);
   const safeIdx = Math.min(activeSiteIdx, Math.max((form?.sites?.length || 1) - 1, 0));
   const activeSite = form?.sites?.[safeIdx];
-  const siteTotals = useMemo(() => (activeSite ? siteLineTotals(activeSite) : null), [activeSite]);
 
   const patchMeta = (path, value) => {
     setForm((prev) => {
@@ -207,7 +217,7 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
     <div className="so-chapter">
       <div className="so-head">
         <h3>Service orders</h3>
-        <p className="fv-lead">Agreed monthly catalog for this contract. Use Monthly Cycle for what was achieved this month.</p>
+        <p className="fv-lead">Each service under a line has its own count, monthly rate, and manpower flag. Line total is the billed amount for the depot.</p>
       </div>
       {error && <div className="fv-banner error">{error}</div>}
       {msg && <div className="fv-banner ok">{msg}</div>}
@@ -336,57 +346,33 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
                     <Plus size={14} /> Add line
                   </button>
                 </div>
-                <div className="fv-table-wrap">
-                  <table className="fv-table">
+                <div className="fv-table-wrap so-lines-wrap">
+                  <table className="fv-table so-lines">
                     <thead>
                       <tr>
                         <th>#</th>
-                        <th>Description</th>
+                        <th>Line item</th>
                         <th className="num">Line total</th>
-                        <th>Roles / service count</th>
-                        <th>Billing basis</th>
+                        <th>Line manpower</th>
                         <th />
                       </tr>
                     </thead>
                     <tbody>
-                      {activeSite.lines.map((l, li) => {
-                        const warn = lineRateWarning(l);
-                        return (
-                          <tr key={li}>
+                      {activeSite.lines.map((l, li) => (
+                        <React.Fragment key={li}>
+                          <tr>
                             <td>{l.line_number || li + 1}</td>
                             <td>
                               <input className="so-table-input" value={l.name} onChange={(e) => patchLine(li, { ...l, name: e.target.value })} />
-                              {l.is_manpower_dependent && (
-                                <div className="so-line-meta">
-                                  {roleCountOf(l.roles)} role slot{roleCountOf(l.roles) === 1 ? '' : 's'}
-                                  {roleRateSum(l.roles) > 0 ? ` · roles ${money(roleRateSum(l.roles))}` : ''}
-                                </div>
-                              )}
-                              {warn && <div className="so-line-warn">{warn}</div>}
                             </td>
                             <td>
                               <input className="so-table-input" type="number" step="0.01" value={l.rate} onChange={(e) => patchLine(li, { ...l, rate: Number(e.target.value) })} />
                             </td>
-                            <td className="so-roles-cell">
-                              {l.is_manpower_dependent ? (
-                                <RoleEditor roles={l.roles} onChange={(roles) => patchLine(li, { ...l, roles })} />
-                              ) : (
-                                <p className="so-non-mp">Non-manpower service. No headcount is billed against this line.</p>
-                              )}
-                            </td>
                             <td>
-                              <select
-                                className="so-table-input"
-                                value={l.is_manpower_dependent ? 'manpower' : 'non_manpower'}
-                                onChange={(e) => patchLine(li, {
-                                  ...l,
-                                  is_manpower_dependent: e.target.value === 'manpower',
-                                  roles: e.target.value === 'manpower' ? (l.roles?.length ? l.roles : [emptyRole()]) : [],
-                                })}
-                              >
-                                <option value="manpower">Manpower-based</option>
-                                <option value="non_manpower">Not manpower</option>
-                              </select>
+                              <label className="so-mp">
+                                <input type="checkbox" checked={!!l.is_manpower_dependent} onChange={(e) => patchLine(li, { ...l, is_manpower_dependent: e.target.checked })} />
+                                <span>{l.is_manpower_dependent ? 'Manpower' : 'Not manpower'}</span>
+                              </label>
                             </td>
                             <td>
                               {activeSite.lines.length > 1 && (
@@ -398,20 +384,19 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
                               )}
                             </td>
                           </tr>
-                        );
-                      })}
+                          <tr className="so-roles-row">
+                            <td />
+                            <td colSpan={4} className="so-roles-cell">
+                              <RoleEditor
+                                roles={l.roles}
+                                lineManpower={!!l.is_manpower_dependent}
+                                onChange={(roles) => patchLine(li, { ...l, roles })}
+                              />
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      ))}
                     </tbody>
-                    {siteTotals && (
-                      <tfoot>
-                        <tr>
-                          <td colSpan={2}>Site totals</td>
-                          <td className="num">{money(siteTotals.total)}</td>
-                          <td colSpan={3}>
-                            Manpower {money(siteTotals.manpower)} · Non-manpower {money(siteTotals.nonManpower)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    )}
                   </table>
                 </div>
               </div>

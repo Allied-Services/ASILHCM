@@ -60,7 +60,7 @@ const EMP_COUNTS = { 'CLT-001': 30, 'CLT-002': 8, 'CLT-003': 0 };
 // ── Reusable helpers ─────────────────────────────────────────────────────────
 const Overlay = ({ children, wide = false, xl = false }) => (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: '1.5rem', overflowY: 'auto' }}>
-        <div style={{ background: 'var(--bg-card)', borderRadius: '16px', width: '100%', maxWidth: xl ? '1280px' : wide ? '1100px' : '680px', border: '1px solid var(--border)', marginBottom: '2rem' }}>{children}</div>
+        <div style={{ background: 'var(--bg-card)', borderRadius: '16px', width: '100%', maxWidth: xl ? 'min(96vw, 1480px)' : wide ? '1100px' : '680px', border: '1px solid var(--border)', marginBottom: '2rem' }}>{children}</div>
     </div>
 );
 
@@ -208,7 +208,7 @@ function ContractEditor({ contract, onSave, onCancel, allClients = [], currentCl
     const chapterSub = {
         details: 'Name, dates, focals, and leave.',
         costs: 'Bonus, benefits, tax, and billing.',
-        so: 'Depots and agreed monthly line rates.',
+        so: 'Depots, line items, nested services, and manpower vs not manpower.',
         rates: 'Cost-plus designation rates and OT caps.',
     };
 

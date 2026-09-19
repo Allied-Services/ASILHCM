@@ -142,6 +142,40 @@ export default function ReviewDesk({ user }) {
     );
   }
 
+  async function lockSelected() {
+    const ids = [...picked];
+    if (!ids.length && !contractId) {
+      setErr('Tick people, or choose a contract, then Lock.');
+      return;
+    }
+    if (!window.confirm(`Lock ${ids.length || 'this contract'} on the Payroll Sheet?`)) return;
+    setBusy(true);
+    try {
+      await api.lockPayroll(year, month, ids, { contractId });
+      await load();
+    } catch (e) {
+      setErr(e.message || 'Lock failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pushSelected() {
+    setBusy(true);
+    try {
+      await api.calculatePayroll(year, month, {
+        contractId: contractId || undefined,
+        employeeIds: picked.size ? [...picked] : undefined,
+        sourceMode: 'canonical',
+      });
+      await load();
+    } catch (e) {
+      setErr(e.message || 'Push to Payroll Sheet failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveIntervention() {
     if (!drawer || !reason.trim()) {
       setErr('A reason is required when payroll approves on behalf of a Focal or LM.');
@@ -225,7 +259,7 @@ export default function ReviewDesk({ user }) {
         {!client
           ? 'Select a client to see everyone — including who is stuck and who has No Claims.'
           : `${people.length} showing of ${peopleAll.length} people${selectedContract ? ` on ${contractName(selectedContract)}` : ''}. Waiting LM ${waitingLmCount} · No Claims ${noClaimsCount}.`}
-        {' '}Review collected attendance and claims here. Push and lock are on the Payroll Sheet.
+        {' '}This board is for collected attendance and claims. Pay on the Payroll Sheet. Bill on Month Invoices.
         {user?.email ? ` Signed in as ${user.email}.` : ''}
       </p>
       {bankIncomplete > 0 && (

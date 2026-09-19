@@ -2,7 +2,7 @@
 
 const { listServiceOrders } = require('./crud');
 const { absenceDeductionAmount } = require('./sitesMeta');
-const { findLineForDesignation } = require('./designationMatch');
+const { findLineForDesignation, findMatchingRole } = require('./designationMatch');
 
 /** Override sources that mean "this month's attendance is in". */
 const CYCLE_AND_FV_ATTENDANCE_SOURCES = ['fv_conservancy_attendance', 'cycle_machine_file'];
@@ -105,7 +105,8 @@ async function syncSoDeductionsFromCycleRows(pool, {
                 });
                 continue;
             }
-            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays, match.role);
+            const role = findMatchingRole(match.roles, emp.designation);
+            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays, role);
             if (!Number.isFinite(amount) || amount <= 0) continue;
             insertRows.push({
                 serviceOrderId: so.id,
@@ -232,18 +233,6 @@ async function syncSoDeductionsFromLockedSheet(pool, {
             summary.cleared += Number(part.cleared) || 0;
             if (part.errors?.length) summary.errors.push(...part.errors);
             if (part.skipped?.length) summary.skipped.push(...part.skipped);
-            try {
-                const { reconcileResourceGaps } = require('./resourceGaps');
-                await reconcileResourceGaps(pool, {
-                    contractId,
-                    month,
-                    year,
-                    actor,
-                    monthDays,
-                });
-            } catch (gapErr) {
-                console.error('[lock-sheet resource_gaps]', contractId, gapErr);
-            }
         } catch (err) {
             console.error('[lock-sheet so_sync]', contractId, err);
             summary.errors.push({ contractId, reason: 'sync_failed' });
