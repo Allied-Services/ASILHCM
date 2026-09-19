@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ClipboardCheck, Download, Lock, RefreshCw } from 'lucide-react';
+import { ClipboardCheck, Download, RefreshCw } from 'lucide-react';
 import { api } from '../../api';
 import {
   boardDownloadRows,
@@ -142,40 +142,6 @@ export default function ReviewDesk({ user }) {
     );
   }
 
-  async function lockSelected() {
-    const ids = [...picked];
-    if (!ids.length && !contractId) {
-      setErr('Tick people, or choose a contract, then Lock.');
-      return;
-    }
-    if (!window.confirm(`Lock ${ids.length || 'this contract'} on the Payroll Sheet?`)) return;
-    setBusy(true);
-    try {
-      await api.lockPayroll(year, month, ids, { contractId });
-      await load();
-    } catch (e) {
-      setErr(e.message || 'Lock failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function pushSelected() {
-    setBusy(true);
-    try {
-      await api.calculatePayroll(year, month, {
-        contractId: contractId || undefined,
-        employeeIds: picked.size ? [...picked] : undefined,
-        sourceMode: 'canonical',
-      });
-      await load();
-    } catch (e) {
-      setErr(e.message || 'Push to Payroll Sheet failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function saveIntervention() {
     if (!drawer || !reason.trim()) {
       setErr('A reason is required when payroll approves on behalf of a Focal or LM.');
@@ -254,18 +220,12 @@ export default function ReviewDesk({ user }) {
         <button type="button" className="btn-secondary" disabled={!people.length} onClick={exportExcel}>
           <Download size={14} /> Download
         </button>
-        <button type="button" className="btn-secondary" disabled={busy} onClick={pushSelected}>
-          Push to Payroll Sheet
-        </button>
-        <button type="button" className="btn-primary" disabled={busy} onClick={lockSelected}>
-          <Lock size={14} /> Lock
-        </button>
       </div>
       <p className="mch-muted">
         {!client
           ? 'Select a client to see everyone — including who is stuck and who has No Claims.'
           : `${people.length} showing of ${peopleAll.length} people${selectedContract ? ` on ${contractName(selectedContract)}` : ''}. Waiting LM ${waitingLmCount} · No Claims ${noClaimsCount}.`}
-        {' '}Tick people (or leave empty to use the contract), then Lock and Push.
+        {' '}Review collected attendance and claims here. Push and lock are on the Payroll Sheet.
         {user?.email ? ` Signed in as ${user.email}.` : ''}
       </p>
       {bankIncomplete > 0 && (

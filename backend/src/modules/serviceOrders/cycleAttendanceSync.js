@@ -105,7 +105,7 @@ async function syncSoDeductionsFromCycleRows(pool, {
                 });
                 continue;
             }
-            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays);
+            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays, match.role);
             if (!Number.isFinite(amount) || amount <= 0) continue;
             insertRows.push({
                 serviceOrderId: so.id,
@@ -232,6 +232,18 @@ async function syncSoDeductionsFromLockedSheet(pool, {
             summary.cleared += Number(part.cleared) || 0;
             if (part.errors?.length) summary.errors.push(...part.errors);
             if (part.skipped?.length) summary.skipped.push(...part.skipped);
+            try {
+                const { reconcileResourceGaps } = require('./resourceGaps');
+                await reconcileResourceGaps(pool, {
+                    contractId,
+                    month,
+                    year,
+                    actor,
+                    monthDays,
+                });
+            } catch (gapErr) {
+                console.error('[lock-sheet resource_gaps]', contractId, gapErr);
+            }
         } catch (err) {
             console.error('[lock-sheet so_sync]', contractId, err);
             summary.errors.push({ contractId, reason: 'sync_failed' });

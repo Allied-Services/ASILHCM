@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Settings, Users, Send, Activity, Wallet, FilePenLine, ListChecks, Download, ClipboardCheck } from 'lucide-react';
+import { CalendarRange, Settings, Users, Send, Activity, FilePenLine, Download, ClipboardCheck } from 'lucide-react';
 import { api } from '../../api';
 import { clientContractHref, isFixedValueService, monthInvoicesHref, readStaffQuery } from '../../navLinks';
 import { deriveCycleCollection } from '../records/cycleCollection';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import PortalClaimsHub from './PortalClaimsHub';
 import ReviewDesk from './ReviewDesk';
+import { resolveCycleSection } from './monthlyCycleNav';
 import './PortalClaimsHub.css';
 import './MonthlyCycleHub.css';
 
@@ -16,8 +17,6 @@ const SECTIONS = [
   { key: 'review', label: 'Review', icon: ClipboardCheck },
   { key: 'track', label: 'Track', icon: Activity },
   { key: 'corrections', label: 'Corrections', icon: FilePenLine },
-  { key: 'payroll', label: 'Payroll', icon: Wallet },
-  { key: 'close', label: 'Close', icon: ListChecks },
 ];
 
 const FILE_MODE_HEADERS = {
@@ -720,110 +719,6 @@ function MachineFileCollect() {
   );
 }
 
-function MonthClosePanel() {
-  const [contracts, setContracts] = useState([]);
-  const [contractId, setContractId] = useState('');
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [data, setData] = useState(null);
-  const [err, setErr] = useState('');
-  const [msg, setMsg] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    api.getContracts().then((list) => {
-      const rows = Array.isArray(list) ? list : (list?.contracts || []);
-      setContracts(rows.map((c) => ({
-        id: c.id,
-        name: c.contractName || c.contract_name || c.id,
-      })));
-    }).catch((e) => setErr(e.message));
-  }, []);
-
-  const load = async () => {
-    if (!contractId) return;
-    setBusy(true); setErr('');
-    try { setData(await api.getMonthClose(contractId, year, month)); }
-    catch (e) { setErr(e.message); }
-    setBusy(false);
-  };
-
-  const raiseInvoice = async () => {
-    setBusy(true); setErr(''); setMsg('');
-    try {
-      await api.raiseCostPlusInvoice(contractId, year, month);
-      setMsg('Cost-plus invoice drafted from the locked sheet.');
-      await load();
-    } catch (e) { setErr(e.message); }
-    setBusy(false);
-  };
-
-  const closePack = async () => {
-    setBusy(true); setErr(''); setMsg('');
-    try {
-      await api.createSheetClosePack(contractId, year, month);
-      setMsg('Close pack created from the locked sheet.');
-      await load();
-    } catch (e) { setErr(e.message); }
-    setBusy(false);
-  };
-
-  const downloadStatutory = async () => {
-    setBusy(true); setErr('');
-    try {
-      const files = await api.getStatutoryFiles(year, month, contractId);
-      const blob = new Blob([JSON.stringify(files, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `statutory_${contractId}_${year}-${String(month).padStart(2, '0')}.json`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch (e) { setErr(e.message); }
-    setBusy(false);
-  };
-
-  return (
-    <div className="mch-panel">
-      <p className="mch-lead">Nine-step month close for one contract: cycle, conflicts, calculate, lock, invoice, pay, payslips, compliance.</p>
-      {err && <div className="pch-err">{err}</div>}
-      {msg && <div className="pch-ok">{msg}</div>}
-      <div className="mch-form-grid mch-form-grid-3">
-        <label><span className="lbl">Contract</span>
-          <select value={contractId} onChange={(e) => setContractId(e.target.value)}>
-            <option value="">Select…</option>
-            {contracts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </label>
-        <label><span className="lbl">Month</span>
-          <input type="number" min={1} max={12} value={month} onChange={(e) => setMonth(parseInt(e.target.value, 10) || 1)} />
-        </label>
-        <label><span className="lbl">Year</span>
-          <input type="number" value={year} onChange={(e) => setYear(parseInt(e.target.value, 10) || year)} />
-        </label>
-      </div>
-      <div className="mch-people-actions">
-        <button type="button" className="btn-primary" disabled={busy || !contractId} onClick={load}>Refresh checklist</button>
-        <button type="button" className="btn-secondary" disabled={busy || !contractId} onClick={raiseInvoice}>Raise cost-plus invoice</button>
-        <button type="button" className="btn-secondary" disabled={busy || !contractId} onClick={closePack}>Create close pack</button>
-        <button type="button" className="btn-secondary" disabled={busy || !contractId} onClick={downloadStatutory}>Statutory files</button>
-      </div>
-      {data?.steps && (
-        <ol className="mch-close-list">
-          {data.steps.map((s) => (
-            <li key={s.key} className={s.done ? 'is-done' : ''}>
-              <strong>{s.label}</strong>
-              <span className="hint">{s.detail}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-      {data?.progress && (
-        <p className="mch-muted">{data.progress.done}/{data.progress.total} steps done · engine {data.engine} · {data.contract?.commercial_type}</p>
-      )}
-    </div>
-  );
-}
-
 function ContactsSeedBar() {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
@@ -848,7 +743,7 @@ function ContactsSeedBar() {
 export default function MonthlyCycleHub({ user }) {
   const [section, setSection] = useState(() => {
     const q = readStaffQuery();
-    return q.section || (q.contract ? 'setup' : 'review');
+    return resolveCycleSection(q.section, { hasContract: !!q.contract });
   });
   const [manualSeed, setManualSeed] = useState(null);
   const [comms, setComms] = useState(null);
@@ -864,7 +759,7 @@ export default function MonthlyCycleHub({ user }) {
           <CalendarRange size={22} />
           <div>
             <h1>Monthly Cycle</h1>
-            <p>Attendance and claims for the contract you configured in Setup. Payroll is the Payroll Sheet (or the desk below). Invoices are a separate page — they do not wait on payroll for Service Order contracts.</p>
+            <p>Collect attendance and claims only. Push to payroll and month close live on the Payroll Sheet. Cost-plus invoices are raised on Invoices (AR).</p>
             {comms && comms.mode !== 'on' && (
               <p className="mch-muted">Live mail/SMS: <strong>{comms.email}</strong> · SMS {comms.sms}. No Wafi or personal inboxes until verification.</p>
             )}
@@ -908,6 +803,7 @@ export default function MonthlyCycleHub({ user }) {
           user={user}
           lockSection="response"
           hideSectionNav
+          hidePayrollPush
           onOpenManual={(seed) => { setManualSeed(seed); setSection('corrections'); }}
         />
       )}
@@ -916,19 +812,11 @@ export default function MonthlyCycleHub({ user }) {
           user={user}
           lockSection="manual"
           hideSectionNav
+          hidePayrollPush
           manualSeed={manualSeed}
           onManualSeedConsumed={() => setManualSeed(null)}
         />
       )}
-      {section === 'payroll' && (
-        <PortalClaimsHub
-          user={user}
-          lockSection="response"
-          hideSectionNav
-          initialFilter="all"
-        />
-      )}
-      {section === 'close' && <MonthClosePanel />}
     </div>
   );
 }

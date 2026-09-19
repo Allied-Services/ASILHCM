@@ -269,6 +269,18 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year, requireConf
         throw err;
     }
 
+    try {
+        const { reconcileResourceGaps } = require('./resourceGaps');
+        await reconcileResourceGaps(pool, {
+            contractId: contract.id,
+            month,
+            year,
+            actor: 'invoice-compute',
+        });
+    } catch (err) {
+        console.error('[computeSoInvoice resource_gaps]', err);
+    }
+
     const policy = await getPolicy(pool, contract.id);
     const whtPct = Number(policy?.income_tax_wht_pct ?? contract.financials?.wht_pct ?? 15) / 100;
 

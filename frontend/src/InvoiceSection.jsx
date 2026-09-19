@@ -4,6 +4,7 @@ import {
     RefreshCw, FileText, Edit3, AlertCircle, ChevronDown,
 } from 'lucide-react';
 import { api } from './api';
+import CostPlusInvoicePanel from './features/invoices/CostPlusInvoicePanel';
 
 const fmt    = n => Math.round(parseFloat(n) || 0).toLocaleString('en-PK');
 const fmtDec = n => (parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -904,6 +905,8 @@ export default function InvoiceSection({ user }) {
                     </div>
                 </div>
             )}
+
+            {isAR && <CostPlusInvoicePanel onRaised={loadInvoices} />}
 
             {error && (
                 <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '10px', padding: '0.85rem 1.25rem', marginBottom: '1.5rem', color: '#f87171', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '10px' }}>

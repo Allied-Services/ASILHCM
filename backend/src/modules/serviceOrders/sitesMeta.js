@@ -50,10 +50,17 @@ function roleCount(roles) {
     return roles.reduce((n, r) => n + (Number(r.count) || 0), 0);
 }
 
-/** dailyRate = (line.rate / roleCount) / 30 ; amount = dailyRate × absentDays */
-function absenceDeductionAmount(lineRate, roles, absentDays, monthDays = 30) {
+function roleMonthlyRate(lineRate, roles, role) {
+    const explicit = Number(role?.rate ?? role?.monthly_rate ?? role?.monthlyRate);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
     const count = roleCount(roles) || 1;
-    const daily = (Number(lineRate) / count) / (Number(monthDays) || 30);
+    return Number(lineRate || 0) / count;
+}
+
+/** Prefer matched role.rate; else (line.rate / roleCount) / monthDays × absentDays */
+function absenceDeductionAmount(lineRate, roles, absentDays, monthDays = 30, role = null) {
+    const monthly = roleMonthlyRate(lineRate, roles, role);
+    const daily = monthly / (Number(monthDays) || 30);
     return Math.round(daily * Number(absentDays || 0) * 100) / 100;
 }
 
@@ -72,5 +79,6 @@ module.exports = {
     isSoBillingModel,
     siteProvince,
     roleCount,
+    roleMonthlyRate,
     absenceDeductionAmount,
 };

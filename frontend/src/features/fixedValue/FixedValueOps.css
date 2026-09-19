@@ -513,14 +513,24 @@
   padding: 0;
   text-align: left;
 }
-.fv-table td.so-roles-cell { white-space: normal; min-width: 240px; vertical-align: top; }
-.so-roles { display: grid; gap: 6px; min-width: 220px; }
+.fv-table td.so-roles-cell { white-space: normal; min-width: 320px; vertical-align: top; }
+.so-roles { display: grid; gap: 6px; min-width: 300px; }
 .so-role {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px auto;
+  grid-template-columns: minmax(0, 1.4fr) 68px minmax(90px, 1fr) auto;
   gap: 6px;
   align-items: center;
 }
+.so-role-head {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+.so-line-meta { margin-top: 4px; font-size: 0.72rem; color: var(--text-muted); }
+.so-line-warn { margin-top: 4px; font-size: 0.72rem; color: #f87171; }
+.so-non-mp { margin: 0; font-size: 0.75rem; color: var(--text-muted); }
 .so-role input {
   background: var(--bg-dark);
   border: 1px solid var(--border);

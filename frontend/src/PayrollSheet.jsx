@@ -11,6 +11,8 @@ import {
 import { api } from './api';
 import { claimsBadgeStyle } from './utils/claimsRouting';
 import SalaryRevisionCell from './features/payroll/SalaryRevisionCell';
+import SheetMonthClose from './features/payroll/SheetMonthClose';
+import PortalClaimsHub from './features/claims/PortalClaimsHub';
 import './PayrollSheet.css';
 
 
@@ -774,6 +776,8 @@ export default function PayrollSheet({ user }) {
     const [payslipDetailsOpen, setPayslipDetailsOpen] = useState(false);
     const [sendPayslipConfirm, setSendPayslipConfirm] = useState(false);
     const [showAddClaims, setShowAddClaims] = useState(false);
+    const [showClaimsPush, setShowClaimsPush] = useState(false);
+    const [showMonthClose, setShowMonthClose] = useState(false);
     const [addClaimsForm, setAddClaimsForm] = useState({
         employeeId: '', ot1Hours: 0, ot2Hours: 0, ot3Hours: 0,
         expenseAmount: 0, medicalAmount: 0,
@@ -1757,6 +1761,16 @@ export default function PayrollSheet({ user }) {
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(37,99,235,0.12)', border: '1px solid rgba(37,99,235,0.35)', color: '#60a5fa', padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
                     ADD OT / CLAIMS
                 </button>
+                <button type="button" onClick={() => setShowClaimsPush(v => !v)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 8, background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.35)', color: '#4ade80', padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
+                    Review and push claims
+                </button>
+                {canManageLock && (
+                    <button type="button" onClick={() => setShowMonthClose(v => !v)}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 8, background: 'rgba(250,204,21,0.1)', border: '1px solid rgba(250,204,21,0.35)', color: '#facc15', padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
+                        Month close
+                    </button>
+                )}
                 {showAddClaims && (
                     <div style={{ marginTop: 10, padding: 14, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
                         <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--text-muted)' }}>
@@ -1798,6 +1812,37 @@ export default function PayrollSheet({ user }) {
                         {addClaimsMsg && <p style={{ marginTop: 8, fontSize: 13 }}>{addClaimsMsg}</p>}
                     </div>
                 )}
+                {showClaimsPush && (() => {
+                    const [payYear, payMonth] = month.split('-').map(Number);
+                    const work = new Date(payYear, payMonth - 2, 1);
+                    return (
+                        <div style={{ marginTop: 12 }}>
+                            <PortalClaimsHub
+                                user={user}
+                                lockSection="response"
+                                hideSectionNav
+                                initialFilter="all"
+                                initialWorkMonth={work.getMonth() + 1}
+                                initialWorkYear={work.getFullYear()}
+                                initialPayMonth={payMonth}
+                                initialPayYear={payYear}
+                            />
+                        </div>
+                    );
+                })()}
+                {showMonthClose && (() => {
+                    const [y, m] = month.split('-').map(Number);
+                    const hits = contractCatalog.filter(c => c.name === filterContract);
+                    const hit = hits.find(c => c.client === filterClient) || hits[0];
+                    return (
+                        <SheetMonthClose
+                            enabled
+                            contractId={hit?.id || ''}
+                            year={y}
+                            month={m}
+                        />
+                    );
+                })()}
             </div>
 
             {/* Controls */}

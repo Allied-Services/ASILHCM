@@ -154,12 +154,28 @@ function attributeDeductions(lines, deductions, opts = {}) {
 }
 
 function shortageLabel(d) {
-    const name = escapeHtml(d.employee_name || d.employeeName || d.employee_id || 'Resource');
+    const gap = d.type === 'resource_gap' || d.source === 'resource_gap'
+        || /missing resource/i.test(String(d.note || d.label || ''));
     const desig = escapeHtml(d.employee_designation || d.designation || d.employeeDesignation || '');
     const daysRaw = d.days_absent != null ? d.days_absent : d.daysAbsent;
     const days = daysRaw != null && daysRaw !== '' ? Number(daysRaw) : null;
     const amount = Number(d.amount || 0);
 
+    if (gap) {
+        const role = desig || escapeHtml(String(d.note || '').replace(/^Missing Resource\s*\/\s*/i, '')) || 'Service';
+        let label = `• Missing Resource (${role})`;
+        if (days != null && Number.isFinite(days)) {
+            const dayWord = Math.abs(days) === 1 ? 'day' : 'days';
+            label += ` — ${days} ${dayWord} absent`;
+            if (days > 0 && amount) {
+                const daily = Math.round((amount / days) * 100) / 100;
+                label += ` (@ Rs. ${fmt2(daily)}/day)`;
+            }
+        }
+        return label;
+    }
+
+    const name = escapeHtml(d.employee_name || d.employeeName || d.employee_id || 'Resource');
     if (days != null && Number.isFinite(days)) {
         const dayWord = Math.abs(days) === 1 ? 'day' : 'days';
         let label = `• ${name}${desig ? ` (${desig})` : ''} — ${days} ${dayWord} absent`;
@@ -313,7 +329,12 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
         const soLine = l.soLineNumber || l.so_line_number || l.lineNumber || (idx + 1);
         const roles = Array.isArray(l.roles) ? l.roles : [];
         const rolesHtml = roles.length
-            ? `<div class="roles">${roles.map((r) => `• ${r.designation || r.role || 'Role'} = ${String(Number(r.count) || 0).padStart(2, '0')} per month`).join('<br/>')}</div>`
+            ? `<div class="roles">${roles.map((r) => {
+                const count = String(Number(r.count) || 0).padStart(2, '0');
+                const rate = Number(r.rate || r.monthly_rate || r.monthlyRate || 0);
+                const rateBit = rate > 0 ? ` @ Rs. ${fmt2(rate)}` : '';
+                return `• ${r.designation || r.role || 'Role'} = ${count} per month${rateBit}`;
+            }).join('<br/>')}</div>`
             : '';
 
         return `<tr>

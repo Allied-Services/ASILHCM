@@ -222,6 +222,7 @@ export default function PortalClaimsHub({
   lockSection = null,
   initialFilter = null,
   hideSectionNav = false,
+  hidePayrollPush = false,
   onOpenManual = null,
   manualSeed = null,
   onManualSeedConsumed = null,
@@ -991,6 +992,7 @@ export default function PortalClaimsHub({
               Payroll Sheet already has different OT / medical / expense values. Verify manually — auto-push is blocked.
             </div>
           )}
+          {!hidePayrollPush && (
           <div className="pch-chase">
             <div className="pch-chase-line">
               <strong>{pushTotals.count}</strong> selected for payroll
@@ -1004,6 +1006,7 @@ export default function PortalClaimsHub({
             </div>
             <p className="pch-muted">Tick people, then Review and push to payroll. Wafi-style contracts still need LM-approved OT / expense / medical. Fixed Value / PSO and other contracts that do not collect those claims can be pushed by the recruiter even when there is nothing to claim — that closes the month on this board and writes any OT or deduction onto Fixed Value Payroll. Greyed boxes are already sent or rejected.</p>
           </div>
+          )}
           {pushPreview && (
             <pre className="pch-note">{JSON.stringify(pushPreview.summary, null, 2)}</pre>
           )}
@@ -1011,9 +1014,11 @@ export default function PortalClaimsHub({
             <table className="pch-table">
               <thead>
                 <tr>
+                  {!hidePayrollPush && (
                   <th>
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select visible" />
                   </th>
+                  )}
                   <th>Employee</th>
                   <th>Filler</th>
                   <th>OT 2x</th>
@@ -1029,13 +1034,14 @@ export default function PortalClaimsHub({
               </thead>
               <tbody>
                 {boardLoading && people.length === 0 && (
-                  <tr><td colSpan={12} className="pch-muted">Loading claims…</td></tr>
+                  <tr><td colSpan={hidePayrollPush ? 11 : 12} className="pch-muted">Loading claims…</td></tr>
                 )}
                 {!boardLoading && people.length === 0 && (
-                  <tr><td colSpan={12} className="pch-muted">No people for this filter.</td></tr>
+                  <tr><td colSpan={hidePayrollPush ? 11 : 12} className="pch-muted">No people for this filter.</td></tr>
                 )}
                 {people.map(p => (
                   <tr key={p.employee_id} className={rowClass(p.control_status, openId === p.employee_id)}>
+                    {!hidePayrollPush && (
                     <td>
                       <input
                         type="checkbox"
@@ -1045,6 +1051,7 @@ export default function PortalClaimsHub({
                         aria-label={`Select ${p.name}`}
                       />
                     </td>
+                    )}
                     <td>
                       {p.name}
                       <div className="pch-muted">{p.employee_id} · {p.location || '—'}</div>
@@ -1185,10 +1192,10 @@ export default function PortalClaimsHub({
               <div>
                 <h3>Payroll</h3>
                 <p className="pch-sub">
-                  LM approval does not write to the Payroll Sheet. ASIL pushes Ready for Payroll rows from the list above.
+                  LM approval does not write to the Payroll Sheet. ASIL pushes Ready for Payroll rows from the Payroll Sheet.
                 </p>
                 <div className="pch-actions">
-                  {open.can_push_payroll && (
+                  {!hidePayrollPush && open.can_push_payroll && (
                     <button
                       type="button"
                       className="btn-primary"

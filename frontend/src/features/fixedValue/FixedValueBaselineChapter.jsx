@@ -5,45 +5,69 @@ import {
   CORO_EXPECTED,
   buildInitial,
   emptyLine,
+  emptyRole,
   emptySite,
   formToPayload,
+  lineRateWarning,
   money,
   monthlyGrossOf,
+  roleCountOf,
+  roleRateSum,
   round2,
+  siteLineTotals,
 } from './fvContractForm';
 import './FixedValueOps.css';
 
-function RoleEditor({ roles, onChange }) {
-  const list = roles?.length ? roles : [{ designation: '', count: 1 }];
+function RoleEditor({ roles, onChange, disabled }) {
+  const list = roles?.length ? roles : [emptyRole()];
   const setRole = (idx, next) => {
     const copy = list.map((r, i) => (i === idx ? next : r));
     onChange(copy);
   };
   return (
     <div className="so-roles">
+      <div className="so-role so-role-head">
+        <span>Role</span>
+        <span>Count</span>
+        <span>Monthly rate</span>
+        <span />
+      </div>
       {list.map((r, i) => (
         <div key={i} className="so-role">
           <input
             value={r.designation || ''}
             placeholder="Designation"
+            disabled={disabled}
             onChange={(e) => setRole(i, { ...r, designation: e.target.value })}
           />
           <input
             type="number"
             min="0"
             value={r.count ?? 0}
+            disabled={disabled}
             onChange={(e) => setRole(i, { ...r, count: Number(e.target.value) || 0 })}
           />
-          {list.length > 1 && (
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={r.rate ?? 0}
+            disabled={disabled}
+            placeholder="Role rate"
+            onChange={(e) => setRole(i, { ...r, rate: Number(e.target.value) || 0 })}
+          />
+          {list.length > 1 && !disabled && (
             <button type="button" className="btn-secondary" onClick={() => onChange(list.filter((_, j) => j !== i))}>
               <Trash2 size={14} />
             </button>
           )}
         </div>
       ))}
-      <button type="button" className="btn-secondary" onClick={() => onChange([...list, { designation: '', count: 1 }])}>
-        <Plus size={14} /> Add role
-      </button>
+      {!disabled && (
+        <button type="button" className="btn-secondary" onClick={() => onChange([...list, emptyRole()])}>
+          <Plus size={14} /> Add role
+        </button>
+      )}
     </div>
   );
 }
@@ -103,6 +127,7 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
   const lineSumOk = !isCoro || round2(monthlyGross) === round2(expected || CORO_EXPECTED);
   const safeIdx = Math.min(activeSiteIdx, Math.max((form?.sites?.length || 1) - 1, 0));
   const activeSite = form?.sites?.[safeIdx];
+  const siteTotals = useMemo(() => (activeSite ? siteLineTotals(activeSite) : null), [activeSite]);
 
   const patchMeta = (path, value) => {
     setForm((prev) => {
@@ -317,40 +342,76 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
                       <tr>
                         <th>#</th>
                         <th>Description</th>
-                        <th className="num">Monthly rate</th>
-                        <th>Roles</th>
-                        <th>Manpower</th>
+                        <th className="num">Line total</th>
+                        <th>Roles / service count</th>
+                        <th>Billing basis</th>
                         <th />
                       </tr>
                     </thead>
                     <tbody>
-                      {activeSite.lines.map((l, li) => (
-                        <tr key={li}>
-                          <td>{l.line_number || li + 1}</td>
-                          <td>
-                            <input className="so-table-input" value={l.name} onChange={(e) => patchLine(li, { ...l, name: e.target.value })} />
-                          </td>
-                          <td>
-                            <input className="so-table-input" type="number" step="0.01" value={l.rate} onChange={(e) => patchLine(li, { ...l, rate: Number(e.target.value) })} />
-                          </td>
-                          <td className="so-roles-cell">
-                            <RoleEditor roles={l.roles} onChange={(roles) => patchLine(li, { ...l, roles })} />
-                          </td>
-                          <td>
-                            <input type="checkbox" checked={!!l.is_manpower_dependent} onChange={(e) => patchLine(li, { ...l, is_manpower_dependent: e.target.checked })} />
-                          </td>
-                          <td>
-                            {activeSite.lines.length > 1 && (
-                              <button type="button" className="btn-secondary" onClick={() => {
-                                setSite(safeIdx, { ...activeSite, lines: activeSite.lines.filter((_, i) => i !== li) });
-                              }}>
-                                <Trash2 size={14} />
-                              </button>
-                            )}
+                      {activeSite.lines.map((l, li) => {
+                        const warn = lineRateWarning(l);
+                        return (
+                          <tr key={li}>
+                            <td>{l.line_number || li + 1}</td>
+                            <td>
+                              <input className="so-table-input" value={l.name} onChange={(e) => patchLine(li, { ...l, name: e.target.value })} />
+                              {l.is_manpower_dependent && (
+                                <div className="so-line-meta">
+                                  {roleCountOf(l.roles)} role slot{roleCountOf(l.roles) === 1 ? '' : 's'}
+                                  {roleRateSum(l.roles) > 0 ? ` · roles ${money(roleRateSum(l.roles))}` : ''}
+                                </div>
+                              )}
+                              {warn && <div className="so-line-warn">{warn}</div>}
+                            </td>
+                            <td>
+                              <input className="so-table-input" type="number" step="0.01" value={l.rate} onChange={(e) => patchLine(li, { ...l, rate: Number(e.target.value) })} />
+                            </td>
+                            <td className="so-roles-cell">
+                              {l.is_manpower_dependent ? (
+                                <RoleEditor roles={l.roles} onChange={(roles) => patchLine(li, { ...l, roles })} />
+                              ) : (
+                                <p className="so-non-mp">Non-manpower service. No headcount is billed against this line.</p>
+                              )}
+                            </td>
+                            <td>
+                              <select
+                                className="so-table-input"
+                                value={l.is_manpower_dependent ? 'manpower' : 'non_manpower'}
+                                onChange={(e) => patchLine(li, {
+                                  ...l,
+                                  is_manpower_dependent: e.target.value === 'manpower',
+                                  roles: e.target.value === 'manpower' ? (l.roles?.length ? l.roles : [emptyRole()]) : [],
+                                })}
+                              >
+                                <option value="manpower">Manpower-based</option>
+                                <option value="non_manpower">Not manpower</option>
+                              </select>
+                            </td>
+                            <td>
+                              {activeSite.lines.length > 1 && (
+                                <button type="button" className="btn-secondary" onClick={() => {
+                                  setSite(safeIdx, { ...activeSite, lines: activeSite.lines.filter((_, i) => i !== li) });
+                                }}>
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    {siteTotals && (
+                      <tfoot>
+                        <tr>
+                          <td colSpan={2}>Site totals</td>
+                          <td className="num">{money(siteTotals.total)}</td>
+                          <td colSpan={3}>
+                            Manpower {money(siteTotals.manpower)} · Non-manpower {money(siteTotals.nonManpower)}
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               </div>

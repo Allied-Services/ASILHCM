@@ -123,7 +123,7 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
                 continue;
             }
 
-            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays);
+            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays, match.role);
             if (amount <= 0) continue;
 
             await client.query(
@@ -153,6 +153,18 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
         }
 
         await client.query('COMMIT');
+        try {
+            const { reconcileResourceGaps } = require('./resourceGaps');
+            summary.resourceGaps = await reconcileResourceGaps(pool, {
+                contractId: so.contract_id,
+                month,
+                year,
+                actor,
+                monthDays,
+            });
+        } catch (err) {
+            console.error('[attendanceIngest resource_gaps]', err);
+        }
         return summary;
     } catch (e) {
         await client.query('ROLLBACK');

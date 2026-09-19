@@ -24,19 +24,23 @@
         "roles": [
           {
             "designation": "Conservancy Supervisory Services",
-            "count": 1
+            "count": 1,
+            "rate": 60246
           },
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 1
+            "count": 1,
+            "rate": 52040
           },
           {
             "designation": "Gardening Services",
-            "count": 2
+            "count": 2,
+            "rate": 52183
           },
           {
             "designation": "Decanting/Filling Services",
-            "count": 2
+            "count": 2,
+            "rate": 57298
           }
         ]
       },
@@ -51,7 +55,8 @@
         "roles": [
           {
             "designation": "Sealing Services",
-            "count": 4
+            "count": 4,
+            "rate": 56991
           }
         ]
       },
