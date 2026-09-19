@@ -11,6 +11,7 @@ import {
   money,
   monthlyGrossOf,
   round2,
+  siteLineSummary,
 } from './fvContractForm';
 import './FixedValueOps.css';
 
@@ -138,6 +139,7 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
   const lineSumOk = !isCoro || round2(monthlyGross) === round2(expected || CORO_EXPECTED);
   const safeIdx = Math.min(activeSiteIdx, Math.max((form?.sites?.length || 1) - 1, 0));
   const activeSite = form?.sites?.[safeIdx];
+  const siteSummary = useMemo(() => (activeSite ? siteLineSummary(activeSite) : null), [activeSite]);
 
   const patchMeta = (path, value) => {
     setForm((prev) => {
@@ -399,6 +401,31 @@ export default function FixedValueBaselineChapter({ contractId, clientId, contra
                     </tbody>
                   </table>
                 </div>
+                {siteSummary && (
+                  <div className="so-site-totals">
+                    <div className="so-site-total">
+                      <span>Manpower lines</span>
+                      <strong>{money(siteSummary.manpower)}</strong>
+                    </div>
+                    <div className="so-site-total">
+                      <span>Non-manpower lines</span>
+                      <strong>{money(siteSummary.nonManpower)}</strong>
+                    </div>
+                    <div className="so-site-total">
+                      <span>Site total</span>
+                      <strong>{money(siteSummary.total)}</strong>
+                    </div>
+                  </div>
+                )}
+                {siteSummary?.mismatches?.length > 0 && (
+                  <div className="fv-banner error">
+                    Role rates do not match the line total:
+                    {' '}
+                    {siteSummary.mismatches.map((m) => (
+                      `${m.name} is ${money(m.lineRate)} but priced services sum to ${money(m.priced)}`
+                    )).join(' · ')}
+                  </div>
+                )}
               </div>
             )}
           </div>

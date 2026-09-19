@@ -232,3 +232,40 @@ export function monthlyGrossOf(form) {
     0
   );
 }
+
+export function rolePricedTotal(role) {
+  const rate = Number(role?.rate);
+  const count = Number(role?.count) || 0;
+  return Number.isFinite(rate) && rate > 0 ? round2(rate * count) : 0;
+}
+
+export function linePricedRoleTotal(line) {
+  return (line?.roles || []).reduce((n, role) => n + rolePricedTotal(role), 0);
+}
+
+/** Site line totals split by manpower, plus role-rate vs line-rate mismatches. */
+export function siteLineSummary(site) {
+  let manpower = 0;
+  let nonManpower = 0;
+  const mismatches = [];
+  for (const line of site?.lines || []) {
+    const rate = round2(line.rate || 0);
+    if (line.is_manpower_dependent) manpower += rate;
+    else nonManpower += rate;
+    const priced = linePricedRoleTotal(line);
+    if (priced > 0 && priced !== rate) {
+      mismatches.push({
+        lineNumber: line.line_number,
+        name: line.name || 'Line',
+        lineRate: rate,
+        priced,
+      });
+    }
+  }
+  return {
+    manpower: round2(manpower),
+    nonManpower: round2(nonManpower),
+    total: round2(manpower + nonManpower),
+    mismatches,
+  };
+}

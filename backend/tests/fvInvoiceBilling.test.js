@@ -927,6 +927,84 @@ describe('FV invoice — manual adjustments', () => {
     });
 });
 
+describe('FV invoice — Morgah role rates and vacancies', () => {
+    const officeRoles = [
+        { designation: 'Conservancy Supervisory Services', count: 1, rate: 60246, is_manpower_dependent: true },
+        { designation: 'Sweeping / Cleaning Services', count: 1, rate: 52040, is_manpower_dependent: true },
+        { designation: 'Gardening Services', count: 2, rate: 52183, is_manpower_dependent: true },
+        { designation: 'Decanting/Filling Services', count: 2, rate: 57298, is_manpower_dependent: true },
+    ];
+    const lineItems = [{
+        lineId: 11,
+        description: 'Office/Misc Services',
+        name: 'Office/Misc Services',
+        quantity: 1,
+        rate: 331248,
+        amount: 331248,
+        isManpowerDependent: true,
+        roles: officeRoles,
+        soLineNumber: 1,
+    }];
+
+    test('nests vacancy and named 15-day shortage under the Office/Misc line', () => {
+        const html = renderInvoiceHtml({
+            computed: {
+                invoiceNumber: 'INV-AUG26-MOR',
+                siteName: 'Morgah Installation',
+                siteCode: 'MORGAH',
+                periodMonth: 8,
+                periodYear: 2026,
+                lineItems,
+                deductions: [
+                    {
+                        type: 'vacancy',
+                        source: 'vacancy',
+                        line_id: 11,
+                        amount: 60246,
+                        days_absent: 30,
+                        note: 'Missing service: FM Supervisor — 1 resource unfilled',
+                    },
+                    {
+                        type: 'absence',
+                        source: 'attendance_ledger',
+                        line_id: 11,
+                        employee_id: 'W-204',
+                        employee_name: 'Muhammad Saleem',
+                        employee_designation: 'Gardener',
+                        days_absent: 15,
+                        amount: Math.round((52183 / 30) * 15 * 100) / 100,
+                    },
+                    {
+                        type: 'vacancy',
+                        source: 'vacancy',
+                        line_id: 11,
+                        amount: 52183,
+                        days_absent: 30,
+                        note: 'Missing service: Gardening Services — 1 resource unfilled',
+                    },
+                ],
+                gross: 331248,
+                netTaxable: 331248 - 60246 - 26091.5 - 52183,
+                provincialSt: 0,
+                grandTotal: 331248 - 60246 - 26091.5 - 52183,
+            },
+        });
+        expect(html).toContain('Conservancy Supervisory Services');
+        expect(html).toContain('@ Rs. 60,246.00');
+        expect(html).toContain('manpower');
+        expect(html).toContain('Missing service: FM Supervisor');
+        expect(html).toContain('Muhammad Saleem');
+        expect(html).toContain('15 days absent');
+        expect(html).toContain('Missing service: Gardening Services');
+        expect(html).not.toContain('LESS: Additional Shortages');
+        const attributed = attributeDeductions(lineItems, [
+            { type: 'vacancy', line_id: 11, amount: 60246, note: 'Missing service: FM Supervisor — 1 resource unfilled' },
+        ]);
+        expect(attributed.orphans).toHaveLength(0);
+        expect(attributed.byLine.get('11')).toHaveLength(1);
+    });
+});
+
 describe('parseInvoiceAdjustmentAmount', () => {
     const { parseInvoiceAdjustmentAmount } = require('../src/modules/serviceOrders/parseInvoiceAdjustmentAmount');
 
