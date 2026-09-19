@@ -2,7 +2,7 @@
 
 const { listServiceOrders } = require('./crud');
 const { absenceDeductionAmount } = require('./sitesMeta');
-const { findLineForDesignation } = require('./designationMatch');
+const { findLineForDesignation, findMatchingRole } = require('./designationMatch');
 
 /** Override sources that mean "this month's attendance is in". */
 const CYCLE_AND_FV_ATTENDANCE_SOURCES = ['fv_conservancy_attendance', 'cycle_machine_file'];
@@ -105,7 +105,8 @@ async function syncSoDeductionsFromCycleRows(pool, {
                 });
                 continue;
             }
-            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays);
+            const role = findMatchingRole(match.roles, emp.designation);
+            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays, role);
             if (!Number.isFinite(amount) || amount <= 0) continue;
             insertRows.push({
                 serviceOrderId: so.id,

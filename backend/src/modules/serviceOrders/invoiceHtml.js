@@ -154,6 +154,15 @@ function attributeDeductions(lines, deductions, opts = {}) {
 }
 
 function shortageLabel(d) {
+    const type = String(d?.type || '').toLowerCase();
+    const source = String(d?.source || '').toLowerCase();
+    if (type === 'vacancy' || source === 'vacancy') {
+        const note = d.note || d.label;
+        if (note) return `• ${escapeHtml(note)}`;
+        const desig = escapeHtml(d.employee_designation || d.designation || d.employeeDesignation || 'Resource');
+        return `• Missing service: ${desig} — 1 resource unfilled`;
+    }
+
     const name = escapeHtml(d.employee_name || d.employeeName || d.employee_id || 'Resource');
     const desig = escapeHtml(d.employee_designation || d.designation || d.employeeDesignation || '');
     const daysRaw = d.days_absent != null ? d.days_absent : d.daysAbsent;
@@ -226,6 +235,7 @@ function baseStyles(letterhead) {
   .center { text-align: center; }
   .desc-main { font-weight: 800; font-size: 12.5px; line-height: 1.3; }
   .roles { margin-top: 4px; padding-left: 8px; border-left: 2px solid #e2e8f0; font-size: 10.5px; color: #64748b; font-family: ui-monospace, monospace; }
+  .mp-flag { margin-top: 3px; font-size: 10px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #475569; }
   .less {
     margin-top: 6px; padding: 6px 8px; background: #f8fafc; border: 1px solid #e2e8f0;
     border-left: 3px solid #64748b; border-radius: 6px; font-size: 10.5px;
@@ -312,14 +322,27 @@ function renderInvoiceHtml(invoice, { format = 'invoice' } = {}) {
         const netAmt = Math.max(0, grossAmt - netOff);
         const soLine = l.soLineNumber || l.so_line_number || l.lineNumber || (idx + 1);
         const roles = Array.isArray(l.roles) ? l.roles : [];
+        const lineMp = !!(l.isManpowerDependent || l.is_manpower_dependent);
+        const mpBadge = `<div class="mp-flag">${lineMp ? 'Manpower' : 'Not manpower'}</div>`;
         const rolesHtml = roles.length
-            ? `<div class="roles">${roles.map((r) => `• ${r.designation || r.role || 'Role'} = ${String(Number(r.count) || 0).padStart(2, '0')} per month`).join('<br/>')}</div>`
+            ? `<div class="roles">${roles.map((r) => {
+                const desig = r.designation || r.role || 'Role';
+                const count = Number(r.count) || 0;
+                const rate = Number(r.rate || r.monthly_rate || 0);
+                const roleMp = (r.is_manpower_dependent != null || r.isManpowerDependent != null)
+                    ? !!(r.is_manpower_dependent || r.isManpowerDependent)
+                    : lineMp;
+                const rateBit = rate > 0 ? ` @ Rs. ${fmt2(rate)}` : '';
+                const totalBit = rate > 0 && count > 1 ? ` (line ${fmt2(rate * count)})` : '';
+                return `• ${desig} = ${String(count).padStart(2, '0')} per month${rateBit}${totalBit} — ${roleMp ? 'manpower' : 'not manpower'}`;
+            }).join('<br/>')}</div>`
             : '';
 
         return `<tr>
           <td class="center" style="font-family:ui-monospace,monospace;font-weight:800">${soLine}</td>
           <td>
             <div class="desc-main">${l.description || l.name || 'Service'} ${soLine ? `(${soLine})` : ''} for the month of ${monthLabel} — ${siteLabel}</div>
+            ${mpBadge}
             ${rolesHtml}
             ${lessHtml}
           </td>

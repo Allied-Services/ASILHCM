@@ -1,5 +1,12 @@
 export const CORO_EXPECTED = 4136919.94;
 
+export const emptyRole = (manpower = true) => ({
+  designation: '',
+  count: 1,
+  rate: '',
+  is_manpower_dependent: !!manpower,
+});
+
 export const emptyLine = () => ({
   line_number: '1',
   name: '',
@@ -7,7 +14,7 @@ export const emptyLine = () => ({
   quantity: 1,
   rate: 0,
   is_manpower_dependent: true,
-  roles: [{ designation: '', count: 1 }],
+  roles: [emptyRole(true)],
 });
 
 export const emptySite = () => ({
@@ -26,6 +33,32 @@ export function round2(n) {
 
 export function money(n) {
   return round2(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export function mapRole(r, lineManpower = true) {
+  const rateRaw = r?.rate ?? r?.monthly_rate;
+  const rateNum = rateRaw === '' || rateRaw == null ? null : Number(rateRaw);
+  const mp = r?.is_manpower_dependent ?? r?.isManpowerDependent;
+  return {
+    designation: r?.designation || r?.role || '',
+    count: Number(r?.count) || 0,
+    rate: Number.isFinite(rateNum) && rateNum > 0 ? rateNum : '',
+    is_manpower_dependent: mp == null ? !!lineManpower : !!mp,
+  };
+}
+
+export function rolePayload(r, lineManpower = true) {
+  const mapped = mapRole(r, lineManpower);
+  const out = {
+    designation: mapped.designation,
+    count: mapped.count,
+    is_manpower_dependent: mapped.is_manpower_dependent,
+    isManpowerDependent: mapped.is_manpower_dependent,
+  };
+  if (mapped.rate !== '') {
+    out.rate = Number(mapped.rate);
+  }
+  return out;
 }
 
 export function buildInitial(detail) {
@@ -131,7 +164,9 @@ export function buildInitial(detail) {
           quantity: 1,
           rate: Number(l.rate || 0),
           is_manpower_dependent: !!l.is_manpower_dependent,
-          roles: Array.isArray(l.roles) && l.roles.length ? l.roles : [{ designation: '', count: 1 }],
+          roles: Array.isArray(l.roles) && l.roles.length
+            ? l.roles.map((r) => mapRole(r, !!l.is_manpower_dependent))
+            : [emptyRole(!!l.is_manpower_dependent)],
         })) : [emptyLine()],
       };
     }) : [emptySite()],
@@ -185,10 +220,7 @@ export function formToPayload(form) {
         rate: Number(l.rate || 0),
         total_amount: Number(l.rate || 0),
         is_manpower_dependent: !!l.is_manpower_dependent,
-        roles: (l.roles || []).filter((r) => r.designation || r.count).map((r) => ({
-          designation: r.designation || '',
-          count: Number(r.count) || 0,
-        })),
+        roles: (l.roles || []).filter((r) => r.designation || r.count).map((r) => rolePayload(r, !!l.is_manpower_dependent)),
       })),
     })),
   };

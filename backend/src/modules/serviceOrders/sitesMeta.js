@@ -50,10 +50,64 @@ function roleCount(roles) {
     return roles.reduce((n, r) => n + (Number(r.count) || 0), 0);
 }
 
-/** dailyRate = (line.rate / roleCount) / 30 ; amount = dailyRate × absentDays */
-function absenceDeductionAmount(lineRate, roles, absentDays, monthDays = 30) {
-    const count = roleCount(roles) || 1;
-    const daily = (Number(lineRate) / count) / (Number(monthDays) || 30);
+function lineRoles(lineOrRoles) {
+    if (Array.isArray(lineOrRoles)) return lineOrRoles;
+    if (Array.isArray(lineOrRoles?.roles)) return lineOrRoles.roles;
+    if (typeof lineOrRoles?.roles === 'string') {
+        try { return JSON.parse(lineOrRoles.roles || '[]'); } catch { return []; }
+    }
+    return [];
+}
+
+function isLineManpower(line) {
+    return !!(line?.is_manpower_dependent || line?.isManpowerDependent);
+}
+
+function isRoleManpower(role, line) {
+    if (role && (role.is_manpower_dependent != null || role.isManpowerDependent != null)) {
+        return !!(role.is_manpower_dependent || role.isManpowerDependent);
+    }
+    return isLineManpower(line);
+}
+
+function explicitRoleRate(role) {
+    const n = Number(role?.rate ?? role?.monthly_rate);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Monthly billed rate for one resource of this role.
+ * Prefer the role's own rate; otherwise split the leftover line rate
+ * across roles that have no rate (so Gardening @ 52,183 does not dilute
+ * an unpriced Sweeper).
+ */
+function roleMonthlyRate(lineOrRate, roles, role = null) {
+    const line = (lineOrRate && typeof lineOrRate === 'object' && !Array.isArray(lineOrRate))
+        ? lineOrRate
+        : { rate: lineOrRate, roles };
+    const list = lineRoles(roles != null ? roles : line);
+    if (role && explicitRoleRate(role)) return explicitRoleRate(role);
+
+    const lineRate = Number(line.rate || lineOrRate || 0);
+    let pricedTotal = 0;
+    let unpricedCount = 0;
+    for (const r of list) {
+        const count = Number(r.count) || 0;
+        const priced = explicitRoleRate(r);
+        if (priced > 0) pricedTotal += priced * count;
+        else unpricedCount += count;
+    }
+    if (role && unpricedCount > 0) {
+        return Math.max(0, lineRate - pricedTotal) / unpricedCount;
+    }
+    const count = roleCount(list) || 1;
+    return lineRate / count;
+}
+
+/** dailyRate = roleMonthly / 30 ; amount = dailyRate × absentDays */
+function absenceDeductionAmount(lineRate, roles, absentDays, monthDays = 30, role = null) {
+    const monthly = roleMonthlyRate({ rate: lineRate, roles }, roles, role);
+    const daily = monthly / (Number(monthDays) || 30);
     return Math.round(daily * Number(absentDays || 0) * 100) / 100;
 }
 
@@ -72,5 +126,10 @@ module.exports = {
     isSoBillingModel,
     siteProvince,
     roleCount,
+    lineRoles,
+    isLineManpower,
+    isRoleManpower,
+    explicitRoleRate,
+    roleMonthlyRate,
     absenceDeductionAmount,
 };

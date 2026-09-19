@@ -5,6 +5,7 @@ const { provinceSalesTaxRate } = require('../../core/regionTax');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { getServiceOrder } = require('./crud');
 const { siteProvince, roleCount } = require('./sitesMeta');
+const { syncVacanciesForServiceOrder } = require('./vacancySync');
 const { renderInvoiceHtml, summarizeInvoiceDeductions } = require('./invoiceHtml');
 const { parseInvoiceAdjustmentAmount } = require('./parseInvoiceAdjustmentAmount');
 const {
@@ -253,6 +254,16 @@ async function computeSoInvoice(pool, { serviceOrderId, month, year, requireConf
 
     if (requireConfirmations) {
         await assertPeriodReviewed(pool, serviceOrderId, month, year);
+    }
+
+    try {
+        await syncVacanciesForServiceOrder(pool, {
+            serviceOrder: so,
+            month,
+            year,
+        });
+    } catch (err) {
+        console.error('[computeSoInvoice vacancies]', err);
     }
 
     const { rows: contractRows } = await pool.query(

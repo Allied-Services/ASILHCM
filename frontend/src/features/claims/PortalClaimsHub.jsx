@@ -222,6 +222,7 @@ export default function PortalClaimsHub({
   lockSection = null,
   initialFilter = null,
   hideSectionNav = false,
+  collectOnly = false,
   onOpenManual = null,
   manualSeed = null,
   onManualSeedConsumed = null,
@@ -991,6 +992,7 @@ export default function PortalClaimsHub({
               Payroll Sheet already has different OT / medical / expense values. Verify manually — auto-push is blocked.
             </div>
           )}
+          {!collectOnly && (
           <div className="pch-chase">
             <div className="pch-chase-line">
               <strong>{pushTotals.count}</strong> selected for payroll
@@ -1004,6 +1006,7 @@ export default function PortalClaimsHub({
             </div>
             <p className="pch-muted">Tick people, then Review and push to payroll. Wafi-style contracts still need LM-approved OT / expense / medical. Fixed Value / PSO and other contracts that do not collect those claims can be pushed by the recruiter even when there is nothing to claim — that closes the month on this board and writes any OT or deduction onto Fixed Value Payroll. Greyed boxes are already sent or rejected.</p>
           </div>
+          )}
           {pushPreview && (
             <pre className="pch-note">{JSON.stringify(pushPreview.summary, null, 2)}</pre>
           )}
@@ -1183,12 +1186,14 @@ export default function PortalClaimsHub({
                 {open.last_reminder_at && <div className="pch-muted">Last reminder {formatWhen(open.last_reminder_at)}</div>}
               </div>
               <div>
-                <h3>Payroll</h3>
+                <h3>{collectOnly ? 'Claims' : 'Payroll'}</h3>
                 <p className="pch-sub">
-                  LM approval does not write to the Payroll Sheet. ASIL pushes Ready for Payroll rows from the list above.
+                  {collectOnly
+                    ? 'This board collects claims only. Use the Payroll Sheet to pay, and Month Invoices for the Service Order bill.'
+                    : 'LM approval does not write to the Payroll Sheet. ASIL pushes Ready for Payroll rows from the list above.'}
                 </p>
                 <div className="pch-actions">
-                  {open.can_push_payroll && (
+                  {!collectOnly && open.can_push_payroll && (
                     <button
                       type="button"
                       className="btn-primary"
