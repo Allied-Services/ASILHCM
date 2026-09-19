@@ -6,6 +6,7 @@ import { deriveCycleCollection } from '../records/cycleCollection';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import PortalClaimsHub from './PortalClaimsHub';
 import ReviewDesk from './ReviewDesk';
+import { resolveCycleSection } from './monthlyCycleNav';
 import './PortalClaimsHub.css';
 import './MonthlyCycleHub.css';
 
@@ -17,7 +18,6 @@ const SECTIONS = [
   { key: 'track', label: 'Track', icon: Activity },
   { key: 'corrections', label: 'Corrections', icon: FilePenLine },
 ];
-const CYCLE_SECTIONS = new Set(SECTIONS.map((s) => s.key));
 
 const FILE_MODE_HEADERS = {
   full_ledger: 'employee_id,name,present_days,absent_days,hours,ot2,ot3',
@@ -743,8 +743,7 @@ function ContactsSeedBar() {
 export default function MonthlyCycleHub({ user }) {
   const [section, setSection] = useState(() => {
     const q = readStaffQuery();
-    const wanted = q.section || (q.contract ? 'setup' : 'review');
-    return CYCLE_SECTIONS.has(wanted) ? wanted : 'track';
+    return resolveCycleSection(q.section, { hasContract: !!q.contract });
   });
   const [manualSeed, setManualSeed] = useState(null);
   const [comms, setComms] = useState(null);

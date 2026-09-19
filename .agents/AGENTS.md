@@ -316,6 +316,11 @@ EOBI / commercial type / Service Order enable / focals / routing moved to Client
 
 **Env vars needed:** none.
 
+### 2026-09-19 — Service-order role rates, vacancies, Monthly Cycle collection-only
+PSO Service Order lines keep role monthly rates in `roles` JSONB. Absence shortages use the matched role rate ÷ 30 × days (equal split only if a role has no rate). Unfilled role slots are billed by `vacancySync` (Morgah FM Supervisor 60,246; one Gardener 52,183). Monthly Cycle stays collection-only. Payroll Sheet hosts Review and push + Month close; Invoices (AR) hosts cost-plus raise. Repair live SO lines with `node backend/scripts/repair_pso_north_zone_so.js` (dry-run; `--apply` / `--allow-production`).
+
+**Env vars needed:** none.
+
 ### 2026-09-18 — One Payroll Sheet: invoices use locked days; leftover doors closed
 PSO Service Order absence shortages are rebuilt when the Payroll Sheet is locked (`absent = max(0, 30 − paid_days)`). Manual genset/chemical adjustments are unchanged. Wafi cost-plus is unchanged. Payroll Run, Email Claims, Wafi Claims, Claims Queue and Contract Policies no longer open from leftover `?tab=` links. Email Claims `push-to-payroll` returns 410. Historical `payroll_runs` and Wafi magic-link routes stay.
 

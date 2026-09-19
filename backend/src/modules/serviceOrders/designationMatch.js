@@ -64,6 +64,9 @@ function designationMatchKeys(designation) {
         'm r technician': ['m r technician', 'm r support'],
         gardener: ['gardener', 'gardening'],
         gardening: ['gardening', 'gardener'],
+        'decanting filling': ['decanting filling', 'filling decanting', 'filling decanting officer'],
+        'filling decanting': ['decanting filling', 'filling decanting', 'filling decanting officer'],
+        'filling decanting officer': ['decanting filling', 'filling decanting', 'filling decanting officer'],
         electrician: ['electrician', 'electrical'],
         electrical: ['electrical', 'electrician'],
         'forklift operator': ['forklift operator', 'forklift operation'],
@@ -121,6 +124,15 @@ function lineRoles(line) {
  * Prefer the Excel item number for this site; otherwise the most specific
  * manpower line (dedicated Technical/Fuel line over kitchen-sink Office/Misc).
  */
+function findRoleForDesignation(roles, designation) {
+    const list = Array.isArray(roles) ? roles : [];
+    return list.find((r) => designationsMatch(designation, r.designation || r.role)) || null;
+}
+
+function withMatchedRole(line, roles, designation) {
+    return { line, roles, role: findRoleForDesignation(roles, designation) };
+}
+
 function findLineForDesignation(lines, designation, opts = {}) {
     const target = normalizeDesignation(designation);
     if (!target) return null;
@@ -131,7 +143,7 @@ function findLineForDesignation(lines, designation, opts = {}) {
         if (mapped != null) {
             const mappedLine = findLineByNumber(lines, mapped);
             if (mappedLine && (mappedLine.is_manpower_dependent || mappedLine.isManpowerDependent)) {
-                return { line: mappedLine, roles: lineRoles(mappedLine) };
+                return withMatchedRole(mappedLine, lineRoles(mappedLine), designation);
             }
         }
     }
@@ -141,7 +153,7 @@ function findLineForDesignation(lines, designation, opts = {}) {
         if (!(line.is_manpower_dependent || line.isManpowerDependent)) continue;
         const roles = lineRoles(line);
         if (roles.some((r) => designationsMatch(designation, r.designation || r.role))) {
-            matches.push({ line, roles });
+            matches.push(withMatchedRole(line, roles, designation));
         }
     }
     if (!matches.length) return null;
@@ -164,6 +176,7 @@ module.exports = {
     phrasesOverlap,
     designationMatchKeys,
     designationsMatch,
+    findRoleForDesignation,
     findLineForDesignation,
     findMatchingRole,
 };

@@ -46,6 +46,16 @@ describe('serviceOrders — absence formula', () => {
     test('zero absences → zero deduction', () => {
         expect(absenceDeductionAmount(50000, [{ count: 2 }], 0)).toBe(0);
     });
+
+    test('matched role rate wins over equal split', () => {
+        const roles = [
+            { designation: 'Conservancy Supervisory Services', count: 1, rate: 60246 },
+            { designation: 'Gardening Services', count: 2, rate: 52183 },
+        ];
+        expect(absenceDeductionAmount(331248, roles, 30, 30, roles[0])).toBe(60246);
+        expect(absenceDeductionAmount(331248, roles, 30, 30, roles[1])).toBe(52183);
+        expect(absenceDeductionAmount(331248, roles, 15, 30, roles[1])).toBe(26091.5);
+    });
 });
 
 describe('serviceOrders — Tarujabba grand total', () => {
@@ -366,6 +376,9 @@ describe('serviceOrders — designation → SO line match', () => {
         expect(findLineForDesignation(linesOf('SIHALA'), 'Electrician', { siteCode: 'SIHALA' }).line.id).toBe('sih-item-5');
         expect(findLineForDesignation(linesOf('SIHALA'), 'FM Supervisor', { siteCode: 'SIHALA' }).line.id).toBe('sih-item-1');
         expect(findLineForDesignation(linesOf('TARUJABBA'), 'Gardener', { siteCode: 'TARUJABBA' }).line.id).toBe('tj-item-1');
+        expect(findLineForDesignation(linesOf('MORGAH'), 'FM Supervisor', { siteCode: 'MORGAH' }).line.id).toBe('mor-item-1');
+        expect(findLineForDesignation(linesOf('MORGAH'), 'Gardener', { siteCode: 'MORGAH' }).role.rate).toBe(52183);
+        expect(findLineForDesignation(linesOf('MORGAH'), 'FM Supervisor', { siteCode: 'MORGAH' }).role.rate).toBe(60246);
     });
 });
 

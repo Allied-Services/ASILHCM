@@ -31,6 +31,7 @@
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 1,
+            "rate": 52040,
             "isManpowerDependent": true
           },
           {
@@ -42,6 +43,7 @@
           {
             "designation": "Decanting/Filling Services",
             "count": 2,
+            "rate": 57298,
             "isManpowerDependent": true
           }
         ]
@@ -57,7 +59,8 @@
         "roles": [
           {
             "designation": "Sealing Services",
-            "count": 4
+            "count": 4,
+            "rate": 56991
           }
         ]
       },

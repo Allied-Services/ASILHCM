@@ -5,7 +5,7 @@ How to run the monthly OT / Expense / Medical cycle in ASIL HCM.
 **Staff login:** [https://asil-hcm-frontend.onrender.com](https://asil-hcm-frontend.onrender.com)  
 **Where:** left menu → **Monthly Cycle**
 
-This is the same engine as Portal Claims. Monthly Cycle is the one place to set the contract pack, assign who fills and who approves, send the emails, track every person, correct mistakes, and push approved amounts onto the Payroll Sheet.
+This is the same engine as Portal Claims. Monthly Cycle is the place to set the contract pack, assign who fills and who approves, send the emails, track every person, and correct mistakes. Push approved amounts and close the month from the Payroll Sheet. Raise cost-plus invoices from Invoices (AR).
 
 ---
 
@@ -38,7 +38,7 @@ When you open Track, the screen defaults to last month as Work month and this mo
 
 ---
 
-## 3. The six tabs (in order)
+## 3. The collection tabs (in order)
 
 Use them left to right the first time a contract is set up. After that, most months start at **Collect**.
 
@@ -47,9 +47,11 @@ Use them left to right the first time a contract is set up. After that, most mon
 | **Setup** | What this contract collects, how, and by which calendar days |
 | **People** | Who fills (Claimer / Focal), optional Reviewer, and who approves (Line Manager) |
 | **Collect** | Load the roster, tick people, send SAMPLE then ACTUAL invite emails |
+| **Review** | Check what came back before Track |
 | **Track** | Everyone who should have been invited — status, amounts, chase, View |
 | **Corrections** | Fix a person (or bulk CSV) and optionally send back to the Line Manager |
-| **Payroll** | Same board as Track, already filtered to **Ready for Payroll** — tick and push |
+
+Payroll push and month close are on **Payroll Sheet**. Cost-plus invoices are on **Invoices (AR)**. Stale `section=payroll` / `section=close` links open Track.
 
 ---
 
@@ -392,15 +394,18 @@ Then **Dry-run CSV** → check the summary → **Commit CSV**.
 
 ---
 
-## 10. Payroll tab
+## 10. Push to payroll (Payroll Sheet)
 
-Same board as Track, opened on **Ready for Payroll**.
+Monthly Cycle no longer has a Payroll or Close tab.
 
-1. Confirm **Work month** and **Paid on**.
-2. Tick the people whose portal figures you have reviewed.
-3. **Preview push** — read ready vs needs review vs not ready.
-4. **Review and push to payroll**.
-5. Status should become **Sent to Payroll**. Those four Payroll Sheet columns now hold the portal amounts.
+1. Open **Payroll Sheet**, pick the pay month and client/contract.
+2. Use **Review and push claims**.
+3. Confirm **Work month** and **Paid on**.
+4. Tick the people whose portal figures you have reviewed.
+5. **Preview push**, then **Review and push to payroll**.
+6. Status should become **Sent to Payroll**. Those four Payroll Sheet columns now hold the portal amounts.
+
+Close pack and statutory files are on the same sheet under **Month close**. Cost-plus invoices are raised on **Invoices (AR)**.
 
 Push never overwrites a sheet that already has different OT / medical / expense. Those rows stay **Needs Review**.
 
