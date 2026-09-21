@@ -457,6 +457,38 @@ describe('FV replaceLines — re-points so_deductions.line_id', () => {
         expect(updateCall.params[2]).toBe('SO-PSO-CHAKPIRANA');
         expect(client.release).toHaveBeenCalled();
     });
+
+    test('replaceLines does not delete live catalog when payload has no named lines', async () => {
+        const oldLines = [
+            {
+                id: 10, line_number: '1', name: 'Office/Misc Services', unit: 'AU',
+                quantity: 1, rate: 1192940, total_amount: 1192940,
+                is_manpower_dependent: true, roles: [{ designation: 'Sweeping / Cleaning Services', count: 7 }],
+            },
+        ];
+        const client = { query: jest.fn(), release: jest.fn() };
+        const pool = {
+            connect: jest.fn(async () => client),
+            query: jest.fn(async (sql) => {
+                if (/FROM service_orders so WHERE so.id/i.test(sql)) {
+                    return {
+                        rows: [{
+                            id: 'SO-PSO-SIHALA',
+                            contract_id: 'CTR-PSO-NORTH-ZONE',
+                            total_value: 1192940,
+                            lines: oldLines,
+                        }],
+                    };
+                }
+                return { rows: [] };
+            }),
+        };
+        const result = await replaceLines(pool, 'SO-PSO-SIHALA', [{ line_number: '1', name: '', rate: 0, roles: [] }]);
+        expect(result.skipped_empty_replace).toBe(true);
+        expect(result.lines).toEqual(oldLines);
+        expect(pool.connect).not.toHaveBeenCalled();
+        expect(client.query).not.toHaveBeenCalled();
+    });
 });
 
 describe('FV invoice — regenerate status gate', () => {

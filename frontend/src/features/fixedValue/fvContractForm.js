@@ -35,14 +35,21 @@ export function money(n) {
   return round2(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** Accept 52043, "52,043", or "52043.00". Empty / invalid stays blank so a save cannot wipe a stored rate by accident. */
+export function parsePositiveRate(value) {
+  if (value === '' || value == null) return '';
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : '';
+  const n = Number(String(value).replace(/,/g, '').trim());
+  return Number.isFinite(n) && n > 0 ? n : '';
+}
+
 export function mapRole(r, lineManpower = true) {
-  const rateRaw = r?.rate ?? r?.monthly_rate;
-  const rateNum = rateRaw === '' || rateRaw == null ? null : Number(rateRaw);
+  const rate = parsePositiveRate(r?.rate ?? r?.monthly_rate);
   const mp = r?.is_manpower_dependent ?? r?.isManpowerDependent;
   return {
     designation: r?.designation || r?.role || '',
     count: Number(r?.count) || 0,
-    rate: Number.isFinite(rateNum) && rateNum > 0 ? rateNum : '',
+    rate,
     is_manpower_dependent: mp == null ? !!lineManpower : !!mp,
   };
 }
