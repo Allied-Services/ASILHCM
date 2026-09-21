@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-21 — Restore North Zone SO nested service rates
+CTR-PSO-NORTH-ZONE still had all 51 billed lines; nested role rates (Sihala Sweeping **52,043**) had been stripped on save. Restore writes those rates onto the existing `roles` JSONB (no line delete). Empty `replaceLines` payloads no longer wipe the catalog. Comma rates such as `52,043` round-trip.
+
+**Env vars needed:** none.
+
 ### 2026-09-21 — Employee Information filters + list columns
 Directory filters are one compact row: **Client Name, Client Contract, Client Location, Department, Designation, Client BU** (ASIL BU removed). List drops ASIL BU and adds Gross Salary, abbreviated Client (PSO / Wafi), and Contact Number. `GET /api/employees/directory` accepts `designation`; `GET /api/employees/directory/filter-options` returns distinct titles for the selected client.
 

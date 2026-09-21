@@ -165,12 +165,26 @@ async function replaceLines(db, serviceOrderId, lines) {
         err.status = 404;
         throw err;
     }
+    const incoming = Array.isArray(lines) ? lines : [];
+    const namedIncoming = incoming.filter((l) => String(l?.name || '').trim());
+    // An empty payload used to DELETE every line. Keep the live catalog instead.
+    if (!namedIncoming.length) {
+        if ((so.lines || []).length) {
+            return {
+                serviceOrderId,
+                lines: so.lines,
+                total_value: so.total_value,
+                skipped_empty_replace: true,
+            };
+        }
+    }
+
     if (so.contract_id) {
         const { assertLinesRespectRoster } = require('./rosterCapacity');
         await assertLinesRespectRoster(db, {
             contractId: so.contract_id,
             siteCode: so.site_code,
-            lines,
+            lines: namedIncoming.length ? namedIncoming : incoming,
         });
     }
 
@@ -193,7 +207,7 @@ async function replaceLines(db, serviceOrderId, lines) {
         await client.query(`DELETE FROM service_order_lines WHERE service_order_id = $1`, [serviceOrderId]);
         const inserted = [];
         let lineNo = 1;
-        for (const line of lines || []) {
+        for (const line of (namedIncoming.length ? namedIncoming : incoming)) {
             const { rows } = await client.query(
                 `INSERT INTO service_order_lines
                  (service_order_id, line_number, name, unit, quantity, rate, total_amount, is_manpower_dependent, roles)

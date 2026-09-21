@@ -1,0 +1,53 @@
+{
+  "contractId": "CTR-PSO-NORTH-ZONE",
+  "apply": true,
+  "lines_updated": 2,
+  "changes": [
+    {
+      "site": "MORGAH",
+      "lineId": 299,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "restore_manpower",
+          "designation": "Conservancy Supervisory Services",
+          "manpower": true
+        },
+        {
+          "action": "restore_manpower",
+          "designation": "Sweeping / Cleaning Services",
+          "manpower": true
+        },
+        {
+          "action": "restore_manpower",
+          "designation": "Gardening Services",
+          "manpower": true
+        },
+        {
+          "action": "restore_manpower",
+          "designation": "Decanting/Filling Services",
+          "manpower": true
+        }
+      ]
+    },
+    {
+      "site": "SIHALA",
+      "lineId": 278,
+      "line": "1",
+      "name": "Office/Misc Service",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "rate": 52043
+        },
+        {
+          "action": "restore_manpower",
+          "designation": "Sweeping / Cleaning Services",
+          "manpower": true
+        }
+      ]
+    }
+  ]
+}

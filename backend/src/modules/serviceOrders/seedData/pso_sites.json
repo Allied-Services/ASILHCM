@@ -245,7 +245,9 @@
           },
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 7
+            "count": 7,
+            "rate": 52043,
+            "isManpowerDependent": true
           },
           {
             "designation": "Gardening Services",

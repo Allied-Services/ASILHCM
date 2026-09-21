@@ -35,6 +35,16 @@ describe('fvContractForm role rates', () => {
     assert.equal(payload.sites[0].lines[0].roles[1].count, 2);
   });
 
+  it('keeps comma-formatted rates such as 52,043', () => {
+    const mapped = mapRole({
+      designation: 'Sweeping / Cleaning Services',
+      count: 7,
+      rate: '52,043',
+    }, true);
+    assert.equal(mapped.rate, 52043);
+    assert.equal(rolePayload(mapped, true).rate, 52043);
+  });
+
   it('keeps explicit role rates and manpower flags on payload', () => {
     const mapped = mapRole({
       designation: 'Sweeping / Cleaning Services',
