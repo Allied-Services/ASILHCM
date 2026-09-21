@@ -11,10 +11,11 @@ import { derivedActiveStatusLabel, isEmployeeCurrentlyActive, normalizeActiveVal
 import {
     activeToParam, paramToActive, readDirectoryParams, writeDirectoryParams,
     hasDirectoryQuery, loadRecentEmployees, pushRecentEmployee,
+    abbreviateClientName, formatGrossSalary,
 } from './features/employees/directoryHelpers';
 
 const EMPTY_DIR = {
-    bu: '', client: '', clientId: '', contractId: '', contractName: '',
+    client: '', clientId: '', contractId: '', contractName: '',
     clientBU: '', location: '', dept: '', designation: '',
 };
 const PAGE_SIZE = 400;
@@ -113,7 +114,6 @@ export default function EmployeeInformation({ user }) {
     const [filterActive, setFilterActive] = useState(paramToActive(boot.active));
     const [dirForm, setDirForm] = useState({
         ...EMPTY_DIR,
-        bu: boot.bu,
         client: boot.client,
         contractId: boot.contractId,
         clientBU: boot.clientBu,
@@ -121,8 +121,6 @@ export default function EmployeeInformation({ user }) {
         dept: boot.dept,
         designation: boot.designation,
     });
-    const [facets, setFacets] = useState({ clientBus: [], locations: [], departments: [], designations: [] });
-    const [extraFilter, setExtraFilter] = useState('');
     const skipFilterQuery = useRef(true);
     const [showAdd, setShowAdd] = useState(false);
     const [addMode, setAddMode] = useState('single');
@@ -149,7 +147,6 @@ export default function EmployeeInformation({ user }) {
         const br = over.browse !== undefined ? over.browse : browse;
         return {
             q: String(q || '').trim(),
-            bu: form.bu || '',
             client: form.client || '',
             contractId: form.contractId || '',
             clientBu: form.clientBU || '',
@@ -177,7 +174,6 @@ export default function EmployeeInformation({ user }) {
         try {
             const data = await api.searchEmployeeDirectory({
                 q: params.q,
-                bu: params.bu,
                 client: params.client,
                 contractId: params.contractId,
                 clientBu: params.clientBu,
@@ -214,7 +210,6 @@ export default function EmployeeInformation({ user }) {
                 q: boot.q,
                 form: {
                     ...EMPTY_DIR,
-                    bu: boot.bu,
                     client: boot.client,
                     contractId: boot.contractId,
                     clientBU: boot.clientBu,
@@ -240,31 +235,7 @@ export default function EmployeeInformation({ user }) {
         if (hasDirectoryQuery(next)) runDirectory({ form: dirForm, page: 1 });
         else if (hasQueried) runDirectory({ form: dirForm, page: 1 });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dirForm.bu, dirForm.client, dirForm.contractId, dirForm.clientBU, dirForm.location, dirForm.dept, dirForm.designation]);
-
-    useEffect(() => {
-        if (!dirForm.client || !dirForm.contractId) {
-            setFacets({ clientBus: [], locations: [], departments: [], designations: [] });
-            return;
-        }
-        api.getEmployeeDirectoryFacets({ client: dirForm.client, contractId: dirForm.contractId })
-            .then(setFacets)
-            .catch(() => setFacets({ clientBus: [], locations: [], departments: [], designations: [] }));
-    }, [dirForm.client, dirForm.contractId]);
-
-    const applyExtraFilter = (raw) => {
-        setExtraFilter(raw);
-        const sep = raw.indexOf(':');
-        const kind = sep === -1 ? '' : raw.slice(0, sep);
-        const value = sep === -1 ? '' : raw.slice(sep + 1);
-        setDirForm((p) => ({
-            ...p,
-            clientBU: kind === 'bu' ? value : '',
-            location: kind === 'loc' ? value : '',
-            dept: kind === 'dept' ? value : '',
-            designation: kind === 'desig' ? value : '',
-        }));
-    };
+    }, [dirForm.client, dirForm.contractId, dirForm.clientBU, dirForm.location, dirForm.dept, dirForm.designation]);
 
     const secIdx = SECTIONS.indexOf(sec);
     const filtered = emps;
@@ -481,7 +452,7 @@ export default function EmployeeInformation({ user }) {
         setElapsedMs(null);
         setSelected(new Set());
         skipFilterQuery.current = true;
-        writeDirectoryParams({ q: '', bu: '', client: '', contractId: '', clientBu: '', location: '', dept: '', active: 'all', page: 1, browse: false });
+        writeDirectoryParams({ q: '', client: '', contractId: '', clientBu: '', location: '', dept: '', designation: '', active: 'all', page: 1, browse: false });
     };
 
     const updateEmployee = async (updated, meta = {}) => {
@@ -864,40 +835,7 @@ export default function EmployeeInformation({ user }) {
                 )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                <EmploymentOrgCascade mode="filter" form={dirForm} setForm={setDirForm} compact />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filter</label>
-                    <select
-                        value={extraFilter}
-                        disabled={!dirForm.client || !dirForm.contractId}
-                        onChange={(e) => applyExtraFilter(e.target.value)}
-                        style={{ background: 'var(--bg-dark)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 10px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', width: '100%' }}
-                    >
-                        <option value="">{dirForm.contractId ? 'All on this contract' : 'Select Client and Contract first'}</option>
-                        {facets.clientBus.length > 0 && (
-                            <optgroup label="Client BU">
-                                {facets.clientBus.map((v) => <option key={`bu:${v}`} value={`bu:${v}`}>{v}</option>)}
-                            </optgroup>
-                        )}
-                        {facets.locations.length > 0 && (
-                            <optgroup label="Client Location">
-                                {facets.locations.map((v) => <option key={`loc:${v}`} value={`loc:${v}`}>{v}</option>)}
-                            </optgroup>
-                        )}
-                        {facets.departments.length > 0 && (
-                            <optgroup label="Department">
-                                {facets.departments.map((v) => <option key={`dept:${v}`} value={`dept:${v}`}>{v}</option>)}
-                            </optgroup>
-                        )}
-                        {facets.designations.length > 0 && (
-                            <optgroup label="Designation">
-                                {facets.designations.map((v) => <option key={`desig:${v}`} value={`desig:${v}`}>{v}</option>)}
-                            </optgroup>
-                        )}
-                    </select>
-                </div>
-            </div>
+            <EmploymentOrgCascade mode="filter" form={dirForm} setForm={setDirForm} compact />
 
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 <Filter size={15} color="var(--text-muted)" />
@@ -907,18 +845,17 @@ export default function EmployeeInformation({ user }) {
                         “{search.trim()}” ×
                     </button>
                 )}
-                {dirForm.bu && <button onClick={() => setDirForm((p) => ({ ...EMPTY_DIR, bu: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.bu} ×</button>}
-                {dirForm.client && <button onClick={() => setDirForm((p) => ({ ...p, client: '', clientId: '', contractId: '', contractName: '', clientBU: '', location: '', dept: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.client} ×</button>}
-                {dirForm.contractName && <button onClick={() => setDirForm((p) => ({ ...p, contractId: '', contractName: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.contractName} ×</button>}
-                {dirForm.clientBU && <button onClick={() => setDirForm((p) => ({ ...p, clientBU: '', dept: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.clientBU} ×</button>}
-                {dirForm.location && <button onClick={() => setDirForm((p) => ({ ...p, location: '', dept: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.location} ×</button>}
-                {dirForm.dept && <button onClick={() => { setExtraFilter(''); setDirForm((p) => ({ ...p, dept: '' })); }} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.dept} ×</button>}
-                {dirForm.designation && <button onClick={() => { setExtraFilter(''); setDirForm((p) => ({ ...p, designation: '' })); }} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.designation} ×</button>}
+                {dirForm.client && <button onClick={() => setDirForm((p) => ({ ...p, client: '', clientId: '', contractId: '', contractName: '', clientBU: '', location: '', dept: '', designation: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{abbreviateClientName(dirForm.client)} ×</button>}
+                {dirForm.contractName && <button onClick={() => setDirForm((p) => ({ ...p, contractId: '', contractName: '', designation: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.contractName} ×</button>}
+                {dirForm.location && <button onClick={() => setDirForm((p) => ({ ...p, location: '', dept: '', designation: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.location} ×</button>}
+                {dirForm.dept && <button onClick={() => setDirForm((p) => ({ ...p, dept: '', designation: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.dept} ×</button>}
+                {dirForm.designation && <button onClick={() => setDirForm((p) => ({ ...p, designation: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.designation} ×</button>}
+                {dirForm.clientBU && <button onClick={() => setDirForm((p) => ({ ...p, clientBU: '', dept: '', designation: '' }))} style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{dirForm.clientBU} ×</button>}
                 {filterActive !== 'All' && (
                     <button onClick={() => { setFilterActive('All'); if (hasQueried) runDirectory({ active: 'All', page: 1 }); }}
                         style={{ fontSize: '0.78rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>{filterActive} ×</button>
                 )}
-                {(hasQueried || dirForm.bu || dirForm.client || search.trim()) && (
+                {(hasQueried || dirForm.client || dirForm.designation || search.trim()) && (
                     <button onClick={clearDirectory}
                         style={{ fontSize: '0.78rem', color: '#ef4444', background: 'transparent', border: '1px solid #ef444440', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>
                         Clear
@@ -949,17 +886,17 @@ export default function EmployeeInformation({ user }) {
             {/* Table */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'auto' }}>
                 {hasQueried && !loading && filtered.length > 0 && (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', minWidth: '1100px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', minWidth: '980px' }}>
                     <thead>
                         <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-dark)' }}>
-                            <th style={{ padding: '0.9rem 0.75rem', width: '40px' }}>
+                            <th style={{ padding: '0.55rem 0.5rem', width: '36px' }}>
                                 <input type="checkbox"
                                     checked={filtered.length > 0 && selected.size === filtered.length}
                                     onChange={toggleAll}
                                     style={{ cursor: 'pointer', accentColor: '#38bdf8', width: '15px', height: '15px' }} />
                             </th>
-                            {['Employee Code', 'Name', 'ASIL BU', 'Client', 'Client BU', 'Department', 'Designation', 'Location', 'Contract', 'Status', ''].map(h => (
-                                <th key={h} style={{ padding: '0.9rem 1rem', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
+                            {['Employee Code', 'Name', 'Client', 'Client BU', 'Department', 'Designation', 'Location', 'Contract', 'Gross Salary', 'Contact Number', 'Status', ''].map(h => (
+                                <th key={h} style={{ padding: '0.55rem 0.65rem', textAlign: h === 'Gross Salary' ? 'right' : 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
                         </tr>
                     </thead>
@@ -970,47 +907,52 @@ export default function EmployeeInformation({ user }) {
                                 style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: selected.has(emp.id) ? 'rgba(56,189,248,0.05)' : 'transparent', cursor: 'pointer' }}
                                 onMouseEnter={e => { if (!selected.has(emp.id)) e.currentTarget.style.background = 'var(--bg-dark)'; }}
                                 onMouseLeave={e => { if (!selected.has(emp.id)) e.currentTarget.style.background = 'transparent'; }}>
-                                <td style={{ padding: '0.85rem 0.75rem' }} onClick={e => e.stopPropagation()}>
+                                <td style={{ padding: '0.5rem 0.5rem' }} onClick={e => e.stopPropagation()}>
                                     <input type="checkbox" checked={selected.has(emp.id)} onChange={() => toggleSelect(emp.id)}
                                         style={{ cursor: 'pointer', accentColor: '#38bdf8', width: '15px', height: '15px' }} />
                                 </td>
-                                <td style={{ padding: '0.85rem 1rem', fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{emp.id}</td>
-                                <td style={{ padding: '0.85rem 1rem' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg,var(--primary),#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '0.78rem', flexShrink: 0 }}>
+                                <td style={{ padding: '0.5rem 0.65rem', fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{emp.id}</td>
+                                <td style={{ padding: '0.5rem 0.65rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: 'linear-gradient(135deg,var(--primary),#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '0.68rem', flexShrink: 0 }}>
                                             {(emp.name || '?').split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('')}
                                         </div>
                                         <div>
                                             <div style={{ fontWeight: 600, lineHeight: 1.2 }}>{emp.name}</div>
-                                            <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{emp.cnic}</div>
+                                            <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{emp.cnic}</div>
                                         </div>
                                     </div>
                                 </td>
-                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{emp.bu || '—'}</td>
-                                <td style={{ padding: '0.85rem 1rem' }}>
-                                    <div style={{ fontWeight: 500, lineHeight: 1.2 }}>{emp.client}</div>
+                                <td style={{ padding: '0.5rem 0.65rem' }} title={emp.client || ''}>
+                                    <div style={{ fontWeight: 600, lineHeight: 1.2 }}>{abbreviateClientName(emp.client)}</div>
                                     {String(emp.client || '').toLowerCase().includes('wafi') && (() => {
                                         const b = claimsBadgeStyle(emp);
                                         return (
-                                            <span title={b.tooltip} style={{ fontSize: '0.68rem', fontWeight: 700, color: b.tone, marginTop: '4px', display: 'inline-block' }}>
+                                            <span title={b.tooltip} style={{ fontSize: '0.64rem', fontWeight: 700, color: b.tone, marginTop: '2px', display: 'inline-block' }}>
                                                 {b.category}
                                             </span>
                                         );
                                     })()}
                                 </td>
-                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{emp.clientBU || '—'}</td>
-                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>{emp.dept || '—'}</td>
-                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>{emp.designation}</td>
-                                <td style={{ padding: '0.85rem 1rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{emp.location}</td>
-                                <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap', fontSize: '0.82rem' }}>
+                                <td style={{ padding: '0.5rem 0.65rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{emp.clientBU || '—'}</td>
+                                <td style={{ padding: '0.5rem 0.65rem', whiteSpace: 'nowrap' }}>{emp.dept || '—'}</td>
+                                <td style={{ padding: '0.5rem 0.65rem', whiteSpace: 'nowrap' }}>{emp.designation || '—'}</td>
+                                <td style={{ padding: '0.5rem 0.65rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{emp.location || '—'}</td>
+                                <td style={{ padding: '0.5rem 0.65rem', whiteSpace: 'nowrap', fontSize: '0.78rem' }}>
                                     {emp.contractName
                                         ? <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{emp.contractName}</span>
                                         : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                                 </td>
-                                <td style={{ padding: '0.85rem 1rem' }}>
-                                    <span style={{ background: isEmployeeCurrentlyActive(emp) ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: isEmployeeCurrentlyActive(emp) ? '#22c55e' : '#eab308', padding: '3px 10px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 600 }}>{derivedActiveStatusLabel(emp)}</span>
+                                <td style={{ padding: '0.5rem 0.65rem', whiteSpace: 'nowrap', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                                    {formatGrossSalary(emp.salary)}
                                 </td>
-                                <td style={{ padding: '0.85rem 1rem' }} onClick={e => e.stopPropagation()}>
+                                <td style={{ padding: '0.5rem 0.65rem', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '0.78rem' }}>
+                                    {emp.primaryContact || '—'}
+                                </td>
+                                <td style={{ padding: '0.5rem 0.65rem' }}>
+                                    <span style={{ background: isEmployeeCurrentlyActive(emp) ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: isEmployeeCurrentlyActive(emp) ? '#22c55e' : '#eab308', padding: '2px 8px', borderRadius: '12px', fontSize: '0.72rem', fontWeight: 600 }}>{derivedActiveStatusLabel(emp)}</span>
+                                </td>
+                                <td style={{ padding: '0.5rem 0.65rem' }} onClick={e => e.stopPropagation()}>
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                         <button onClick={() => openProfile(emp)} style={{ background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>View Profile</button>
                                         {user?.role === 'superadmin' && (

@@ -1,4 +1,4 @@
-const DIR_KEYS = ['q', 'bu', 'client', 'contractId', 'clientBu', 'location', 'dept', 'designation', 'active', 'page', 'browse'];
+const DIR_KEYS = ['q', 'client', 'contractId', 'clientBu', 'location', 'dept', 'designation', 'active', 'page', 'browse'];
 const RECENT_KEY = 'asil_emp_recent';
 const RECENT_MAX = 8;
 
@@ -18,7 +18,6 @@ export function readDirectoryParams(search = typeof window !== 'undefined' ? win
     const p = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
     return {
         q: p.get('q') || '',
-        bu: p.get('bu') || '',
         client: p.get('client') || '',
         contractId: p.get('contractId') || '',
         clientBu: p.get('clientBu') || '',
@@ -33,15 +32,15 @@ export function readDirectoryParams(search = typeof window !== 'undefined' ? win
 
 export function hasDirectoryQuery(params) {
     return String(params.q || '').trim().length >= 2
-        || !!(params.bu || params.client || params.contractId || params.clientBu || params.location || params.dept || params.designation)
+        || !!(params.client || params.contractId || params.clientBu || params.location || params.dept || params.designation)
         || !!params.browse;
 }
 
 export function writeDirectoryParams(next, search = typeof window !== 'undefined' ? window.location.search : '') {
     const p = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
     DIR_KEYS.forEach((k) => p.delete(k));
+    p.delete('bu'); // previous directory filter, no longer in the URL
     if (next.q) p.set('q', next.q);
-    if (next.bu) p.set('bu', next.bu);
     if (next.client) p.set('client', next.client);
     if (next.contractId) p.set('contractId', next.contractId);
     if (next.clientBu) p.set('clientBu', next.clientBu);
@@ -80,4 +79,20 @@ export function pushRecentEmployee(emp) {
     ].slice(0, RECENT_MAX);
     try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* ignore quota */ }
     return next;
+}
+
+/** Short labels for the directory list (and compact filter options). */
+export function abbreviateClientName(name) {
+    const s = String(name || '').trim();
+    if (!s) return '—';
+    const n = s.toLowerCase();
+    if (n.includes('pakistan state oil') || n === 'pso' || /(^|\s)pso(\s|$)/.test(n)) return 'PSO';
+    if (n.includes('wafi')) return 'Wafi';
+    return s;
+}
+
+export function formatGrossSalary(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return '—';
+    return Math.round(n).toLocaleString('en-PK');
 }

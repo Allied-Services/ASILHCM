@@ -81,18 +81,18 @@ function eqText(column, value, params) {
     return `LOWER(TRIM(${column})) = LOWER(TRIM($${params.length}))`;
 }
 
-function buildDirectorySql(parsed, { archive = false } = {}) {
+function buildDirectoryWhere(parsed, { archive = false, includeSearch = true, includeDesignation = true } = {}) {
     const where = [];
     const params = [];
     // Do not reuse employeeVisibilityClause here — that is "employed today".
     // Keep the Jul-2026 LWD floor for browse/filter lists; a name/code search
     // skips it so a person can be found. Active/Inactive mean employed today
     // vs already left (last working day), not only the stored flag.
-    if (!archive && !parsed.hasQ) {
+    if (!archive && !(includeSearch && parsed.hasQ)) {
         where.push(`(e.last_working_day IS NULL OR e.last_working_day >= '${cutover.CUTOVER_DATE}'::date)`);
     }
 
-    if (parsed.hasQ) {
+    if (includeSearch && parsed.hasQ) {
         params.push(`%${parsed.q}%`);
         const like = `$${params.length}`;
         const digits = parsed.q.replace(/[^0-9]/g, '');
@@ -119,7 +119,7 @@ function buildDirectorySql(parsed, { archive = false } = {}) {
     if (parsed.clientBu) where.push(eqText('e.client_bu', parsed.clientBu, params));
     if (parsed.location) where.push(eqText('e.location', parsed.location, params));
     if (parsed.dept) where.push(eqText('e.dept', parsed.dept, params));
-    if (parsed.designation) where.push(eqText('e.designation', parsed.designation, params));
+    if (includeDesignation && parsed.designation) where.push(eqText('e.designation', parsed.designation, params));
 
     if (parsed.active === 'yes') {
         where.push(currentlyActiveSqlClause('e'));
@@ -128,7 +128,11 @@ function buildDirectorySql(parsed, { archive = false } = {}) {
     }
 
     if (!where.length) where.push('TRUE');
+    return { where, params };
+}
 
+function buildDirectorySql(parsed, { archive = false } = {}) {
+    const { where, params } = buildDirectoryWhere(parsed, { archive });
     params.push(parsed.limit, parsed.offset);
     const sql = `
         SELECT ${LIST_COLS.join(', ')}, COUNT(*) OVER()::int AS total
@@ -165,6 +169,35 @@ function rowToDirectoryDto(r) {
 }
 
 const SLIM_KEYS = Object.keys(rowToDirectoryDto({}));
+
+function buildDirectoryDesignationsSql(parsed, { archive = false } = {}) {
+    const { where, params } = buildDirectoryWhere(parsed, {
+        archive,
+        includeSearch: false,
+        includeDesignation: false,
+    });
+    const sql = `
+        SELECT DISTINCT e.designation
+        FROM employees e
+        WHERE ${where.join('\n          AND ')}
+          AND e.designation IS NOT NULL
+          AND TRIM(e.designation) <> ''
+        ORDER BY e.designation ASC
+        LIMIT 500
+    `;
+    return { sql, params };
+}
+
+async function listDirectoryFilterOptions(pool, req) {
+    const parsed = parseDirectoryQuery(req.query || {});
+    if (!parsed.client && !parsed.contractId && !parsed.clientBu && !parsed.location && !parsed.dept && !parsed.bu) {
+        return { designations: [] };
+    }
+    const { archive } = await cutover.resolveArchiveMode(req, pool);
+    const { sql, params } = buildDirectoryDesignationsSql(parsed, { archive });
+    const { rows } = await pool.query(sql, params);
+    return { designations: rows.map((r) => r.designation).filter(Boolean) };
+}
 
 async function searchDirectory(pool, req) {
     const parsed = parseDirectoryQuery(req.query || {});
@@ -258,6 +291,16 @@ function registerEmployeeDirectoryRoutes(app, deps) {
         }
     });
 
+    app.get('/api/employees/directory/filter-options', requireAuth, async (req, res) => {
+        try {
+            const result = await listDirectoryFilterOptions(pool, req);
+            res.json(result);
+        } catch (err) {
+            console.error('[GET /api/employees/directory/filter-options]', err);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
     app.get('/api/employees/directory/:id', requireAuth, async (req, res) => {
         try {
             const employee = await getDirectoryRecord(pool, req, empFromDb);
@@ -274,9 +317,11 @@ function registerEmployeeDirectoryRoutes(app, deps) {
 module.exports = {
     parseDirectoryQuery,
     buildDirectorySql,
+    buildDirectoryDesignationsSql,
     rowToDirectoryDto,
     searchDirectory,
     getDirectoryFacets,
+    listDirectoryFilterOptions,
     getDirectoryRecord,
     registerEmployeeDirectoryRoutes,
     SLIM_KEYS,

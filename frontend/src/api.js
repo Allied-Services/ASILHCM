@@ -71,6 +71,14 @@ export const api = {
         });
         return apiFetch(`/api/employees/directory?${q.toString()}`);
     },
+    getEmployeeDirectoryFilterOptions: (params = {}) => {
+        const q = new URLSearchParams();
+        Object.entries(params).forEach(([k, v]) => {
+            if (v == null || v === '' || v === false) return;
+            q.set(k, String(v));
+        });
+        return apiFetch(`/api/employees/directory/filter-options?${q.toString()}`);
+    },
     getEmployeeDirectoryRecord: (id) => apiFetch(`/api/employees/directory/${encodeURIComponent(id)}`),
     getEmployeeDirectoryFacets: (params = {}) => {
         const q = new URLSearchParams();
