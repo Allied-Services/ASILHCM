@@ -300,7 +300,7 @@ export default function EmailClaimsListener({ user }) {
               {!['PROCESSED','REJECTED'].includes(selectedClaim.status) && selectedClaim.employee_id && (
                 <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                   <div style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.5 }}>
-                    Push to payroll from this screen is closed. Use Monthly Cycle → Review Desk.
+                    Push to payroll from this screen is closed. Use the Payroll Sheet. Monthly Cycle only collects attendance and claims.
                   </div>
                 </div>
               )}

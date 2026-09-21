@@ -4,6 +4,7 @@ const {
     PSO_SERVICE_TYPE,
     isSoBillingModel,
 } = require('./sitesMeta');
+const { enrichServiceOrder } = require('./seedRoleRates');
 
 function soIdForSite(siteCode) {
     return `SO-PSO-${siteCode}`;
@@ -49,7 +50,7 @@ async function listServiceOrders(pool, { contractId, siteCode, month, year } = {
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY so.site_code NULLS LAST, so.name`;
     const { rows } = await pool.query(sql, params);
-    return rows;
+    return rows.map(enrichServiceOrder);
 }
 
 async function getServiceOrder(pool, id) {
@@ -60,7 +61,7 @@ async function getServiceOrder(pool, id) {
          FROM service_orders so WHERE so.id = $1`,
         [id]
     );
-    return rows[0] || null;
+    return enrichServiceOrder(rows[0] || null);
 }
 
 async function upsertServiceOrder(pool, payload, actor) {

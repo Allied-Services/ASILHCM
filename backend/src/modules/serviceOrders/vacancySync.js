@@ -8,6 +8,7 @@ const {
     isRoleManpower,
     lineRoles,
 } = require('./sitesMeta');
+const { enrichLinesWithSeedRoleRates } = require('./seedRoleRates');
 
 function employeeBelongsToSite(emp, so) {
     const site = String(emp?.site || '').trim().toUpperCase();
@@ -127,9 +128,10 @@ async function syncVacanciesForServiceOrder(pool, {
     if (!so?.id || !so.contract_id) {
         return { vacancies: 0, rosterAbsences: 0 };
     }
-    const lines = Array.isArray(so.lines)
+    const rawLines = Array.isArray(so.lines)
         ? so.lines
         : (typeof so.lines === 'string' ? JSON.parse(so.lines || '[]') : []);
+    const lines = enrichLinesWithSeedRoleRates(so.site_code || so.siteCode, rawLines);
 
     const { rows: emps } = await pool.query(
         `SELECT id, name, designation, site, location, active, last_working_day, doj, contract_id
@@ -138,6 +140,20 @@ async function syncVacanciesForServiceOrder(pool, {
         [String(so.contract_id)]
     );
     const atSite = emps.filter((emp) => employeeBelongsToSite(emp, so));
+    const leaverIds = emps
+        .filter((emp) => !employeeActiveInPeriod(emp, year, month))
+        .map((emp) => emp.id)
+        .filter(Boolean);
+    if (leaverIds.length) {
+        await pool.query(
+            `DELETE FROM so_deductions
+             WHERE service_order_id = $1
+               AND period_month = $2 AND period_year = $3
+               AND source = 'attendance_ledger'
+               AND employee_id = ANY($4::text[])`,
+            [so.id, month, year, leaverIds]
+        );
+    }
 
     const ids = atSite.map((e) => e.id);
     const overridesByEmployeeId = new Map();

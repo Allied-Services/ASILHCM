@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Settings, Users, Send, Activity, FilePenLine, Download, ClipboardCheck } from 'lucide-react';
+import { CalendarRange, Settings, Users, Send, Activity, FilePenLine, Download } from 'lucide-react';
 import { api } from '../../api';
 import { clientContractHref, isFixedValueService, monthInvoicesHref, readStaffQuery } from '../../navLinks';
 import { deriveCycleCollection } from '../records/cycleCollection';
 import ClaimRequestCampaign from './ClaimRequestCampaign';
 import PortalClaimsHub from './PortalClaimsHub';
-import ReviewDesk from './ReviewDesk';
 import { resolveCycleSection } from './monthlyCycleNav';
 import './PortalClaimsHub.css';
 import './MonthlyCycleHub.css';
@@ -14,7 +13,6 @@ const SECTIONS = [
   { key: 'setup', label: 'Setup', icon: Settings },
   { key: 'people', label: 'People', icon: Users },
   { key: 'collect', label: 'Collect', icon: Send },
-  { key: 'review', label: 'Review', icon: ClipboardCheck },
   { key: 'track', label: 'Track', icon: Activity },
   { key: 'corrections', label: 'Corrections', icon: FilePenLine },
 ];
@@ -791,7 +789,6 @@ export default function MonthlyCycleHub({ user }) {
           <MonthlyCyclePeople user={user} />
         </>
       )}
-      {section === 'review' && <ReviewDesk user={user} />}
       {section === 'collect' && (
         <div className="mch-panel">
           <MachineFileCollect />
