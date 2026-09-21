@@ -91,14 +91,52 @@ function currentlyInactiveSqlClause(alias = 'e') {
     )`;
 }
 
+/**
+ * Person belongs on a payroll / invoice / Collect month when their employment
+ * window overlaps that calendar month. Last working day wins over the Active flag:
+ * an Inactive leaver with LWD in August is still on August, not September.
+ * Active=No with no LWD stays off every month (suspended / never employed).
+ */
+function isEmployedInPeriod(emp, year, month) {
+    const y = Number(year);
+    const m = Number(month);
+    if (!emp || !y || !m || m < 1 || m > 12) return false;
+    const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
+    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const doj = toDay(emp.doj);
+    const lwd = toDay(emp.last_working_day || emp.lastWorkingDay);
+    if (doj && doj > monthEnd) return false;
+    if (lwd && lwd < monthStart) return false;
+    if (lwd) return true;
+    return isEmployeeActive(emp.active);
+}
+
+function employedInPeriodSqlClause(alias = 'e', { yearParam, monthParam } = {}) {
+    const a = alias;
+    const y = yearParam || '$3';
+    const mo = monthParam || '$2';
+    const monthStart = `make_date(${y}::int, ${mo}::int, 1)`;
+    const monthEnd = `(${monthStart} + INTERVAL '1 month' - INTERVAL '1 day')::date`;
+    return `(
+        (${a}.doj IS NULL OR ${a}.doj <= ${monthEnd})
+        AND (${a}.last_working_day IS NULL OR ${a}.last_working_day >= ${monthStart})
+        AND (
+            ${a}.last_working_day IS NOT NULL
+            OR ${activeEmployeeSqlClause(a)}
+        )
+    )`;
+}
+
 module.exports = {
     normalizeActiveValue,
     isEmployeeActive,
     isEmployeeCurrentlyActive,
+    isEmployedInPeriod,
     applyLastWorkingDayToActive,
     derivedActiveStatusLabel,
     activeEmployeeSqlClause,
     currentlyActiveSqlClause,
     currentlyInactiveSqlClause,
+    employedInPeriodSqlClause,
     toDay,
 };

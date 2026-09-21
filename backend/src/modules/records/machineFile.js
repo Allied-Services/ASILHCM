@@ -2,7 +2,7 @@
 
 const { syncSoDeductionsFromCycleRows } = require('../serviceOrders/cycleAttendanceSync');
 const { clearCarriedForwardArrears } = require('../../payroll/oneTimePayCarryForward');
-const { deriveCycleCollection } = require('./cycleCollection');
+const { employedInPeriodSqlClause, isEmployedInPeriod } = require('../../core/employeeActive');
 
 const INPUT_MODES = ['full_ledger', 'hours', 'days', 'absent_only'];
 
@@ -165,17 +165,7 @@ function calendarDaysInMonth(month, year) {
  * the calendar month, and they are still marked active or left during/after it.
  */
 function employeeActiveInPeriod(emp, year, month) {
-    const dim = calendarDaysInMonth(month, year);
-    if (!dim) return false;
-    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
-    const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(dim).padStart(2, '0')}`;
-    const doj = ymd(emp.doj);
-    const lwd = ymd(emp.last_working_day);
-    if (doj && doj > monthEnd) return false;
-    if (lwd && lwd < monthStart) return false;
-    const flag = String(emp.active == null ? 'yes' : emp.active).toLowerCase().trim();
-    if (['yes', 'true', '1'].includes(flag)) return true;
-    return !!(lwd && lwd >= monthStart);
+    return isEmployedInPeriod(emp, year, month);
 }
 
 function buildTemplateCsv(inputMode, employees, opts = {}) {
@@ -211,12 +201,7 @@ async function listActiveEmployeesForPeriod(pool, contractId, year, month) {
         `SELECT e.id, e.name
          FROM employees e
          WHERE e.contract_id::text = $1
-           AND (e.doj IS NULL OR e.doj <= (make_date($2::int, $3::int, 1) + INTERVAL '1 month' - INTERVAL '1 day')::date)
-           AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($2::int, $3::int, 1))
-           AND (
-             COALESCE(LOWER(TRIM(e.active)), 'yes') IN ('yes', 'true', '1')
-             OR e.last_working_day >= make_date($2::int, $3::int, 1)
-           )
+           AND ${employedInPeriodSqlClause('e', { yearParam: '$2', monthParam: '$3' })}
          ORDER BY e.name`,
         [String(contractId), y, m]
     );

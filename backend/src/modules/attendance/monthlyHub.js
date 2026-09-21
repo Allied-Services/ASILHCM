@@ -1,6 +1,7 @@
 'use strict';
 
 const { parse } = require('csv-parse/sync');
+const { employedInPeriodSqlClause } = require('../../core/employeeActive');
 const {
     MONTHLY_HUB_COLUMNS,
     buildMonthlyExportRow,
@@ -23,21 +24,9 @@ function calendarWorkingDays(month, year) {
     }).filter(Boolean).length;
 }
 
-/** Active for payroll period — excludes explicit inactive; $1=month $2=year in hub queries. */
+/** Employed in the hub month — $1=month $2=year. Leavers with LWD in-month stay on the export. */
 function periodActiveEmployeeClause(alias = 'e') {
-    const a = alias;
-    return `(
-        LOWER(TRIM(${a}.active::text)) NOT IN ('no','false','0','inactive')
-        AND (
-            ${a}.active IS NULL
-            OR LOWER(TRIM(${a}.active::text)) IN ('yes','true','1','active','')
-            OR ${a}.active::text = 'Yes'
-        )
-        AND (
-            ${a}.last_working_day IS NULL
-            OR ${a}.last_working_day >= make_date($2, $1, 1)
-        )
-    )`;
+    return employedInPeriodSqlClause(alias, { yearParam: '$2', monthParam: '$1' });
 }
 
 /**

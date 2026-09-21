@@ -4,6 +4,8 @@ const {
     isEmployeeCurrentlyActive,
     applyLastWorkingDayToActive,
     derivedActiveStatusLabel,
+    isEmployedInPeriod,
+    employedInPeriodSqlClause,
 } = require('../src/core/employeeActive');
 
 describe('derived employee active', () => {
@@ -24,5 +26,25 @@ describe('derived employee active', () => {
         expect(applyLastWorkingDayToActive('Yes', '2026-07-30', asOf)).toBe('No');
         expect(applyLastWorkingDayToActive('No', '', asOf)).toBe('No');
         expect(applyLastWorkingDayToActive('Yes', '2026-12-31', asOf)).toBe('Yes');
+    });
+});
+
+describe('employed in a payroll month', () => {
+    test('Inactive leaver with August LWD is on August, not September', () => {
+        const emp = { active: 'No', last_working_day: '2026-08-18' };
+        expect(isEmployedInPeriod(emp, 2026, 8)).toBe(true);
+        expect(isEmployedInPeriod(emp, 2026, 9)).toBe(false);
+    });
+
+    test('Active=Yes with no LWD stays on the current month', () => {
+        expect(isEmployedInPeriod({ active: 'Yes' }, 2026, 9)).toBe(true);
+        expect(isEmployedInPeriod({ active: 'No' }, 2026, 9)).toBe(false);
+    });
+
+    test('SQL keeps leavers when last working day overlaps the month', () => {
+        const sql = employedInPeriodSqlClause('e', { yearParam: '$1', monthParam: '$2' });
+        expect(sql).toMatch(/last_working_day IS NOT NULL/);
+        expect(sql).toMatch(/make_date\(\$1::int, \$2::int, 1\)/);
+        expect(sql).not.toMatch(/CURRENT_DATE/);
     });
 });

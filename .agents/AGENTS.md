@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-21 — Last working day drives search now and payroll month
+Employee Information Active/Inactive already means employed today (last working day vs today). Payroll Sheet, Calculate, payroll-run, Collect, and attendance hub now use the same rule for **the selected month**: a leaver with last working day 18 Aug is on August (prorated) and off September, even if Active is No. `GET /api/employees?month=&year=` is the Payroll Sheet roster.
+
+**Env vars needed:** none.
+
 ### 2026-09-21 — Render frontend deploys after Employee Information / SO merges
 Vite was failing on `EmploymentOrgCascade.jsx` (`{!isFilter && (` wrapping three sibling Fields without a fragment) and on unescaped `>` arrows in Fixed Value copy. Frontend live was stuck on PR #207 while #209–#215 backend landed. Wrap the Fields; write arrows as `&gt;`.
 

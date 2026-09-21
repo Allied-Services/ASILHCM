@@ -33,6 +33,7 @@ const {
     claimAggHasValues,
 } = require('../claims/claimsResponse');
 const cutover = require('../../core/cutover');
+const { employedInPeriodSqlClause } = require('../../core/employeeActive');
 const { loadRevisionsForEmployees, salaryAsOfMap } = require('../salaryRevision/service');
 
 const DEFAULT_POLICY = {
@@ -170,14 +171,8 @@ async function loadSheetEmployees(pool, { year, month, client, contractId, locat
     const y = parseInt(year, 10);
     const m = parseInt(month, 10);
     const params = [y, m];
-    const windowClauses = [
-        `(e.last_working_day IS NULL OR e.last_working_day >= make_date($1::int, $2::int, 1))`,
-        `(e.doj IS NULL OR e.doj <= (make_date($1::int, $2::int, 1) + INTERVAL '1 month' - INTERVAL '1 day')::date)`,
-    ];
-    const clauses = [
-        `COALESCE(LOWER(TRIM(e.active)), 'yes') IN ('yes', 'true', '1')`,
-        ...windowClauses,
-    ];
+    const periodClause = employedInPeriodSqlClause('e', { yearParam: '$1', monthParam: '$2' });
+    const clauses = [periodClause];
     if (client) {
         params.push(client);
         clauses.push(`LOWER(TRIM(e.client)) = LOWER(TRIM($${params.length}))`);
@@ -207,7 +202,7 @@ async function loadSheetEmployees(pool, { year, month, client, contractId, locat
         params.length = 0;
         params.push(y, m, onSheet.map((r) => r.employee_id));
         clauses.length = 0;
-        clauses.push(`e.id = ANY($3::text[])`, ...windowClauses);
+        clauses.push(`e.id = ANY($3::text[])`, periodClause);
     }
 
     const { rows } = await pool.query(
@@ -943,6 +938,7 @@ async function writeCycleAttendanceToSheet(client, {
 
 module.exports = {
     calculatePayrollSheet,
+    loadSheetEmployees,
     loadPayrollClaimCompare,
     claimCompareFromPortalMap,
     assertMonthUnlocked,

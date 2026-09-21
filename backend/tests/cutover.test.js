@@ -16,10 +16,11 @@ describe('cutover helpers', () => {
         expect(cutover.periodAtOrAfterCutover(1, 2027)).toBe(true);
     });
 
-    test('employeeVisibilityClause hides inactive and pre-cutover LWD in normal mode', () => {
+    test('employeeVisibilityClause hides inactive, pre-cutover LWD, and people who already left', () => {
         const sql = cutover.employeeVisibilityClause('e', { archive: false });
         expect(sql).toContain('last_working_day');
         expect(sql).toContain('2026-07-01');
+        expect(sql).toContain('CURRENT_DATE');
         expect(cutover.employeeVisibilityClause('e', { archive: true })).toBe('TRUE');
     });
 

@@ -53,7 +53,7 @@ const {
     cnicTakenMessage,
     mapEmployeeWriteError,
 } = require('./src/modules/employees/employeeWrite');
-const { applyLastWorkingDayToActive } = require('./src/core/employeeActive');
+const { applyLastWorkingDayToActive, employedInPeriodSqlClause } = require('./src/core/employeeActive');
 const { assertEmployeeFitsRoster } = require('./src/modules/serviceOrders/rosterCapacity');
 const { requirePayrollSheet } = require('./src/modules/payrollSheet/access');
 const { requireAttendanceAccess, EXPORT_ROLES } = require('./src/modules/attendance/attendanceAccess');
@@ -616,8 +616,22 @@ app.post('/api/employees/import', requireAuth, requireRole('superadmin', 'hr_man
 app.get('/api/employees', requireAuth, async (req, res) => {
     try {
         const { archive } = await cutover.resolveArchiveMode(req, pool);
-        const vis = cutover.employeeVisibilityClause('e', { archive });
+        const month = parseInt(req.query.month, 10);
+        const year = parseInt(req.query.year, 10);
+        const period = month >= 1 && month <= 12 && year >= 2000 && year <= 2100;
         const params = [];
+        let vis;
+        if (archive) {
+            vis = 'TRUE';
+        } else if (period) {
+            params.push(year, month);
+            vis = `(
+                ${employedInPeriodSqlClause('e', { yearParam: '$1', monthParam: '$2' })}
+                AND (e.last_working_day IS NULL OR e.last_working_day >= '${cutover.CUTOVER_DATE}'::date)
+            )`;
+        } else {
+            vis = cutover.employeeVisibilityClause('e', { archive: false });
+        }
         let extra = '';
         const client = String(req.query.client || '').trim();
         const contractId = String(req.query.contractId || '').trim();

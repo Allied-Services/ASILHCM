@@ -293,6 +293,7 @@ describe('FV PSO payroll compute', () => {
         expect(rows).toHaveLength(1);
         const empSql = calls.find((q) => q.includes('FROM employees e'));
         expect(empSql).toContain('e.contract_id = $1');
+        expect(empSql).toMatch(/last_working_day IS NOT NULL/);
         expect(empSql).not.toContain('fv_conservancy_attendance');
         expect(empSql).not.toContain('so_deductions');
         expect(empSql).not.toContain('e.contract_name = $4');

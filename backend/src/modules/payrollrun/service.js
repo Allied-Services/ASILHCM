@@ -10,6 +10,7 @@ const {
 const { getPolicy } = require('../constraints/service');
 const { parseConfigValue } = require('../../core/jsonConfig');
 const { provinceSalesTaxRate } = require('../../core/regionTax');
+const { employedInPeriodSqlClause } = require('../../core/employeeActive');
 
 const DEFAULT_OT_HOURS_PER_DAY = 8;
 
@@ -316,13 +317,7 @@ async function allocateRunToCosts(pool, runId) {
  */
 async function loadEmployeesForPayrollRun(pool, { contractId, month, year, policy }) {
     const { isSoBillingModel } = require('../serviceOrders/sitesMeta');
-    const activeClause = `LOWER(TRIM(e.active::text)) NOT IN ('no','false','0','inactive')
-           AND (
-               e.active IS NULL
-               OR LOWER(TRIM(e.active::text)) IN ('yes','true','1','active','')
-               OR e.active::text = 'Yes'
-           )
-           AND (e.last_working_day IS NULL OR e.last_working_day >= make_date($3, $2, 1))`;
+    const activeClause = employedInPeriodSqlClause('e', { yearParam: '$3', monthParam: '$2' });
     const selectCols = `e.id, e.name, e.salary, e.doj, e.designation, e.site, e.location,
                 e.spouse_name, e.child1_name, e.child2_name`;
 
