@@ -2,11 +2,13 @@
 
 const fs = require('fs');
 const path = require('path');
-const { designationsMatch } = require('./designationMatch');
+const { normalizeDesignation } = require('./designationMatch');
 const { explicitRoleRate, lineRoles } = require('./sitesMeta');
 const { withDefaultKeywords } = require('./soPositionKeywords');
+const { buildUnitRateCatalog, fillLineRoleRates } = require('./soUnitRates');
 
 let sitesCache = null;
+let catalogCache = null;
 
 function loadSeedSites() {
     if (sitesCache) return sitesCache;
@@ -17,6 +19,11 @@ function loadSeedSites() {
         sitesCache = [];
     }
     return sitesCache;
+}
+
+function unitRateCatalog() {
+    if (!catalogCache) catalogCache = buildUnitRateCatalog(loadSeedSites());
+    return catalogCache;
 }
 
 function normalizeName(s) {
@@ -42,8 +49,9 @@ function matchSeedLine(seedLines, liveLine, idx) {
 }
 
 function matchSeedRole(seedRoles, liveRole) {
-    const desig = liveRole?.designation || liveRole?.role;
-    return (seedRoles || []).find((sr) => designationsMatch(desig, sr.designation || sr.role)) || null;
+    const key = normalizeDesignation(liveRole?.designation || liveRole?.role);
+    if (!key) return null;
+    return (seedRoles || []).find((sr) => normalizeDesignation(sr.designation || sr.role) === key) || null;
 }
 
 /**
@@ -51,16 +59,15 @@ function matchSeedRole(seedRoles, liveRole) {
  * Does not change the billed line total. Live edits (an explicit role.rate) win.
  */
 function enrichLinesWithSeedRoleRates(siteCode, lines) {
+    if (!Array.isArray(lines) || !lines.length) return lines || [];
+    const catalog = unitRateCatalog();
     const site = seedSite(siteCode);
     const seedLines = site?.lineItems || site?.lines || [];
-    if (!seedLines.length || !Array.isArray(lines) || !lines.length) return lines || [];
 
     return lines.map((line, idx) => {
         const seedLine = matchSeedLine(seedLines, line, idx);
-        if (!seedLine) return line;
         const liveRoles = lineRoles(line);
-        if (!liveRoles.length) return line;
-        const seedRoles = seedLine.roles || [];
+        const seedRoles = seedLine?.roles || [];
         const nextRoles = liveRoles.map((role) => {
             const seedRole = matchSeedRole(seedRoles, role);
             const out = { ...role };
@@ -81,7 +88,7 @@ function enrichLinesWithSeedRoleRates(siteCode, lines) {
             }
             return withDefaultKeywords(out);
         });
-        return { ...line, roles: nextRoles };
+        return fillLineRoleRates({ ...line, roles: nextRoles }, catalog, siteCode);
     });
 }
 

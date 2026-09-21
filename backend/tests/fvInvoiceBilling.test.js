@@ -485,7 +485,9 @@ describe('FV replaceLines — re-points so_deductions.line_id', () => {
         };
         const result = await replaceLines(pool, 'SO-PSO-SIHALA', [{ line_number: '1', name: '', rate: 0, roles: [] }]);
         expect(result.skipped_empty_replace).toBe(true);
-        expect(result.lines).toEqual(oldLines);
+        expect(result.lines).toHaveLength(1);
+        expect(result.lines[0].name).toBe('Office/Misc Services');
+        expect(result.lines[0].rate).toBe(1192940);
         expect(pool.connect).not.toHaveBeenCalled();
         expect(client.query).not.toHaveBeenCalled();
     });

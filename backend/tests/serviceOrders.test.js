@@ -414,6 +414,9 @@ describe('serviceOrders — designation → SO line match', () => {
         expect(findLineForDesignation(linesOf('MORGAH'), 'FM Supervisor', { siteCode: 'MORGAH' }).line.id).toBe('mor-item-1');
         expect(findLineForDesignation(linesOf('MORGAH'), 'Gardener', { siteCode: 'MORGAH' }).role.rate).toBe(52183);
         expect(findLineForDesignation(linesOf('MORGAH'), 'FM Supervisor', { siteCode: 'MORGAH' }).role.rate).toBe(60246);
+        expect(findLineForDesignation(linesOf('SIHALA'), 'Janitor', { siteCode: 'SIHALA' }).role.rate).toBe(52043);
+        expect(findLineForDesignation(linesOf('CHAKPIRANA'), 'Janitor', { siteCode: 'CHAKPIRANA' }).role.rate).toBe(52040);
+        expect(findLineForDesignation(linesOf('CHAKPIRANA'), 'Forklift Operator', { siteCode: 'CHAKPIRANA' }).role.rate).toBe(56991);
     });
 });
 

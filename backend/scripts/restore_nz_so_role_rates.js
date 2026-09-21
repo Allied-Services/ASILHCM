@@ -5,8 +5,8 @@
  * Restore nested Service Order role rates on CTR-PSO-NORTH-ZONE in place.
  * Does not delete or re-insert lines (so_deductions.line_id stays put).
  *
- * Fills missing role rates from pso_sites.json, then applies known live
- * overrides (Sihala Sweeping / Cleaning = Rs. 52,043 per resource).
+ * Fills missing role rates from pso_sites.json (nested catalog + dedicated
+ * line.rate/count), then applies known live overrides (Sihala Sweeping = 52,043).
  *
  *   node backend/scripts/restore_nz_so_role_rates.js
  *   node backend/scripts/restore_nz_so_role_rates.js --apply --allow-production
@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const { PSO_CONTRACT_ID } = require('../src/modules/serviceOrders/sitesMeta');
+const { buildUnitRateCatalog, fillLineRoleRates } = require('../src/modules/serviceOrders/soUnitRates');
 
 const APPLY = process.argv.includes('--apply');
 const ALLOW_PROD = process.argv.includes('--allow-production');
@@ -68,7 +69,7 @@ function looksProduction(url) {
     return s.includes('neon.tech') && !s.includes('staging') && !s.includes('ci-test');
 }
 
-function mergeRoles(liveRoles, seedRoles, override) {
+function mergeRoles(liveRoles, seedRoles, override, liveLine, catalog) {
     const byKey = new Map();
     for (const r of liveRoles || []) {
         const key = roleKey(r);
@@ -100,6 +101,10 @@ function mergeRoles(liveRoles, seedRoles, override) {
             live.isManpowerDependent = mp;
             changes.push({ action: 'restore_manpower', designation: seed.designation, manpower: mp });
         }
+        if (!String(live.keywords || '').trim() && String(seed.keywords || '').trim()) {
+            live.keywords = seed.keywords;
+            changes.push({ action: 'restore_keywords', designation: seed.designation, keywords: seed.keywords });
+        }
     }
     if (override) {
         const key = norm(override.designation);
@@ -119,6 +124,20 @@ function mergeRoles(liveRoles, seedRoles, override) {
             live.is_manpower_dependent = override.isManpowerDependent !== false;
             live.isManpowerDependent = override.isManpowerDependent !== false;
             changes.push({ action: 'restore_override_rate', designation: override.designation, rate: override.rate });
+        }
+    }
+    const before = new Map([...byKey.entries()].map(([k, r]) => [k, positiveRate(r.rate)]));
+    const filled = fillLineRoleRates({
+        rate: liveLine?.line_rate ?? liveLine?.rate,
+        is_manpower_dependent: liveLine?.is_manpower_dependent,
+        roles: [...byKey.values()],
+    }, catalog, liveLine?.site_code);
+    for (const role of filled.roles || []) {
+        const key = roleKey(role);
+        if (!key) continue;
+        byKey.set(key, role);
+        if (!before.get(key) && positiveRate(role.rate)) {
+            changes.push({ action: 'restore_catalog_rate', designation: role.designation || role.role, rate: role.rate });
         }
     }
     return { roles: [...byKey.values()], changes };
@@ -146,13 +165,14 @@ async function main() {
 
     try {
         const { rows: liveLines } = await pool.query(
-            `SELECT l.id, so.site_code, l.line_number, l.name, l.roles
+            `SELECT l.id, so.site_code, l.line_number, l.name, l.rate, l.is_manpower_dependent, l.roles
              FROM service_order_lines l
              JOIN service_orders so ON so.id = l.service_order_id
              WHERE so.contract_id = $1
              ORDER BY so.site_code, l.id`,
             [PSO_CONTRACT_ID]
         );
+        const catalog = buildUnitRateCatalog(seedSites);
 
         for (const live of liveLines) {
             const site = seedSites.find((s) => s.id === live.site_code);
@@ -170,7 +190,7 @@ async function main() {
                 ...override,
                 count: (rolesOf(live).find((r) => roleKey(r) === norm(override.designation)) || {}).count
                     || (seedLine?.roles || []).find((r) => norm(r.designation) === norm(override.designation))?.count,
-            });
+            }, live, catalog);
             if (!merged.changes.length) continue;
             report.changes.push({
                 site: live.site_code,
