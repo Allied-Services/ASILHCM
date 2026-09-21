@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { ASIL_BUS, normalizeAsilBu } from './orgHierarchy';
+import { abbreviateClientName } from './features/employees/directoryHelpers';
 
 const PROVINCES = ['', 'Sindh', 'Punjab', 'KPK', 'Balochistan', 'Gilgit-Baltistan', 'AJK', 'Islamabad (ICT)'];
 
@@ -24,8 +25,8 @@ const labelStyle = {
 };
 
 /**
- * Cascading employment org fields:
- * ASIL BU → Active Client → Contract → Client BU → Location → Department
+ * Form mode: ASIL BU → Active Client → Contract → Client BU → Location → Department
+ * Filter mode (directory): Client Name → Client Contract → Client Location → Department → Designation → Client BU
  *
  * Writes string fields on the employee form: bu, client, contractId, contractName,
  * clientBU, location, province, dept (+ optional clientId for internal use).
@@ -37,6 +38,7 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
     const [bus, setBus] = useState([]);
     const [locations, setLocations] = useState([]);
     const [departments, setDepartments] = useState([]);
+    const [designations, setDesignations] = useState([]);
 
     const asilBu = normalizeAsilBu(form.bu) || form.bu || '';
 
@@ -50,12 +52,12 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
     }, []);
 
     const clientsForBu = useMemo(() => {
-        if (!asilBu) return clients;
+        if (isFilter || !asilBu) return clients;
         return clients.filter((c) => {
             const cBu = normalizeAsilBu(c.asilBu);
             return !cBu || cBu === asilBu;
         });
-    }, [clients, asilBu]);
+    }, [clients, asilBu, isFilter]);
 
     const selectedClient = useMemo(() => {
         if (!form.client) return null;
@@ -108,6 +110,26 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
         return () => { cancelled = true; };
     }, [clientId, form.contractId]);
 
+    useEffect(() => {
+        if (!isFilter || !form.client) {
+            setDesignations([]);
+            return;
+        }
+        let cancelled = false;
+        api.getEmployeeDirectoryFilterOptions({
+            client: form.client,
+            contractId: form.contractId,
+            clientBu: form.clientBU,
+            location: form.location,
+            dept: form.dept,
+        }).then((d) => {
+            if (!cancelled) setDesignations(d.designations || []);
+        }).catch(() => {
+            if (!cancelled) setDesignations([]);
+        });
+        return () => { cancelled = true; };
+    }, [isFilter, form.client, form.contractId, form.clientBU, form.location, form.dept]);
+
     const deptsFiltered = useMemo(() => {
         const buMatch = bus.find((b) => b.bu_name === form.clientBU || b.bu_code === form.clientBU);
         const locMatch = locations.find((l) => l.name === form.location);
@@ -131,6 +153,7 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
             clientBU: '',
             location: '',
             dept: '',
+            designation: '',
         });
     };
 
@@ -140,12 +163,13 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
         patch({
             client: name,
             clientId: cl?.id || '',
-            bu: inheritedBu || form.bu,
+            bu: isFilter ? '' : (inheritedBu || form.bu),
             contractId: '',
             contractName: '',
             clientBU: '',
             location: '',
             dept: '',
+            designation: '',
         });
     };
 
@@ -155,6 +179,7 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
             patch({
                 contractId: ct?.id || '',
                 contractName: ct?.contractName || '',
+                designation: '',
             });
             return;
         }
@@ -174,6 +199,7 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
             location: name,
             province: loc?.province || form.province,
             dept: '',
+            designation: '',
         });
     };
 
@@ -198,9 +224,109 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
         );
     };
 
+    if (isFilter) {
+        return (
+            <div className="emp-dir-filters">
+                <div className="emp-dir-filter">
+                    <label>Client Name</label>
+                    <select value={form.client || ''} onChange={(e) => onClient(e.target.value)}>
+                        <option value="">All clients</option>
+                        {clientsForBu.map((c) => (
+                            <option key={c.id} value={c.name} title={c.name}>{abbreviateClientName(c.name)}</option>
+                        ))}
+                        {form.client && !clientsForBu.some((c) => c.name === form.client) && (
+                            <option value={form.client}>{abbreviateClientName(form.client)}</option>
+                        )}
+                    </select>
+                </div>
+                <div className="emp-dir-filter">
+                    <label>Client Contract</label>
+                    <select
+                        value={form.contractId || ''}
+                        onChange={(e) => onContract(e.target.value)}
+                        disabled={!form.client}
+                    >
+                        <option value="">{form.client ? 'All contracts' : 'Client first'}</option>
+                        {contractsForClient.map((ct) => (
+                            <option key={ct.id} value={ct.id} title={ct.contractName}>
+                                {ct.contractName}
+                            </option>
+                        ))}
+                        {form.contractId && !contractsForClient.some((c) => c.id === form.contractId) && (
+                            <option value={form.contractId}>{form.contractName || form.contractId}</option>
+                        )}
+                    </select>
+                </div>
+                <div className="emp-dir-filter">
+                    <label>Client Location</label>
+                    <select
+                        value={form.location || ''}
+                        onChange={(e) => onLocation(e.target.value)}
+                        disabled={!clientId}
+                    >
+                        <option value="">{clientId ? 'All locations' : 'Client first'}</option>
+                        {locations.map((l) => (
+                            <option key={l.id} value={l.name}>{l.name}</option>
+                        ))}
+                        {form.location && !locations.some((l) => l.name === form.location) && (
+                            <option value={form.location}>{form.location}</option>
+                        )}
+                    </select>
+                </div>
+                <div className="emp-dir-filter">
+                    <label>Department</label>
+                    <select
+                        value={form.dept || ''}
+                        onChange={(e) => patch({ dept: e.target.value, designation: '' })}
+                        disabled={!clientId}
+                    >
+                        <option value="">{clientId ? 'All departments' : 'Client first'}</option>
+                        {deptsFiltered.map((d) => (
+                            <option key={d.id} value={d.name}>{d.name}</option>
+                        ))}
+                        {form.dept && !deptsFiltered.some((d) => d.name === form.dept) && (
+                            <option value={form.dept}>{form.dept}</option>
+                        )}
+                    </select>
+                </div>
+                <div className="emp-dir-filter">
+                    <label>Designation</label>
+                    <select
+                        value={form.designation || ''}
+                        onChange={(e) => patch({ designation: e.target.value })}
+                        disabled={!form.client}
+                    >
+                        <option value="">{form.client ? 'All designations' : 'Client first'}</option>
+                        {designations.map((d) => (
+                            <option key={d} value={d}>{d}</option>
+                        ))}
+                        {form.designation && !designations.includes(form.designation) && (
+                            <option value={form.designation}>{form.designation}</option>
+                        )}
+                    </select>
+                </div>
+                <div className="emp-dir-filter">
+                    <label>Client BU</label>
+                    <select
+                        value={form.clientBU || ''}
+                        onChange={(e) => patch({ clientBU: e.target.value, dept: '', designation: '' })}
+                        disabled={!clientId}
+                    >
+                        <option value="">{clientId ? 'All Client BUs' : 'Client first'}</option>
+                        {bus.filter((b) => b.bu_code !== 'ALL').map((b) => (
+                            <option key={b.id || b.bu_code} value={b.bu_name}>{b.bu_name}</option>
+                        ))}
+                        {form.clientBU && !bus.some((b) => b.bu_name === form.clientBU || b.bu_code === form.clientBU) && (
+                            <option value={form.clientBU}>{form.clientBU}</option>
+                        )}
+                    </select>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <>
-            {!isFilter && (
             <Field label="ASIL BU *">
                 <select value={asilBu} onChange={(e) => onAsilBu(e.target.value)} style={selStyle(!!asilBu)}>
                     <option value="">-- Select ASIL BU --</option>
@@ -210,7 +336,6 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
                     )}
                 </select>
             </Field>
-            )}
 
             <Field label={isFilter ? 'Client name' : 'Client Name *'}>
                 <select
