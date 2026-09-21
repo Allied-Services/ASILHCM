@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-09-18 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-09-21 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -70,6 +70,9 @@ STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August pays
 ## IN PROGRESS
 - BPO / PSO contract matching on staging (separate track — do not block)
 - August payslip resend (304 people) after live mail switch-on
+
+## JUST SHIPPED (2026-09-21)
+- **Last working day is enough** — search today hides anyone whose last day has passed. August payroll still includes them (paid through that day); September does not. Live API `0d9747f`. Do not Calculate August.
 
 ## JUST SHIPPED (2026-09-19)
 - **North Zone Service Orders show each nested service** — count, monthly rate, manpower yes/no, and line total. Morgah FM Supervisor vacancy is Rs. 60,246 unnamed; missing gardener is Rs. 52,183. Adnan (left 31 Jul) is not billed as a named missing person in August.
