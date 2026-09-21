@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-21 — Employee Information cascade no longer errors on ASIL BU / Client
+Selecting ASIL BU or Client on Employee Information was hitting `GET /api/employees/directory` without a contract and alerting **Select a Client and Contract before loading employees**. Directory loads again from search (2+ chars), any org filter (BU, Client, Contract, …), or Browse Active. The extra Client BU / Location / Department / Designation list still needs Client + Contract.
+
+**Env vars needed:** none.
+
 ### 2026-09-19 — North Zone SO services, Morgah vacancies, cycle collect-only
 Service Order nested services keep count / monthly rate / manpower. Live lines without stored role rates inherit Morgah catalog rates (FM Supervisor Rs. 60,246, Gardener Rs. 52,183). Invoice compute drops named shortages for people whose last working day is before the month, then bills the unfilled slot as Missing service. A gardener who worked 15 days stays named at 15 × daily role rate plus one unfilled gardener slot. Monthly Cycle tabs are Setup / People / Collect / Track / Corrections only.
 
