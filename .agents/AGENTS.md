@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-19 — North Zone SO services, Morgah vacancies, cycle collect-only
+Service Order nested services keep count / monthly rate / manpower. Live lines without stored role rates inherit Morgah catalog rates (FM Supervisor Rs. 60,246, Gardener Rs. 52,183). Invoice compute drops named shortages for people whose last working day is before the month, then bills the unfilled slot as Missing service. A gardener who worked 15 days stays named at 15 × daily role rate plus one unfilled gardener slot. Monthly Cycle tabs are Setup / People / Collect / Track / Corrections only.
+
+**Env vars needed:** none.
+
 ### 2026-09-19 — Contract master, directory, SO headcount
 EOBI / commercial type / Service Order enable / focals / routing moved to Client Information → Contract. Monthly Cycle Setup is attendance + claims only; collection is derived (Attendance-only = absent_days file; Wafi monthly-form unchanged). Default EOBI wage is Federal / lowest Rs. 40,000 (editable). Last working day on or before today shows Inactive and is persisted Inactive; July leavers stay out of later payroll loads. Employee Information loads only after Client + Contract; one extra filter covers Client BU / Location / Department / Designation. Active employees cannot exceed Service Order role counts.
 

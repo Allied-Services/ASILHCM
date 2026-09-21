@@ -6814,10 +6814,10 @@ app.patch('/api/claims/:id/status', requireAuth, async (req, res) => {
     } catch (err) { console.error('[PATCH /api/claims/:id/status]', err); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// POST /api/claims/:id/push-to-payroll — retired. Use Monthly Cycle Review Desk.
+// POST /api/claims/:id/push-to-payroll — retired. Use the Payroll Sheet.
 app.post('/api/claims/:id/push-to-payroll', requireAuth, (req, res) => {
     res.status(410).json({
-        error: 'Use Monthly Cycle Review Desk to push claims onto the Payroll Sheet',
+        error: 'Use the Payroll Sheet. Monthly Cycle only collects attendance and claims.',
         code: 'EMAIL_CLAIMS_PUSH_RETIRED',
     });
 });

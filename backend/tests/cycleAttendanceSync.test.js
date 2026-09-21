@@ -125,6 +125,33 @@ describe('syncSoDeductionsFromCycleRows', () => {
         expect(calls.some((c) => c.q.includes('DELETE FROM so_deductions'))).toBe(true);
     });
 
+    test('leaver before the month is not written as a named shortage', async () => {
+        const { pool, calls } = mockPool({
+            orders: [{
+                id: 'SO-PSO-MORGAH',
+                site_code: 'MORGAH',
+                name: 'Morgah Installation',
+                lines: [line],
+            }],
+            employees: [{
+                id: 'ASIL/PSO-202/25',
+                designation: 'FM Supervisor',
+                site: 'MORGAH',
+                last_working_day: '2026-07-31',
+                active: 'No',
+            }],
+        });
+        const summary = await syncSoDeductionsFromCycleRows(pool, {
+            contractId: 'CTR-PSO-NORTH-ZONE',
+            month: 8,
+            year: 2026,
+            rows: [{ employeeId: 'ASIL/PSO-202/25', absentDays: 30 }],
+        });
+        expect(summary.deductions).toBe(0);
+        expect(summary.skipped.some((s) => s.reason === 'not_in_period')).toBe(true);
+        expect(calls.some((c) => c.q.includes('INSERT INTO so_deductions'))).toBe(false);
+    });
+
     test('zero absent clears prior shortage and inserts nothing', async () => {
         const { pool, calls } = mockPool({
             orders: [{
