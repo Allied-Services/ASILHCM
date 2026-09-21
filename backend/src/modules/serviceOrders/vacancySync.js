@@ -1,9 +1,10 @@
 'use strict';
 
 const { employeeActiveInPeriod } = require('../records/machineFile');
-const { designationsMatch } = require('./designationMatch');
+const { roleMatchesDesignation } = require('./designationMatch');
 const {
     absenceDeductionAmount,
+    calendarDaysInMonth,
     isLineManpower,
     isRoleManpower,
     lineRoles,
@@ -49,10 +50,13 @@ function planVacancies({
     employees = [],
     overridesByEmployeeId = new Map(),
     existingAbsenceEmployeeIds = new Set(),
-    monthDays = SO_MONTH_DAYS,
+    monthDays,
     year,
     month,
 } = {}) {
+    const days = Number(monthDays) > 0
+        ? Number(monthDays)
+        : (calendarDaysInMonth(month, year) || SO_MONTH_DAYS);
     const inPeriod = (employees || []).filter((e) => employeeActiveInPeriod(e, year, month));
     const used = new Set();
     const deductions = [];
@@ -63,7 +67,7 @@ function planVacancies({
             const required = Number(role.count) || 0;
             const matches = inPeriod.filter((emp) => (
                 !used.has(emp.id)
-                && designationsMatch(emp.designation, role.designation || role.role)
+                && roleMatchesDesignation(role, emp.designation)
             ));
             const assigned = matches.slice(0, required);
             assigned.forEach((emp) => used.add(emp.id));
@@ -74,9 +78,9 @@ function planVacancies({
                 const ov = overridesByEmployeeId.get(emp.id);
                 const absentDays = ov
                     ? Math.max(0, Number(ov.absent_days ?? ov.absentDays) || 0)
-                    : monthDays;
+                    : days;
                 if (absentDays <= 0) continue;
-                const amount = absenceDeductionAmount(line.rate, lineRoles(line), absentDays, monthDays, role);
+                const amount = absenceDeductionAmount(line.rate, lineRoles(line), absentDays, days, role);
                 if (!(amount > 0)) continue;
                 deductions.push({
                     type: 'absence',
@@ -91,14 +95,14 @@ function planVacancies({
             }
 
             for (let i = 0; i < unfilled; i += 1) {
-                const amount = absenceDeductionAmount(line.rate, lineRoles(line), monthDays, monthDays, role);
+                const amount = absenceDeductionAmount(line.rate, lineRoles(line), days, days, role);
                 if (!(amount > 0)) continue;
                 deductions.push({
                     type: 'vacancy',
                     source: 'vacancy',
                     lineId: line.id,
                     employeeId: null,
-                    daysAbsent: monthDays,
+                    daysAbsent: days,
                     amount,
                     note: `Missing service: ${displayRoleName(role)} — 1 resource unfilled`,
                     designation: displayRoleName(role),
@@ -122,12 +126,15 @@ async function syncVacanciesForServiceOrder(pool, {
     month,
     year,
     actor,
-    monthDays = SO_MONTH_DAYS,
+    monthDays,
 } = {}) {
     const so = serviceOrder;
     if (!so?.id || !so.contract_id) {
         return { vacancies: 0, rosterAbsences: 0 };
     }
+    const days = Number(monthDays) > 0
+        ? Number(monthDays)
+        : (calendarDaysInMonth(month, year) || SO_MONTH_DAYS);
     const rawLines = Array.isArray(so.lines)
         ? so.lines
         : (typeof so.lines === 'string' ? JSON.parse(so.lines || '[]') : []);
@@ -183,7 +190,7 @@ async function syncVacanciesForServiceOrder(pool, {
         employees: atSite,
         overridesByEmployeeId,
         existingAbsenceEmployeeIds,
-        monthDays,
+        monthDays: days,
         year,
         month,
     });

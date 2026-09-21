@@ -70,45 +70,48 @@ function isRoleManpower(role, line) {
     return isLineManpower(line);
 }
 
+function calendarDaysInMonth(month, year) {
+    const m = Number(month);
+    const y = Number(year);
+    if (!y || !m || m < 1 || m > 12) return 0;
+    return new Date(y, m, 0).getDate();
+}
+
 function explicitRoleRate(role) {
     const n = Number(role?.rate ?? role?.monthly_rate);
     return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /**
- * Monthly billed rate for one resource of this role.
- * Prefer the role's own rate; otherwise split the leftover line rate
- * across roles that have no rate (so Gardening @ 52,183 does not dilute
- * an unpriced Sweeper).
+ * Monthly billed rate for one resource of this nested SO service.
+ * 1) role.rate (per-resource unit, e.g. Sihala Sweeping 52,043)
+ * 2) else the line is that one service → line.rate / count (Pesh Imam, CORO)
+ * 3) else 0 — never split a kitchen-sink lump across every headcount
  */
-function roleMonthlyRate(lineOrRate, roles, role = null) {
+function roleUnitRate(lineOrRate, roles, role = null) {
+    if (role && explicitRoleRate(role)) return explicitRoleRate(role);
     const line = (lineOrRate && typeof lineOrRate === 'object' && !Array.isArray(lineOrRate))
         ? lineOrRate
         : { rate: lineOrRate, roles };
     const list = lineRoles(roles != null ? roles : line);
-    if (role && explicitRoleRate(role)) return explicitRoleRate(role);
-
     const lineRate = Number(line.rate || lineOrRate || 0);
-    let pricedTotal = 0;
-    let unpricedCount = 0;
-    for (const r of list) {
-        const count = Number(r.count) || 0;
-        const priced = explicitRoleRate(r);
-        if (priced > 0) pricedTotal += priced * count;
-        else unpricedCount += count;
+    if (list.length <= 1) {
+        const count = (role && Number(role.count) > 0 ? Number(role.count) : roleCount(list)) || 1;
+        return lineRate / count;
     }
-    if (role && unpricedCount > 0) {
-        return Math.max(0, lineRate - pricedTotal) / unpricedCount;
-    }
-    const count = roleCount(list) || 1;
-    return lineRate / count;
+    return 0;
 }
 
-/** dailyRate = roleMonthly / 30 ; amount = dailyRate × absentDays */
+function roleMonthlyRate(lineOrRate, roles, role = null) {
+    return roleUnitRate(lineOrRate, roles, role);
+}
+
+/** dailyRate = unit / calendarDays ; amount = dailyRate × absentDays */
 function absenceDeductionAmount(lineRate, roles, absentDays, monthDays = 30, role = null) {
-    const monthly = roleMonthlyRate({ rate: lineRate, roles }, roles, role);
-    const daily = monthly / (Number(monthDays) || 30);
-    return Math.round(daily * Number(absentDays || 0) * 100) / 100;
+    const monthly = roleUnitRate({ rate: lineRate, roles }, roles, role);
+    if (!(monthly > 0)) return 0;
+    const days = Number(monthDays) || 30;
+    return Math.round((monthly / days) * Number(absentDays || 0) * 100) / 100;
 }
 
 module.exports = {
@@ -129,7 +132,9 @@ module.exports = {
     lineRoles,
     isLineManpower,
     isRoleManpower,
+    calendarDaysInMonth,
     explicitRoleRate,
+    roleUnitRate,
     roleMonthlyRate,
     absenceDeductionAmount,
 };

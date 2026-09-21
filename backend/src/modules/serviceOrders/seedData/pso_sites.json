@@ -26,25 +26,29 @@
             "designation": "Conservancy Supervisory Services",
             "count": 1,
             "rate": 60246,
-            "isManpowerDependent": true
+            "isManpowerDependent": true,
+            "keywords": "FM Supervisor"
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 1,
             "rate": 52040,
-            "isManpowerDependent": true
+            "isManpowerDependent": true,
+            "keywords": "Janitor"
           },
           {
             "designation": "Gardening Services",
             "count": 2,
             "rate": 52183,
-            "isManpowerDependent": true
+            "isManpowerDependent": true,
+            "keywords": "Gardener"
           },
           {
             "designation": "Decanting/Filling Services",
             "count": 2,
             "rate": 57298,
-            "isManpowerDependent": true
+            "isManpowerDependent": true,
+            "keywords": "Filling / Decanting Officer"
           }
         ]
       },
@@ -60,7 +64,8 @@
           {
             "designation": "Sealing Services",
             "count": 4,
-            "rate": 56991
+            "rate": 56991,
+            "keywords": "Sealing Officer"
           }
         ]
       },
@@ -109,43 +114,53 @@
         "roles": [
           {
             "designation": "Conservancy Supervisory Services",
-            "count": 1
+            "count": 1,
+            "keywords": "FM Supervisor"
           },
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 4
+            "count": 4,
+            "keywords": "Janitor"
           },
           {
             "designation": "Gardening Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Gardener"
           },
           {
             "designation": "M&R Support services",
-            "count": 1
+            "count": 1,
+            "keywords": "M&R Technician"
           },
           {
             "designation": "Sealing Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Sealing Officer"
           },
           {
             "designation": "Lube Handling",
-            "count": 1
+            "count": 1,
+            "keywords": "Lube Handling Officer"
           },
           {
             "designation": "Lab service",
-            "count": 1
+            "count": 1,
+            "keywords": "Laboratory Assistant"
           },
           {
             "designation": "Office service",
-            "count": 1
+            "count": 1,
+            "keywords": "Office Boy"
           },
           {
             "designation": "OMC Physical Reporting",
-            "count": 1
+            "count": 1,
+            "keywords": "OMC Reporting Officer"
           },
           {
             "designation": "Additional general services",
-            "count": 2
+            "count": 2,
+            "keywords": "General Worker"
           }
         ]
       },
@@ -160,7 +175,8 @@
         "roles": [
           {
             "designation": "Forklift Operation Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Forklift Operator"
           }
         ]
       },
@@ -193,7 +209,8 @@
         "roles": [
           {
             "designation": "Fuel Oil Handling Services",
-            "count": 14
+            "count": 14,
+            "keywords": "Fuel / Oil Handling Officer"
           }
         ]
       },
@@ -209,7 +226,8 @@
         "roles": [
           {
             "designation": "Fitter services",
-            "count": 1
+            "count": 1,
+            "keywords": "Fitter"
           }
         ]
       }
@@ -241,45 +259,55 @@
         "roles": [
           {
             "designation": "Conservancy Supervisory Services",
-            "count": 1
+            "count": 1,
+            "keywords": "FM Supervisor"
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 7,
             "rate": 52043,
-            "isManpowerDependent": true
+            "isManpowerDependent": true,
+            "keywords": "Janitor"
           },
           {
             "designation": "Gardening Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Gardener"
           },
           {
             "designation": "Ops Office services",
-            "count": 1
+            "count": 1,
+            "keywords": "Office Boy"
           },
           {
             "designation": "Logistics Office Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Office Boy"
           },
           {
             "designation": "Lab Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Laboratory Assistant"
           },
           {
             "designation": "Invoicing Room services",
-            "count": 2
+            "count": 2,
+            "keywords": "Invoicing Support"
           },
           {
             "designation": "Lubricant Handling services",
-            "count": 3
+            "count": 3,
+            "keywords": "Lube Handling Officer"
           },
           {
             "designation": "General services",
-            "count": 2
+            "count": 2,
+            "keywords": "General Worker"
           },
           {
             "designation": "Additional general services",
-            "count": 2
+            "count": 2,
+            "keywords": "General Worker"
           }
         ]
       },
@@ -295,7 +323,8 @@
         "roles": [
           {
             "designation": "Forklift Operation Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Forklift Operator"
           }
         ]
       },
@@ -331,11 +360,13 @@
         "roles": [
           {
             "designation": "Electrical services",
-            "count": 2
+            "count": 2,
+            "keywords": "Electrician"
           },
           {
             "designation": "Fitter services",
-            "count": 1
+            "count": 1,
+            "keywords": "Fitter"
           }
         ]
       },
@@ -351,7 +382,8 @@
         "roles": [
           {
             "designation": "Fuel Oil Handling Services",
-            "count": 10
+            "count": 10,
+            "keywords": "Fuel / Oil Handling Officer"
           }
         ]
       },
@@ -367,7 +399,8 @@
         "roles": [
           {
             "designation": "Pesh Imam Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Pesh Imam"
           }
         ]
       },
@@ -413,7 +446,8 @@
         "roles": [
           {
             "designation": "Driving Services",
-            "count": 3
+            "count": 3,
+            "keywords": "Driver"
           }
         ]
       },
@@ -454,43 +488,53 @@
         "roles": [
           {
             "designation": "Conservancy Supervisory Services",
-            "count": 1
+            "count": 1,
+            "keywords": "FM Supervisor"
           },
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Janitor"
           },
           {
             "designation": "Gardening Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Gardener"
           },
           {
             "designation": "Lube Handling",
-            "count": 1
+            "count": 1,
+            "keywords": "Lube Handling Officer"
           },
           {
             "designation": "Filling Pumproom / Invoicing Room services",
-            "count": 1
+            "count": 1,
+            "keywords": "Invoicing Support"
           },
           {
             "designation": "Sealing Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Sealing Officer"
           },
           {
             "designation": "M&R Support services",
-            "count": 1
+            "count": 1,
+            "keywords": "M&R Technician"
           },
           {
             "designation": "Office service",
-            "count": 1
+            "count": 1,
+            "keywords": "Office Boy"
           },
           {
             "designation": "Lab Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Laboratory Assistant"
           },
           {
             "designation": "Additional services",
-            "count": 2
+            "count": 2,
+            "keywords": "General Worker"
           }
         ]
       },
@@ -505,7 +549,8 @@
         "roles": [
           {
             "designation": "Forklift Operation Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Forklift Operator"
           }
         ]
       },
@@ -538,7 +583,8 @@
         "roles": [
           {
             "designation": "Fuel Oil Handling Services",
-            "count": 4
+            "count": 4,
+            "keywords": "Fuel / Oil Handling Officer"
           }
         ]
       },
@@ -553,11 +599,13 @@
         "roles": [
           {
             "designation": "Electrical services",
-            "count": 1
+            "count": 1,
+            "keywords": "Electrician"
           },
           {
             "designation": "Fitter services",
-            "count": 1
+            "count": 1,
+            "keywords": "Fitter"
           }
         ]
       }
@@ -582,19 +630,23 @@
         "roles": [
           {
             "designation": "Conservancy Supervisory Services",
-            "count": 1
+            "count": 1,
+            "keywords": "FM Supervisor"
           },
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Janitor"
           },
           {
             "designation": "Gardening Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Gardener"
           },
           {
             "designation": "Sealing Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Sealing Officer"
           }
         ]
       },
@@ -609,7 +661,8 @@
         "roles": [
           {
             "designation": "Fuel Oil Handling Services",
-            "count": 3
+            "count": 3,
+            "keywords": "Fuel / Oil Handling Officer"
           }
         ]
       },
@@ -643,15 +696,18 @@
         "roles": [
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Janitor"
           },
           {
             "designation": "Gardening Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Gardener"
           },
           {
             "designation": "Lube Handling",
-            "count": 2
+            "count": 2,
+            "keywords": "Lube Handling Officer"
           }
         ]
       },
@@ -684,51 +740,63 @@
         "roles": [
           {
             "designation": "Conservancy Supervisory Services",
-            "count": 1
+            "count": 1,
+            "keywords": "FM Supervisor"
           },
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 4
+            "count": 4,
+            "keywords": "Janitor"
           },
           {
             "designation": "Gardening Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Gardener"
           },
           {
             "designation": "Sealing Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Sealing Officer"
           },
           {
             "designation": "Ops Office services",
-            "count": 1
+            "count": 1,
+            "keywords": "Office Boy"
           },
           {
             "designation": "Logistics Office Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Office Boy"
           },
           {
             "designation": "Invoicing Room services",
-            "count": 2
+            "count": 2,
+            "keywords": "Invoicing Support"
           },
           {
             "designation": "Lab Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Laboratory Assistant"
           },
           {
             "designation": "Store Keeping services",
-            "count": 1
+            "count": 1,
+            "keywords": "Storekeeper"
           },
           {
             "designation": "Lube Handling",
-            "count": 2
+            "count": 2,
+            "keywords": "Lube Handling Officer"
           },
           {
             "designation": "General services",
-            "count": 2
+            "count": 2,
+            "keywords": "General Worker"
           },
           {
             "designation": "Additional services",
-            "count": 2
+            "count": 2,
+            "keywords": "General Worker"
           }
         ]
       },
@@ -743,7 +811,8 @@
         "roles": [
           {
             "designation": "Forklift Operation Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Forklift Operator"
           }
         ]
       },
@@ -776,7 +845,8 @@
         "roles": [
           {
             "designation": "Fuel Oil Handling Services",
-            "count": 12
+            "count": 12,
+            "keywords": "Fuel / Oil Handling Officer"
           }
         ]
       },
@@ -791,7 +861,8 @@
         "roles": [
           {
             "designation": "Pesh Imam Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Pesh Imam"
           }
         ]
       },
@@ -806,11 +877,13 @@
         "roles": [
           {
             "designation": "Electrical services",
-            "count": 1
+            "count": 1,
+            "keywords": "Electrician"
           },
           {
             "designation": "Fitter services",
-            "count": 1
+            "count": 1,
+            "keywords": "Fitter"
           }
         ]
       }
@@ -834,23 +907,28 @@
         "roles": [
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Janitor"
           },
           {
             "designation": "Gardening Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Gardener"
           },
           {
             "designation": "Sealing Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Sealing Officer"
           },
           {
             "designation": "Office service",
-            "count": 1
+            "count": 1,
+            "keywords": "Office Boy"
           },
           {
             "designation": "Invoicing Room services",
-            "count": 4
+            "count": 4,
+            "keywords": "Invoicing Support"
           }
         ]
       },
@@ -865,7 +943,8 @@
         "roles": [
           {
             "designation": "Fuel Oil Handling Services",
-            "count": 4
+            "count": 4,
+            "keywords": "Fuel / Oil Handling Officer"
           }
         ]
       }
@@ -889,15 +968,18 @@
         "roles": [
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Janitor"
           },
           {
             "designation": "Gardening Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Gardener"
           },
           {
             "designation": "General Housekeeping Services",
-            "count": 3
+            "count": 3,
+            "keywords": "Janitor"
           }
         ]
       },
@@ -930,19 +1012,23 @@
         "roles": [
           {
             "designation": "Invoicing Room services",
-            "count": 1
+            "count": 1,
+            "keywords": "Invoicing Support"
           },
           {
             "designation": "Gardening Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Gardener"
           },
           {
             "designation": "Lube Handling",
-            "count": 2
+            "count": 2,
+            "keywords": "Lube Handling Officer"
           },
           {
             "designation": "General Housekeeping Services",
-            "count": 3
+            "count": 3,
+            "keywords": "Janitor"
           }
         ]
       },
@@ -957,7 +1043,8 @@
         "roles": [
           {
             "designation": "Fuel Oil Handling Services",
-            "count": 2
+            "count": 2,
+            "keywords": "Fuel / Oil Handling Officer"
           }
         ]
       },
@@ -990,7 +1077,8 @@
         "roles": [
           {
             "designation": "Driving Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Driver"
           }
         ]
       }
@@ -1014,15 +1102,18 @@
         "roles": [
           {
             "designation": "Conservancy Supervisory Services",
-            "count": 1
+            "count": 1,
+            "keywords": "FM Supervisor"
           },
           {
             "designation": "Sweeping / Cleaning Services",
-            "count": 1
+            "count": 1,
+            "keywords": "Janitor"
           },
           {
             "designation": "General Services",
-            "count": 4
+            "count": 4,
+            "keywords": "General Worker"
           }
         ]
       },
@@ -1037,7 +1128,8 @@
         "roles": [
           {
             "designation": "Electrical services",
-            "count": 1
+            "count": 1,
+            "keywords": "Electrician"
           }
         ]
       },

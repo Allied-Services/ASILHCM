@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { designationsMatch } = require('./designationMatch');
 const { explicitRoleRate, lineRoles } = require('./sitesMeta');
+const { withDefaultKeywords } = require('./soPositionKeywords');
 
 let sitesCache = null;
 
@@ -62,19 +63,23 @@ function enrichLinesWithSeedRoleRates(siteCode, lines) {
         const seedRoles = seedLine.roles || [];
         const nextRoles = liveRoles.map((role) => {
             const seedRole = matchSeedRole(seedRoles, role);
-            if (!seedRole) return role;
             const out = { ...role };
-            if (!explicitRoleRate(out) && explicitRoleRate(seedRole)) {
-                out.rate = explicitRoleRate(seedRole);
-            }
-            if (out.is_manpower_dependent == null && out.isManpowerDependent == null) {
-                const mp = seedRole.isManpowerDependent ?? seedRole.is_manpower_dependent;
-                if (mp != null) {
-                    out.is_manpower_dependent = !!mp;
-                    out.isManpowerDependent = !!mp;
+            if (seedRole) {
+                if (!explicitRoleRate(out) && explicitRoleRate(seedRole)) {
+                    out.rate = explicitRoleRate(seedRole);
+                }
+                if (out.is_manpower_dependent == null && out.isManpowerDependent == null) {
+                    const mp = seedRole.isManpowerDependent ?? seedRole.is_manpower_dependent;
+                    if (mp != null) {
+                        out.is_manpower_dependent = !!mp;
+                        out.isManpowerDependent = !!mp;
+                    }
+                }
+                if (!String(out.keywords || '').trim() && seedRole.keywords) {
+                    out.keywords = seedRole.keywords;
                 }
             }
-            return out;
+            return withDefaultKeywords(out);
         });
         return { ...line, roles: nextRoles };
     });

@@ -1,11 +1,14 @@
 export const CORO_EXPECTED = 4136919.94;
 
-export const emptyRole = (manpower = true) => ({
-  designation: '',
-  count: 1,
-  rate: '',
-  is_manpower_dependent: !!manpower,
-});
+export function emptyRole(manpower = true) {
+  return {
+    designation: '',
+    count: 1,
+    rate: '',
+    keywords: '',
+    is_manpower_dependent: !!manpower,
+  };
+}
 
 export const emptyLine = () => ({
   line_number: '1',
@@ -50,6 +53,7 @@ export function mapRole(r, lineManpower = true) {
     designation: r?.designation || r?.role || '',
     count: Number(r?.count) || 0,
     rate,
+    keywords: String(r?.keywords || r?.position_keywords || '').trim(),
     is_manpower_dependent: mp == null ? !!lineManpower : !!mp,
   };
 }
@@ -65,6 +69,7 @@ export function rolePayload(r, lineManpower = true) {
   if (mapped.rate !== '') {
     out.rate = Number(mapped.rate);
   }
+  if (mapped.keywords) out.keywords = mapped.keywords;
   return out;
 }
 

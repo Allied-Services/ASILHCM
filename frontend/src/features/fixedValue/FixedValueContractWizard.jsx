@@ -316,6 +316,8 @@ export default function FixedValueContractWizard({
                     };
                     const rate = Number(r.rate);
                     if (Number.isFinite(rate) && rate > 0) out.rate = rate;
+                    const keywords = String(r.keywords || '').trim();
+                    if (keywords) out.keywords = keywords;
                     return out;
                 }),
             })),
