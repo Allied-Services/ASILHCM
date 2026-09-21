@@ -5,17 +5,18 @@ import { MONTHLY_CYCLE_SECTIONS, resolveCycleSection } from './monthlyCycleNav.j
 describe('monthly cycle sections', () => {
   it('keeps collection tabs only', () => {
     assert.deepEqual(MONTHLY_CYCLE_SECTIONS.map((s) => s.key), [
-      'setup', 'people', 'collect', 'review', 'track', 'corrections',
+      'setup', 'people', 'collect', 'track', 'corrections',
     ]);
   });
 
-  it('sends stale payroll and close links to Track', () => {
+  it('sends stale payroll, close, and review links to Track', () => {
     assert.equal(resolveCycleSection('payroll'), 'track');
     assert.equal(resolveCycleSection('close'), 'track');
+    assert.equal(resolveCycleSection('review'), 'track');
   });
 
-  it('defaults to review, or setup when a contract is in the URL', () => {
-    assert.equal(resolveCycleSection(''), 'review');
+  it('defaults to track, or setup when a contract is in the URL', () => {
+    assert.equal(resolveCycleSection(''), 'track');
     assert.equal(resolveCycleSection('', { hasContract: true }), 'setup');
     assert.equal(resolveCycleSection('collect'), 'collect');
   });

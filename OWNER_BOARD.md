@@ -71,6 +71,10 @@ STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August pays
 - BPO / PSO contract matching on staging (separate track — do not block)
 - August payslip resend (304 people) after live mail switch-on
 
+## JUST SHIPPED (2026-09-19)
+- **North Zone Service Orders show each nested service** — count, monthly rate, manpower yes/no, and line total. Morgah FM Supervisor vacancy is Rs. 60,246 unnamed; missing gardener is Rs. 52,183. Adnan (left 31 Jul) is not billed as a named missing person in August.
+- **Monthly Cycle is collect-only** — Setup, People, Collect, Track, Corrections. Payroll Sheet and Month Invoices stay in the sidebar.
+
 ## JUST SHIPPED (2026-09-18)
 - **Monthly Cycle Collect can resend to the Line Manager** — Email goes to, Approver, or both. Review picks Client first and shows who is stuck plus No Claims. Track and Review have Download. Live API `5c556a4`. Usman / Ahsan LM mail still waits for `Go red:`.
 

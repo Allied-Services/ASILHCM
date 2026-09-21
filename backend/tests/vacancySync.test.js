@@ -146,3 +146,37 @@ describe('planVacancies — Morgah supervisor + gardener', () => {
         expect(label.includes('Adnan')).toBe(false);
     });
 });
+
+describe('seed role rates overlay', () => {
+    const { enrichLinesWithSeedRoleRates } = require('../src/modules/serviceOrders/seedRoleRates');
+
+    test('Morgah Office/Misc without stored rates still bills 60,246 and 52,183', () => {
+        const lines = [{
+            name: 'Office/Misc Services',
+            rate: 331248,
+            is_manpower_dependent: true,
+            roles: [
+                { designation: 'Conservancy Supervisory Services', count: 1 },
+                { designation: 'Sweeping / Cleaning Services', count: 1 },
+                { designation: 'Gardening Services', count: 2 },
+                { designation: 'Decanting/Filling Services', count: 2 },
+            ],
+        }];
+        const enriched = enrichLinesWithSeedRoleRates('MORGAH', lines);
+        const roles = enriched[0].roles;
+        expect(roleMonthlyRate(enriched[0], roles, roles[0])).toBe(60246);
+        expect(roleMonthlyRate(enriched[0], roles, roles[2])).toBe(52183);
+        const planned = planVacancies({
+            lines: enriched,
+            employees: [
+                { id: 'ASIL/PSO-202/25', name: 'Muhammad Adnan', designation: 'FM Supervisor', last_working_day: '2026-07-31', active: 'No' },
+                { id: 'W-204', name: 'Muhammad Saleem', designation: 'Gardening Services', active: 'Yes' },
+            ],
+            overridesByEmployeeId: new Map([['W-204', { absent_days: 0, present_days: 30 }]]),
+            year: 2026,
+            month: 8,
+        });
+        expect(planned.find((d) => /supervisory|fm supervisor/i.test(d.designation)).amount).toBe(60246);
+        expect(planned.find((d) => /garden/i.test(d.designation) && !d.employeeId).amount).toBe(52183);
+    });
+});

@@ -52,7 +52,7 @@ async function syncSoDeductionsFromCycleRows(pool, {
     }
 
     const { rows: emps } = await pool.query(
-        `SELECT id, designation, site, location
+        `SELECT id, designation, site, location, active, last_working_day, doj
          FROM employees
          WHERE id = ANY($1::text[])`,
         [employeeIds]
@@ -77,6 +77,10 @@ async function syncSoDeductionsFromCycleRows(pool, {
         const emp = empById.get(row.employeeId);
         if (!emp) {
             summary.errors.push({ employeeId: row.employeeId, reason: 'employee_not_found' });
+            continue;
+        }
+        if (!require('../records/machineFile').employeeActiveInPeriod(emp, year, month)) {
+            summary.skipped.push({ employeeId: emp.id, reason: 'not_in_period' });
             continue;
         }
         const absentDays = Math.max(0, Number(row.absentDays) || 0);
