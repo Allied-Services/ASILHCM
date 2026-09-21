@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-21 — Last working day drives search now and payroll month
+Employee Information Active/Inactive already means employed today (last working day vs today). Payroll Sheet, Calculate, payroll-run, Collect, and attendance hub now use the same rule for **the selected month**: a leaver with last working day 18 Aug is on August (prorated) and off September, even if Active is No. `GET /api/employees?month=&year=` is the Payroll Sheet roster.
+
+**Env vars needed:** none.
+
 ### 2026-09-21 — Employee Information cascade no longer errors on ASIL BU / Client
 Selecting ASIL BU or Client on Employee Information was hitting `GET /api/employees/directory` without a contract and alerting **Select a Client and Contract before loading employees**. Directory loads again from search (2+ chars), any org filter (BU, Client, Contract, …), or Browse Active. The extra Client BU / Location / Department / Designation list still needs Client + Contract.
 

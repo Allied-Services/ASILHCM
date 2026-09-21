@@ -84,10 +84,10 @@ function eqText(column, value, params) {
 function buildDirectorySql(parsed, { archive = false } = {}) {
     const where = [];
     const params = [];
-    // Do not reuse employeeVisibilityClause here — it forces active=Yes, so
-    // Inactive / All can never return leavers. Keep the Jul-2026 LWD floor
-    // for browse/filter lists; a name/code search skips it so a person can
-    // be found. Active/Inactive only filter employees.active.
+    // Do not reuse employeeVisibilityClause here — that is "employed today".
+    // Keep the Jul-2026 LWD floor for browse/filter lists; a name/code search
+    // skips it so a person can be found. Active/Inactive mean employed today
+    // vs already left (last working day), not only the stored flag.
     if (!archive && !parsed.hasQ) {
         where.push(`(e.last_working_day IS NULL OR e.last_working_day >= '${cutover.CUTOVER_DATE}'::date)`);
     }

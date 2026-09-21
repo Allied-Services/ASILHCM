@@ -1,5 +1,7 @@
 'use strict';
 
+const { currentlyActiveSqlClause } = require('./employeeActive');
+
 const CUTOVER_MONTH = 7;
 const CUTOVER_YEAR = 2026;
 const CUTOVER_DATE = '2026-07-01';
@@ -62,9 +64,7 @@ function employeeVisibilityClause(alias = 'e', { archive = false } = {}) {
     if (archive) return 'TRUE';
     const a = alias;
     return `(
-        (${a}.active IS NULL
-            OR LOWER(TRIM(${a}.active::text)) IN ('yes','true','1','active','')
-            OR ${a}.active::text = 'Yes')
+        ${currentlyActiveSqlClause(a)}
         AND (
             ${a}.last_working_day IS NULL
             OR ${a}.last_working_day >= '${CUTOVER_DATE}'::date

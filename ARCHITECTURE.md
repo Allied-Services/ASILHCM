@@ -1,6 +1,6 @@
 # ASIL HCM — Architecture (Verified Facts)
 
-**Last updated:** 2026-09-10 (Track Pending/Done + August work-month isolation)  
+**Last updated:** 2026-09-21 (Last working day = employed today vs employed in month)  
 **Program:** See `.agents/REMEDIATION_PLAN.md` for the active multi-session remediation plan.
 
 ---
@@ -133,7 +133,7 @@ UI: **Month Invoices** (`/?tab=month_invoices`) is the default invoice screen. T
 |---|---|
 | Cutover floor | Normal UI/AP/payroll/invoices show period ≥ **2026-07** |
 | Archive toggle | `GET/PUT /api/admin/cutover-settings` — **superadmin** + **huzaifa.rafaqat@asil.com.pk** only; propagates via `X-Show-Archive: 1` / `?archive=1`. Employee Information hides inactive people and anyone with `last_working_day` before **2026-07-01**, which is why a rehire can look “not in the list”. `GET /api/employees/lookup?id=&cnic=` searches the full table (including those hidden rows). Add Employee returns **409 CNIC_TAKEN** instead of a 500 when the CNIC already belongs to someone else. |
-| Employee directory | `GET /api/employees/directory` — search-first list (`q` 2+ chars, an org filter such as `bu` / `client` / `contractId`, or `browse=1`). Client + Contract is one valid scope, not a prerequisite. Optional extra filter: `clientBu`, `location`, `dept`, `designation`. Slim DTO includes `lastWorkingDay`. `active=yes` is derived (flag Yes **and** LWD empty or ≥ today). `active=no` is flag No **or** LWD already passed. `GET /api/employees/directory/facets?client=&contractId=` returns distinct BUs / locations / departments / designations for the extra filter. `GET /api/employees/directory/:id` returns one full record. Payroll Sheet loads only after Client is chosen. |
+| Employee directory | `GET /api/employees/directory` — search-first list (`q` 2+ chars, an org filter such as `bu` / `client` / `contractId`, or `browse=1`). Client + Contract is one valid scope, not a prerequisite. Optional extra filter: `clientBu`, `location`, `dept`, `designation`. Slim DTO includes `lastWorkingDay`. `active=yes` is derived (flag Yes **and** LWD empty or ≥ today). `active=no` is flag No **or** LWD already passed. `GET /api/employees/directory/facets?client=&contractId=` returns distinct BUs / locations / departments / designations for the extra filter. `GET /api/employees/directory/:id` returns one full record. Payroll Sheet loads after Client is chosen via `GET /api/employees?client=&contractId=&month=&year=` — that roster is **employed in the selected month** (a mid-month leaver with Active=No still appears in the exit month, not the next one). Calculate / payroll-run / Collect / attendance hub use the same window (`employedInPeriodSqlClause`). `GET /api/employees` without month/year stays “employed today”. |
 | Helper | `backend/src/core/cutover.js` — `employeeVisibilityClause`, `applyPeriodFloor`, `resolveArchiveMode` |
 | Wafi roster refresh | `node scripts/wafi_roster_refresh.js --csv "<path>" --dry-run` (apply only on staging with `STAGING_DATABASE_URL`) |
 | Wafi 3P contact / focal | `node scripts/wafi_contact_focal_update.js --file "<csv-or-xlsx>" --dry-run --scope=file` — contact + Focal/LM only (no salary/bank). `--scope=file` = every code in the file (3P + FM). Default `--scope=wafi-3p` is Wafi BPO only. Apply only on staging with `STAGING_DATABASE_URL`. |

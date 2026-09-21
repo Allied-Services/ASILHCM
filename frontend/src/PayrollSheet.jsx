@@ -885,7 +885,8 @@ export default function PayrollSheet({ user }) {
         let cancelled = false;
         setRosterLoading(true);
         setRosterError(null);
-        const empQ = { client: filterClient };
+        const [rosterYear, rosterMonth] = String(month || '').split('-');
+        const empQ = { client: filterClient, year: rosterYear, month: rosterMonth };
         if (filterContract !== 'All') {
             const hits = contractCatalog.filter(c => c.name === filterContract);
             const hit = hits.find(c => c.client === filterClient) || hits[0];
@@ -912,7 +913,7 @@ export default function PayrollSheet({ user }) {
             if (!cancelled) setRosterLoading(false);
         });
         return () => { cancelled = true; };
-    }, [filterClient, filterContract, contractCatalog]);
+    }, [filterClient, filterContract, contractCatalog, month]);
 
 
     const applyPayrollPayload = (data) => {
