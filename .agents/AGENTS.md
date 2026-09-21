@@ -316,6 +316,11 @@ Employee Information Active/Inactive already means employed today (last working 
 
 **Env vars needed:** none.
 
+### 2026-09-21 — Render frontend deploys after Employee Information / SO merges
+Vite was failing on `EmploymentOrgCascade.jsx` (`{!isFilter && (` wrapping three sibling Fields without a fragment) and on unescaped `>` arrows in Fixed Value copy. Frontend live was stuck on PR #207 while #209–#215 backend landed. Wrap the Fields; write arrows as `&gt;`.
+
+**Env vars needed:** none.
+
 ### 2026-09-21 — Employee Information cascade no longer errors on ASIL BU / Client
 Selecting ASIL BU or Client on Employee Information was hitting `GET /api/employees/directory` without a contract and alerting **Select a Client and Contract before loading employees**. Directory loads again from search (2+ chars), any org filter (BU, Client, Contract, …), or Browse Active. The extra Client BU / Location / Department / Designation list still needs Client + Contract.
 

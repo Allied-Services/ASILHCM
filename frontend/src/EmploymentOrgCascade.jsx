@@ -259,6 +259,7 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
             </Field>
 
             {!isFilter && (
+            <>
             <Field label="Client Business Unit">
                 <select
                     value={form.clientBU || ''}
@@ -309,7 +310,7 @@ export default function EmploymentOrgCascade({ form, setForm, layout = 'grid', c
                     )}
                 </select>
             </Field>
-
+            </>
             )}
             {layout === 'grid' && !isFilter && (
                 <Field label="Province">

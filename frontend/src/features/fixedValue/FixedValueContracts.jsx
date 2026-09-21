@@ -894,7 +894,7 @@ export default function FixedValueContracts({ user, mode = 'ops' }) {
                         </div>
                     )}
                     <div className="fv-later" style={{ marginTop: '1rem' }}>
-                        <strong>Manual overrides</strong> (same <code>monthly_attendance_overrides</code> as Attendance -> Monthly Report):
+                        <strong>Manual overrides</strong> (same <code>monthly_attendance_overrides</code> as Attendance -&gt; Monthly Report):
                         OT hrs, Deduction against Leaves, Arrears, Other Deduction. Filter to a site above for a shorter list.
                     </div>
                     {hubOverrides.length > 0 && (
@@ -1108,7 +1108,7 @@ export default function FixedValueContracts({ user, mode = 'ops' }) {
                             <Download size={16} /> Excel
                         </button>
                         <span className="fv-lead" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <ExternalLink size={14} /> Lock / disburse: sidebar -> Payroll Run
+                            <ExternalLink size={14} /> Lock / disburse: sidebar -&gt; Payroll Run
                         </span>
                     </div>
 
@@ -1117,7 +1117,7 @@ export default function FixedValueContracts({ user, mode = 'ops' }) {
                             <div className="fv-kpi fv-kpi-run">
                                 <div className="label">Payroll run #{payrollRun.id}</div>
                                 <p className="fv-kpi-help">
-                                    World B batch id for this contract/month; use this id in sidebar -> Payroll Run
+                                    World B batch id for this contract/month; use this id in sidebar -&gt; Payroll Run
                                     to lock/disburse. Not an invoice number.
                                 </p>
                             </div>
@@ -1272,7 +1272,7 @@ export default function FixedValueContracts({ user, mode = 'ops' }) {
                         </button>
                         <button type="button" className="btn-secondary" disabled={loading || !contractId || !canWrite}
                             onClick={handleDryRunVerificationEmail}>
-                            <Mail size={16} /> Dry run (all sites -> ASIL test)
+                            <Mail size={16} /> Dry run (all sites -&gt; ASIL test)
                         </button>
                         <button type="button" className="btn-primary" disabled={loading || !contractId || !canWrite || !invoicePack}
                             onClick={handleSendAllVerificationEmails}>
@@ -1675,8 +1675,8 @@ export default function FixedValueContracts({ user, mode = 'ops' }) {
                         (Employee ID, Name, Bank, Account, IBAN, Net Pay, Payment Ref).
                     </div>
                     <div className="fv-later">
-                        <strong>One-click later:</strong> Fetch Attendance -> Build Payroll -> Bank File -> Invoices -> Xero ->
-                        EOBI/SESSI challans -> Sales tax by authority -> email focals.
+                        <strong>One-click later:</strong> Fetch Attendance -&gt; Build Payroll -&gt; Bank File -&gt; Invoices -&gt; Xero -&gt;
+                        EOBI/SESSI challans -&gt; Sales tax by authority -&gt; email focals.
                     </div>
                 </div>
             )}
