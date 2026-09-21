@@ -32,7 +32,9 @@ export function readDirectoryParams(search = typeof window !== 'undefined' ? win
 }
 
 export function hasDirectoryQuery(params) {
-    return !!(params.client && params.contractId);
+    return String(params.q || '').trim().length >= 2
+        || !!(params.bu || params.client || params.contractId || params.clientBu || params.location || params.dept || params.designation)
+        || !!params.browse;
 }
 
 export function writeDirectoryParams(next, search = typeof window !== 'undefined' ? window.location.search : '') {

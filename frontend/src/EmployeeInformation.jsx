@@ -823,23 +823,19 @@ export default function EmployeeInformation({ user }) {
                         value={search}
                         onChange={e => setSearch(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') runDirectory({ q: search, page: 1 }); }}
-                        placeholder={hasDirectoryQuery(buildDirParams()) ? 'Search name, employee code, or CNIC…' : 'Select Client and Contract first'}
+                        placeholder="Search name, employee code, or CNIC…"
                         style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', outline: 'none' }}
                     />
                 </div>
                 <button
                     onClick={() => runDirectory({ q: search, page: 1 })}
-                    disabled={!hasDirectoryQuery(buildDirParams())}
+                    disabled={String(search || '').trim().length < 2 && !hasDirectoryQuery(buildDirParams({ q: search }))}
                     style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--primary)', background: 'var(--primary)', color: 'white', cursor: 'pointer', fontWeight: 700 }}
                 >
                     Search
                 </button>
                 <button
                     onClick={() => {
-                        if (!hasDirectoryQuery(buildDirParams())) {
-                            alert('Select Client and Contract to load employees.');
-                            return;
-                        }
                         setBrowse(true);
                         setFilterActive('Active');
                         runDirectory({ browse: true, active: 'Active', page: 1 });
@@ -931,7 +927,7 @@ export default function EmployeeInformation({ user }) {
                 <span style={{ marginLeft: 'auto', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
                     {hasQueried
                         ? <>{total.toLocaleString()} people · page {page} of {Math.max(1, Math.ceil(total / PAGE_SIZE))}{elapsedMs != null ? ` · ${elapsedMs} ms` : ''}</>
-                        : 'Select Client and Contract to load employees.'}
+                        : 'No roster query yet'}
                 </span>
             </div>
 

@@ -26,11 +26,13 @@ afterAll(async () => {
 const request = () => require('supertest')(app);
 
 describe('parseDirectoryQuery', () => {
-    test('requires client and contract before any list load', () => {
+    test('allows search, org filters, or browse — not only client+contract', () => {
         expect(parseDirectoryQuery({}).allowed).toBe(false);
-        expect(parseDirectoryQuery({ q: 'ah' }).allowed).toBe(false);
-        expect(parseDirectoryQuery({ browse: '1' }).allowed).toBe(false);
-        expect(parseDirectoryQuery({ client: 'Wafi Energy Pakistan' }).allowed).toBe(false);
+        expect(parseDirectoryQuery({ q: 'a' }).allowed).toBe(false);
+        expect(parseDirectoryQuery({ q: 'Ahmad' }).allowed).toBe(true);
+        expect(parseDirectoryQuery({ browse: '1' }).allowed).toBe(true);
+        expect(parseDirectoryQuery({ bu: 'Outsourcing' }).allowed).toBe(true);
+        expect(parseDirectoryQuery({ client: 'Wafi Energy Pakistan' }).allowed).toBe(true);
         expect(parseDirectoryQuery({ client: 'Wafi Energy Pakistan', contractId: 'CTR-1' }).allowed).toBe(true);
     });
 
@@ -125,9 +127,9 @@ describe('GET /api/employees/directory', () => {
         expect(res.status).toBe(401);
     });
 
-    test('no client/contract → 400', async () => {
+    test('empty query → 400', async () => {
         const res = await request()
-            .get('/api/employees/directory?q=Ahmad')
+            .get('/api/employees/directory')
             .set('Authorization', `Bearer ${makeToken({ role: 'operations' })}`);
         expect(res.status).toBe(400);
         expect(res.body.code).toBe('DIRECTORY_QUERY_REQUIRED');
@@ -171,5 +173,18 @@ describe('GET /api/employees/directory', () => {
         expect(res.body.employees).toHaveLength(1);
         expect(res.body.employees[0].name).toBe('Ahmad Hussain');
         expect(res.body.employees[0].bank_name).toBeUndefined();
+    });
+
+    test('client without contract is allowed', async () => {
+        mockPool.query
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const res = await request()
+            .get('/api/employees/directory?client=Wafi%20Energy%20Pakistan')
+            .set('Authorization', `Bearer ${makeToken({ role: 'operations' })}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.employees).toEqual([]);
     });
 });

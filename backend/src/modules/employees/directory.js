@@ -71,7 +71,7 @@ function parseDirectoryQuery(query = {}) {
         hasQ,
         hasOrg,
         scoped,
-        allowed: scoped,
+        allowed: hasQ || hasOrg || browse,
         offset: (page - 1) * limit,
     };
 }
@@ -169,7 +169,7 @@ const SLIM_KEYS = Object.keys(rowToDirectoryDto({}));
 async function searchDirectory(pool, req) {
     const parsed = parseDirectoryQuery(req.query || {});
     if (!parsed.allowed) {
-        const err = new Error('Select a Client and Contract before loading employees');
+        const err = new Error('Search text (2+ characters), an organisation filter, or browse=1 is required');
         err.status = 400;
         err.code = 'DIRECTORY_QUERY_REQUIRED';
         throw err;
