@@ -1,0 +1,47 @@
+{
+  "contractId": "CTR-PSO-NORTH-ZONE",
+  "month": 8,
+  "year": 2026,
+  "calendarDays": 31,
+  "apply": true,
+  "absentRows": 57,
+  "deductions": 39,
+  "cleared": 57,
+  "proof": {
+    "employeeId": "ASIL/PSO-139/25",
+    "name": "Almas",
+    "designation": "Janitor",
+    "site": "SIHALA",
+    "days_absent": 1,
+    "amount": 1678.81,
+    "line_name": "Office/Misc Service"
+  },
+  "by_site": [
+    { "site_code": "CHAKPIRANA", "n": 5, "total": 14078.62 },
+    { "site_code": "FAQIRABAD", "n": 8, "total": 89839.16 },
+    { "site_code": "MORGAH", "n": 2, "total": 112429.00 },
+    { "site_code": "SERAINOURANG", "n": 8, "total": 157005.50 },
+    { "site_code": "SIHALA", "n": 12, "total": 78894.19 },
+    { "site_code": "TARUJABBA", "n": 10, "total": 134559.92 }
+  ],
+  "missing_service_rate": [
+    { "employeeId": "ASIL/PSO-455/25", "designation": "Lube Handling Officer", "site": "TARUJABBA" },
+    { "employeeId": "ASIL/PSO-456/25", "designation": "Janitor", "site": "KUNDIAN" },
+    { "employeeId": "ASIL/PSO-040/25", "designation": "Invoicing Support", "site": "SERAINOURANG" },
+    { "employeeId": "ASIL/PSO-167/25", "designation": "Lube Handling Officer", "site": "FAQIRABAD" },
+    { "employeeId": "ASIL/PSO-179/25", "designation": "Pump Room Operator", "site": "FAQIRABAD" },
+    { "employeeId": "ASIL/PSO-038/25", "designation": "Invoicing Support", "site": "SERAINOURANG" },
+    { "employeeId": "ASIL/PSO-063/25", "designation": "Laboratory Assistant", "site": "CHAKPIRANA" },
+    { "employeeId": "ASIL/PSO-144/25", "designation": "Laboratory Assistant", "site": "SIHALA" },
+    { "employeeId": "ASIL/PSO-046/25", "designation": "Invoicing Support", "site": "SERAINOURANG" },
+    { "employeeId": "ASIL/PSO-372/25", "designation": "M & R Technician", "site": "CHAKPIRANA" },
+    { "employeeId": "ASIL/PSO-185/25", "designation": "Laboratory Assistant", "site": "FAQIRABAD" },
+    { "employeeId": "ASIL/PSO-039/25", "designation": "Office Boy", "site": "SERAINOURANG" },
+    { "employeeId": "ASIL/PSO-130/25", "designation": "Lube Handling Officer", "site": "SIHALA" },
+    { "employeeId": "ASIL/PSO-091/25", "designation": "Lube Handling Officer", "site": "TARUJABBA" },
+    { "employeeId": "ASIL/PSO-149/25", "designation": "Invoicing Support", "site": "SIHALA" },
+    { "employeeId": "ASIL/PSO-036/25", "designation": "Invoicing Support", "site": "SERAINOURANG" },
+    { "employeeId": "ASIL/PSO-129/25", "designation": "Office Boy", "site": "SIHALA" }
+  ],
+  "skipped": [{ "employeeId": "ASIL/PSO-202/25", "reason": "not_in_period" }]
+}

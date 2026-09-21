@@ -311,6 +311,16 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-21 — GO RED August FV shortages rebuilt at nested SO unit rates
+CTR-PSO-NORTH-ZONE August 2026 `so_deductions` rebuilt from attendance (39 named shortages). Almas (ASIL/PSO-139/25, Sihala Janitor, 1 day) is **1,678.81**. 17 people on Lab / Lube / Invoicing / Office / M&R / Kundian housekeeping stay `missing_service_rate` (no nested unit). Print uses live deductions. Proof: `audit/cutover/aug2026_fv_so_deductions_rebuild.json`.
+
+**Env vars needed:** none.
+
+### 2026-09-21 — Put North Zone SO unit rates back on nested services
+CTR-PSO-NORTH-ZONE nested unit rates are restored in place (32 lines). Dedicated services use `line.rate / count` (Forklift 56,991, Fuel Oil 57,304, Pesh Imam 56,985). Kitchen-sink services reuse the Morgah catalog where the same SO service exists (Sweeping 52,040 except Sihala **52,043**, Gardening 52,183, Conservancy 60,246, Sealing 56,991). Lab / Office / Lube / Invoicing / M&R still have no stored unit — those were never on a dedicated line. Overlay fills missing rates on GET so a later save cannot blank them.
+
+**Env vars needed:** none.
+
 ### 2026-09-21 — FV shortage is nested SO unit rate / calendar days
 Almas (Sihala Janitor) 1 August day is **1,678.81** (`52043 / 31`), not Office/Misc ÷ 22 ÷ 30. Daily shortage uses the nested service unit rate and days in the month. Kitchen-sink lines no longer leftover-split. Position Keywords on each SO service bind roster titles. Rebuild: `node backend/scripts/rebuild_fv_so_deductions.js --contract CTR-PSO-NORTH-ZONE --month 8 --year 2026`.
 

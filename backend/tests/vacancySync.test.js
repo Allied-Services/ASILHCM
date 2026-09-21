@@ -184,4 +184,29 @@ describe('seed role rates overlay', () => {
         expect(planned.find((d) => /supervisory|fm supervisor/i.test(d.designation)).amount).toBe(60246);
         expect(planned.find((d) => /garden/i.test(d.designation) && !d.employeeId).amount).toBe(52183);
     });
+
+    test('Chakpirana Sweeping inherits Morgah 52,040; Forklift uses the dedicated line', () => {
+        const lines = [
+            {
+                name: 'Office/Misc Services',
+                rate: 823618,
+                is_manpower_dependent: true,
+                roles: [
+                    { designation: 'Conservancy Supervisory Services', count: 1 },
+                    { designation: 'Sweeping / Cleaning Services', count: 4 },
+                    { designation: 'Additional general services', count: 2 },
+                ],
+            },
+            {
+                name: 'Services for forklifter operation/driving',
+                rate: 56991,
+                is_manpower_dependent: true,
+                roles: [{ designation: 'Forklift Operation Services', count: 1 }],
+            },
+        ];
+        const enriched = enrichLinesWithSeedRoleRates('CHAKPIRANA', lines);
+        expect(roleMonthlyRate(enriched[0], enriched[0].roles, enriched[0].roles[1])).toBe(52040);
+        expect(roleMonthlyRate(enriched[0], enriched[0].roles, enriched[0].roles[2])).toBe(0);
+        expect(roleMonthlyRate(enriched[1], enriched[1].roles, enriched[1].roles[0])).toBe(56991);
+    });
 });

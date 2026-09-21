@@ -115,17 +115,20 @@
           {
             "designation": "Conservancy Supervisory Services",
             "count": 1,
-            "keywords": "FM Supervisor"
+            "keywords": "FM Supervisor",
+            "rate": 60246
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 4,
-            "keywords": "Janitor"
+            "keywords": "Janitor",
+            "rate": 52040
           },
           {
             "designation": "Gardening Services",
             "count": 1,
-            "keywords": "Gardener"
+            "keywords": "Gardener",
+            "rate": 52183
           },
           {
             "designation": "M&R Support services",
@@ -135,7 +138,8 @@
           {
             "designation": "Sealing Services",
             "count": 2,
-            "keywords": "Sealing Officer"
+            "keywords": "Sealing Officer",
+            "rate": 56991
           },
           {
             "designation": "Lube Handling",
@@ -176,7 +180,8 @@
           {
             "designation": "Forklift Operation Services",
             "count": 1,
-            "keywords": "Forklift Operator"
+            "keywords": "Forklift Operator",
+            "rate": 56991
           }
         ]
       },
@@ -210,7 +215,8 @@
           {
             "designation": "Fuel Oil Handling Services",
             "count": 14,
-            "keywords": "Fuel / Oil Handling Officer"
+            "keywords": "Fuel / Oil Handling Officer",
+            "rate": 57304
           }
         ]
       },
@@ -227,7 +233,8 @@
           {
             "designation": "Fitter services",
             "count": 1,
-            "keywords": "Fitter"
+            "keywords": "Fitter",
+            "rate": 56991
           }
         ]
       }
@@ -260,7 +267,8 @@
           {
             "designation": "Conservancy Supervisory Services",
             "count": 1,
-            "keywords": "FM Supervisor"
+            "keywords": "FM Supervisor",
+            "rate": 60246
           },
           {
             "designation": "Sweeping / Cleaning Services",
@@ -272,7 +280,8 @@
           {
             "designation": "Gardening Services",
             "count": 2,
-            "keywords": "Gardener"
+            "keywords": "Gardener",
+            "rate": 52183
           },
           {
             "designation": "Ops Office services",
@@ -324,7 +333,8 @@
           {
             "designation": "Forklift Operation Services",
             "count": 1,
-            "keywords": "Forklift Operator"
+            "keywords": "Forklift Operator",
+            "rate": 56991
           }
         ]
       },
@@ -361,12 +371,14 @@
           {
             "designation": "Electrical services",
             "count": 2,
-            "keywords": "Electrician"
+            "keywords": "Electrician",
+            "rate": 56991
           },
           {
             "designation": "Fitter services",
             "count": 1,
-            "keywords": "Fitter"
+            "keywords": "Fitter",
+            "rate": 56991
           }
         ]
       },
@@ -383,7 +395,8 @@
           {
             "designation": "Fuel Oil Handling Services",
             "count": 10,
-            "keywords": "Fuel / Oil Handling Officer"
+            "keywords": "Fuel / Oil Handling Officer",
+            "rate": 57304
           }
         ]
       },
@@ -400,7 +413,8 @@
           {
             "designation": "Pesh Imam Services",
             "count": 1,
-            "keywords": "Pesh Imam"
+            "keywords": "Pesh Imam",
+            "rate": 56985
           }
         ]
       },
@@ -447,7 +461,8 @@
           {
             "designation": "Driving Services",
             "count": 3,
-            "keywords": "Driver"
+            "keywords": "Driver",
+            "rate": 56985
           }
         ]
       },
@@ -489,17 +504,20 @@
           {
             "designation": "Conservancy Supervisory Services",
             "count": 1,
-            "keywords": "FM Supervisor"
+            "keywords": "FM Supervisor",
+            "rate": 60246
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 2,
-            "keywords": "Janitor"
+            "keywords": "Janitor",
+            "rate": 52040
           },
           {
             "designation": "Gardening Services",
             "count": 2,
-            "keywords": "Gardener"
+            "keywords": "Gardener",
+            "rate": 52183
           },
           {
             "designation": "Lube Handling",
@@ -514,7 +532,8 @@
           {
             "designation": "Sealing Services",
             "count": 1,
-            "keywords": "Sealing Officer"
+            "keywords": "Sealing Officer",
+            "rate": 56991
           },
           {
             "designation": "M&R Support services",
@@ -550,7 +569,8 @@
           {
             "designation": "Forklift Operation Services",
             "count": 2,
-            "keywords": "Forklift Operator"
+            "keywords": "Forklift Operator",
+            "rate": 56991
           }
         ]
       },
@@ -584,7 +604,8 @@
           {
             "designation": "Fuel Oil Handling Services",
             "count": 4,
-            "keywords": "Fuel / Oil Handling Officer"
+            "keywords": "Fuel / Oil Handling Officer",
+            "rate": 57304
           }
         ]
       },
@@ -600,12 +621,14 @@
           {
             "designation": "Electrical services",
             "count": 1,
-            "keywords": "Electrician"
+            "keywords": "Electrician",
+            "rate": 56991
           },
           {
             "designation": "Fitter services",
             "count": 1,
-            "keywords": "Fitter"
+            "keywords": "Fitter",
+            "rate": 56991
           }
         ]
       }
@@ -631,22 +654,26 @@
           {
             "designation": "Conservancy Supervisory Services",
             "count": 1,
-            "keywords": "FM Supervisor"
+            "keywords": "FM Supervisor",
+            "rate": 60246
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 2,
-            "keywords": "Janitor"
+            "keywords": "Janitor",
+            "rate": 52040
           },
           {
             "designation": "Gardening Services",
             "count": 1,
-            "keywords": "Gardener"
+            "keywords": "Gardener",
+            "rate": 52183
           },
           {
             "designation": "Sealing Services",
             "count": 1,
-            "keywords": "Sealing Officer"
+            "keywords": "Sealing Officer",
+            "rate": 56991
           }
         ]
       },
@@ -662,7 +689,8 @@
           {
             "designation": "Fuel Oil Handling Services",
             "count": 3,
-            "keywords": "Fuel / Oil Handling Officer"
+            "keywords": "Fuel / Oil Handling Officer",
+            "rate": 57304
           }
         ]
       },
@@ -697,12 +725,14 @@
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 1,
-            "keywords": "Janitor"
+            "keywords": "Janitor",
+            "rate": 52040
           },
           {
             "designation": "Gardening Services",
             "count": 1,
-            "keywords": "Gardener"
+            "keywords": "Gardener",
+            "rate": 52183
           },
           {
             "designation": "Lube Handling",
@@ -741,22 +771,26 @@
           {
             "designation": "Conservancy Supervisory Services",
             "count": 1,
-            "keywords": "FM Supervisor"
+            "keywords": "FM Supervisor",
+            "rate": 60246
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 4,
-            "keywords": "Janitor"
+            "keywords": "Janitor",
+            "rate": 52040
           },
           {
             "designation": "Gardening Services",
             "count": 2,
-            "keywords": "Gardener"
+            "keywords": "Gardener",
+            "rate": 52183
           },
           {
             "designation": "Sealing Services",
             "count": 2,
-            "keywords": "Sealing Officer"
+            "keywords": "Sealing Officer",
+            "rate": 56991
           },
           {
             "designation": "Ops Office services",
@@ -812,7 +846,8 @@
           {
             "designation": "Forklift Operation Services",
             "count": 1,
-            "keywords": "Forklift Operator"
+            "keywords": "Forklift Operator",
+            "rate": 56991
           }
         ]
       },
@@ -846,7 +881,8 @@
           {
             "designation": "Fuel Oil Handling Services",
             "count": 12,
-            "keywords": "Fuel / Oil Handling Officer"
+            "keywords": "Fuel / Oil Handling Officer",
+            "rate": 57304
           }
         ]
       },
@@ -862,7 +898,8 @@
           {
             "designation": "Pesh Imam Services",
             "count": 1,
-            "keywords": "Pesh Imam"
+            "keywords": "Pesh Imam",
+            "rate": 56991
           }
         ]
       },
@@ -878,12 +915,14 @@
           {
             "designation": "Electrical services",
             "count": 1,
-            "keywords": "Electrician"
+            "keywords": "Electrician",
+            "rate": 56991
           },
           {
             "designation": "Fitter services",
             "count": 1,
-            "keywords": "Fitter"
+            "keywords": "Fitter",
+            "rate": 56991
           }
         ]
       }
@@ -908,17 +947,20 @@
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 2,
-            "keywords": "Janitor"
+            "keywords": "Janitor",
+            "rate": 52040
           },
           {
             "designation": "Gardening Services",
             "count": 1,
-            "keywords": "Gardener"
+            "keywords": "Gardener",
+            "rate": 52183
           },
           {
             "designation": "Sealing Services",
             "count": 1,
-            "keywords": "Sealing Officer"
+            "keywords": "Sealing Officer",
+            "rate": 56991
           },
           {
             "designation": "Office service",
@@ -944,7 +986,8 @@
           {
             "designation": "Fuel Oil Handling Services",
             "count": 4,
-            "keywords": "Fuel / Oil Handling Officer"
+            "keywords": "Fuel / Oil Handling Officer",
+            "rate": 57304
           }
         ]
       }
@@ -969,12 +1012,14 @@
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 2,
-            "keywords": "Janitor"
+            "keywords": "Janitor",
+            "rate": 52040
           },
           {
             "designation": "Gardening Services",
             "count": 1,
-            "keywords": "Gardener"
+            "keywords": "Gardener",
+            "rate": 52183
           },
           {
             "designation": "General Housekeeping Services",
@@ -1018,7 +1063,8 @@
           {
             "designation": "Gardening Services",
             "count": 1,
-            "keywords": "Gardener"
+            "keywords": "Gardener",
+            "rate": 52183
           },
           {
             "designation": "Lube Handling",
@@ -1044,7 +1090,8 @@
           {
             "designation": "Fuel Oil Handling Services",
             "count": 2,
-            "keywords": "Fuel / Oil Handling Officer"
+            "keywords": "Fuel / Oil Handling Officer",
+            "rate": 57304
           }
         ]
       },
@@ -1078,7 +1125,8 @@
           {
             "designation": "Driving Services",
             "count": 1,
-            "keywords": "Driver"
+            "keywords": "Driver",
+            "rate": 56991
           }
         ]
       }
@@ -1103,12 +1151,14 @@
           {
             "designation": "Conservancy Supervisory Services",
             "count": 1,
-            "keywords": "FM Supervisor"
+            "keywords": "FM Supervisor",
+            "rate": 60246
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 1,
-            "keywords": "Janitor"
+            "keywords": "Janitor",
+            "rate": 52040
           },
           {
             "designation": "General Services",
@@ -1129,7 +1179,8 @@
           {
             "designation": "Electrical services",
             "count": 1,
-            "keywords": "Electrician"
+            "keywords": "Electrician",
+            "rate": 56991
           }
         ]
       },

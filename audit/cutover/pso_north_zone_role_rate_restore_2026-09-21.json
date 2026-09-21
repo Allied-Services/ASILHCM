@@ -1,8 +1,483 @@
 {
   "contractId": "CTR-PSO-NORTH-ZONE",
   "apply": true,
-  "lines_updated": 2,
+  "lines_updated": 32,
   "changes": [
+    {
+      "site": "CHAKPIRANA",
+      "lineId": 246,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Conservancy Supervisory Services",
+          "rate": 60246
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Conservancy Supervisory Services",
+          "keywords": "FM Supervisor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "rate": 52040
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sweeping / Cleaning Services",
+          "keywords": "Janitor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Gardening Services",
+          "rate": 52183
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Gardening Services",
+          "keywords": "Gardener"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "M&R Support services",
+          "keywords": "M&R Technician"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sealing Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sealing Services",
+          "keywords": "Sealing Officer"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Lube Handling",
+          "keywords": "Lube Handling Officer"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Lab service",
+          "keywords": "Laboratory Assistant"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Office service",
+          "keywords": "Office Boy"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "OMC Physical Reporting",
+          "keywords": "OMC Reporting Officer"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Additional general services",
+          "keywords": "General Worker"
+        }
+      ]
+    },
+    {
+      "site": "CHAKPIRANA",
+      "lineId": 247,
+      "line": "2",
+      "name": "Services for forklifter operation/driving",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Forklift Operation Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Forklift Operation Services",
+          "keywords": "Forklift Operator"
+        }
+      ]
+    },
+    {
+      "site": "CHAKPIRANA",
+      "lineId": 250,
+      "line": "5",
+      "name": "Services for Tank-lorry receipt operation",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fuel Oil Handling Services",
+          "rate": 57304
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fuel Oil Handling Services",
+          "keywords": "Fuel / Oil Handling Officer"
+        }
+      ]
+    },
+    {
+      "site": "CHAKPIRANA",
+      "lineId": 251,
+      "line": "6",
+      "name": "Office /Misc Services",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fitter services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fitter services",
+          "keywords": "Fitter"
+        }
+      ]
+    },
+    {
+      "site": "CHITRAL",
+      "lineId": 252,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "rate": 52040
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sweeping / Cleaning Services",
+          "keywords": "Janitor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Gardening Services",
+          "rate": 52183
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Gardening Services",
+          "keywords": "Gardener"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Lube Handling",
+          "keywords": "Lube Handling Officer"
+        }
+      ]
+    },
+    {
+      "site": "DGM_OPS",
+      "lineId": 254,
+      "line": "1",
+      "name": "Services required to provide driver",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Driving Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Driving Services",
+          "keywords": "Driver"
+        }
+      ]
+    },
+    {
+      "site": "FAQIRABAD",
+      "lineId": 255,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Conservancy Supervisory Services",
+          "rate": 60246
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Conservancy Supervisory Services",
+          "keywords": "FM Supervisor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "rate": 52040
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sweeping / Cleaning Services",
+          "keywords": "Janitor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Gardening Services",
+          "rate": 52183
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Gardening Services",
+          "keywords": "Gardener"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Lube Handling",
+          "keywords": "Lube Handling Officer"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Filling Pumproom / Invoicing Room services",
+          "keywords": "Invoicing Support"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sealing Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sealing Services",
+          "keywords": "Sealing Officer"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "M&R Support services",
+          "keywords": "M&R Technician"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Office service",
+          "keywords": "Office Boy"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Lab Services",
+          "keywords": "Laboratory Assistant"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Additional services",
+          "keywords": "General Worker"
+        }
+      ]
+    },
+    {
+      "site": "FAQIRABAD",
+      "lineId": 256,
+      "line": "2",
+      "name": "Services for forklifter operation/driving",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Forklift Operation Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Forklift Operation Services",
+          "keywords": "Forklift Operator"
+        }
+      ]
+    },
+    {
+      "site": "FAQIRABAD",
+      "lineId": 259,
+      "line": "5",
+      "name": "Services (Fuel oil handling decanting)",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fuel Oil Handling Services",
+          "rate": 57304
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fuel Oil Handling Services",
+          "keywords": "Fuel / Oil Handling Officer"
+        }
+      ]
+    },
+    {
+      "site": "FAQIRABAD",
+      "lineId": 260,
+      "line": "6",
+      "name": "Office/Misc Services (Technical services)",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Electrical services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Electrical services",
+          "keywords": "Electrician"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fitter services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fitter services",
+          "keywords": "Fitter"
+        }
+      ]
+    },
+    {
+      "site": "JUGLOT",
+      "lineId": 261,
+      "line": "1",
+      "name": "Housekeeping services",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Conservancy Supervisory Services",
+          "rate": 60246
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Conservancy Supervisory Services",
+          "keywords": "FM Supervisor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "rate": 52040
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sweeping / Cleaning Services",
+          "keywords": "Janitor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Gardening Services",
+          "rate": 52183
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Gardening Services",
+          "keywords": "Gardener"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sealing Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sealing Services",
+          "keywords": "Sealing Officer"
+        }
+      ]
+    },
+    {
+      "site": "JUGLOT",
+      "lineId": 262,
+      "line": "2",
+      "name": "Housekeeping services (Fuel loading decanting)",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fuel Oil Handling Services",
+          "rate": 57304
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fuel Oil Handling Services",
+          "keywords": "Fuel / Oil Handling Officer"
+        }
+      ]
+    },
+    {
+      "site": "KOHAT",
+      "lineId": 264,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "rate": 52040
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sweeping / Cleaning Services",
+          "keywords": "Janitor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Gardening Services",
+          "rate": 52183
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Gardening Services",
+          "keywords": "Gardener"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "General Housekeeping Services",
+          "keywords": "Janitor"
+        }
+      ]
+    },
+    {
+      "site": "KUNDIAN",
+      "lineId": 266,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "restore_keywords",
+          "designation": "Invoicing Room services",
+          "keywords": "Invoicing Support"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Gardening Services",
+          "rate": 52183
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Gardening Services",
+          "keywords": "Gardener"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Lube Handling",
+          "keywords": "Lube Handling Officer"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "General Housekeeping Services",
+          "keywords": "Janitor"
+        }
+      ]
+    },
+    {
+      "site": "KUNDIAN",
+      "lineId": 267,
+      "line": "2",
+      "name": "Office/Misc Services (Fuel oil handling)",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fuel Oil Handling Services",
+          "rate": 57304
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fuel Oil Handling Services",
+          "keywords": "Fuel / Oil Handling Officer"
+        }
+      ]
+    },
     {
       "site": "MORGAH",
       "lineId": 299,
@@ -10,24 +485,154 @@
       "name": "Office/Misc Services",
       "changes": [
         {
-          "action": "restore_manpower",
+          "action": "restore_keywords",
           "designation": "Conservancy Supervisory Services",
-          "manpower": true
+          "keywords": "FM Supervisor"
         },
         {
-          "action": "restore_manpower",
+          "action": "restore_keywords",
           "designation": "Sweeping / Cleaning Services",
-          "manpower": true
+          "keywords": "Janitor"
         },
         {
-          "action": "restore_manpower",
+          "action": "restore_keywords",
           "designation": "Gardening Services",
-          "manpower": true
+          "keywords": "Gardener"
         },
         {
-          "action": "restore_manpower",
+          "action": "restore_keywords",
           "designation": "Decanting/Filling Services",
-          "manpower": true
+          "keywords": "Filling / Decanting Officer"
+        }
+      ]
+    },
+    {
+      "site": "MORGAH",
+      "lineId": 300,
+      "line": "2",
+      "name": "Office/Misc Services (Sealing)",
+      "changes": [
+        {
+          "action": "restore_keywords",
+          "designation": "Sealing Services",
+          "keywords": "Sealing Officer"
+        }
+      ]
+    },
+    {
+      "site": "PR_FUELING",
+      "lineId": 273,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Conservancy Supervisory Services",
+          "rate": 60246
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Conservancy Supervisory Services",
+          "keywords": "FM Supervisor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "rate": 52040
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sweeping / Cleaning Services",
+          "keywords": "Janitor"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "General Services",
+          "keywords": "General Worker"
+        }
+      ]
+    },
+    {
+      "site": "PR_FUELING",
+      "lineId": 274,
+      "line": "2",
+      "name": "Office/Misc Services (Technical)",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Electrical services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Electrical services",
+          "keywords": "Electrician"
+        }
+      ]
+    },
+    {
+      "site": "SERAINOURANG",
+      "lineId": 276,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "rate": 52040
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sweeping / Cleaning Services",
+          "keywords": "Janitor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Gardening Services",
+          "rate": 52183
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Gardening Services",
+          "keywords": "Gardener"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sealing Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sealing Services",
+          "keywords": "Sealing Officer"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Office service",
+          "keywords": "Office Boy"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Invoicing Room services",
+          "keywords": "Invoicing Support"
+        }
+      ]
+    },
+    {
+      "site": "SERAINOURANG",
+      "lineId": 277,
+      "line": "2",
+      "name": "Office/Misc Services (Fuel oil handling)",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fuel Oil Handling Services",
+          "rate": 57304
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fuel Oil Handling Services",
+          "keywords": "Fuel / Oil Handling Officer"
         }
       ]
     },
@@ -39,13 +644,333 @@
       "changes": [
         {
           "action": "restore_seed_rate",
-          "designation": "Sweeping / Cleaning Services",
-          "rate": 52043
+          "designation": "Conservancy Supervisory Services",
+          "rate": 60246
         },
         {
-          "action": "restore_manpower",
+          "action": "restore_keywords",
+          "designation": "Conservancy Supervisory Services",
+          "keywords": "FM Supervisor"
+        },
+        {
+          "action": "restore_keywords",
           "designation": "Sweeping / Cleaning Services",
-          "manpower": true
+          "keywords": "Janitor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Gardening Services",
+          "rate": 52183
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Gardening Services",
+          "keywords": "Gardener"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Ops Office services",
+          "keywords": "Office Boy"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Logistics Office Services",
+          "keywords": "Office Boy"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Lab Services",
+          "keywords": "Laboratory Assistant"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Invoicing Room services",
+          "keywords": "Invoicing Support"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Lubricant Handling services",
+          "keywords": "Lube Handling Officer"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "General services",
+          "keywords": "General Worker"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Additional general services",
+          "keywords": "General Worker"
+        }
+      ]
+    },
+    {
+      "site": "SIHALA",
+      "lineId": 279,
+      "line": "2",
+      "name": "Office/Misc Service",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Forklift Operation Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Forklift Operation Services",
+          "keywords": "Forklift Operator"
+        }
+      ]
+    },
+    {
+      "site": "SIHALA",
+      "lineId": 282,
+      "line": "5",
+      "name": "Office/Misc Service",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Electrical services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Electrical services",
+          "keywords": "Electrician"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fitter services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fitter services",
+          "keywords": "Fitter"
+        }
+      ]
+    },
+    {
+      "site": "SIHALA",
+      "lineId": 283,
+      "line": "6",
+      "name": "Office/Misc Service",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fuel Oil Handling Services",
+          "rate": 57304
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fuel Oil Handling Services",
+          "keywords": "Fuel / Oil Handling Officer"
+        }
+      ]
+    },
+    {
+      "site": "SIHALA",
+      "lineId": 284,
+      "line": "7",
+      "name": "Pesh Imam Service",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Pesh Imam Services",
+          "rate": 56985
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Pesh Imam Services",
+          "keywords": "Pesh Imam"
+        }
+      ]
+    },
+    {
+      "site": "SIHALA",
+      "lineId": 288,
+      "line": "11",
+      "name": "Driver Service",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Driving Services",
+          "rate": 56985
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Driving Services",
+          "keywords": "Driver"
+        }
+      ]
+    },
+    {
+      "site": "TARUJABBA",
+      "lineId": 290,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Conservancy Supervisory Services",
+          "rate": 60246
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Conservancy Supervisory Services",
+          "keywords": "FM Supervisor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "rate": 52040
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sweeping / Cleaning Services",
+          "keywords": "Janitor"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Gardening Services",
+          "rate": 52183
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Gardening Services",
+          "keywords": "Gardener"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Sealing Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Sealing Services",
+          "keywords": "Sealing Officer"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Ops Office services",
+          "keywords": "Office Boy"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Logistics Office Services",
+          "keywords": "Office Boy"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Invoicing Room services",
+          "keywords": "Invoicing Support"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Lab Services",
+          "keywords": "Laboratory Assistant"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Store Keeping services",
+          "keywords": "Storekeeper"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Lube Handling",
+          "keywords": "Lube Handling Officer"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "General services",
+          "keywords": "General Worker"
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Additional services",
+          "keywords": "General Worker"
+        }
+      ]
+    },
+    {
+      "site": "TARUJABBA",
+      "lineId": 291,
+      "line": "2",
+      "name": "Office/Misc Services (Forklift)",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Forklift Operation Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Forklift Operation Services",
+          "keywords": "Forklift Operator"
+        }
+      ]
+    },
+    {
+      "site": "TARUJABBA",
+      "lineId": 294,
+      "line": "5",
+      "name": "Office/Misc Services (Fuel oil decanting)",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fuel Oil Handling Services",
+          "rate": 57304
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fuel Oil Handling Services",
+          "keywords": "Fuel / Oil Handling Officer"
+        }
+      ]
+    },
+    {
+      "site": "TARUJABBA",
+      "lineId": 295,
+      "line": "6",
+      "name": "Contract for services of pesh imam",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Pesh Imam Services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Pesh Imam Services",
+          "keywords": "Pesh Imam"
+        }
+      ]
+    },
+    {
+      "site": "TARUJABBA",
+      "lineId": 296,
+      "line": "7",
+      "name": "Office/Misc Services (Technical services)",
+      "changes": [
+        {
+          "action": "restore_seed_rate",
+          "designation": "Electrical services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Electrical services",
+          "keywords": "Electrician"
+        },
+        {
+          "action": "restore_seed_rate",
+          "designation": "Fitter services",
+          "rate": 56991
+        },
+        {
+          "action": "restore_keywords",
+          "designation": "Fitter services",
+          "keywords": "Fitter"
         }
       ]
     }
