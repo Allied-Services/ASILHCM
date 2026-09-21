@@ -120,12 +120,29 @@ function lineRoles(line) {
         : (typeof line?.roles === 'string' ? JSON.parse(line.roles || '[]') : []);
 }
 
+function roleKeywordList(role) {
+    const raw = role?.keywords ?? role?.position_keywords ?? '';
+    const parts = Array.isArray(raw) ? raw : String(raw).split(',');
+    return parts.map((s) => String(s).trim()).filter(Boolean);
+}
+
+function roleKeywordsMatch(role, designation) {
+    return roleKeywordList(role).some((k) => designationsMatch(k, designation));
+}
+
+function roleMatchesDesignation(role, designation) {
+    if (roleKeywordsMatch(role, designation)) return true;
+    return designationsMatch(designation, role?.designation || role?.role);
+}
+
 /**
  * Prefer the Excel item number for this site; otherwise the most specific
  * manpower line (dedicated Technical/Fuel line over kitchen-sink Office/Misc).
  */
 function findRoleForDesignation(roles, designation) {
     const list = Array.isArray(roles) ? roles : [];
+    const byKeyword = list.find((r) => roleKeywordsMatch(r, designation));
+    if (byKeyword) return byKeyword;
     return list.find((r) => designationsMatch(designation, r.designation || r.role)) || null;
 }
 
@@ -152,7 +169,7 @@ function findLineForDesignation(lines, designation, opts = {}) {
     for (const line of lines || []) {
         if (!(line.is_manpower_dependent || line.isManpowerDependent)) continue;
         const roles = lineRoles(line);
-        if (roles.some((r) => designationsMatch(designation, r.designation || r.role))) {
+        if (roles.some((r) => roleMatchesDesignation(r, designation))) {
             matches.push(withMatchedRole(line, roles, designation));
         }
     }
@@ -163,11 +180,7 @@ function findLineForDesignation(lines, designation, opts = {}) {
 }
 
 function findMatchingRole(roles, designation) {
-    const list = lineRoles({ roles });
-    for (const role of list) {
-        if (designationsMatch(designation, role.designation || role.role)) return role;
-    }
-    return null;
+    return findRoleForDesignation(lineRoles({ roles }), designation);
 }
 
 module.exports = {
@@ -176,6 +189,9 @@ module.exports = {
     phrasesOverlap,
     designationMatchKeys,
     designationsMatch,
+    roleKeywordList,
+    roleKeywordsMatch,
+    roleMatchesDesignation,
     findRoleForDesignation,
     findLineForDesignation,
     findMatchingRole,

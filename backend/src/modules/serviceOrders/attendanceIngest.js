@@ -1,6 +1,6 @@
 'use strict';
 
-const { absenceDeductionAmount } = require('./sitesMeta');
+const { absenceDeductionAmount, calendarDaysInMonth } = require('./sitesMeta');
 const { clearCarriedForwardArrears } = require('../../payroll/oneTimePayCarryForward');
 const { getServiceOrder } = require('./crud');
 const {
@@ -40,7 +40,7 @@ async function resolveEmployeeId(pool, empCode, contractId, siteCode) {
     return metaRows[0]?.id || null;
 }
 
-async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor, monthDays = 30 }) {
+async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor, monthDays }) {
     const so = await getServiceOrder(pool, serviceOrderId);
     if (!so) {
         const err = new Error('Service order not found');
@@ -49,6 +49,7 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
     }
 
     const lines = so.lines || [];
+    const days = Number(monthDays) > 0 ? Number(monthDays) : (calendarDaysInMonth(month, year) || 30);
     const client = await pool.connect();
     const summary = { overrides: 0, deductions: 0, skipped: [], errors: [] };
     const touchedEmployeeIds = [];
@@ -124,9 +125,16 @@ async function applyAttendance(pool, { serviceOrderId, month, year, rows, actor,
                 continue;
             }
 
-            const role = findMatchingRole(match.roles, row.designation);
-            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays, role);
-            if (amount <= 0) continue;
+            const role = match.role || findMatchingRole(match.roles, row.designation);
+            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, days, role);
+            if (!(amount > 0)) {
+                summary.errors.push({
+                    empCode: row.empCode,
+                    reason: 'missing_service_rate',
+                    designation: row.designation,
+                });
+                continue;
+            }
 
             await client.query(
                 `INSERT INTO so_deductions

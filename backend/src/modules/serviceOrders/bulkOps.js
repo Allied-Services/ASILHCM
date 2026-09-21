@@ -7,6 +7,7 @@ const { computeSoInvoice, persistSoInvoice, listDeductions } = require('./billin
 const { assertContractConfirmations } = require('./billableConfirmations');
 const { employedInPeriodSqlClause } = require('../../core/employeeActive');
 const { CYCLE_AND_FV_ATTENDANCE_SOURCES } = require('./cycleAttendanceSync');
+const { calendarDaysInMonth } = require('./sitesMeta');
 
 /**
  * Drive-pull + apply attendance for every service order under a contract.
@@ -55,6 +56,7 @@ async function applyAttendanceAllSites(pool, { contractId, month, year, actor, s
                 year,
                 rows: parseRows,
                 actor,
+                monthDays: calendarDaysInMonth(month, year) || 30,
             });
             row.ok = true;
             row.overrides = summary.overrides || 0;

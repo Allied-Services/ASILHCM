@@ -33,6 +33,7 @@ function RoleEditor({ roles, lineManpower, onChange }) {
         <span>Service</span>
         <span>Count</span>
         <span>Rate / resource</span>
+        <span>Position keywords</span>
         <span>Manpower</span>
         <span>Total</span>
         <span />
@@ -55,8 +56,13 @@ function RoleEditor({ roles, lineManpower, onChange }) {
             min="0"
             step="0.01"
             value={r.rate === '' || r.rate == null ? '' : r.rate}
-            placeholder="equal split"
+            placeholder="SO unit rate"
             onChange={(e) => setRole(i, { ...r, rate: e.target.value === '' ? '' : Number(e.target.value) })}
+          />
+          <input
+            value={r.keywords || ''}
+            placeholder="Janitor, Sweeper"
+            onChange={(e) => setRole(i, { ...r, keywords: e.target.value })}
           />
           <label className="so-mp">
             <input

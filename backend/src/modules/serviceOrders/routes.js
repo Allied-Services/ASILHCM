@@ -46,6 +46,7 @@ const {
     saveContractBillableConfirmations,
 } = require('./service');
 const { summarizeRosterCapacity } = require('./rosterCapacity');
+const { calendarDaysInMonth } = require('./sitesMeta');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
@@ -332,7 +333,7 @@ function registerServiceOrderRoutes(app, deps) {
                 year,
                 rows,
                 actor: req.user?.email,
-                monthDays: req.body.monthDays,
+                monthDays: req.body.monthDays || calendarDaysInMonth(month, year) || 30,
             });
             res.json(summary);
         } catch (err) {

@@ -446,6 +446,7 @@ async function submitImport(pool, importId, actor) {
                 year,
                 actor,
                 rows: resolved,
+                monthDays,
             });
         } catch (err) {
             console.error('[cycle-file.submit so_sync]', err);

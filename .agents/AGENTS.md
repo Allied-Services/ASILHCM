@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-21 — FV shortage is nested SO unit rate / calendar days
+Almas (Sihala Janitor) 1 August day is **1,678.81** (`52043 / 31`), not Office/Misc ÷ 22 ÷ 30. Daily shortage uses the nested service unit rate and days in the month. Kitchen-sink lines no longer leftover-split. Position Keywords on each SO service bind roster titles. Rebuild: `node backend/scripts/rebuild_fv_so_deductions.js --contract CTR-PSO-NORTH-ZONE --month 8 --year 2026`.
+
+**Env vars needed:** none.
+
 ### 2026-09-21 — Restore North Zone SO nested service rates
 CTR-PSO-NORTH-ZONE still had all 51 billed lines; nested role rates (Sihala Sweeping **52,043**) had been stripped on save. Restore writes those rates onto the existing `roles` JSONB (no line delete). Empty `replaceLines` payloads no longer wipe the catalog. Comma rates such as `52,043` round-trip.
 

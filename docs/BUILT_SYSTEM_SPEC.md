@@ -399,7 +399,7 @@ Module `backend/src/modules/serviceOrders/`. UI: `FixedValueContracts.jsx`, `Fix
 | `CTR-PSO-NORTH-ZONE` | Multi-site conservancy |
 | `CTR-PSO-CORO-MA` | CORO Masood Anwari, SO `4110036239`, site `SS94` |
 
-Billing model: `service_order_deduction`. Absence: `(lineRate / roleCount) / 30 × absentDays` on `so_deductions.line_id`. Manual adjustments signed (+ adds / − deducts) **before** provincial ST. Stamped grand = net + PST only (Punjab 16%, others 15%). WHT does not reduce stamped grand.
+Billing model: `service_order_deduction`. Absence: nested SO **unit rate / days in month** × absent days (`so_deductions.line_id`). Sihala Sweeping 52,043 / 31 = 1,678.81. Kitchen-sink Office/Misc is not split across all headcount. Manual adjustments signed (+ adds / − deducts) **before** provincial ST. Stamped grand = net + PST only (Punjab 16%, others 15%). WHT does not reduce stamped grand.
 
 Payroll wages (Conservancy): `salary × ((30 − sheet_absent) / 30)`.
 

@@ -26,35 +26,43 @@ const fs = require('fs');
 const path = require('path');
 
 describe('serviceOrders — absence formula', () => {
-    test('daily rate = (lineRate / roleCount) / 30', () => {
-        const roles = [{ designation: 'Sweeping', count: 4 }, { designation: 'Gardening', count: 2 }];
-        expect(roleCount(roles)).toBe(6);
+    test('dedicated one-role line uses lineRate / count / days', () => {
+        const roles = [{ designation: 'Gardener', count: 1 }];
+        expect(roleCount(roles)).toBe(1);
         const amt = absenceDeductionAmount(120000, roles, 3, 30);
-        expect(amt).toBe(Math.round((120000 / 6 / 30) * 3 * 100) / 100);
+        expect(amt).toBe(Math.round((120000 / 1 / 30) * 3 * 100) / 100);
     });
 
-    test('explicit role rate wins over equal split', () => {
+    test('Almas: Sihala Sweeping 52043 / 31 August days = 1678.81', () => {
+        const roles = [
+            { designation: 'Conservancy Supervisory Services', count: 1 },
+            { designation: 'Sweeping / Cleaning Services', count: 7, rate: 52043, keywords: 'Janitor' },
+            { designation: 'Gardening Services', count: 2 },
+        ];
+        const sweeping = roles[1];
+        const amt = absenceDeductionAmount(1192940, roles, 1, 31, sweeping);
+        expect(amt).toBe(1678.81);
+    });
+
+    test('kitchen-sink role with no nested rate is not a leftover split', () => {
+        const roles = [
+            { designation: 'Sweeping / Cleaning Services', count: 7, rate: 52043 },
+            { designation: 'Gardening Services', count: 2 },
+        ];
+        expect(absenceDeductionAmount(1192940, roles, 1, 31, roles[1])).toBe(0);
+    });
+
+    test('explicit role rate is the unit, not divided by count again', () => {
         const roles = [
             { designation: 'FM Supervisor', count: 1, rate: 60246 },
             { designation: 'Gardening', count: 2, rate: 52183 },
-            { designation: 'Sweeper', count: 1 },
         ];
-        const amt = absenceDeductionAmount(331248, roles, 30, 30, roles[0]);
-        expect(amt).toBe(60246);
+        expect(absenceDeductionAmount(331248, roles, 30, 30, roles[0])).toBe(60246);
+        expect(absenceDeductionAmount(331248, roles, 15, 30, roles[1])).toBe(26091.5);
     });
 
     test('zero absences → zero deduction', () => {
         expect(absenceDeductionAmount(50000, [{ count: 2 }], 0)).toBe(0);
-    });
-
-    test('matched role rate wins over equal split', () => {
-        const roles = [
-            { designation: 'Conservancy Supervisory Services', count: 1, rate: 60246 },
-            { designation: 'Gardening Services', count: 2, rate: 52183 },
-        ];
-        expect(absenceDeductionAmount(331248, roles, 30, 30, roles[0])).toBe(60246);
-        expect(absenceDeductionAmount(331248, roles, 30, 30, roles[1])).toBe(52183);
-        expect(absenceDeductionAmount(331248, roles, 15, 30, roles[1])).toBe(26091.5);
     });
 });
 
@@ -302,6 +310,33 @@ describe('serviceOrders — designation → SO line match', () => {
         expect(m).not.toBeNull();
         expect(m.line.id).toBe('cp-item-1');
         expect(m.roles.some(r => /sweeping|cleaning/i.test(r.designation))).toBe(true);
+        expect(m.role.keywords).toBe('Janitor');
+    });
+
+    test('Sihala Janitor keyword binds to Sweeping at 52043, not the Office/Misc lump', () => {
+        const sihala = require('../../scripts/seeds/pso_sites.json').find(s => s.id === 'SIHALA');
+        const sihLines = sihala.lineItems.map(l => ({
+            id: l.id,
+            is_manpower_dependent: !!l.isManpowerDependent,
+            rate: l.rate,
+            roles: l.roles || [],
+        }));
+        const m = findLineForDesignation(sihLines, 'Janitor', { siteCode: 'SIHALA' });
+        expect(m.role.designation).toMatch(/Sweeping/i);
+        expect(m.role.rate).toBe(52043);
+        expect(absenceDeductionAmount(m.line.rate, m.roles, 1, 31, m.role)).toBe(1678.81);
+    });
+
+    test('Office Boy on two Sihala services uses the first match', () => {
+        const sihala = require('../../scripts/seeds/pso_sites.json').find(s => s.id === 'SIHALA');
+        const office = sihala.lineItems.find((l) => l.id === 'sih-item-1');
+        const m = findLineForDesignation([{
+            id: office.id,
+            is_manpower_dependent: true,
+            rate: office.rate,
+            roles: office.roles,
+        }], 'Office Boy', { siteCode: 'SIHALA' });
+        expect(m.role.designation).toMatch(/Ops Office/i);
     });
 
     test('Fuel/ Oil Handling Officer maps to Tank-lorry line, not Office service', () => {

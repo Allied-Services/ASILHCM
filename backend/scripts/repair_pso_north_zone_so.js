@@ -78,6 +78,11 @@ function mergeRoles(liveRoles, seedRoles) {
             live.rate = seed.rate;
             changed = true;
         }
+        const seedKw = String(seed.keywords || '').trim();
+        if (seedKw && !String(live.keywords || '').trim()) {
+            live.keywords = seedKw;
+            changed = true;
+        }
     }
     return { roles: [...byKey.values()], changed };
 }

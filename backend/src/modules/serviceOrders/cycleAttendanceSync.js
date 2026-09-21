@@ -1,7 +1,7 @@
 'use strict';
 
 const { listServiceOrders } = require('./crud');
-const { absenceDeductionAmount } = require('./sitesMeta');
+const { absenceDeductionAmount, calendarDaysInMonth } = require('./sitesMeta');
 const { findLineForDesignation, findMatchingRole } = require('./designationMatch');
 
 /** Override sources that mean "this month's attendance is in". */
@@ -31,7 +31,7 @@ async function syncSoDeductionsFromCycleRows(pool, {
     year,
     actor,
     rows,
-    monthDays = 30,
+    monthDays,
 }) {
     const summary = {
         contractId,
@@ -42,6 +42,7 @@ async function syncSoDeductionsFromCycleRows(pool, {
         skipped: [],
         errors: [],
     };
+    const days = Number(monthDays) > 0 ? Number(monthDays) : (calendarDaysInMonth(month, year) || 30);
     const employeeIds = [...new Set((rows || []).map((r) => r.employeeId).filter(Boolean))];
     if (!contractId || !employeeIds.length) return summary;
 
@@ -109,9 +110,17 @@ async function syncSoDeductionsFromCycleRows(pool, {
                 });
                 continue;
             }
-            const role = findMatchingRole(match.roles, emp.designation);
-            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, monthDays, role);
-            if (!Number.isFinite(amount) || amount <= 0) continue;
+            const role = match.role || findMatchingRole(match.roles, emp.designation);
+            const amount = absenceDeductionAmount(match.line.rate, match.roles, absentDays, days, role);
+            if (!Number.isFinite(amount) || amount <= 0) {
+                summary.errors.push({
+                    employeeId: emp.id,
+                    reason: 'missing_service_rate',
+                    designation: emp.designation,
+                    site: so.site_code,
+                });
+                continue;
+            }
             insertRows.push({
                 serviceOrderId: so.id,
                 lineId: match.line.id,
@@ -161,7 +170,7 @@ async function syncSoDeductionsFromCycleRows(pool, {
     return summary;
 }
 
-/** Service Order invoices always prorate on a 30-day month. */
+/** Paid-days → absent conversion on lock still uses a 30-day sheet. Daily shortage rate uses calendar days. */
 const SO_MONTH_DAYS = 30;
 
 /**
@@ -221,7 +230,8 @@ async function syncSoDeductionsFromLockedSheet(pool, {
         [year, month, ids]
     );
 
-    const byContract = rowsFromLockedPaidDays(rows, monthDays);
+    const byContract = rowsFromLockedPaidDays(rows, SO_MONTH_DAYS);
+    const calDays = calendarDaysInMonth(month, year) || SO_MONTH_DAYS;
     for (const [contractId, contractRows] of byContract) {
         try {
             const part = await syncSoDeductionsFromCycleRows(pool, {
@@ -230,7 +240,7 @@ async function syncSoDeductionsFromLockedSheet(pool, {
                 year,
                 actor,
                 rows: contractRows,
-                monthDays,
+                monthDays: calDays,
             });
             summary.contracts += 1;
             summary.deductions += Number(part.deductions) || 0;

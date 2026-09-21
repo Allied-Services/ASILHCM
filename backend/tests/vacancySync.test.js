@@ -36,7 +36,7 @@ const officeLine = {
     ],
 };
 
-describe('role monthly rate — explicit vs leftover split', () => {
+describe('role monthly rate — nested unit vs kitchen-sink', () => {
     test('FM Supervisor uses the stored 60,246', () => {
         const role = officeLine.roles[0];
         expect(roleMonthlyRate(officeLine, officeLine.roles, role)).toBe(60246);
@@ -49,6 +49,11 @@ describe('role monthly rate — explicit vs leftover split', () => {
         expect(absenceDeductionAmount(officeLine.rate, officeLine.roles, 15, 30, role)).toBe(
             Math.round((52183 / 30) * 15 * 100) / 100
         );
+    });
+
+    test('unpriced kitchen-sink role is not leftover-split', () => {
+        const sweeper = officeLine.roles[1];
+        expect(roleMonthlyRate(officeLine, officeLine.roles, sweeper)).toBe(0);
     });
 });
 
@@ -130,7 +135,7 @@ describe('planVacancies — Morgah supervisor + gardener', () => {
         const named = planned.filter((d) => d.employeeId === 'W-204');
         expect(named).toHaveLength(1);
         expect(named[0].daysAbsent).toBe(15);
-        expect(named[0].amount).toBe(Math.round((52183 / 30) * 15 * 100) / 100);
+        expect(named[0].amount).toBe(Math.round((52183 / 31) * 15 * 100) / 100);
         expect(planned.filter((d) => /garden/i.test(d.designation) && d.source === 'vacancy')).toHaveLength(1);
     });
 
