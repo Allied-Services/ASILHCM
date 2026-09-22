@@ -116,24 +116,25 @@
             "designation": "Conservancy Supervisory Services",
             "count": 1,
             "keywords": "FM Supervisor",
-            "rate": 60246
+            "rate": 60216
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 4,
             "keywords": "Janitor",
-            "rate": 52040
+            "rate": 52046
           },
           {
             "designation": "Gardening Services",
             "count": 1,
             "keywords": "Gardener",
-            "rate": 52183
+            "rate": 52189
           },
           {
             "designation": "M&R Support services",
             "count": 1,
-            "keywords": "M&R Technician"
+            "keywords": "M&R Technician",
+            "rate": 56991
           },
           {
             "designation": "Sealing Services",
@@ -144,27 +145,32 @@
           {
             "designation": "Lube Handling",
             "count": 1,
-            "keywords": "Lube Handling Officer"
+            "keywords": "Lube Handling Officer",
+            "rate": 56991
           },
           {
             "designation": "Lab service",
             "count": 1,
-            "keywords": "Laboratory Assistant"
+            "keywords": "Laboratory Assistant",
+            "rate": 56991
           },
           {
             "designation": "Office service",
             "count": 1,
-            "keywords": "Office Boy"
+            "keywords": "Office Boy",
+            "rate": 56991
           },
           {
             "designation": "OMC Physical Reporting",
             "count": 1,
-            "keywords": "OMC Reporting Officer"
+            "keywords": "OMC Reporting Officer",
+            "rate": 56991
           },
           {
             "designation": "Additional general services",
             "count": 2,
-            "keywords": "General Worker"
+            "keywords": "General Worker",
+            "rate": 52046
           }
         ]
       },
@@ -268,7 +274,7 @@
             "designation": "Conservancy Supervisory Services",
             "count": 1,
             "keywords": "FM Supervisor",
-            "rate": 60246
+            "rate": 60213
           },
           {
             "designation": "Sweeping / Cleaning Services",
@@ -281,42 +287,49 @@
             "designation": "Gardening Services",
             "count": 2,
             "keywords": "Gardener",
-            "rate": 52183
+            "rate": 52185
           },
           {
             "designation": "Ops Office services",
             "count": 1,
-            "keywords": "Office Boy"
+            "keywords": "Office Boy",
+            "rate": 56987
           },
           {
             "designation": "Logistics Office Services",
             "count": 1,
-            "keywords": "Office Boy"
+            "keywords": "Office Boy",
+            "rate": 56987
           },
           {
             "designation": "Lab Services",
             "count": 1,
-            "keywords": "Laboratory Assistant"
+            "keywords": "Laboratory Assistant",
+            "rate": 56987
           },
           {
             "designation": "Invoicing Room services",
             "count": 2,
-            "keywords": "Invoicing Support"
+            "keywords": "Invoicing Support",
+            "rate": 56987
           },
           {
             "designation": "Lubricant Handling services",
             "count": 3,
-            "keywords": "Lube Handling Officer"
+            "keywords": "Lube Handling Officer",
+            "rate": 56987
           },
           {
             "designation": "General services",
             "count": 2,
-            "keywords": "General Worker"
+            "keywords": "General Worker",
+            "rate": 52040
           },
           {
             "designation": "Additional general services",
             "count": 2,
-            "keywords": "General Worker"
+            "keywords": "General Worker",
+            "rate": 52040
           }
         ]
       },
@@ -414,7 +427,7 @@
             "designation": "Pesh Imam Services",
             "count": 1,
             "keywords": "Pesh Imam",
-            "rate": 56985
+            "rate": 56991
           }
         ]
       },
@@ -462,7 +475,7 @@
             "designation": "Driving Services",
             "count": 3,
             "keywords": "Driver",
-            "rate": 56985
+            "rate": 56991
           }
         ]
       },
@@ -505,55 +518,61 @@
             "designation": "Conservancy Supervisory Services",
             "count": 1,
             "keywords": "FM Supervisor",
-            "rate": 60246
+            "rate": 60222
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 2,
             "keywords": "Janitor",
-            "rate": 52040
+            "rate": 52109
           },
           {
             "designation": "Gardening Services",
             "count": 2,
             "keywords": "Gardener",
-            "rate": 52183
+            "rate": 52252
           },
           {
             "designation": "Lube Handling",
             "count": 1,
-            "keywords": "Lube Handling Officer"
+            "keywords": "Lube Handling Officer",
+            "rate": 57054
           },
           {
             "designation": "Filling Pumproom / Invoicing Room services",
             "count": 1,
-            "keywords": "Invoicing Support"
+            "keywords": "Invoicing Support",
+            "rate": 57054
           },
           {
             "designation": "Sealing Services",
             "count": 1,
             "keywords": "Sealing Officer",
-            "rate": 56991
+            "rate": 57054
           },
           {
             "designation": "M&R Support services",
             "count": 1,
-            "keywords": "M&R Technician"
+            "keywords": "M&R Technician",
+            "rate": 57054
           },
           {
             "designation": "Office service",
             "count": 1,
-            "keywords": "Office Boy"
+            "keywords": "Office Boy",
+            "rate": 57054
           },
           {
             "designation": "Lab Services",
             "count": 1,
-            "keywords": "Laboratory Assistant"
+            "keywords": "Laboratory Assistant",
+            "rate": 57054
           },
           {
             "designation": "Additional services",
             "count": 2,
-            "keywords": "General Worker"
+            "keywords": "General Worker",
+            "rate": 52109
           }
         ]
       },
@@ -655,19 +674,19 @@
             "designation": "Conservancy Supervisory Services",
             "count": 1,
             "keywords": "FM Supervisor",
-            "rate": 60246
+            "rate": 60216
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 2,
             "keywords": "Janitor",
-            "rate": 52040
+            "rate": 52046
           },
           {
             "designation": "Gardening Services",
             "count": 1,
             "keywords": "Gardener",
-            "rate": 52183
+            "rate": 52189
           },
           {
             "designation": "Sealing Services",
@@ -726,18 +745,19 @@
             "designation": "Sweeping / Cleaning Services",
             "count": 1,
             "keywords": "Janitor",
-            "rate": 52040
+            "rate": 52046
           },
           {
             "designation": "Gardening Services",
             "count": 1,
             "keywords": "Gardener",
-            "rate": 52183
+            "rate": 52189
           },
           {
             "designation": "Lube Handling",
             "count": 2,
-            "keywords": "Lube Handling Officer"
+            "keywords": "Lube Handling Officer",
+            "rate": 56991
           }
         ]
       },
@@ -772,65 +792,73 @@
             "designation": "Conservancy Supervisory Services",
             "count": 1,
             "keywords": "FM Supervisor",
-            "rate": 60246
+            "rate": 60207
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 4,
             "keywords": "Janitor",
-            "rate": 52040
+            "rate": 52030
           },
           {
             "designation": "Gardening Services",
             "count": 2,
             "keywords": "Gardener",
-            "rate": 52183
+            "rate": 52173
           },
           {
             "designation": "Sealing Services",
             "count": 2,
             "keywords": "Sealing Officer",
-            "rate": 56991
+            "rate": 56975
           },
           {
             "designation": "Ops Office services",
             "count": 1,
-            "keywords": "Office Boy"
+            "keywords": "Office Boy",
+            "rate": 56975
           },
           {
             "designation": "Logistics Office Services",
             "count": 1,
-            "keywords": "Office Boy"
+            "keywords": "Office Boy",
+            "rate": 56975
           },
           {
             "designation": "Invoicing Room services",
             "count": 2,
-            "keywords": "Invoicing Support"
+            "keywords": "Invoicing Support",
+            "rate": 56975
           },
           {
             "designation": "Lab Services",
             "count": 2,
-            "keywords": "Laboratory Assistant"
+            "keywords": "Laboratory Assistant",
+            "rate": 56975
           },
           {
             "designation": "Store Keeping services",
             "count": 1,
-            "keywords": "Storekeeper"
+            "keywords": "Storekeeper",
+            "rate": 52375
           },
           {
             "designation": "Lube Handling",
             "count": 2,
-            "keywords": "Lube Handling Officer"
+            "keywords": "Lube Handling Officer",
+            "rate": 56975
           },
           {
             "designation": "General services",
             "count": 2,
-            "keywords": "General Worker"
+            "keywords": "General Worker",
+            "rate": 52030
           },
           {
             "designation": "Additional services",
             "count": 2,
-            "keywords": "General Worker"
+            "keywords": "General Worker",
+            "rate": 52030
           }
         ]
       },
@@ -948,13 +976,13 @@
             "designation": "Sweeping / Cleaning Services",
             "count": 2,
             "keywords": "Janitor",
-            "rate": 52040
+            "rate": 52046
           },
           {
             "designation": "Gardening Services",
             "count": 1,
             "keywords": "Gardener",
-            "rate": 52183
+            "rate": 52189
           },
           {
             "designation": "Sealing Services",
@@ -965,12 +993,14 @@
           {
             "designation": "Office service",
             "count": 1,
-            "keywords": "Office Boy"
+            "keywords": "Office Boy",
+            "rate": 56991
           },
           {
             "designation": "Invoicing Room services",
             "count": 4,
-            "keywords": "Invoicing Support"
+            "keywords": "Invoicing Support",
+            "rate": 56991
           }
         ]
       },
@@ -1013,18 +1043,19 @@
             "designation": "Sweeping / Cleaning Services",
             "count": 2,
             "keywords": "Janitor",
-            "rate": 52040
+            "rate": 52046
           },
           {
             "designation": "Gardening Services",
             "count": 1,
             "keywords": "Gardener",
-            "rate": 52183
+            "rate": 52189
           },
           {
             "designation": "General Housekeeping Services",
             "count": 3,
-            "keywords": "Janitor"
+            "keywords": "Janitor",
+            "rate": 52046
           }
         ]
       },
@@ -1058,23 +1089,26 @@
           {
             "designation": "Invoicing Room services",
             "count": 1,
-            "keywords": "Invoicing Support"
+            "keywords": "Invoicing Support",
+            "rate": 52046
           },
           {
             "designation": "Gardening Services",
             "count": 1,
             "keywords": "Gardener",
-            "rate": 52183
+            "rate": 52189
           },
           {
             "designation": "Lube Handling",
             "count": 2,
-            "keywords": "Lube Handling Officer"
+            "keywords": "Lube Handling Officer",
+            "rate": 56991
           },
           {
             "designation": "General Housekeeping Services",
             "count": 3,
-            "keywords": "Janitor"
+            "keywords": "Janitor",
+            "rate": 52046
           }
         ]
       },
@@ -1152,18 +1186,19 @@
             "designation": "Conservancy Supervisory Services",
             "count": 1,
             "keywords": "FM Supervisor",
-            "rate": 60246
+            "rate": 60120
           },
           {
             "designation": "Sweeping / Cleaning Services",
             "count": 1,
             "keywords": "Janitor",
-            "rate": 52040
+            "rate": 51950
           },
           {
             "designation": "General Services",
             "count": 4,
-            "keywords": "General Worker"
+            "keywords": "General Worker",
+            "rate": 52094
           }
         ]
       },

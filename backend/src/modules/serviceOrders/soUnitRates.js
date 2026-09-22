@@ -77,28 +77,11 @@ function rememberRate(catalog, siteCode, designation, rate) {
     catalog.byDesignation.set(key, bucket);
 }
 
-function mode(values) {
-    const counts = new Map();
-    for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
-    let best = 0;
-    let bestN = 0;
-    for (const [v, n] of counts) {
-        if (n > bestN || (n === bestN && v > best)) {
-            best = v;
-            bestN = n;
-        }
-    }
-    return best;
-}
-
 function catalogUnitRate(catalog, designation, siteCode) {
     const key = designationKey(designation);
     if (!key || !catalog) return 0;
     const site = String(siteCode || '').trim().toUpperCase();
     if (site && catalog.bySite.has(`${site}|${key}`)) return catalog.bySite.get(`${site}|${key}`);
-    if (catalog.bySite.has(`MORGAH|${key}`)) return catalog.bySite.get(`MORGAH|${key}`);
-    const bucket = catalog.byDesignation.get(key);
-    if (bucket && bucket.length) return mode(bucket);
     return 0;
 }
 

@@ -5,8 +5,8 @@
  * Restore nested Service Order role rates on CTR-PSO-NORTH-ZONE in place.
  * Does not delete or re-insert lines (so_deductions.line_id stays put).
  *
- * Fills missing role rates from pso_sites.json (nested catalog + dedicated
- * line.rate/count), then applies known live overrides (Sihala Sweeping = 52,043).
+ * Overwrites nested role.rate from the North Zone sheet map (psoNzUnitRates)
+ * plus pso_sites.json. Does not copy Morgah rates onto other sites.
  *
  *   node backend/scripts/restore_nz_so_role_rates.js
  *   node backend/scripts/restore_nz_so_role_rates.js --apply --allow-production
@@ -18,19 +18,10 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const { PSO_CONTRACT_ID } = require('../src/modules/serviceOrders/sitesMeta');
-const { buildUnitRateCatalog, fillLineRoleRates } = require('../src/modules/serviceOrders/soUnitRates');
+const { lookupNzUnitRate } = require('../src/modules/serviceOrders/psoNzUnitRates');
 
 const APPLY = process.argv.includes('--apply');
 const ALLOW_PROD = process.argv.includes('--allow-production');
-
-const LIVE_OVERRIDES = [
-    {
-        site: 'SIHALA',
-        designation: 'Sweeping / Cleaning Services',
-        rate: 52043,
-        isManpowerDependent: true,
-    },
-];
 
 function loadSeed() {
     const candidates = [
@@ -69,7 +60,14 @@ function looksProduction(url) {
     return s.includes('neon.tech') && !s.includes('staging') && !s.includes('ci-test');
 }
 
-function mergeRoles(liveRoles, seedRoles, override, liveLine, catalog) {
+function sheetRate(siteCode, role, seedRole) {
+    return lookupNzUnitRate(siteCode, role?.designation || role?.role)
+        || lookupNzUnitRate(siteCode, seedRole?.designation || seedRole?.role)
+        || positiveRate(seedRole?.rate)
+        || 0;
+}
+
+function mergeRoles(siteCode, liveRoles, seedRoles) {
     const byKey = new Map();
     for (const r of liveRoles || []) {
         const key = roleKey(r);
@@ -79,65 +77,38 @@ function mergeRoles(liveRoles, seedRoles, override, liveLine, catalog) {
     for (const seed of seedRoles || []) {
         const key = roleKey(seed);
         if (!key) continue;
-        let live = byKey.get(key);
-        if (!live) {
-            live = { ...seed };
-            byKey.set(key, live);
+        if (!byKey.has(key)) {
+            byKey.set(key, { ...seed });
             changes.push({ action: 'insert_role', designation: seed.designation, rate: seed.rate, count: seed.count });
-            continue;
         }
-        if (!(Number(live.count) > 0) && Number(seed.count) > 0) {
+    }
+    for (const live of byKey.values()) {
+        const seed = (seedRoles || []).find((s) => roleKey(s) === roleKey(live));
+        if (!(Number(live.count) > 0) && Number(seed?.count) > 0) {
             live.count = seed.count;
-            changes.push({ action: 'restore_count', designation: seed.designation, count: seed.count });
-        }
-        if (!positiveRate(live.rate) && positiveRate(seed.rate)) {
-            live.rate = Number(seed.rate);
-            changes.push({ action: 'restore_seed_rate', designation: seed.designation, rate: seed.rate });
+            changes.push({ action: 'restore_count', designation: live.designation || live.role, count: seed.count });
         }
         if (live.is_manpower_dependent == null && live.isManpowerDependent == null
-            && (seed.isManpowerDependent != null || seed.is_manpower_dependent != null)) {
+            && (seed?.isManpowerDependent != null || seed?.is_manpower_dependent != null)) {
             const mp = !!(seed.isManpowerDependent ?? seed.is_manpower_dependent);
             live.is_manpower_dependent = mp;
             live.isManpowerDependent = mp;
-            changes.push({ action: 'restore_manpower', designation: seed.designation, manpower: mp });
+            changes.push({ action: 'restore_manpower', designation: live.designation || live.role, manpower: mp });
         }
-        if (!String(live.keywords || '').trim() && String(seed.keywords || '').trim()) {
+        if (!String(live.keywords || '').trim() && String(seed?.keywords || '').trim()) {
             live.keywords = seed.keywords;
-            changes.push({ action: 'restore_keywords', designation: seed.designation, keywords: seed.keywords });
+            changes.push({ action: 'restore_keywords', designation: live.designation || live.role, keywords: seed.keywords });
         }
-    }
-    if (override) {
-        const key = norm(override.designation);
-        let live = byKey.get(key);
-        if (!live) {
-            live = {
-                designation: override.designation,
-                count: override.count || 1,
-                rate: override.rate,
-                is_manpower_dependent: override.isManpowerDependent !== false,
-                isManpowerDependent: override.isManpowerDependent !== false,
-            };
-            byKey.set(key, live);
-            changes.push({ action: 'insert_override_role', designation: override.designation, rate: override.rate });
-        } else if (positiveRate(live.rate) !== override.rate) {
-            live.rate = override.rate;
-            live.is_manpower_dependent = override.isManpowerDependent !== false;
-            live.isManpowerDependent = override.isManpowerDependent !== false;
-            changes.push({ action: 'restore_override_rate', designation: override.designation, rate: override.rate });
-        }
-    }
-    const before = new Map([...byKey.entries()].map(([k, r]) => [k, positiveRate(r.rate)]));
-    const filled = fillLineRoleRates({
-        rate: liveLine?.line_rate ?? liveLine?.rate,
-        is_manpower_dependent: liveLine?.is_manpower_dependent,
-        roles: [...byKey.values()],
-    }, catalog, liveLine?.site_code);
-    for (const role of filled.roles || []) {
-        const key = roleKey(role);
-        if (!key) continue;
-        byKey.set(key, role);
-        if (!before.get(key) && positiveRate(role.rate)) {
-            changes.push({ action: 'restore_catalog_rate', designation: role.designation || role.role, rate: role.rate });
+        const next = sheetRate(siteCode, live, seed);
+        if (next > 0 && positiveRate(live.rate) !== next) {
+            const from = positiveRate(live.rate);
+            live.rate = next;
+            changes.push({
+                action: 'set_unit_rate',
+                designation: live.designation || live.role,
+                from,
+                to: next,
+            });
         }
     }
     return { roles: [...byKey.values()], changes };
@@ -172,25 +143,12 @@ async function main() {
              ORDER BY so.site_code, l.id`,
             [PSO_CONTRACT_ID]
         );
-        const catalog = buildUnitRateCatalog(seedSites);
-
         for (const live of liveLines) {
             const site = seedSites.find((s) => s.id === live.site_code);
             const seedLines = site?.lineItems || [];
             const seedLine = seedLines.find((sl, i) => String(i + 1) === String(live.line_number))
                 || seedLines.find((sl) => norm(sl.name) === norm(live.name));
-            const override = LIVE_OVERRIDES.find((o) => (
-                o.site === live.site_code
-                && (seedLine?.roles || []).some((r) => norm(r.designation) === norm(o.designation))
-            )) || LIVE_OVERRIDES.find((o) => (
-                o.site === live.site_code
-                && rolesOf(live).some((r) => roleKey(r) === norm(o.designation))
-            ));
-            const merged = mergeRoles(rolesOf(live), seedLine?.roles || [], override && {
-                ...override,
-                count: (rolesOf(live).find((r) => roleKey(r) === norm(override.designation)) || {}).count
-                    || (seedLine?.roles || []).find((r) => norm(r.designation) === norm(override.designation))?.count,
-            }, live, catalog);
+            const merged = mergeRoles(live.site_code, rolesOf(live), seedLine?.roles || []);
             if (!merged.changes.length) continue;
             report.changes.push({
                 site: live.site_code,

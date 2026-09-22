@@ -185,7 +185,7 @@ describe('seed role rates overlay', () => {
         expect(planned.find((d) => /garden/i.test(d.designation) && !d.employeeId).amount).toBe(52183);
     });
 
-    test('Chakpirana Sweeping inherits Morgah 52,040; Forklift uses the dedicated line', () => {
+    test('Chakpirana Sweeping uses site unit 52,046; Forklift uses the dedicated line', () => {
         const lines = [
             {
                 name: 'Office/Misc Services',
@@ -205,8 +205,8 @@ describe('seed role rates overlay', () => {
             },
         ];
         const enriched = enrichLinesWithSeedRoleRates('CHAKPIRANA', lines);
-        expect(roleMonthlyRate(enriched[0], enriched[0].roles, enriched[0].roles[1])).toBe(52040);
-        expect(roleMonthlyRate(enriched[0], enriched[0].roles, enriched[0].roles[2])).toBe(0);
+        expect(roleMonthlyRate(enriched[0], enriched[0].roles, enriched[0].roles[1])).toBe(52046);
+        expect(roleMonthlyRate(enriched[0], enriched[0].roles, enriched[0].roles[2])).toBe(52046);
         expect(roleMonthlyRate(enriched[1], enriched[1].roles, enriched[1].roles[0])).toBe(56991);
     });
 });

@@ -276,7 +276,7 @@ async function buildInvoiceWorkbook(pool, { contractId, month, year }) {
     note.getColumn(1).width = 100;
     note.addRow(['Fixed Value / Conservancy invoice methodology (aligned to Wafi portal + Conservancy Pro)']);
     note.addRow(['1. Gross = sum of service-order monthly line rates (qty=1 per period).']);
-    note.addRow(['2. Shortage = Σ (serviceUnitRate / calendarDaysInMonth × days_absent). Unit rate is the nested SO service rate (Sihala Sweeping 52,043), not the parent line split across headcount.']);
+    note.addRow(['2. Shortage = Σ (serviceUnitRate / calendarDaysInMonth × days_absent). Unit rate is the nested SO service rate for that site (Sihala Sweeping 52,043), not the parent line split across headcount.']);
     note.addRow(['3. Net taxable = gross − shortage.']);
     note.addRow(['4. Provincial ST = net taxable × province rate (Punjab 16%, Sindh/KPK/Balochistan 15%).']);
     note.addRow(['5. Stamped grand = net taxable + provincial ST.']);
