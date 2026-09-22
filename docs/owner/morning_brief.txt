@@ -1,0 +1,30 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month for the pilot contract — HCM matches Excel and pays correctly.
+Status: AMBER
+
+NOT FINISHED YET
+1. Pilot shadow month still waiting on Excel vs HCM proof
+2. August payslip resend after mail switch-on — confirm it finished
+3. New pay engine not used for real pay yet
+
+NEEDS YOU TODAY
+- Payroll team Excel export for the pilot month
+- Confirm August payslip resend is done
+- PR #206 has conflicts — fix or close
+- Connect morning email on the Automation (briefs still cannot email)
+
+I SUGGEST
+- Merge approved PR #218 (board note) when you have a minute
+- No new features — stay on payroll proof
+
+FOCUS TODAY
+Confirm August payslips went out, then get the pilot Excel export so shadow-month proof can finish.
+
+---
+Live check: https://asilhcm.onrender.com/health → ok (commit 63f01bc)
+HTML card: docs/owner/morning_latest.html
+Agent: https://cursor.com/agents/bc-c8eac317-d67b-47d7-b2f6-bca0d59ed504
+Email: NOT SENT — this Automation has no email send tool yet. Connect delivery at:
+https://cursor.com/automations/5e5c7662-8dce-11f1-a7d1-d6b4613131ce
