@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-22 — Serainourang consumables and tractor SO lines
+CTR-PSO-NORTH-ZONE Serai Naurang was missing two non-manpower lines from the rate card. Added **Housekeeping services (Consumables)** qty 12 @ 17,089 and **Services of Tractor (Wild Bush Removal)** qty 120 @ 550. Billed line-rate sum is **745,082** (498,227 + 229,216 + 17,089 + 550). Non-manpower still needs the period tick to charge on the month invoice.
+
+**Env vars needed:** none.
+
 ### 2026-09-22 — GO RED North Zone unit rates from corrected rate card
 Corrected sheet (column L) stamped onto CTR-PSO-NORTH-ZONE nested roles. Faqirabad Conservancy Supervisory is **60,222** (not 60,228). Sihala Sweeping is **52,043**. Other site-specific units: Sihala Conservancy **60,213**, Tarujabba Conservancy **60,207**, PR Fueling Sweeping **51,950** / Conservancy **60,120**, Morgah Decanting **57,298**. August shortages rebuilt after apply. Almas 1 day = **1,678.81** (`52043 / 31`).
 

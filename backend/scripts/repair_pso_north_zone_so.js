@@ -144,9 +144,12 @@ async function main() {
                     line_number: liveLine?.line_number || lineNo,
                     name: liveLine?.name || seedLine.name,
                     unit: liveLine?.unit || seedLine.unit || 'MON',
-                    quantity: liveLine?.quantity != null ? Number(liveLine.quantity) : 1,
+                    quantity: liveLine?.quantity != null ? Number(liveLine.quantity)
+                        : (seedLine.quantity != null ? Number(seedLine.quantity) : 1),
                     rate: liveLine && Number(liveLine.rate) > 0 ? Number(liveLine.rate) : Number(seedLine.rate || 0),
-                    total_amount: liveLine && Number(liveLine.rate) > 0 ? Number(liveLine.rate) : Number(seedLine.rate || 0),
+                    total_amount: liveLine && Number(liveLine.rate) > 0
+                        ? Number(liveLine.total_amount ?? liveLine.rate)
+                        : Number(seedLine.totalAmount ?? seedLine.rate || 0),
                     is_manpower_dependent: liveLine
                         ? !!(liveLine.is_manpower_dependent ?? seedLine.isManpowerDependent)
                         : !!seedLine.isManpowerDependent,

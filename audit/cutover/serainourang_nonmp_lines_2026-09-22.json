@@ -1,0 +1,57 @@
+{
+  "site": "SERAINOURANG",
+  "contractId": "CTR-PSO-NORTH-ZONE",
+  "apply": true,
+  "inserted": [
+    {
+      "line_number": "3",
+      "name": "Housekeeping services (Consumables)",
+      "unit": "EA",
+      "quantity": 12,
+      "rate": 17089,
+      "total_amount": 205068,
+      "is_manpower_dependent": false
+    },
+    {
+      "line_number": "4",
+      "name": "Services of Tractor (Wild Bush Removal)",
+      "unit": "EA",
+      "quantity": 120,
+      "rate": 550,
+      "total_amount": 66000,
+      "is_manpower_dependent": false
+    }
+  ],
+  "lines": [
+    {
+      "line_number": "1",
+      "name": "Office/Misc Services",
+      "quantity": "1.00",
+      "rate": "498227.00",
+      "is_manpower_dependent": true
+    },
+    {
+      "line_number": "2",
+      "name": "Office/Misc Services (Fuel oil handling)",
+      "quantity": "1.00",
+      "rate": "229216.00",
+      "is_manpower_dependent": true
+    },
+    {
+      "line_number": "3",
+      "name": "Housekeeping services (Consumables)",
+      "quantity": "12.00",
+      "rate": "17089.00",
+      "is_manpower_dependent": false
+    },
+    {
+      "line_number": "4",
+      "name": "Services of Tractor (Wild Bush Removal)",
+      "quantity": "120.00",
+      "rate": "550.00",
+      "is_manpower_dependent": false
+    }
+  ],
+  "rateSum": 745082,
+  "soId": "SO-PSO-SERAINOURANG"
+}
