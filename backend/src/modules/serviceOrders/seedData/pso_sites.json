@@ -1020,6 +1020,24 @@
             "rate": 57304
           }
         ]
+      },
+      {
+        "id": "sn-item-3",
+        "name": "Housekeeping services (Consumables)",
+        "unit": "EA",
+        "quantity": 12,
+        "rate": 17089,
+        "totalAmount": 205068,
+        "isManpowerDependent": false
+      },
+      {
+        "id": "sn-item-4",
+        "name": "Services of Tractor (Wild Bush Removal)",
+        "unit": "EA",
+        "quantity": 120,
+        "rate": 550,
+        "totalAmount": 66000,
+        "isManpowerDependent": false
       }
     ]
   },
