@@ -5,6 +5,7 @@ const path = require('path');
 const { normalizeDesignation } = require('./designationMatch');
 const { explicitRoleRate, lineRoles } = require('./sitesMeta');
 const { withDefaultKeywords } = require('./soPositionKeywords');
+const { lookupNzUnitRate } = require('./psoNzUnitRates');
 const { buildUnitRateCatalog, fillLineRoleRates } = require('./soUnitRates');
 
 let sitesCache = null;
@@ -55,8 +56,9 @@ function matchSeedRole(seedRoles, liveRole) {
 }
 
 /**
- * Fill missing per-resource rates / manpower flags from the PSO seed catalog.
- * Does not change the billed line total. Live edits (an explicit role.rate) win.
+ * Fill per-resource rates / manpower flags from the PSO seed catalog.
+ * North Zone nested unit rates always come from the site sheet map.
+ * Does not change the billed line total.
  */
 function enrichLinesWithSeedRoleRates(siteCode, lines) {
     if (!Array.isArray(lines) || !lines.length) return lines || [];
@@ -71,10 +73,14 @@ function enrichLinesWithSeedRoleRates(siteCode, lines) {
         const nextRoles = liveRoles.map((role) => {
             const seedRole = matchSeedRole(seedRoles, role);
             const out = { ...role };
+            const sheetRate = lookupNzUnitRate(siteCode, out.designation || out.role)
+                || (seedRole && lookupNzUnitRate(siteCode, seedRole.designation || seedRole.role));
+            if (sheetRate > 0) {
+                out.rate = sheetRate;
+            } else if (seedRole && !explicitRoleRate(out) && explicitRoleRate(seedRole)) {
+                out.rate = explicitRoleRate(seedRole);
+            }
             if (seedRole) {
-                if (!explicitRoleRate(out) && explicitRoleRate(seedRole)) {
-                    out.rate = explicitRoleRate(seedRole);
-                }
                 if (out.is_manpower_dependent == null && out.isManpowerDependent == null) {
                     const mp = seedRole.isManpowerDependent ?? seedRole.is_manpower_dependent;
                     if (mp != null) {

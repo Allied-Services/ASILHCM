@@ -415,8 +415,13 @@ describe('serviceOrders — designation → SO line match', () => {
         expect(findLineForDesignation(linesOf('MORGAH'), 'Gardener', { siteCode: 'MORGAH' }).role.rate).toBe(52183);
         expect(findLineForDesignation(linesOf('MORGAH'), 'FM Supervisor', { siteCode: 'MORGAH' }).role.rate).toBe(60246);
         expect(findLineForDesignation(linesOf('SIHALA'), 'Janitor', { siteCode: 'SIHALA' }).role.rate).toBe(52043);
-        expect(findLineForDesignation(linesOf('CHAKPIRANA'), 'Janitor', { siteCode: 'CHAKPIRANA' }).role.rate).toBe(52040);
+        expect(findLineForDesignation(linesOf('CHAKPIRANA'), 'Janitor', { siteCode: 'CHAKPIRANA' }).role.rate).toBe(52046);
         expect(findLineForDesignation(linesOf('CHAKPIRANA'), 'Forklift Operator', { siteCode: 'CHAKPIRANA' }).role.rate).toBe(56991);
+        expect(findLineForDesignation(linesOf('FAQIRABAD'), 'Janitor', { siteCode: 'FAQIRABAD' }).role.rate).toBe(52109);
+        expect(findLineForDesignation(linesOf('FAQIRABAD'), 'FM Supervisor', { siteCode: 'FAQIRABAD' }).role.rate).toBe(60222);
+        expect(findLineForDesignation(linesOf('TARUJABBA'), 'Janitor', { siteCode: 'TARUJABBA' }).role.rate).toBe(52030);
+        expect(findLineForDesignation(linesOf('PR_FUELING'), 'Janitor', { siteCode: 'PR_FUELING' }).role.rate).toBe(51950);
+        expect(findLineForDesignation(linesOf('SIHALA'), 'FM Supervisor', { siteCode: 'SIHALA' }).role.rate).toBe(60213);
     });
 });
 

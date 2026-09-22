@@ -311,6 +311,16 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-22 — GO RED North Zone unit rates from corrected rate card
+Corrected sheet (column L) stamped onto CTR-PSO-NORTH-ZONE nested roles. Faqirabad Conservancy Supervisory is **60,222** (not 60,228). Sihala Sweeping is **52,043**. Other site-specific units: Sihala Conservancy **60,213**, Tarujabba Conservancy **60,207**, PR Fueling Sweeping **51,950** / Conservancy **60,120**, Morgah Decanting **57,298**. August shortages rebuilt after apply. Almas 1 day = **1,678.81** (`52043 / 31`).
+
+**Env vars needed:** none.
+
+### 2026-09-21 — GO RED North Zone nested unit rates from the site rate card
+CTR-PSO-NORTH-ZONE nested `role.rate` values are now the per-site sheet units (column L), not Morgah copies. 13 live lines updated in place. Examples: Sihala Sweeping **52,042**, Chakpirana Sweeping **52,046**, Faqirabad Sweeping **52,109**, Tarujabba Sweeping **52,030**, PR Fueling Sweeping **51,951**. August shortages rebuilt: 56 named deductions, 0 `missing_service_rate`. Almas (ASIL/PSO-139/25) 1 day is **1,678.77** (`52042 / 31`). Cross-site catalog inheritance is off.
+
+**Env vars needed:** none.
+
 ### 2026-09-21 — GO RED August FV shortages rebuilt at nested SO unit rates
 CTR-PSO-NORTH-ZONE August 2026 `so_deductions` rebuilt from attendance (39 named shortages). Almas (ASIL/PSO-139/25, Sihala Janitor, 1 day) is **1,678.81**. 17 people on Lab / Lube / Invoicing / Office / M&R / Kundian housekeeping stay `missing_service_rate` (no nested unit). Print uses live deductions. Proof: `audit/cutover/aug2026_fv_so_deductions_rebuild.json`.
 

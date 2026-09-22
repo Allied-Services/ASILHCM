@@ -1,0 +1,89 @@
+{
+  "contractId": "CTR-PSO-NORTH-ZONE",
+  "apply": true,
+  "lines_updated": 5,
+  "changes": [
+    {
+      "site": "FAQIRABAD",
+      "lineId": 255,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "set_unit_rate",
+          "designation": "Conservancy Supervisory Services",
+          "from": 60228,
+          "to": 60222
+        }
+      ]
+    },
+    {
+      "site": "MORGAH",
+      "lineId": 299,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "set_unit_rate",
+          "designation": "Decanting/Filling Services",
+          "from": 57299,
+          "to": 57298
+        }
+      ]
+    },
+    {
+      "site": "PR_FUELING",
+      "lineId": 273,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "set_unit_rate",
+          "designation": "Conservancy Supervisory Services",
+          "from": 60121,
+          "to": 60120
+        },
+        {
+          "action": "set_unit_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "from": 51951,
+          "to": 51950
+        }
+      ]
+    },
+    {
+      "site": "SIHALA",
+      "lineId": 278,
+      "line": "1",
+      "name": "Office/Misc Service",
+      "changes": [
+        {
+          "action": "set_unit_rate",
+          "designation": "Conservancy Supervisory Services",
+          "from": 60212,
+          "to": 60213
+        },
+        {
+          "action": "set_unit_rate",
+          "designation": "Sweeping / Cleaning Services",
+          "from": 52042,
+          "to": 52043
+        }
+      ]
+    },
+    {
+      "site": "TARUJABBA",
+      "lineId": 290,
+      "line": "1",
+      "name": "Office/Misc Services",
+      "changes": [
+        {
+          "action": "set_unit_rate",
+          "designation": "Conservancy Supervisory Services",
+          "from": 60200,
+          "to": 60207
+        }
+      ]
+    }
+  ]
+}
