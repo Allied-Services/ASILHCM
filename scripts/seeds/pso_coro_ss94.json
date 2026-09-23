@@ -74,7 +74,7 @@
           "rate": 331885.81,
           "total_amount": 331885.81,
           "is_manpower_dependent": true,
-          "roles": [{ "designation": "Administration / Accountancy", "count": 4 }]
+          "roles": [{ "designation": "Administration / Accountancy Services", "count": 4, "rate": 82971.4525, "keywords": "Manager, Accountant", "is_manpower_dependent": true }]
         },
         {
           "line_number": "2",
@@ -84,7 +84,7 @@
           "rate": 403390.22,
           "total_amount": 403390.22,
           "is_manpower_dependent": true,
-          "roles": [{ "designation": "Cash/Credit Handling", "count": 6 }]
+          "roles": [{ "designation": "Operational Services Cash/Credit Handling", "count": 6, "rate": 67231.7033, "keywords": "Cashier", "is_manpower_dependent": true }]
         },
         {
           "line_number": "3",
@@ -94,7 +94,7 @@
           "rate": 2982216.83,
           "total_amount": 2982216.83,
           "is_manpower_dependent": true,
-          "roles": [{ "designation": "Refueling/Traffic", "count": 50 }]
+          "roles": [{ "designation": "Operational Services-Refueling/Traffic", "count": 50, "rate": 59644.3366, "keywords": "Attendant", "is_manpower_dependent": true }]
         },
         {
           "line_number": "4",
@@ -104,7 +104,7 @@
           "rate": 238577.35,
           "total_amount": 238577.35,
           "is_manpower_dependent": true,
-          "roles": [{ "designation": "Janitorial", "count": 4 }]
+          "roles": [{ "designation": "Janitorial Services", "count": 4, "rate": 59644.3375, "keywords": "Sweeper, Gardner, Gardener", "is_manpower_dependent": true }]
         },
         {
           "line_number": "5",
@@ -113,8 +113,8 @@
           "quantity": 1,
           "rate": 180849.73,
           "total_amount": 180849.73,
-          "is_manpower_dependent": true,
-          "roles": [{ "designation": "Cash Management", "count": 1 }]
+          "is_manpower_dependent": false,
+          "roles": [{ "designation": "Cash Management Services", "count": 1, "rate": 180849.73, "is_manpower_dependent": false }]
         }
       ]
     }

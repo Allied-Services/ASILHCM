@@ -6,6 +6,32 @@ function nonManpowerLines(lines) {
     return (lines || []).filter((l) => !(l.is_manpower_dependent || l.isManpowerDependent));
 }
 
+function confirmationLineId(row) {
+    return Number(row.line_id ?? row.lineId);
+}
+
+/**
+ * A saved period review is incomplete until every current non-manpower line
+ * has a tick row. Adding consumables/tractor after Confirm-all used to leave
+ * the site "reviewed" so the month invoice never charged the new lines.
+ */
+function isPeriodReviewComplete(review, nmLines, confirmationRows) {
+    if (!review) return false;
+    const nm = nmLines || [];
+    if (!nm.length) return true;
+    const saved = new Set(
+        (confirmationRows || []).map(confirmationLineId).filter(Number.isFinite)
+    );
+    return nm.every((l) => saved.has(Number(l.id ?? l.lineId)));
+}
+
+function unsavedNonManpowerLines(nmLines, confirmationRows) {
+    const saved = new Set(
+        (confirmationRows || []).map(confirmationLineId).filter(Number.isFinite)
+    );
+    return (nmLines || []).filter((l) => !saved.has(Number(l.id ?? l.lineId)));
+}
+
 /** Manpower always billable; non-manpower only when explicitly confirmed billable. */
 function confirmationMapFromRows(rows) {
     const map = new Map();
@@ -110,6 +136,7 @@ async function getBillableConfirmationsForSo(pool, serviceOrderId, month, year) 
     const stored = await listLineConfirmations(pool, serviceOrderId, month, year);
     const byLine = confirmationMapFromRows(stored);
     const nmLines = nonManpowerLines(so.lines);
+    const unsaved = unsavedNonManpowerLines(nmLines, stored);
     const lines = nmLines.map((l) => {
         const saved = byLine.get(Number(l.id));
         return {
@@ -132,11 +159,12 @@ async function getBillableConfirmationsForSo(pool, serviceOrderId, month, year) 
         contractId: so.contract_id,
         periodMonth: month,
         periodYear: year,
-        reviewed: !!review,
+        reviewed: isPeriodReviewComplete(review, nmLines, stored),
         reviewedBy: review?.reviewed_by || null,
         reviewedAt: review?.reviewed_at || null,
         billableCount: lines.filter((l) => l.billable).length,
         totalNonManpower: lines.length,
+        unsavedCount: unsaved.length,
         lines,
     };
 }
@@ -251,17 +279,31 @@ async function saveBillableConfirmations(pool, {
 }
 
 async function assertPeriodReviewed(pool, serviceOrderId, month, year) {
-    const review = await getPeriodReview(pool, serviceOrderId, month, year);
-    if (!review) {
+    const pack = await getBillableConfirmationsForSo(pool, serviceOrderId, month, year);
+    if (!pack.reviewed) {
         const err = new Error(
-            'Confirm billable services for this site/month before generating an invoice (save the checklist even if all unchecked).'
+            pack.unsavedCount
+                ? 'Confirm billable services for this site/month before generating an invoice. Newly added non-manpower lines must be ticked or saved as not billable.'
+                : 'Confirm billable services for this site/month before generating an invoice (save the checklist even if all unchecked).'
         );
         err.status = 409;
         err.code = 'CONFIRMATIONS_REQUIRED';
-        err.details = { serviceOrderId, month, year };
+        err.details = {
+            serviceOrderId,
+            month,
+            year,
+            unsavedCount: pack.unsavedCount,
+            unsavedLineIds: pack.lines.filter((l) => !l.saved).map((l) => l.lineId),
+        };
         throw err;
     }
-    return review;
+    return {
+        service_order_id: pack.serviceOrderId,
+        period_year: pack.periodYear,
+        period_month: pack.periodMonth,
+        reviewed_by: pack.reviewedBy,
+        reviewed_at: pack.reviewedAt,
+    };
 }
 
 async function loadConfirmationMap(pool, serviceOrderId, month, year) {
@@ -343,6 +385,8 @@ async function assertContractConfirmations(pool, contractId, month, year, siteCo
 
 module.exports = {
     nonManpowerLines,
+    isPeriodReviewComplete,
+    unsavedNonManpowerLines,
     confirmationMapFromRows,
     isLineIncludedOnInvoice,
     invoiceQuantityForLine,

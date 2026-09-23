@@ -311,6 +311,16 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-23 — CORO SS94 service order uses North Zone unit / monthly rates
+Live contract `CTR-1785569435995` (PSO CORO OPS - SS94 M.A) is now Fixed Value / `service_order_deduction`, same shape as North Conservancy. SO `SO-PSO-CORO-SS94`: `line.rate` is the monthly invoice amount; `role.rate` is the per-person unit (4 d.p. so headcount × unit equals the monthly paisa). Manpower lines 1–4 always bill (64 people, **3,956,070.21**). Cash Management **180,849.73** is not manpower and bills only when the month is ticked. Full card gross **4,136,919.94**; Punjab ST 16% **661,907.19**; stamped grand **4,798,827.13**. Employee salaries were not rewritten. August 2026 sample at 100% occupancy (Cash Management included as delivered) was emailed; no `client_invoices` row was saved.
+
+**Env vars needed:** none.
+
+### 2026-09-22 — Serainourang consumables/tractor on August invoice
+CTR-PSO-NORTH-ZONE Serai Naurang Draft invoice **5480** only had the two manpower lines because August was confirmed before consumables and tractor existed. Ticked **Housekeeping services (Consumables)** 17,089 and **Services of Tractor (Wild Bush Removal)** 550 for Aug 2026 and restamped the Draft. Period review is incomplete until every current non-manpower line has a tick row, so a later SO add cannot silently stay off the invoice.
+
+**Env vars needed:** none.
+
 ### 2026-09-22 — Serainourang consumables and tractor SO lines
 CTR-PSO-NORTH-ZONE Serai Naurang was missing two non-manpower lines from the rate card. Added **Housekeeping services (Consumables)** qty 12 @ 17,089 and **Services of Tractor (Wild Bush Removal)** qty 120 @ 550. Billed line-rate sum is **745,082** (498,227 + 229,216 + 17,089 + 550). Non-manpower still needs the period tick to charge on the month invoice.
 
