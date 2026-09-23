@@ -977,6 +977,7 @@ export default function FixedValueContracts({ user, mode = 'ops' }) {
                         Tick consumables, garbage, equipment, and other fixed lines that were provided this month.
                         Defaults are <strong>off</strong> for a new month. Save even if you leave everything unchecked -
                         invoices will not generate until each site has a saved confirmation for the period.
+                        If a Service Order line is added after this month was saved, that site shows Not saved until you tick the new line and Save.
                     </p>
                     <div className="fv-kpi-grid">
                         <div className="fv-kpi">
@@ -1013,7 +1014,11 @@ export default function FixedValueContracts({ user, mode = 'ops' }) {
                                     <h4 style={{ margin: '0 0 8px' }}>
                                         {site.siteName || site.siteCode}
                                         <span className={`fv-chip ${site.reviewed ? 'done' : 'ready'}`} style={{ marginLeft: 8 }}>
-                                            {site.reviewed ? 'Saved for period' : 'Not saved yet'}
+                                            {site.reviewed
+                                                ? 'Saved for period'
+                                                : (site.unsavedCount
+                                                    ? `${site.unsavedCount} new line(s) to confirm`
+                                                    : 'Not saved yet')}
                                         </span>
                                     </h4>
                                     {lines.length === 0 ? (

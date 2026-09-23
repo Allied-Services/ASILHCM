@@ -2,6 +2,8 @@
 
 const {
     nonManpowerLines,
+    isPeriodReviewComplete,
+    unsavedNonManpowerLines,
     confirmationMapFromRows,
     isLineIncludedOnInvoice,
     invoiceQuantityForLine,
@@ -98,28 +100,96 @@ describe('billableConfirmations — zeroed non-manpower lines stay on invoice', 
     });
 });
 
+describe('billableConfirmations — period review completeness', () => {
+    const review = { reviewed_by: 'ops@asil.com.pk' };
+    const nm = [
+        { id: 303, name: 'Housekeeping services (Consumables)' },
+        { id: 304, name: 'Services of Tractor (Wild Bush Removal)' },
+    ];
+
+    test('review with no non-manpower lines is complete', () => {
+        expect(isPeriodReviewComplete(review, [], [])).toBe(true);
+    });
+
+    test('new non-manpower lines after review are incomplete', () => {
+        expect(isPeriodReviewComplete(review, nm, [])).toBe(false);
+        expect(unsavedNonManpowerLines(nm, []).map((l) => l.id)).toEqual([303, 304]);
+    });
+
+    test('complete once every current NM line has a tick row', () => {
+        const stored = [
+            { line_id: 303, billable: true },
+            { line_id: 304, billable: true },
+        ];
+        expect(isPeriodReviewComplete(review, nm, stored)).toBe(true);
+        expect(unsavedNonManpowerLines(nm, stored)).toEqual([]);
+    });
+});
+
+function mockBillablePool({ so, review, confirmations }) {
+    return {
+        query: jest.fn(async (sql) => {
+            const s = String(sql);
+            if (s.includes('so_billable_period_reviews')) {
+                return { rows: review ? [review] : [] };
+            }
+            if (s.includes('so_line_billable_confirmations')) {
+                return { rows: confirmations || [] };
+            }
+            if (s.includes('FROM service_orders so')) {
+                return { rows: so ? [so] : [] };
+            }
+            return { rows: [] };
+        }),
+    };
+}
+
 describe('billableConfirmations — period review gate', () => {
+    const soRow = {
+        id: 'SO-PSO-SERAINOURANG',
+        site_code: 'SERAINOURANG',
+        name: 'Serai Naurang Depot',
+        contract_id: 'CTR-PSO-NORTH-ZONE',
+        lines: [
+            { id: 276, name: 'Office/Misc Services', is_manpower_dependent: true, rate: 498227 },
+            { id: 303, name: 'Housekeeping services (Consumables)', is_manpower_dependent: false, rate: 17089 },
+            { id: 304, name: 'Services of Tractor (Wild Bush Removal)', is_manpower_dependent: false, rate: 550 },
+        ],
+    };
+    const reviewRow = {
+        service_order_id: 'SO-PSO-SERAINOURANG',
+        period_year: 2026,
+        period_month: 8,
+        reviewed_by: 'ops@asil.com.pk',
+        reviewed_at: new Date().toISOString(),
+    };
+
     test('assertPeriodReviewed throws CONFIRMATIONS_REQUIRED when no review row', async () => {
-        const pool = {
-            query: jest.fn().mockResolvedValue({ rows: [] }),
-        };
-        await expect(assertPeriodReviewed(pool, 'SO-PSO-TARUJABBA', 7, 2026))
+        const pool = mockBillablePool({ so: soRow, review: null, confirmations: [] });
+        await expect(assertPeriodReviewed(pool, 'SO-PSO-SERAINOURANG', 8, 2026))
             .rejects.toMatchObject({ status: 409, code: 'CONFIRMATIONS_REQUIRED' });
     });
 
-    test('assertPeriodReviewed passes when review saved (even all unchecked)', async () => {
-        const pool = {
-            query: jest.fn().mockResolvedValue({
-                rows: [{
-                    service_order_id: 'SO-PSO-TARUJABBA',
-                    period_year: 2026,
-                    period_month: 7,
-                    reviewed_by: 'ops@asil.com.pk',
-                    reviewed_at: new Date().toISOString(),
-                }],
-            }),
-        };
-        const row = await assertPeriodReviewed(pool, 'SO-PSO-TARUJABBA', 7, 2026);
+    test('assertPeriodReviewed throws when NM lines were added after the period was saved', async () => {
+        const pool = mockBillablePool({ so: soRow, review: reviewRow, confirmations: [] });
+        await expect(assertPeriodReviewed(pool, 'SO-PSO-SERAINOURANG', 8, 2026))
+            .rejects.toMatchObject({
+                status: 409,
+                code: 'CONFIRMATIONS_REQUIRED',
+                details: { unsavedLineIds: [303, 304] },
+            });
+    });
+
+    test('assertPeriodReviewed passes when review saved and every NM line has a tick (even all unchecked)', async () => {
+        const pool = mockBillablePool({
+            so: soRow,
+            review: reviewRow,
+            confirmations: [
+                { line_id: 303, billable: false },
+                { line_id: 304, billable: false },
+            ],
+        });
+        const row = await assertPeriodReviewed(pool, 'SO-PSO-SERAINOURANG', 8, 2026);
         expect(row.reviewed_by).toBe('ops@asil.com.pk');
     });
 
