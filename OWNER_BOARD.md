@@ -1,6 +1,6 @@
 # OWNER BOARD — ASIL HCM
 > Living scoreboard for the owner. Agents must read and update this.
-> Last updated: 2026-09-18 · Keep under ~100 lines. Plain English only.
+> Last updated: 2026-09-23 · Keep under ~100 lines. Plain English only.
 
 ---
 
@@ -9,7 +9,7 @@
 
 The first proof point is unchanged: **one real month for the pilot contract (38 employees, Facility Management) where HCM matches Excel and pays correctly.** Everything else in your vision (portal, claims, imprest, Xero, OCR) queues behind that proof unless it directly blocks it.
 
-STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August payslips are being resent after the blocked send. Do not Calculate August.
+STATUS: **AMBER** — Live site OK (health 200, commit `60ce83a`, 23 Sep). Live email and SMS are **on**. August payslip resend still open. Do not Calculate August. Morning brief email still not connected.
 
 **Full audit:** `docs/OWNER_VISION_AUDIT.md`  
 **30-day agent plan:** `docs/AUTONOMOUS_EXECUTION_PLAN.md`
@@ -36,7 +36,7 @@ STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August pays
 ---
 
 ## TOP LINE (for agents / morning brief)
-**Live email and SMS are on.** August payslip send was blocked by the old off-switch (0/304). Resend after this deploy. Do not Calculate August.
+**Live email and SMS are on.** Site healthy (`60ce83a`). August payslip resend still open. Do not Calculate August. Morning digests = email only — Automation still cannot send until email is connected.
 
 ---
 
@@ -57,7 +57,7 @@ STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August pays
 ### Infrastructure / ops
 9. **Staging cold starts** — free tier sleeps; verify after wake before calling staging "broken"
 10. **Local tests on GDrive** — `jest` node_modules corrupt; use temp clone or CI for counts
-11. **Morning brief Automation** — email only; not switched on until you say so
+11. **Morning brief Automation** — weekday runs on; email delivery still missing (card lands in repo/PR only)
 
 ### Parked until mission gate clears
 12. **Imprest workflow** — bill type exists; no dedicated process
@@ -125,6 +125,9 @@ STATUS: **YELLOW** — Live email and SMS are **on** (Go red 3 Sep). August pays
 ## BLOCKED ON YOU
 - Payroll team **Excel export** for pilot shadow month (S5B) — see `scripts/VARIANCE_INPUT_FORMAT.md`
 - **MD sign-off** on zero-variance report before any production pay through new engine
+- **PR #206** — Persist EOBI/SESSI + cost-plus invoice stamp; open with **merge conflicts**
+- Confirm **August payslip resend** finished (304 people) after live mail switch-on
+- **Connect morning brief email** on the Automation (weekday runs write the card; email tool still missing)
 - **Go red:** production disbursement, prod engine-flag flip, Render secrets (Resend, Jazz, OpenAI, Xero)
 
 ---
