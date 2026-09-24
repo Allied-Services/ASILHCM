@@ -1,0 +1,30 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month for the pilot contract (live mail on; August resend still open)
+Status: AMBER
+
+NOT FINISHED YET
+1. August payslip resend still open — do not Calculate August
+2. Pilot Excel vs HCM shadow month still blocked
+3. New pay engine not used for real pay yet
+
+NEEDS YOU TODAY
+- PR #206 has conflicts — Persist EOBI/SESSI + cost-plus invoice stamp
+- Payroll Excel export for the pilot shadow month
+- Confirm August payslip resend (or say when it is done)
+- Connect morning email on the Automation so this arrives in your inbox
+
+I SUGGEST
+- Merge PR #218 when ready (approved board note)
+- Turn on Automation email delivery — weekday briefs stay email-only
+
+FOCUS TODAY
+Confirm August payslip resend and unblock the pilot Excel export — no new builds today.
+
+---
+Site check: https://asilhcm.onrender.com/health → ok (commit 585586c)
+HTML card: docs/owner/morning_latest.html
+Agent: https://cursor.com/agents/bc-7fb0504e-7e81-4409-9821-23c6440e41da
+Email: NOT SENT — Automation has no email/send tool and no RESEND/SMTP in this environment.
+Connect email at: https://cursor.com/automations/5e5c7662-8dce-11f1-a7d1-d6b4613131ce
