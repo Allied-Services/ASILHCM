@@ -1,0 +1,22 @@
+GOOD MORNING
+
+SITE: OK
+Mission: Prove one real payroll month for the pilot contract (38 people).
+Status: AMBER
+
+NOT FINISHED YET
+1. Pilot Excel vs HCM shadow month still open
+2. August payslip resend still open — do not Calculate August
+3. New pay engine not used for real pay yet
+
+NEEDS YOU TODAY
+- PR #206 has merge conflicts — decide or fix
+- Payroll Excel export for the pilot shadow month
+- Connect morning email on the Automation (briefs still not emailed)
+
+I SUGGEST
+- Merge PR #218 when you want that board note on main
+- No new builds until pilot proof is done
+
+FOCUS TODAY
+Keep the site steady. Unblock pilot Excel and PR #206.
