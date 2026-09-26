@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-26 — Full Payroll export is an Excel check file before lock
+Payroll Sheet **Full Payroll Excel** downloads every saved row in the current filter, locked or draft. The workbook is an Excel table (filter arrows, frozen name columns, rupee formats, Locked/Draft status, totals). Bank, Xero, and invoice exports stay locked-only. If nothing has been calculated for the filter, the message asks to Calculate first.
+
+**Env vars needed:** none.
+
 ### 2026-09-26 — August claims window extended through 30 September
 The confirm screen was still using the Wafi contract calendar (submit 18 Sep, approve 22 Sep) and showed “Deadline has expired” after the period row had already been extended. Fill and approve now stay open until the later of the contract day and the stored period close. August 2026 fill and approve close are **30 September 2026, 23:59 Pakistan**.
 

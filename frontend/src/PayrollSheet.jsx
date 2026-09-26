@@ -449,14 +449,16 @@ function ExportMenu({ month, isLocked, filterClient, filterContract, filterLoc, 
             const a = document.createElement('a');
             const cd = res.headers.get('content-disposition') || '';
             const fname = cd.match(/filename="([^"]+)"/)?.[1]
-                || `export_${type}_${yr}-${mo}${type === 'hbl_same' || type === 'hbl_other' ? '.xlsx' : '.csv'}`;
+                || (type === 'payroll'
+                    ? `Payroll_${yr}-${mo}.xlsx`
+                    : `export_${type}_${yr}-${mo}${type === 'hbl_same' || type === 'hbl_other' ? '.xlsx' : '.csv'}`);
             a.href = url; a.download = fname;
             document.body.appendChild(a); a.click();
             document.body.removeChild(a); URL.revokeObjectURL(url);
         } catch(e) { alert('Export error: ' + e.message); }
     };
     const opts = [
-        { label: '📊 Full Payroll CSV', sub: `All columns — ${filterClient !== 'All' ? filterClient : 'all clients'}${filterContract !== 'All' ? ` · ${filterContract}` : ''}`, fn: () => dlExport('payroll') },
+        { label: '📊 Full Payroll Excel', sub: `Check file with filters — works before lock — ${filterClient !== 'All' ? filterClient : 'all clients'}${filterContract !== 'All' ? ` · ${filterContract}` : ''}`, fn: () => dlExport('payroll') },
         { label: '🏦 HBL → HBL Transfers', sub: 'HBL Checker Excel for HBL account holders (🔒 locked rows only)', fn: () => dlExport('hbl_same'), needsLock: true },
         { label: '🏦 HBL → Other Banks (IBFT)', sub: 'HBL IBFT Excel for other-bank holders (🔒 locked rows only)', fn: () => dlExport('hbl_other'), needsLock: true },
         { label: '📋 WHT Returns (FBR)', sub: 'Taxable amount + tax per employee for FBR', fn: () => dlExport('wht') },
@@ -478,7 +480,7 @@ function ExportMenu({ month, isLocked, filterClient, filterContract, filterLoc, 
                 )}
                 {!isLocked && (
                     <div style={{ padding: '0.65rem 1.25rem', background: 'rgba(245,158,11,0.1)', borderBottom: '1px solid rgba(245,158,11,0.3)', fontSize: '0.78rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        ⚠️ Bank files are only available after payroll is <strong>locked</strong>.
+                        Full Payroll Excel downloads now. Bank, Xero, and invoice files need a <strong>lock</strong>.
                     </div>
                 )}
                 {opts.map(o => (
@@ -1925,7 +1927,7 @@ export default function PayrollSheet({ user }) {
                         </button>
                     )}
                     <button onClick={() => setShowExport(v => !v)}
-                        title={isLocked ? 'Export options' : 'Export payroll CSV (lock first for bank files)'}
+                        title={isLocked ? 'Export options' : 'Export Full Payroll Excel (bank files need a lock)'}
                         style={{ display: 'flex', alignItems: 'center', gap: '6px', background: isLocked ? '#22c55e' : 'var(--primary)', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                         <Download size={15} /> Export <ChevronDown size={14} />
                     </button>
