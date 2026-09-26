@@ -134,6 +134,31 @@ describe('portalClaims helpers', () => {
         assert.equal(isFillClosedForPolicy(august, wafiPolicy, now), false);
     });
 
+    it('August 2026 extension keeps fill and approve open after the contract calendar day', () => {
+        const { isFillClosedForPolicy, isApproveClosedForPolicy } = require('../src/modules/claims/portalService');
+        const august = {
+            claim_month: 8,
+            claim_year: 2026,
+            fill_close_at: '2026-09-30T18:59:59.000Z',
+            approve_close_at: '2026-09-30T18:59:59.000Z',
+            campaign_mode: 'actual',
+        };
+        const wafiPolicy = {
+            calendar_apply: true,
+            claims_pay_timing: 'following_month',
+            submit_deadline_day: 18,
+            approve_deadline_day: 22,
+            submit_deadline_month: 'following_month',
+            approve_deadline_month: 'following_month',
+        };
+        const during = Date.parse('2026-09-26T08:00:00Z');
+        const after = Date.parse('2026-09-30T19:00:00Z');
+        assert.equal(isFillClosedForPolicy(august, wafiPolicy, during), false);
+        assert.equal(isApproveClosedForPolicy(august, wafiPolicy, during), false);
+        assert.equal(isFillClosedForPolicy(august, wafiPolicy, after), true);
+        assert.equal(isApproveClosedForPolicy(august, wafiPolicy, after), true);
+    });
+
     it('sendFillerBatchReminder does not mail after July fill close', async () => {
         const { sendFillerBatchReminder } = require('../src/modules/claims/portalService');
         let mailed = false;

@@ -368,19 +368,26 @@ function isAfterApproveClose(period, nowMs = Date.now()) {
     return nowMs > closeAt;
 }
 
+/** Later of the contract calendar and a stored period extension. An extension keeps the screen open. */
+function effectivePolicyCloseMs(policyCloseMs, stored) {
+    const policyMs = Number.isFinite(policyCloseMs) ? policyCloseMs : 0;
+    const storedMs = stored ? new Date(stored).getTime() : 0;
+    return Math.max(policyMs, Number.isFinite(storedMs) ? storedMs : 0);
+}
+
 /** Unchecked calendar / missing deadline on a contract = no close for that contract. */
 function isFillClosedForPolicy(period, policy, nowMs = Date.now()) {
     if (!hasSubmitDeadline(policy)) return false;
     if (isJuly2026TrialPeriod(period) && !isSamplePeriod(period)) return true;
     const w = periodWindowFromClaim(Number(period.claim_year), Number(period.claim_month), policy);
-    return nowMs > w.fillCloseAt.getTime();
+    return nowMs > effectivePolicyCloseMs(w.fillCloseAt.getTime(), period?.fill_close_at);
 }
 
 function isApproveClosedForPolicy(period, policy, nowMs = Date.now()) {
     if (!hasApproveDeadline(policy)) return false;
     if (isJuly2026TrialPeriod(period) && !isSamplePeriod(period)) return true;
     const w = periodWindowFromClaim(Number(period.claim_year), Number(period.claim_month), policy);
-    return nowMs > w.approveCloseAt.getTime();
+    return nowMs > effectivePolicyCloseMs(w.approveCloseAt.getTime(), period?.approve_close_at);
 }
 
 async function policiesForContractIds(pool, contractIds) {
