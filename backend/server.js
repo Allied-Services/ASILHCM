@@ -12,6 +12,7 @@ const { Resend } = require('resend');
 const { calculateEOBI, calculateSESSI, calculateMonthlyIncomeTax, calculateGratuity } = require('./taxEngine');
 const { readPayrollSnapshot, exportRowFromSnapshot } = require('./src/payroll/snapshotView');
 const { buildHblSameCheckerRow, buildHblSameCheckerXlsx, isHblSameBank } = require('./src/payroll/hblSameExport');
+const { employeesForPayrollCheck, buildPayrollCheckXlsx } = require('./src/payroll/payrollCheckWorkbook');
 const { buildHblOtherRow, buildHblOtherXlsx } = require('./src/payroll/hblOtherExport');
 const { assessBankReadiness, incompleteBankPayload, summarizeEmployees } = require('./src/payroll/bankReadiness');
 const { startEmailClaimsService, triggerManualPoll } = require('./emailClaimsService');
@@ -3963,16 +3964,17 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
 
         // Build locked ID set Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ always from the full month's payroll_transactions
         const lockedIds = new Set(payRes.rows.filter(p => p.locked).map(p => p.employee_id));
-        // ALWAYS export locked-only rows scoped to the current filter.
-        // bankEmps = employees who (a) match current filter AND (b) are locked in this month.
-        // This is the only correct source for ALL export types.
+        // bankEmps stays locked-only. Full Payroll Excel uses every saved row in the filter.
         const bankEmps = filteredEmps.filter(e => lockedIds.has(e.id));
 
         if (type === 'payroll') {
-            // Payroll CSV always locked+filtered Γö£├│╬ô├⌐┬╝╬ô├ç┬Ñ never all 514
-            rows = bankEmps.map(emp => {
-                const c = calcRow(emp, payMap[emp.id]);
+            // Check file: saved rows in this filter, locked or still draft.
+            const checkEmps = employeesForPayrollCheck(filteredEmps, payMap);
+            rows = checkEmps.map(emp => {
+                const pay = payMap[emp.id];
+                const c = calcRow(emp, pay);
                 return {
+                    'Status':            pay.locked ? 'Locked' : 'Draft',
                     'Month':             monthLabel,
                     'Employee ID':       emp.id,
                     'Name':             emp.name,
@@ -3980,7 +3982,6 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Contract':         emp.contract_name || bu(emp),
                     'Location':         emp.location || '',
                     'Province':         emp.province || '',
-                    // Column H -- per MD instruction
                     'EOSB Scheme':      c.eosbType || 'None',
                     // Salary & Earnings
                     'Gross Salary':     parseFloat(emp.salary) || 0,
@@ -4024,8 +4025,13 @@ app.get('/api/payroll/:year/:month/export', requireAuth, async (req, res) => {
                     'Total Invoice Amount':     c.inv,
                 };
             });
-            if (!rows.length) return res.status(200).json({ msg: 'No locked payroll records found for the selected filter. Lock a payroll batch in the Payroll Sheet first.' });
-            filename = `Payroll_${year}-${String(month).padStart(2,'0')}${filterClient && filterClient !== 'All' ? '_' + filterClient.replace(/\s+/g,'_').slice(0,20) : ''}.csv`;
+            if (!rows.length) return res.status(200).json({ msg: 'No payroll records found for the selected filter. Calculate the Payroll Sheet first.' });
+            const scopeParts = [filterClient, filterContract, filterLoc].filter(v => v && v !== 'All');
+            const xlsxName = `Payroll_${year}-${String(month).padStart(2,'0')}${filterClient && filterClient !== 'All' ? '_' + filterClient.replace(/\s+/g,'_').slice(0,20) : ''}.xlsx`;
+            const buf = await buildPayrollCheckXlsx(rows, { monthLabel, scope: scopeParts.join(' · ') });
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="${xlsxName}"`);
+            return res.send(buf);
 
         } else if (type === 'hbl_same') {
             // HBL Checker File Summary Excel — locked HBL holders only
