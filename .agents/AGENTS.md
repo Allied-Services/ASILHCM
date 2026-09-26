@@ -311,6 +311,11 @@ A task is NOT complete until:
 
 This section is updated by Claude Code after any session that changes code, so Cursor/other tools always have a record of what happened outside their own history. Root `CLAUDE.md` imports this whole file (`@.agents/AGENTS.md`), so this is the single canonical rules + changelog file — do not fork a separate copy.
 
+### 2026-09-26 — August claims window extended through 30 September
+The confirm screen was still using the Wafi contract calendar (submit 18 Sep, approve 22 Sep) and showed “Deadline has expired” after the period row had already been extended. Fill and approve now stay open until the later of the contract day and the stored period close. August 2026 fill and approve close are **30 September 2026, 23:59 Pakistan**.
+
+**Env vars needed:** none. Run `npm run migrate` on the deploy target.
+
 ### 2026-09-23 — CORO SS94 service order uses North Zone unit / monthly rates
 Live contract `CTR-1785569435995` (PSO CORO OPS - SS94 M.A) is now Fixed Value / `service_order_deduction`, same shape as North Conservancy. SO `SO-PSO-CORO-SS94`: `line.rate` is the monthly invoice amount; `role.rate` is the per-person unit (4 d.p. so headcount × unit equals the monthly paisa). Manpower lines 1–4 always bill (64 people, **3,956,070.21**). Cash Management **180,849.73** is not manpower and bills only when the month is ticked. Full card gross **4,136,919.94**; Punjab ST 16% **661,907.19**; stamped grand **4,798,827.13**. Employee salaries were not rewritten. August 2026 sample at 100% occupancy (Cash Management included as delivered) was emailed; no `client_invoices` row was saved.
 
